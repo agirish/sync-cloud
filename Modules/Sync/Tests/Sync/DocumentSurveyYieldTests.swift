@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What a background survey stands aside for, and — the half that needs a test — **which reason it
-/// names when several are true at once.**
-///
-/// Several usually are: a duplicate scan heats the Mac, and a Mac left alone puts its display to
-/// sleep. The card shows one sentence, so the order is a decision, and a decision nothing asserts
-/// is one the next edit reverses by accident.
+/// What a background survey stands aside for, and which reason it names when several are true at
+/// once. Several usually are: a duplicate scan heats the Mac, and a Mac left alone puts its
+/// display to sleep. The card shows one sentence, so the order is a decision, pinned here so an
+/// edit can't reverse it by accident.
 @Suite struct DocumentSurveyYieldTests {
 
     @Test func nothingInTheWayMeansCarryOn() {
@@ -44,18 +42,16 @@ import Testing
         #expect(DocumentSurveyYield.pause(for: DocumentSurveyConditions(lowPowerMode: true)) == .lowPower)
     }
 
-    /// `.nominal` covers `ProcessInfo`'s `.fair` too, and that mapping lives in the app. Here the
-    /// point is only that nominal is not a reason to stop — a survey that paused at `.fair` would
-    /// spend most of an afternoon paused with nothing wrong.
+    /// `.nominal` covers `ProcessInfo`'s `.fair` too (that mapping lives in the app). Nominal is no
+    /// reason to stop: a survey that paused at `.fair` would sit paused for hours with nothing wrong.
     @Test func nominalHeatIsNotAReasonToStop() {
         #expect(DocumentSurveyYield.pause(for: DocumentSurveyConditions(heat: .nominal)) == nil)
     }
 
     // MARK: - The order, which is the actual decision
 
-    /// Work the person started outranks everything about the machine. Standing aside for *their*
-    /// scan is the reassuring answer, and it is the only reason that explains why their own work is
-    /// not slower than usual.
+    /// Work the person started outranks everything about the machine: standing aside for *their*
+    /// work is the reassuring answer, and the one that explains why it isn't slower than usual.
     @Test func workTheUserStartedOutranksTheMachine() {
         let everything = DocumentSurveyConditions(
             isVerifying: true, activeFileOperations: 3, runningScans: ["Duplicates"],
@@ -69,10 +65,9 @@ import Testing
         #expect(DocumentSurveyYield.pause(for: conditions) == .yielding(to: "2 file operations"))
     }
 
-    /// **The display outranks heat and low power**, because it is the one that is not a choice: the
-    /// survey has not decided to stop, it has been stopped — iCloud is no longer handing files
-    /// over. Saying "paused, the Mac is hot" there would name a reason the survey could have worked
-    /// around, over one it could not.
+    /// The display outranks heat and low power because it is not a choice: with the display asleep
+    /// iCloud stops handing files over. "Paused, the Mac is hot" would name a reason the survey
+    /// could work around over one it can't.
     @Test func aSleepingDisplayOutranksHeatAndLowPower() {
         let conditions = DocumentSurveyConditions(displayAsleep: true, heat: .critical,
                                                   lowPowerMode: true)
@@ -84,9 +79,8 @@ import Testing
         #expect(DocumentSurveyYield.pause(for: conditions) == .thermal)
     }
 
-    /// The scans are named in rail order by the caller, and the first is the one shown. Pinned so a
-    /// caller that starts building the array from a dictionary — where the order is whatever the
-    /// hash gives — fails here rather than shipping a card whose sentence changes between launches.
+    /// The caller names the scans in rail order, and the first is shown. Pinned so an array built
+    /// from a dictionary (hash order) fails here, not as a card whose sentence changes per launch.
     @Test func theFirstNamedScanIsTheOneShown() {
         let conditions = DocumentSurveyConditions(runningScans: ["To File", "Duplicates", "Storage"])
         #expect(DocumentSurveyYield.pause(for: conditions) == .yielding(to: "To File"))
@@ -94,8 +88,8 @@ import Testing
 
     // MARK: - Resume now
 
-    /// `pause(for:)` is the head of `reasons(for:)` — one order, so the sentence the card shows and
-    /// the causes *Resume now* waives cannot drift apart.
+    /// `pause(for:)` is the head of `reasons(for:)`: one order, so the sentence the card shows and
+    /// the causes *Resume now* waives can't drift apart.
     @Test func theCardsReasonIsTheHeadOfEveryReason() {
         let cases: [DocumentSurveyConditions] = [
             .clear,
@@ -117,8 +111,8 @@ import Testing
                     .displayAsleep, .heat, .lowPower])
     }
 
-    /// **Every cause in force at the click is read through until it clears**, and the waiver is
-    /// forgotten once it has — so the same cause coming back pauses again.
+    /// Every cause in force at the click is read through until it clears, then the waiver is
+    /// forgotten, so the same cause coming back pauses again.
     @Test func resumeNowHoldsUntilItsCauseClears() {
         var override = DocumentSurveyOverride()
         let hotAndDuplicates = DocumentSurveyConditions(runningScans: ["Duplicates"], heat: .serious)
@@ -139,8 +133,8 @@ import Testing
         #expect(override.pause(for: DocumentSurveyConditions(heat: .serious)) == .thermal)
     }
 
-    /// **A cause that was not in force at the click pauses as it always did** — including one
-    /// that ranks below a waived one, which a waiver keyed on the card's single sentence hides.
+    /// A cause not in force at the click pauses as usual, including one ranked below a waived
+    /// one, which a waiver keyed on the card's single sentence would hide.
     @Test func resumeNowDoesNotWaiveWhatArrivesAfterIt() {
         var override = DocumentSurveyOverride()
         override.waive(DocumentSurveyConditions(runningScans: ["Duplicates"]))
@@ -157,7 +151,7 @@ import Testing
         #expect(override.pause(for: DocumentSurveyConditions(activeFileOperations: 2)) == nil)
     }
 
-    /// Nothing in force, nothing waived — a click that lands after the pause cleared must not
+    /// Nothing in force, nothing waived: a click that lands after the pause cleared must not
     /// pre-approve the next one.
     @Test func resumeNowWithNothingInForceWaivesNothing() {
         var override = DocumentSurveyOverride()
@@ -187,9 +181,8 @@ import Testing
         }
     }
 
-    /// The display's sentence must explain the stall rather than merely naming it — that is the
-    /// whole reason the signal is observed at all, and a card that said only "Paused" would leave
-    /// a frozen count looking like a hang.
+    /// The display's sentence must explain the stall, not just name it: a card that said only
+    /// "Paused" would leave a frozen count looking like a hang.
     @Test func theDisplaySentenceExplainsTheStall() {
         let sentence = DocumentSurveyPause.displayAsleep.sentence
         #expect(sentence.contains("display"))

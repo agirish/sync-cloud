@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the configurable date tolerance in `FileDiffEngine.computeDifferences`: dates within
-/// the tolerance compare as equal, the default stays at the historical 1 second, and 0 means
-/// exact comparison.
+/// Pins the configurable date tolerance in `FileDiffEngine.computeDifferences`: dates within the
+/// tolerance compare as equal, the default is 1 second, and 0 means exact comparison.
 @Suite struct DateToleranceTests {
 
     private let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/l", type: .iCloud)

@@ -13,19 +13,14 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
     public let cacheReadTokens: Int
     public let cacheCreationTokens: Int
     public let estimatedCostUSD: Double
-    /// True when this scan's cost could NOT be derived — an unrecognised model id, which the price
-    /// table answers `nil` for. `estimatedCostUSD` is then 0 because the call still has to be
-    /// recorded, and the flag is what stops that 0 being read as "this scan was free".
-    ///
-    /// **The pre-flight path already handled the identical nil honestly** — its own comment says
-    /// the caller shows "estimate unavailable" rather than a wrong number — while the post-flight
-    /// path coerced it to `0`, and that is the number the budget caps enforce against. Reachable
-    /// through a hand-set model id, which the code explicitly promises to honour.
+    /// True when this scan's cost couldn't be derived (an unrecognised model id, which the price
+    /// table answers `nil` for, reachable through a hand-set id). `estimatedCostUSD` is then 0
+    /// because the call must still be recorded, and this flag stops that 0 reading as "free",
+    /// including to the budget caps.
     public let costUnpriced: Bool
-    /// What `fileCount` counts — nil (entries written before §5.6) and "file" both mean the
-    /// filing refine's files; the mapping refine records "folder name". The durable record has
-    /// to carry this or every history row would describe a mapping refine as "24 files ·
-    /// placed 24", the exact misstatement the confirmation dialog's `unit` was added to stop.
+    /// What `fileCount` counts: nil (older entries) and "file" both mean the filing refine's files;
+    /// the mapping refine records "folder name". Without it every history row would describe a
+    /// mapping refine as "24 files · placed 24".
     public let unit: String?
 
     public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens }
@@ -43,9 +38,8 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
         self.unit = unit
     }
 
-    /// Optional-with-default for the same reason ``FilingSpendTotals`` is: an entry written before
-    /// a field existed must not throw, because a throw here empties the capped history the MONTHLY
-    /// cap is summed from.
+    /// Optional-with-default, like ``FilingSpendTotals``: an older entry must not throw, because a
+    /// throw here empties the capped history the monthly cap is summed from.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -63,13 +57,13 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// Lifetime totals — never trimmed, so "total so far" stays accurate even after the history is capped.
+/// Lifetime totals, never trimmed, so "total so far" stays accurate after the history is capped.
 public struct FilingSpendTotals: Codable, Equatable, Sendable {
     public var costUSD: Double
     public var tokens: Int
     public var scans: Int
-    /// Scans whose cost could not be priced — an unrecognised model id. `costUSD` is then a FLOOR
-    /// rather than a total, and the surfaces that show it say so.
+    /// Scans whose cost couldn't be priced (an unrecognised model id). `costUSD` is then a floor,
+    /// not a total, and the surfaces that show it say so.
     public var unpricedScans: Int
 
     public init(costUSD: Double = 0, tokens: Int = 0, scans: Int = 0, unpricedScans: Int = 0) {
@@ -77,11 +71,9 @@ public struct FilingSpendTotals: Codable, Equatable, Sendable {
         self.unpricedScans = unpricedScans
     }
 
-    /// **Every field optional-with-default, like every neighbouring store in this module.**
-    /// `FilingVerdictCache`, `FilingMemory`, `PersonRegistry` and `PaneTabsStore` all decode this
-    /// way precisely so that adding one field cannot make the decoder throw on every existing
-    /// user's data — and a throw here is not a read failure, it is an erasure: `record` writes the
-    /// zeroed value straight back over the lifetime total the budget cap is enforced against.
+    /// **Every field optional-with-default**, like the neighbouring stores, so adding a field can't
+    /// make existing data throw. A throw here is not a read failure but an erasure: `record` would
+    /// write the zeroed value over the lifetime total the budget cap is enforced against.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
@@ -98,41 +90,28 @@ public enum FilingSpendStore {
     static let historyKey = "tidyFilingSpendHistory"
     static let totalsKey = "tidyFilingSpendTotals"
     static let lastKey = "tidyFilingSpendLast"
-    // High enough that a single calendar month can't realistically trim its own entries — the
-    // monthly cap sums the current-month entries from this history, so a cap smaller than a month's
-    // worth of calls would under-enforce. (~2000 cloud classifies in one month is not humanly
-    // reachable; the lifetime cap uses the never-trimmed `totals`, so it is unaffected regardless.)
+    // High enough that one month can't trim its own entries: the monthly cap sums this month's
+    // entries from the history, so a smaller cap would under-enforce. The lifetime cap uses the
+    // never-trimmed `totals`.
     static let maxEntries = 2000
 
-    /// Serializes the read-modify-write in `record`/`clear`. `record` runs off the main actor
-    /// (called from `CloudFilingClassifier.classify`, a `nonisolated async` function), so two
-    /// overlapping cloud calls — e.g. two quick "Try another folder" taps — would otherwise race
-    /// the non-atomic UserDefaults RMW, dropping a spend increment and under-counting the total the
-    /// budget cap is enforced against.
+    /// Serializes the read-modify-write in `record` and `clear`. `record` runs off the main actor
+    /// (from `CloudFilingClassifier.classify`), so two overlapping cloud calls, such as two quick
+    /// "Try another folder" taps, would race the non-atomic UserDefaults update and under-count the
+    /// total the budget cap is enforced against.
     private static let lock = NSLock()
 
-    /// Posted after every `record` and `clear`, so a surface holding a cached copy of the figures
-    /// can refresh without knowing who wrote. The posting `UserDefaults` rides as the
-    /// notification's `object`: app observers pass no object and hear every write, while a test —
-    /// whose suites run in parallel against private defaults — can scope its observer to its own
-    /// instance instead of counting its neighbours' posts.
-    ///
-    /// This exists because per-surface refresh lists do not compose across windows: the Organize
-    /// lens refreshed on its own three moments (appear, scan finish, its own history sheet
-    /// closing) and was still left quoting an erased record when the SAME history view cleared
-    /// spend from the Settings window — a fourth moment its list could not have named. Every
-    /// cached reader now listens here instead of enumerating writers. Posted from whatever thread
-    /// wrote (record runs off the main actor); observers hop to main themselves.
+    /// Posted after every `record` and `clear`, so any surface caching the figures can refresh
+    /// without knowing who wrote; per-surface refresh lists can't see a clear from another window.
+    /// The posting `UserDefaults` is the `object`: app observers pass none and hear every write,
+    /// while a test on private defaults (suites run in parallel) scopes to its own instance. Posted
+    /// from whatever thread wrote (`record` runs off the main actor); observers hop to main
+    /// themselves.
     public static let didChange = Notification.Name("com.synccloud.filing-spend-did-change")
 
-    /// How a spend read went. **Absent and unreadable are different facts, and for a MONEY store
-    /// the difference is the whole thing.**
-    ///
-    /// Both used to answer "zero", and `record` then wrote that zero back: one unreadable payload
-    /// erased the lifetime total, re-armed the $5 cap from scratch, and made the erasure permanent.
-    /// Settings showed $0.00 lifetime with nothing to say why. The CAP side of this same feature
-    /// was carefully defended against exactly this — `totalBudgetCap` distinguishes an absent key
-    /// from a stored 0, and says so — while the SPENT side was not.
+    /// How a spend read went. **Absent and unreadable are different facts, and for a money store
+    /// the difference is everything:** reading an unreadable payload as zero and writing it back
+    /// would erase the lifetime total and re-arm the cap from scratch, silently and for good.
     public enum Read<T>: Sendable where T: Sendable {
         /// Nothing recorded yet. Zero is the honest answer.
         case absent
@@ -140,9 +119,9 @@ public enum FilingSpendStore {
         case unreadable
         case loaded(T)
 
-        /// The value, treating both failures as empty — for the display surfaces that genuinely
-        /// have one answer for "nothing yet" and "cannot say". A caller enforcing a BUDGET, or
-        /// about to write, must switch on the case instead.
+        /// The value, treating both failures as empty, for display surfaces with one answer for
+        /// "nothing yet" and "can't say". A caller enforcing a budget, or about to write, must
+        /// switch on the case.
         public func value(orEmpty empty: T) -> T {
             if case .loaded(let v) = self { return v }
             return empty
@@ -153,8 +132,8 @@ public enum FilingSpendStore {
                                               defaults: UserDefaults) -> Read<T> {
         guard let data = defaults.data(forKey: key) else { return .absent }
         if let decoded = try? JSONDecoder().decode(type, from: data) { return .loaded(decoded) }
-        // Kept, then never written over — see `recordLocked`. Read-and-compare so a repeated read
-        // on a still-corrupt store does not rewrite the same payload.
+        // Kept, then never written over (see `recordLocked`). Compared first so a repeated read of
+        // a still-corrupt store doesn't rewrite the same payload.
         let backupKey = key + ".unreadable"
         if defaults.data(forKey: backupKey) != data {
             defaults.set(data, forKey: backupKey)
@@ -191,19 +170,16 @@ public enum FilingSpendStore {
         totalsRead(defaults: defaults).value(orEmpty: .init())
     }
 
-    /// The locked read-modify-write half of `record`; the public entry posts `didChange` after
-    /// the lock is released.
+    /// The locked read-modify-write half of `record`; the public entry posts `didChange` after the
+    /// lock is released.
     private static func recordLocked(_ entry: FilingSpendEntry, defaults: UserDefaults) {
         lock.lock()
         defer { lock.unlock() }
-        // **A payload this build could not read is never written over.** Adding to a list that
-        // decoded as empty, or to a total that decoded as zero, is what turned one unreadable
-        // value into a permanent erasure — and into a budget cap re-armed from scratch. The bytes
-        // are preserved by `read` under a `.unreadable` sibling key; this refuses the write that
-        // would otherwise land on top of them, and says so once per record.
-        //
-        // The last-scan snapshot is written regardless: it is display-only, it is a fresh value
-        // rather than an accumulation, and nothing is enforced against it.
+        // **A payload this build couldn't read is never written over.** Adding to a list read as
+        // empty, or a total read as zero, would make one unreadable value a permanent erasure and
+        // re-arm the cap. `read` keeps the bytes under a `.unreadable` sibling key; this refuses
+        // the write on top of them and logs it. The last-scan snapshot is written regardless:
+        // display-only, a fresh value, and nothing is enforced against it.
         let historyState = entriesRead(defaults: defaults)
         let totalsState = totalsRead(defaults: defaults)
 
@@ -219,8 +195,8 @@ public enum FilingSpendStore {
             var list = historyState.value(orEmpty: [])
             list.append(entry)
             if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
-            // Only write when encoding succeeds. `set(nil, forKey:)` REMOVES the key, so an encode
-            // failure here would silently erase the whole capped history rather than no-op.
+            // Only write when encoding succeeds: `set(nil, forKey:)` removes the key, so a failed
+            // encode would erase the whole history.
             if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: historyKey) }
         }
 
@@ -242,8 +218,8 @@ public enum FilingSpendStore {
 
     public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
         recordLocked(entry, defaults: defaults)
-        // Outside the lock — `post` delivers synchronously to same-thread observers, and an
-        // observer that read the store back through a locked entry point would deadlock.
+        // Outside the lock: `post` delivers synchronously to same-thread observers, and one that
+        // read the store back through a locked entry point would deadlock.
         NotificationCenter.default.post(name: didChange, object: defaults)
     }
 
@@ -256,12 +232,10 @@ public enum FilingSpendStore {
         NotificationCenter.default.post(name: didChange, object: defaults)
     }
 
-    /// The clear gesture as one step: ask, and only then clear.
-    ///
-    /// **Both Clear buttons wiped on one click.** What they reset is what the caps count against —
-    /// the total cap is the $5 safety backstop — so a stray click re-armed it from zero with
-    /// nothing to say so. Taking the confirmer here means neither button can clear without asking
-    /// by simply forgetting to; the alert itself is the app's (`clearPrompt` is its words).
+    /// The clear gesture as one step: ask, and only then clear. What it resets is what the caps
+    /// count against (the total cap is the $5 safety backstop), so taking the confirmer here means
+    /// neither Clear button can wipe on a stray click. The alert is the app's; `clearPrompt` is its
+    /// words.
     /// - Returns: Whether the spend was cleared.
     @discardableResult
     public static func clearIfConfirmed(defaults: UserDefaults = .standard,
@@ -289,19 +263,18 @@ public enum FilingSpendFormat {
     public static func tokens(_ n: Int) -> String {
         n >= 1000 ? String(format: "%.1fk tok", Double(n) / 1000) : "\(n) tok"
     }
-    /// "1 file" / "3 files" — both spend rows used to hard-code "\(n) files" and print "1 files".
+    /// "1 file" / "3 files".
     public static func files(_ n: Int) -> String {
         "\(n) file\(n == 1 ? "" : "s")"
     }
-    /// The unit-aware spelling of an entry's count — "24 files" for the filing refine, "24
-    /// folder names" for the mapping refine. Every row that renders a spend entry goes through
-    /// this, or the history misdescribes whichever pass wrote it.
+    /// The unit-aware count: "24 files" for the filing refine, "24 folder names" for the mapping
+    /// refine. Every row that renders a spend entry goes through this, or the history misdescribes
+    /// whichever pass wrote it.
     public static func counted(_ entry: FilingSpendEntry) -> String {
         let unit = entry.unit ?? "file"
         return "\(entry.fileCount) \(unit)\(entry.fileCount == 1 ? "" : "s")"
     }
-    /// What the entry's `placedCount` was — placements for a filing refine, answered rows for a
-    /// mapping refine.
+    /// What `placedCount` was: placements for a filing refine, answered rows for a mapping refine.
     public static func outcome(_ entry: FilingSpendEntry) -> String {
         (entry.unit ?? "file") == "file"
             ? "placed \(entry.placedCount)" : "answered \(entry.placedCount)"

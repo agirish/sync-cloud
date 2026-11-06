@@ -48,8 +48,8 @@ import Foundation
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id })
     }
 
-    /// **Never suggest this again could not be taken back.** It now registers one ⌘Z step with an
-    /// undoable banner, and Show them again brings back everything hidden.
+    /// Never suggest this again can be taken back: it registers one ⌘Z step with an undoable
+    /// banner, and Show them again brings back everything hidden.
     @Test func neverSuggestCanBeUndoneAndShownAgain() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -86,9 +86,9 @@ import Foundation
         #expect(manager.banner?.message == "1 hidden finding is back.")
     }
 
-    /// **Show them again counted the whole survey under a scoped list, and cleared every key.**
-    /// It counts and brings back the hidden findings the scoped lens would show — inside the scope
-    /// or about an ancestor of it — and leaves the ones outside it hidden.
+    /// Under a scoped list, Show them again counts and brings back only the hidden findings the
+    /// scoped lens would show (inside the scope or about an ancestor of it), and leaves the rest
+    /// hidden.
     @Test func showingHiddenFindingsAgainStaysInTheLensScope() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -126,9 +126,9 @@ import Foundation
                 "Show them again brought back a finding outside the scope")
     }
 
-    /// **A hidden §5.9 finding could not be shown again.** It comes from the duplicate scan, not
-    /// the survey's report, and the hidden set read the report alone — so it was neither counted
-    /// nor brought back, and nothing else lists it.
+    /// A hidden duplicated-taxonomy finding can be shown again. It comes from the duplicate scan,
+    /// not the survey's report, so a hidden set that read the report alone would never count or
+    /// bring it back, and nothing else lists it.
     @Test func aHiddenDuplicatedTaxonomyFindingCanBeShownAgain() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -168,9 +168,9 @@ import Foundation
                 "Show them again left the §5.9 finding hidden")
     }
 
-    /// **⌘Z of Never suggest did nothing after a store swap.** A landing or survey refresh opens
-    /// the new profile's store with the hidden set carried across; the undo cleared the key in the
-    /// old store only, so the finding stayed hidden in the one the lens reads.
+    /// ⌘Z of Never suggest reaches the store that replaced the one it hid in. A landing or survey
+    /// refresh opens the new profile's store with the hidden set carried across, so clearing the
+    /// old store alone would leave the finding hidden in the one the lens reads.
     @Test func undoingNeverSuggestReachesTheStoreThatReplacedTheOne() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -198,14 +198,13 @@ import Foundation
         #expect(manager.visibleStructureFindings.contains { $0.id == finding.id },
                 "undo cleared the old store and left the finding hidden in the new one")
         #expect(!swapped.isSuppressed(RestructureKey(finding)))
-        // From disk: the swapped-out object is not what the undo writes through (L8).
+        // From disk: the swapped-out object is not what the undo writes through.
         #expect(!RestructureStore(directory: dir, profileId: "t").isSuppressed(RestructureKey(finding)))
     }
 
-    /// **⌘Z after a provider switch un-hid another profile's finding.** It cleared the key in
-    /// whatever store was current — another profile's, where the same kind and path is a different
-    /// folder's finding, hidden on its own. Only a store carried on from the one it was hidden in
-    /// is reached; the switch carries nothing.
+    /// ⌘Z after a provider switch leaves another profile's store alone: there the same kind and
+    /// path is a different folder's finding, hidden on its own. Only a store carried on from the
+    /// one it was hidden in is reached; a switch carries nothing.
     @Test func undoingNeverSuggestLeavesAnotherProfilesStoreAlone() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -234,9 +233,8 @@ import Foundation
                 "undo did not clear the key in the store it was hidden in")
     }
 
-    /// **⌘Z after a renaming landing missed the re-keyed entry.** The landing moved the hidden key
-    /// through its renames into the new store; the undo cleared the old spelling, which names
-    /// nothing there. It now follows the same renames.
+    /// ⌘Z after a renaming landing follows the landing's renames to the re-keyed entry in the new
+    /// store, where the old spelling names nothing.
     @Test func undoingNeverSuggestFollowsTheLandingsRenames() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -318,9 +316,8 @@ import Foundation
     }
 }
 
-/// The trend stamp reads the survey's own counts (proposal O16).
-///
-/// The store dedupes and the chart draws; this is the half in between — what goes INTO a point.
+/// The trend stamp reads the survey's own counts. The store dedupes and the chart draws; this is
+/// the half in between: what goes into a point.
 @MainActor
 @Suite struct RestructureTrendStampTests {
 
@@ -367,8 +364,8 @@ import Foundation
         }
     }
 
-    /// **Suppression does not move the line.** A trend that fell when the user hid a card would
-    /// answer "is the tree getting better?" with "did you look away?".
+    /// Suppression does not move the line: a trend that fell when the user hid a card would answer
+    /// "is the tree getting better?" with "did you look away?".
     @Test func aSuppressedFindingStillCounts() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -384,13 +381,10 @@ import Foundation
                 "the trend counts what the detectors found, not what is on screen")
     }
 
-    /// **The stamp costs nothing when there is nothing to record.** Reading the findings runs
-    /// the whole detector sweep — 325 ms over the reference profile's 3,013 folders, measured —
-    /// and the launch call site runs before the window appears. A profile already in the trend
-    /// must be answered from the trend alone, without counting anything.
-    ///
-    /// Checked by making the count itself impossible: a manager with no profile cannot produce
-    /// findings, so a stamp that reached the counting stage could not record the total below.
+    /// A profile already in the trend is answered from the trend alone. Reading the findings runs
+    /// the whole detector sweep (about 325 ms on a 3,000-folder profile), and the launch call site
+    /// runs before the window appears. A second stamp adds no point and leaves the first as it
+    /// was; only a landing re-stamps.
     @Test func aProfileAlreadyStampedIsAnsweredWithoutCountingAgain() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -419,9 +413,9 @@ import Foundation
     }
 }
 
-/// Scope relation reads the finding's SUBJECT (ROADMAP v5 §5.0): a backlog finding about
-/// `Health/Dental/2025` under a scope pointed exactly there is work inside the scope, not an
-/// ancestor note about `Health/Dental`.
+/// Scope relation reads the finding's subject: a backlog finding about `Health/Dental/2025` under
+/// a scope pointed exactly there is work inside the scope, not an ancestor note about
+/// `Health/Dental`.
 @Suite struct StructureFindingScopeRelationTests {
 
     @Test func aScopeAtTheSubjectSeesTheFindingInside() throws {
@@ -443,13 +437,11 @@ import Foundation
     }
 }
 
-/// `visibleStructureFindings` is memoised — it was recomputing §5.9's pass over every duplicate
-/// group, the whole list's sort-and-dedupe and the suppression filter on every access, two to four
-/// times per Organize render.
-///
-/// **The memo is only as good as its key**, so every one of these drives one input and asserts the
-/// answer moved. A memo that never invalidated would pass none of them; one keyed on the profile
-/// alone would pass only the last.
+/// `visibleStructureFindings` is memoised: unmemoised, the duplicated-taxonomy pass over every
+/// duplicate group, the sort-and-dedupe and the suppression filter would run two to four times
+/// per Organize render. The memo is only as good as its key, so each test drives one input and
+/// asserts the answer moved. A memo that never invalidated would pass none of them; one keyed on
+/// the profile alone would pass only the last.
 @MainActor
 @Suite struct VisibleStructureFindingsMemoTests {
 
@@ -536,9 +528,9 @@ import Foundation
                 "and no store at all is the whole report")
     }
 
-    /// §5.9's findings arrive with a duplicate scan, not with the profile — so the groups and the
-    /// scan's root are both in the key. Driven three ways: the root alone, the groups alone, and
-    /// an element rewrite that leaves the group count unchanged.
+    /// Duplicated-taxonomy findings arrive with a duplicate scan, not with the profile, so the
+    /// groups and the scan's root are both in the key. Driven three ways: the root alone, the
+    /// groups alone, and an element rewrite that leaves the group count unchanged.
     @Test func theDuplicateScanInvalidatesTheMemo() throws {
         let (manager, dir) = try makeManager(extra: ["Papers": (0, 2),
                                                      "Papers/One": (4, 0), "Papers/Two": (4, 0)])
@@ -579,8 +571,8 @@ import Foundation
         #expect(taxonomyCount() == 1, "and it comes back")
     }
 
-    /// A new profile replaces everything under the memo — the report, the folder universe §5.9
-    /// reads, and the answer.
+    /// A new profile replaces everything under the memo: the report, the folder universe the
+    /// duplicated-taxonomy pass reads, and the answer.
     @Test func aNewProfileInvalidatesTheMemo() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The watcher's pure half**: where a raw FSEvents event lands, spelled how, and which flags turn
-/// into "list it again". FSEvents cannot be made to drop events or wrap its ids on demand, so every
+/// The watcher's pure half: where a raw FSEvents event lands, spelled how, and which flags turn
+/// into "list it again". FSEvents can't be made to drop events or wrap its ids on demand, so every
 /// such flag is pinned here, against `interpret` directly.
 @Suite struct FolderWatcherInterpretTests {
 
@@ -16,9 +16,9 @@ import Testing
         RawFolderEvent(id: id, flags: UInt32(flags), path: path, fileID: 77, documentID: 88)
     }
 
-    /// **The headline case of the brief: a root handed over through a link comes back in the
-    /// link's spelling.** iCloud Drive ▸ Documents is a link to `~/Documents` on this Mac;
-    /// FSEvents reports the real path, and the consumer must hear the one it asked about.
+    /// A root handed over through a link comes back in the link's spelling. iCloud Drive ▸
+    /// Documents is a link to `~/Documents` on this Mac; FSEvents reports the real path, and the
+    /// consumer must hear the one it asked about.
     @Test func anEventUnderALinkedRootIsSpelledTheWayTheRootWas() {
         let (batch, _) = FolderWatcher.interpret(
             [Self.raw("/Users/me/Documents/Tax/2026.pdf",
@@ -37,8 +37,8 @@ import Testing
         #expect(!event.isHistorical)
     }
 
-    /// A sibling that only shares a string prefix with a root is outside it — `PathBoundary`'s
-    /// rule, which a bare `hasPrefix` breaks.
+    /// A sibling that only shares a string prefix with a root is outside it: `PathBoundary`'s rule,
+    /// which a bare `hasPrefix` breaks.
     @Test func aSiblingSharingAPrefixIsNotUnderTheRoot() {
         let (batch, _) = FolderWatcher.interpret(
             [Self.raw("/Users/me/Documents2/x.txt", kFSEventStreamEventFlagItemModified)],
@@ -55,7 +55,7 @@ import Testing
     }
 
     /// The default macOS volume ignores case, so a root typed in another case than the disk's still
-    /// hears its events — and the tail keeps the disk's case, which is what a listing will show.
+    /// hears its events, and the tail keeps the disk's case, which is what a listing will show.
     @Test func aRootInAnotherCaseStillPlacesTheEventInTheDisksCase() {
         let root = ResolvedWatchRoot(spelled: "/users/me/documents", real: "/users/me/documents")
         let (batch, _) = FolderWatcher.interpret(
@@ -107,9 +107,9 @@ import Testing
         #expect(batch.rescans.count == 2)
     }
 
-    /// `RootChanged` is reported at the root's own path, and touches only that root. **FSEvents
-    /// gives it id zero** (FSEvents.h), so it is dated by the clock passed in: at zero it would order
-    /// before every walk and mark nothing.
+    /// `RootChanged` is reported at the root's own path, and touches only that root. FSEvents gives
+    /// it id zero (FSEvents.h), so it is dated by the clock passed in: at zero it would order before
+    /// every walk and mark nothing.
     @Test func rootChangedRescansOnlyThatRootAndIsDatedNow() {
         let (batch, _) = FolderWatcher.interpret([Self.raw("/Users/me/Library/CloudStorage/Dropbox",
                                                            kFSEventStreamEventFlagRootChanged, id: 0)],
@@ -135,8 +135,8 @@ import Testing
         #expect(batch.rescans.map(\.reason) == [.volumeChanged])
     }
 
-    /// **History ends at the sentinel, and the sentinel can fall in any callback.** Events before
-    /// it are replayed, events after it live; the state carries into the next call.
+    /// History ends at the sentinel, and the sentinel can fall in any callback. Events before it are
+    /// replayed, events after it live; the state carries into the next call.
     @Test func eventsBeforeHistoryDoneAreHistoricalAndTheStateCarries() {
         let first = FolderWatcher.interpret(
             [Self.raw("/Users/me/Documents/old", kFSEventStreamEventFlagItemModified, id: 1)],
@@ -155,8 +155,6 @@ import Testing
     }
 }
 
-/// A burst reaches the consumer once: due when the events have been quiet for `quiet`, or
-/// `maxDelay` after the first, whichever is sooner.
 /// A pane on a network volume is never watched: FSEvents sees nothing made on the server, and
 /// starting a stream there resolves the path on the main thread.
 @Suite struct FolderWatcherLocalVolumeTests {
@@ -180,6 +178,8 @@ import Testing
     }
 }
 
+/// A burst reaches the consumer once: due when the events have been quiet for `quiet`, or
+/// `maxDelay` after the first, whichever is sooner.
 @Suite struct FolderWatchCoalescerTests {
     private let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
 
@@ -203,8 +203,8 @@ import Testing
     }
 }
 
-/// **The watcher against real FSEvents**, in a temp folder. Every wait is bounded and each test
-/// asserts what arrived, never only that something did.
+/// The watcher against real FSEvents, in a temp folder. Every wait is bounded and each test asserts
+/// what arrived, never only that something did.
 @Suite(.serialized) struct FolderWatcherLiveTests {
 
     /// Collects batches as the watcher hands them over (on its own queue).
@@ -217,7 +217,7 @@ import Testing
         var rescans: [FolderWatchRescan] { batches.flatMap(\.rescans) }
     }
 
-    /// A temp folder spelled the way `NSTemporaryDirectory` spells it — under `/var`, a link to
+    /// A temp folder spelled the way `NSTemporaryDirectory` spells it: under `/var`, a link to
     /// `/private/var`, so every root here is reached through a symlink, as iCloud's Documents is.
     static func makeFolder(_ name: String) throws -> String {
         let path = (NSTemporaryDirectory() as NSString)
@@ -270,17 +270,12 @@ import Testing
         #expect(event.fileID == inode, "the extended data's file id is not the file's inode")
     }
 
-    /// **"Counts once": a burst of fifty files is one batch** — and one the WATCHER folded, not
-    /// FSEvents: the files go in five writes, each only once the watcher holds the one before it,
-    /// so FSEvents hands them over in at least five callbacks (counted) and the watcher must join
-    /// them. Asserted as no batch before `stop`, then one batch holding every file.
-    ///
-    /// The quiet window is two minutes, so no timer can fire inside the test however long the
-    /// machine takes between writes. With a three-second window and writes a third of a second
-    /// apart, a full-package run at load ~20 once let a gap outlast it and split the burst
-    /// ("Tests racing a real-time window" in `docs/flaky-tests.md`); that a batch goes out once the
-    /// events have been quiet is the other live tests' wait, and the window's arithmetic is
-    /// `FolderWatchCoalescerTests`'.
+    /// "Counts once": a burst of fifty files is one batch, and one the watcher folded, not FSEvents.
+    /// The files go in five writes, each only once the watcher holds the one before, so FSEvents
+    /// hands them over in at least five callbacks and the watcher must join them. Asserted as no
+    /// batch before `stop`, then one batch holding every file. The quiet window is two minutes so no
+    /// timer can fire between writes however slow the machine (`docs/flaky-tests.md`, "Tests racing
+    /// a real-time window"); the window's arithmetic is `FolderWatchCoalescerTests`'.
     @MainActor
     @Test func aBurstArrivesAsOneBatch() async throws {
         let folder = try Self.makeFolder("burst")
@@ -327,16 +322,13 @@ import Testing
         #expect(inbox.events.filter { $0.path.hasSuffix("/mine.txt") }.allSatisfy { $0.isOwn })
     }
 
-    /// **Adding a root leaves the others' streams alone** — a restart would have to replay, and a
-    /// replay brings our own writes back without their mark.
-    ///
-    /// Two conditions make the replay real, and without them the old restart passed this test
-    /// (mutation-tested): the write must be in fseventsd's history before the restart — an event it
-    /// has not yet processed reaches the new stream live, mark and all — and still undelivered by the
-    /// first stream. So a marker in another folder is waited for (ids are issued in order), under a
-    /// first stream whose ten-second latency is still holding the write back — ten, because the
-    /// marker's round trip (a process, fseventsd, a main-actor poll) must fit inside it on a loaded
-    /// CI VM, and the precondition below fails loudly if it ever does not.
+    /// Adding a root leaves the others' streams alone: a restart would have to replay, and a replay
+    /// brings our own writes back without their mark. Must fail if `watch` restarts every stream.
+    /// For the replay to be real, the write must already be in fseventsd's history (one not yet
+    /// processed reaches a new stream live, mark and all) and still undelivered by the first stream.
+    /// So a marker in another folder is waited for (ids are issued in order) while the first
+    /// stream's ten-second latency holds the write back; ten so the marker's round trip fits on a
+    /// loaded CI VM, and the precondition below fails loudly if it doesn't.
     @MainActor
     @Test func addingARootDoesNotReplayAnotherRootsOwnWritesAsSomeoneElses() async throws {
         let first = try Self.makeFolder("first")
@@ -373,9 +365,9 @@ import Testing
         #expect(inbox.rescans.isEmpty, "`.none` claimed something about the past: \(inbox.rescans.map(\.reason))")
     }
 
-    /// **The stored id replays what changed while nothing watched**, marked historical. The first
-    /// watcher sees one write and stops; the second write lands with no watcher; a second watcher on
-    /// the same history must report it.
+    /// The stored id replays what changed while nothing watched, marked historical. The first
+    /// watcher sees one write and stops, the second write lands with no watcher, and a second
+    /// watcher on the same history must report it.
     @MainActor
     @Test func aRestartReplaysWhatChangedWhileNothingWatched() async throws {
         let folder = try Self.makeFolder("replay")
@@ -396,11 +388,10 @@ import Testing
         #expect(stored.lastEventId >= first.events.map(\.id).max()!)
 
         try Self.touch(folder + "/while-away.txt")
-        // **Only a write FSEvents has already processed is history.** fseventsd numbers a change
-        // when it reads it from the kernel, a moment after the write, and one it has not read yet
-        // when the stream starts arrives after `HistoryDone`, as a live event. So wait for a later
-        // marker in another folder to be delivered to a third watcher: ids are issued in order, so
-        // once the marker is out, the write before it is history.
+        // Only a write FSEvents has already processed is history: fseventsd numbers a change when
+        // it reads it from the kernel, a moment after the write, and one not yet read when the
+        // stream starts arrives after `HistoryDone`, live. So wait for a later marker in another
+        // folder to reach a third watcher: ids are issued in order, so the write before is history.
         let markerFolder = try Self.makeFolder("marker")
         defer { try? FileManager.default.removeItem(atPath: markerFolder) }
         let markers = Inbox()
@@ -424,11 +415,10 @@ import Testing
         #expect(second.events.filter { $0.path.hasSuffix("/while-away.txt") }.allSatisfy { $0.isHistorical })
     }
 
-    /// **A stored id from another history is worthless**: the device UUID it was stored under no
-    /// longer matches, so every root is changed as of the start, and nothing is replayed.
-    ///
-    /// **Two roots on one volume, in one call**: the first rewrites the volume's record, and the
-    /// second must still be judged against the record that was there — both are told.
+    /// A stored id from another history is worthless: the device UUID it was stored under no
+    /// longer matches, so every root is changed as of the start, and nothing is replayed. With two
+    /// roots on one volume in one call, the first rewrites the volume's record and the second must
+    /// still be judged against the record that was there, so both are told.
     @MainActor
     @Test func aChangedDeviceUUIDMarksEveryRootChanged() async throws {
         let folder = try Self.makeFolder("lost")
@@ -450,9 +440,9 @@ import Testing
         #expect(history.load()[key.key]?.deviceUUID == key.deviceUUID, "the foreign record was kept")
     }
 
-    /// **The stored id never passes what the consumer was handed.** A change sits in the coalescing
-    /// window (a minute's quiet) when the watcher goes away without `stop()` — a quit, a crash. The
-    /// record must not have moved past it, so the next `.stored` start replays it.
+    /// The stored id never passes what the consumer was handed. A change sits in the coalescing
+    /// window (a minute's quiet) when the watcher goes away without `stop()`, as in a quit or a
+    /// crash; the record must not have moved past it, so the next `.stored` start replays it.
     @MainActor
     @Test func aChangeStillBeingCoalescedIsReplayedAfterTheWatcherGoes() async throws {
         let folder = try Self.makeFolder("undelivered")
@@ -478,7 +468,7 @@ import Testing
         }
     }
 
-    /// **The replay point is saved at most once a `persistEvery`, and at stop**: a batch every few
+    /// The replay point is saved at most once a `persistEvery`, and at stop: a batch every few
     /// seconds (an autosave in a watched folder) is not a defaults write each time.
     @MainActor
     @Test func theReplayPointIsSavedSparinglyAndAtStop() async throws {
@@ -502,9 +492,9 @@ import Testing
         #expect(saves.records.values.contains { $0.lastEventId >= newest })
     }
 
-    /// **A root that cannot be watched yet is tried again** — not taken as settled because it was
-    /// once asked for. The folder appears after the first `watch`; the same set asked again must
-    /// start its stream, and a change in it must be reported.
+    /// A root that can't be watched yet is tried again, not taken as settled because it was asked
+    /// for. The folder appears after the first `watch`; the same set asked again must start its
+    /// stream, and a change in it must be reported.
     @MainActor
     @Test func aRootThatAppearsLaterIsWatchedOnTheNextAsk() async throws {
         let parent = try Self.makeFolder("late")

@@ -14,9 +14,9 @@ public enum AskClaudeDetail: String, CaseIterable, Sendable {
     }
 }
 
-/// The request Ask Claude sends, and the fixed parts of it (RD69).
+/// The request Ask Claude sends, and the fixed parts of it.
 ///
-/// **Cache order is the design.** The API caches from the request’s first byte, in the order tools
+/// Cache order is the design. The API caches from the request’s first byte, in the order tools
 /// → system → messages, so everything that never changes goes first and is byte-identical on every
 /// request: the tool list is one fixed list for every workspace (a tool that doesn’t apply on the
 /// current screen says so when called), and the instructions carry no date, no name and no screen.
@@ -25,15 +25,16 @@ public enum AskClaudeDetail: String, CaseIterable, Sendable {
 public enum AskClaudeRequest {
 
     /// A short digest of exactly what the API holds a chat's thinking to: the system text and the
-    /// tool list. A new build that changes either starts a chat saved before it over
-    /// (`AskClaudeEngine.setting`); one that changes neither carries it on. SHA-256, stable across launches.
+    /// tool list. A new build that changes either starts an older saved chat over
+    /// (`AskClaudeEngine.setting`); one that changes neither carries it on. SHA-256, stable across
+    /// launches.
     public static let fixedDigest: String = {
         var data = Data(systemText.utf8)
         if let tools = try? JSONFragment.array(AskClaudeToolCatalog.definitions).encoded() { data.append(tools) }
         return SHA256.hash(data: data).prefix(6).map { String(format: "%02x", $0) }.joined()
     }()
 
-    /// The system text: the same for every model and both answer styles (TE292). The API checks
+    /// The system text: the same for every model and both answer styles. The API checks
     /// that it hasn't changed under the thinking a chat replays, so a chat can change model or
     /// style only if nothing here names either; the `<setting>` block says which.
     public static let systemText = instructions + "\n" + styles
@@ -44,8 +45,8 @@ public enum AskClaudeRequest {
     public static let apiVersion = "2026-10-21"
     /// The beta that `fallbacks: "default"` needs. The array form uses a different header, and
     /// pairing either header with the other form is a 400. Sent on every request, Haiku's too:
-    /// a chat that switched to Haiku can hold a `fallback` block, which is a 400 without it
-    /// (measured 2026-11-01; the header alone, with no `fallbacks`, is accepted).
+    /// a chat that switched to Haiku can hold a `fallback` block, which is a 400 without it. The
+    /// header alone, with no `fallbacks`, is accepted.
     public static let fallbackBeta = "server-side-fallback-2026-07-01"
     /// Room for a short answer plus low-effort thinking. Streaming, so a large value can’t time out.
     public static let maxTokens = 8_000
@@ -196,7 +197,7 @@ public enum AskClaudeRequest {
     - Name close alternatives when they could be what was meant, and say what you checked.
     """
 
-    /// The block that leads each question (TE292): which model this is and which style to use.
+    /// The block that leads each question: which model this is and which style to use.
     /// Every question carries one, so it joins the chat with its question or not at all, and the
     /// system text never has to change when they switch.
     public static func settingBlock(model: AskClaudeModels.Option, detail: AskClaudeDetail) -> JSONFragment {
@@ -362,8 +363,8 @@ public enum AskClaudeToolCatalog {
                           "tab": string("For settings: a tab (General, Appearance, Readability, Sources, People, Sync, Organize, Duplicates, Intelligence, Advanced) or a setting’s name, e.g. Ask Claude, Monthly limit, API key. Ask Claude’s own settings are under Intelligence."),
                           "visible": .object(["type": .string("boolean"), "description": .string("For info and sidebar: show (true, the default) or hide.")])],
              required: ["place"]),
-        // TE290: the whole tool ships at once, show and set included, so the cached prefix (and
-        // every saved chat) changes once rather than at each step that brings an action to life.
+        // The whole tool, show and set included, is one fixed entry, so the cached prefix (and
+        // every saved chat) changes only when the tool itself does.
         tool(.settings,
              "SyncCloud’s own settings. find: words as they’d say them; returns up to 8 matching settings with their ids and current values. get: ids; returns each one’s value, default, choices, what it does, what it affects, and who may change it. changed: every setting that differs from its default, and what was changed from the chat in the last 30 days. show: puts a card in the chat for each item (id, optional target, optional pick for the value you suggest), with an optional short title; their click on the card changes the setting. set: id, value and optional target; changes a setting get says you may change yourself. Values never include their API key or what they hid from Claude.",
              properties: [
@@ -386,7 +387,7 @@ public enum AskClaudeToolCatalog {
                 "value": string("For set: the new value, as one of its choices."),
                 "target": string("For set: which source or person, when the setting belongs to one."),
              ], required: ["action"]),
-        // TE294: one fixed tool for the PDF cards, shipped whole, so the cached prefix changes once.
+        // One fixed tool for all the PDF cards, so the cached prefix doesn't change per action.
         tool(.pdf,
              "SyncCloud’s own PDF tools. info: one file’s pages, size, protection and how many form fields; free, on their Mac. save_as_pdf, compress, rotate, clean_metadata, protect, remove_password, extract, delete_pages, reorder, split and combine: put a card in the chat; their click runs it and makes a new file next to the original, which never changes. fill: opens a PDF form in Edit with Fill & Sign on, where they type and sign; only when they asked to fill or sign it.",
              properties: [

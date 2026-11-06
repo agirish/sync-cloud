@@ -2,15 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the safeMoveItem same-volume happy path (a single rename, no copy+delete fallback — the
-/// cross-volume fallback is covered in FileOperationsTests) and the undo edge cases the coverage
-/// review found untested: a move undo-then-redo round trip, undo of a keep-both copy, and undo
-/// after a partial (some-items-failed) operation.
+/// Pins the safeMoveItem same-volume happy path (a single rename, no copy+delete fallback; the
+/// cross-volume fallback is in FileOperationsTests) and undo edge cases: a move undo-then-redo
+/// round trip, undo of a keep-both copy, undo after a partly failed operation, and trash-less
+/// volumes.
 @Suite struct UndoAndSafeMovePinTests {
 
-    /// Wraps MockFileManager and counts calls at the FileManaging seam. The mock's own moveItem
-    /// is implemented as copy+delete internally, so only a wrapper can distinguish "safeMoveItem
-    /// issued one rename" from "safeMoveItem fell back to copy+delete".
+    /// Wraps MockFileManager and counts calls at the FileManaging seam. The mock's moveItem is
+    /// copy+delete inside, so only a wrapper can tell one rename from the copy+delete fallback.
     private final class CallRecordingFileManager: FileManaging, @unchecked Sendable {
         private let inner: MockFileManager
         private(set) var copyCalls = 0

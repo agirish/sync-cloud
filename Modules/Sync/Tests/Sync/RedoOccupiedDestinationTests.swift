@@ -2,15 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A redo does not replace what it did not put there** (FR25).
-///
-/// The copy-redo and the move-redo called `safeCopyItem`/`safeMoveItem` straight onto the
-/// destination, and those replace whatever they find. Copy `report.pdf` to `Shared/`, ⌘Z, save a
-/// different `Shared/report.pdf` in another app, ⌘⇧Z: the new file went to the Trash, with no
-/// prompt and no banner. The copy-redo's own comment said "the user is asked"; nothing asked.
-///
-/// The one occupant a redo MAY replace is the one the undo left there — the original the first
-/// operation replaced with the user's say-so, which the undo restored. Each refusal below is paired
+/// A redo doesn't replace what it didn't put there. `safeCopyItem` and `safeMoveItem` replace
+/// whatever they find, so copy `report.pdf` to `Shared/`, ⌘Z, save a different
+/// `Shared/report.pdf` elsewhere, ⌘⇧Z, and an unguarded redo would trash the new file silently. The
+/// one occupant a redo may replace is the original the undo restored; each refusal below is paired
 /// with that control, so neither can pass on a guard that refuses everything.
 @Suite struct RedoOccupiedDestinationTests {
 
@@ -53,8 +48,8 @@ import Testing
         }
     }
 
-    /// The reported case: nothing was at the destination, the undo left nothing there, and a
-    /// different file was saved there before the redo. It stays; the redo says why.
+    /// Nothing was at the destination, the undo left nothing there, and a different file was saved
+    /// there before the redo. It stays, and the redo says why.
     @MainActor
     @Test(arguments: [false, true])
     func aRedoLeavesAFileSavedAtItsDestinationSinceTheUndo(isMove: Bool) async throws {
@@ -87,7 +82,7 @@ import Testing
     }
 
     /// The control: the original the first operation replaced, put back by the undo, is replaced
-    /// again by the redo — that is what redoing a Replace means — and it goes to the Trash, not away.
+    /// again by the redo, which is what redoing a Replace means, and it goes to the Trash.
     @MainActor
     @Test(arguments: [false, true])
     func aRedoStillReplacesTheOriginalItsUndoPutBack(isMove: Bool) async throws {

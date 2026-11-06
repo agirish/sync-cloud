@@ -3,23 +3,22 @@ import PDFKit
 import Testing
 @testable import Sync
 
-/// **What the card says, measured on the household's own filed documents** — the whole free scan,
-/// not the router alone.
+/// What the card says, measured on the household's own filed documents: the whole free scan, not
+/// the router alone.
 ///
 /// The router's tables (``FilingRouter``) measure one phase. A card is decided by three: the
-/// keyword engine, then the router overlay, then (with a backend) the classifier. The 11-01
-/// screenshot was a card problem — `Duplicate Files Report - Sep 2026.md` led with a High H-1B
-/// folder on the word "sep" — and no router table can see that, because the router was right and
-/// lost.
+/// keyword engine, then the router overlay, then (with a backend) the classifier. A card can be
+/// wrong where the router is right and loses (`Duplicate Files Report - Sep 2026.md` leading with a
+/// High H-1B folder on the word "sep"), and no router table can see that.
 ///
 /// Held out by a stable hash: one document in five is taken out of the tree, the memory is rebuilt
 /// from the other four without it, and it is handed back as a loose file. Its card's leading home
 /// is then compared with the folder the user actually filed it in.
 ///
-/// **Content is the survey's tokens, not the page.** The corpus keeps page 1's anchors, never its
-/// text (see ``FilingCorpus``), so the snippet each phase reads is those anchors joined — the same
-/// words, out of order. That is the same for every variant measured here, so it compares them
-/// fairly; it is not a re-measurement of the router's own published figures.
+/// Content is the survey's tokens, not the page. The corpus keeps page 1's anchors, never its text
+/// (see ``FilingCorpus``), so the snippet each phase reads is those anchors joined. That is the same
+/// for every variant measured here, so it compares them fairly; it is not a re-measurement of the
+/// router's own published figures.
 @Suite(.enabled(if: LiveProfile.isAvailable && LiveCorpus.isAvailable,
                 "no live filing profile and corpus on this machine — card replay skipped"),
        .machinePinned(.liveProfile))
@@ -83,7 +82,7 @@ struct FilingCardReplayTests {
         let gold: [String: String]
         /// Inbox path → page 1, as the survey's anchors.
         let snippets: [String: String]
-        /// Inbox path → the anchors the document brings when it is filed (GW).
+        /// Inbox path → the anchors the document brings when it is filed.
         let anchors: [String: Set<String>]
         /// Inbox path → where it came from in the corpus, and what the survey recorded for it.
         var original: [String: (path: String, doc: FilingCorpusDocument)] = [:]
@@ -189,20 +188,20 @@ struct FilingCardReplayTests {
         print("[card-replay] keyword engine alone\n\(keyword)")
         print("[card-replay] router alone\n\(router)")
         print("[card-replay] the card (keyword → router → cross-person)\n\(card)")
-        // The bar GY was decided on: the survey leads, so the card is about as right as the router
-        // and its badge means what it says. Floors a little under the 11-01 measurement (42.1%,
-        // High right 76.7% — a word match the survey agrees with keeps its High), so a later
-        // change that loses them fails here and says by how much.
+        // The bar: the survey leads, so the card is about as right as the router and its badge
+        // means what it says. Floors sit a little under the measured 42.1% (High right 76.7%; a
+        // word match the survey agrees with keeps its High), so a change that loses them fails here
+        // and says by how much.
         #expect(card.right * 100 >= card.cards * 40, "cards right first time fell below 40%:\n\(card)")
         let high = card.byConfidence[.high] ?? (0, 0)
         #expect(high.right * 100 >= high.shown * 75, "a High badge is right less than 75% of the time:\n\(card)")
         #expect(card.cards > 500, "the held-out fifth is too small to say anything: \(card.cards)")
     }
 
-    /// **GW, measured.** For every folder with two or more held-out documents, the first is filed
-    /// (folded into the memory as a filing in SyncCloud folds it) and the rest are placed with and
-    /// without it. The folders that matter most are the cold ones — no document left in them after
-    /// the hold-out — which stand for a folder made, or emptied, since the survey.
+    /// A filing teaches the next card. For every folder with two or more held-out documents, the
+    /// first is filed (folded into the memory as a filing in SyncCloud folds it) and the rest are
+    /// placed with and without it. The folders that matter most are the cold ones, left empty by the
+    /// hold-out, which stand for a folder made or emptied since the survey.
     @Test func aFilingTeachesTheNextCard() throws {
         let f = try #require(Fixture.shared)
         var byFolder: [String: [FileNode]] = [:]
@@ -261,10 +260,10 @@ struct FilingCardReplayTests {
         #expect(coldAfter.right > coldBefore.right, "a filing taught a cold folder nothing")
     }
 
-    /// **His three files of 2026-11-01, through today's code** — read from where he filed them, and
-    /// placed against the tree as the survey last saw it, which has neither `Shipments` nor
-    /// `US Mint`: he made both in the picker as he filed. Prints each card and the router's
-    /// shortlist (what Refine shows the model); asserts only that none leads High on one word.
+    /// Three of his real files, through today's code: read from where he filed them and placed
+    /// against the tree as the survey last saw it, which has neither `Shipments` nor `US Mint` (he
+    /// made both in the picker as he filed). Prints each card and the router's shortlist (what
+    /// Refine shows the model); asserts only that none leads High on one word.
     @Test func hisThreeFilesOf1101() throws {
         let f = try #require(Fixture.shared)
         let home = FileManager.default.homeDirectoryForCurrentUser.path + "/Documents/"
@@ -272,8 +271,8 @@ struct FilingCardReplayTests {
             ("Duplicate Files Report - Sep 2026.md", nil),   // he deleted it; its name is what misled
             ("FedEx invoice - India courier .pdf", "Immigration/Customs/USA/Shipments"),
             ("Mint Order - 2026.pdf", "Purchases/US/US Mint"),
-            // And two from his 11-01 Downloads screenshot, cloud-only, so placed by name as the
-            // scan places them: a JAL e-ticket (Travel/Trips) and his father's registration.
+            // And two cloud-only files from his Downloads, placed by name as the scan places them:
+            // a JAL e-ticket (Travel/Trips) and his father's registration.
             ("JAL eTicket - Sep 2026.pdf", nil),
             ("KMC Certificate of Registration.pdf", nil),
         ]
@@ -308,8 +307,9 @@ struct FilingCardReplayTests {
         return text
     }
 
-    /// Whether a card's home is a keyword name match on exactly one shared non-year word — the
-    /// shape of all three 11-01 Highs. Read from the reason the engine wrote, which names the hits.
+    /// Whether a card's home is a keyword name match on exactly one shared non-year word, the
+    /// shape of a High these files must not get. Read from the reason the engine wrote, which names
+    /// the hits.
     static func restsOnOneWord(_ d: FilingDestination?) -> Bool {
         guard let d, d.confidence == .high, !d.remembered, !d.fromAI else { return false }
         return d.reasons.contains { r in

@@ -1,30 +1,25 @@
 import Events
 import Foundation
 
-/// The rename pass (ROADMAP 19) — Organize's answer to *what is this called once it lands*.
+/// The rename pass: Organize's answer to what a file is called once it lands.
 ///
-/// The house convention `NN. Mon YYYY.pdf` is applied by hand, so it decays where the volume is.
-/// This finds every folder that has drifted from its own convention and offers to bring it back, on
-/// the walk the Filing scan is already doing. Mirrors ``FileSyncManager`` +NameNormalize: a pure
-/// detector over a tree that is already in memory, and an apply path routed through the serial
-/// `enqueueFileOperation` queue as ONE grouped undo.
+/// The house convention `NN. Mon YYYY.pdf` is applied by hand, so it decays. This finds every
+/// folder that has drifted from its own convention and offers to bring it back, on the walk the
+/// Filing scan already does. Mirrors +NameNormalize: a pure detector over a tree already in memory,
+/// and an apply path through the serial `enqueueFileOperation` queue as one grouped undo.
 extension FileSyncManager {
 
     // MARK: Scan
 
-    /// Builds a rename plan for every folder under a tree the caller has **already walked**.
-    ///
-    /// No second walk and no second button, for the same reason the names check folded in here: the
-    /// Filing scan already reads the whole provider to learn its folder taxonomy, and
-    /// ``RenamePlanner`` is pure, so the backlog comes back on that pass for free.
-    ///
-    /// Detached, like the names detector — planning 3,032 folders is a real amount of work and it
-    /// blocked the main actor for the length of the pass when it ran inline.
+    /// Builds a rename plan for every folder under a tree the caller has already walked. No second
+    /// walk or button: the Filing scan already reads the whole provider, and ``RenamePlanner`` is
+    /// pure, so the backlog comes back on that pass for free. Detached, like the names detector:
+    /// planning thousands of folders inline would block the main actor.
     func detectRenamePlans(in tree: [FileNode], root: URL,
                            isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
-        // The same wall the names detector puts up: an unreadable root walks back as a single
-        // marker carrying the root's own path, and planning renames for a folder we cannot list is
-        // the worst thing this feature could do with it.
+        // The names detector's wall: an unreadable root walks back as one marker carrying the
+        // root's own path, and planning renames for a folder we can't list is the worst thing this
+        // feature could do with it.
         if Self.isUnreadableRootMarker(tree, root: root) {
             renamePlans = []
             Logger.shared.warning("Filing scan: could not read \(root.lastPathComponent) — permission denied; no renames planned")
@@ -44,13 +39,12 @@ extension FileSyncManager {
         Logger.shared.info("Filing scan planned \(steps) rename(s) across \(plans.count) folder(s) under \(root.lastPathComponent)")
     }
 
-    /// Every non-empty folder plan under a walked tree. Pure and nonisolated — the whole reason the
-    /// detector can be detached.
+    /// Every non-empty folder plan under a walked tree. Pure and nonisolated, so the detector can
+    /// be detached.
     ///
-    /// A plan is kept when it has steps to propose. A plan with only *skips* is dropped: a skip is
-    /// the explanation for a rename that did not happen, and with no rename beside it there is
-    /// nothing to explain. The one exception is the incoming-file path, which asks about a single
-    /// named file and therefore does want to hear "no month in the name" — that path calls
+    /// A plan is kept when it has steps. One with only skips is dropped: a skip explains a rename
+    /// that didn't happen, and with no rename beside it there is nothing to explain. The
+    /// incoming-file path, which does want "no month in the name" for its one file, calls
     /// ``RenamePlanner`` directly.
     nonisolated static func planRenames(in tree: [FileNode], rootPath: String,
                                         profile: FolderProfile?) -> [RenamePlan] {
@@ -73,18 +67,15 @@ extension FileSyncManager {
         return plans
     }
 
-    /// The one way to put plans on screen from outside the module.
-    ///
-    /// Exposed for the same reason `publishFilingSuggestions` is: `renamePlans` is `internal(set)`
-    /// so the only producer is the planner over a freshly walked tree, and the render tests in
-    /// `FileExplorer` still need a lens showing results.
+    /// The one way to put plans on screen from outside the module, as with
+    /// `publishFilingSuggestions`: `renamePlans` is `internal(set)` so the only producer is the
+    /// planner over a fresh walk, and `FileExplorer`'s render tests still need a lens with results.
     public func publishRenamePlans(_ plans: [RenamePlan]) {
         renamePlans = plans
     }
 
-    /// Clears the results. Called by ``clearLensResultsForProviderSwitch()`` alongside the other
-    /// lens findings — a plan names absolute paths under one provider and means nothing under
-    /// another.
+    /// Clears the results. Called by ``clearLensResultsForProviderSwitch()`` with the other lens
+    /// findings: a plan names absolute paths under one provider and means nothing under another.
     public func clearRenamePlans() {
         renamePlans = []
     }
@@ -93,9 +84,9 @@ extension FileSyncManager {
 
     /// The name `fileName` would take once it lands in `folderPath`, or nil to keep the name it has.
     ///
-    /// The **same planner** the backlog pass runs, handed the file as `incoming`. Two answers that
-    /// could disagree is the failure mode this avoids: a file renamed on the way in and then flagged
-    /// by the backlog pass the moment it arrives would be the app arguing with itself.
+    /// The same planner the backlog pass runs, handed the file as `incoming`, so the two can't
+    /// disagree: a file renamed on the way in and then flagged by the backlog pass would be the app
+    /// arguing with itself.
     nonisolated static func incomingName(for fileName: String, into folderPath: String,
                                          relativePath: String, folderFiles: [FolderFile],
                                          profile: FolderProfile?) -> String? {
@@ -104,38 +95,31 @@ extension FileSyncManager {
                                       files: folderFiles, entry: profile?.folders[relativePath],
                                       incoming: incoming)
         guard let step = plan.steps.first(where: { $0.currentPath == incoming.path }) else { return nil }
-        // **A name that only works if its neighbours move is not a name this path may offer.**
+        // A name that only works if its neighbours move is not one this path may offer. Under
+        // position numbering, a file arriving before the months already there takes slot 01 and
+        // pushes the rest up, and the planner puts all those steps in one cohort. Taking only the
+        // placement out of it is the half-applied cascade the cohort prevents: a February bill
+        // filed into `01. Mar · 02. Apr · 03. May` would land as `01. Feb` beside `01. Mar`.
         //
-        // Under position numbering a file arriving before the months already there takes slot 01
-        // and pushes every one of them up — the planner says so by putting all four steps in one
-        // cohort. Taking the placement out of that cohort and dropping the rest is exactly the
-        // half-applied cascade the cohort exists to prevent: measured, filing a February bill into
-        // `01. Mar · 02. Apr · 03. May` returned `01. Feb 2021.pdf` and would have left TWO files
-        // on slot 01.
-        //
-        // Filing one file is not the moment to renumber a folder, so this declines and the file
-        // keeps its own name. The backlog pass proposes the renumbering separately, where it is
-        // reviewed as the folder-wide change it is.
+        // Filing one file is not the moment to renumber a folder, so the file keeps its own name;
+        // the backlog pass proposes the renumbering, reviewed as the folder-wide change it is.
         guard step.cohort == 0 else { return nil }
         return step.proposedName
     }
 
-    /// Fills in ``FilingDestination/proposedName`` for every candidate of every suggestion, using
-    /// the taxonomy tree the scan already walked.
-    ///
-    /// Every candidate, not just the best one: "Try another" swaps the shown home without a rescan,
-    /// and a card that kept the first home's proposed name would offer a slot in a folder the file
-    /// is no longer going to.
+    /// Fills in ``FilingDestination/proposedName`` for every candidate of every suggestion, from
+    /// the taxonomy tree the scan already walked. Every candidate, not just the best: "Try another"
+    /// swaps the shown home without a rescan, and a card keeping the first home's name would offer
+    /// a slot in a folder the file is no longer going to.
     nonisolated static func namingSuggestions(_ suggestions: [FilingSuggestion],
                                               taxonomy: [FileNode], rootPath: String,
                                               profile: FolderProfile?) -> [FilingSuggestion] {
         var filesByFolder: [String: [FolderFile]] = [:]
-        // Folders the walk could not list. `buildTree` reports a permission-denied or depth-capped
-        // directory as `children: []` with `isUnexplored`, which is indistinguishable from a
-        // genuinely empty folder unless the flag is carried — and reading one as empty proposes
-        // slot 01 for a folder that already holds twelve months. The apply path re-derives from the
-        // disk and would land the file correctly, so the damage is a card promising a name the user
-        // does not get; this keeps the card silent instead.
+        // Folders the walk couldn't list. `buildTree` reports a permission-denied or depth-capped
+        // directory as `children: []` with `isUnexplored`, which looks like an empty folder unless
+        // the flag is carried, and reading it as empty proposes slot 01 for a folder holding twelve
+        // months. The apply path re-derives from disk, so the harm is a card promising a name the
+        // user won't get; this keeps the card silent instead.
         var unlisted: Set<String> = []
         func index(_ nodes: [FileNode], folderPath: String) {
             filesByFolder[folderPath] = nodes.filter { !$0.isDirectory }
@@ -149,7 +133,7 @@ extension FileSyncManager {
 
         return suggestions.map { suggestion in
             let named = suggestion.candidates.map { dest -> FilingDestination in
-                // A destination whose folders do not exist yet has no files and no convention to
+                // A destination whose folders don't exist yet has no files and no convention to
                 // read, so it never proposes a rename.
                 guard dest.newSegments.isEmpty, !unlisted.contains(dest.path),
                       let rel = FileSyncManager.relativePath(dest.path, under: rootPath)
@@ -163,13 +147,11 @@ extension FileSyncManager {
         }
     }
 
-    /// The name to file `suggestion` under in `destination`, **re-derived against the disk now**.
-    ///
-    /// The scan's proposal is a claim about a folder as it was minutes ago, and this tree is edited
-    /// while a queue is open. Re-listing costs one directory read on a path already being written
-    /// to, and it is the difference between taking slot 04 and taking a slot somebody else just
-    /// filled. A folder that cannot be listed falls back to the file's own name — never to a stale
-    /// slot number.
+    /// The name to file `suggestion` under in `destination`, re-derived against the disk now. The
+    /// scan's proposal describes the folder as it was minutes ago, and the tree is edited while a
+    /// queue is open: one directory read is the difference between taking slot 04 and taking a slot
+    /// someone just filled. A folder that can't be listed falls back to the file's own name, never
+    /// to a stale slot number.
     nonisolated static func liveIncomingName(for fileName: String, destination: String,
                                              providerRoot: String?, profile: FolderProfile?,
                                              fileManager fm: FileManaging) -> String? {
@@ -183,11 +165,9 @@ extension FileSyncManager {
 
     // MARK: Apply
 
-    /// What one pass over the plans actually did — the value the queued closure hands back.
-    ///
-    /// A struct rather than a six-element tuple because the counts are no longer independent: an
-    /// abandoned cohort's files are neither `failed` (only one of them threw) nor `stale` (the disk
-    /// still described them), and `stranded` is the one that has to reach the user loudest.
+    /// What one pass over the plans did, as the queued closure hands it back. A struct because the
+    /// counts aren't independent: an abandoned cohort's files are neither `failed` (only one threw)
+    /// nor `stale` (the disk still described them), and `stranded` must reach the user loudest.
     struct RenameApplyOutcome: Sendable {
         var moves: [MoveItemState] = []
         var doneFolders: [String] = []
@@ -195,42 +175,34 @@ extension FileSyncManager {
         var stale = 0
         /// Independent steps whose move threw. One file each, and nothing else is affected.
         var failed = 0
-        /// Files belonging to a renumbering that was rolled back — the whole cohort, not the one
-        /// member that threw, because none of them ends up renamed.
+        /// Files in a renumbering that was rolled back: the whole cohort, not just the member that
+        /// threw, because none of them ends up renamed.
         var abandoned = 0
-        /// Files inside an abandoned cohort that could NOT be put back. The dangerous residue: the
-        /// only way a partially-applied renumbering can still be on disk when this returns.
+        /// Files in an abandoned cohort that could not be put back. The dangerous residue: the only
+        /// way a partly applied renumbering can still be on disk when this returns.
         var stranded = 0
     }
 
     /// Applies whole folder plans in one undoable pass.
     ///
-    /// **Every claim is re-derived against the disk before anything moves.** A plan is a statement
-    /// about a folder as it was when the scan ran, and this tree is edited while a plan is open —
-    /// by the user, by a sync, by another session. So rather than trusting the stored steps, this
-    /// re-lists each folder inside the operation queue and re-runs ``RenamePlanner`` on what is
-    /// actually there; a step survives only if the fresh plan proposes exactly the same rename for
-    /// exactly the same file. A folder that changed underneath simply contributes fewer steps, and
-    /// says so.
+    /// Every claim is re-derived against the disk before anything moves. A plan describes a folder
+    /// as it was when the scan ran, and the tree is edited meanwhile (by the user, a sync, another
+    /// session), so this re-lists each folder inside the operation queue and re-runs
+    /// ``RenamePlanner``; a step survives only if the fresh plan proposes the same rename for the
+    /// same file. A folder that changed underneath contributes fewer steps, and says so.
     ///
-    /// The unit of apply is the **cohort**, not the whole plan. A padding fix is right on its own,
-    /// so a folder that moved under one of them still gets the rest; a renumbering is not, so if any
-    /// one of its steps no longer describes the folder the whole cohort stands down. That is the
-    /// same rule RenamePlanner/withoutCollisions(_:among:skips:) applies at plan time, enforced
-    /// again here because the disk gets its own chance to invalidate a step.
+    /// The unit of apply is the cohort, not the plan. A padding fix is right on its own; a
+    /// renumbering is not, so if one of its steps no longer describes the folder the whole cohort
+    /// stands down, the rule `RenamePlanner/withoutCollisions(_:among:skips:)` applies at plan time.
     ///
-    /// **And enforced a third time while the moves are RUNNING**, which is where it used to stop.
-    /// The re-derive can only refuse a cohort it can see is broken; it cannot promise that four
-    /// moves will all succeed. A `safeMoveItem` that throws mid-cohort — a busy iCloud placeholder
-    /// is routine on this tree — used to count one failure and carry on with the rest, so inserting
-    /// February into `01. Mar · 02. Apr · 03. May` with April's move failing left `02. Mar` and
-    /// `02. Apr` both on slot 02: the exact state the cohort exists to prevent, reported as a
-    /// partial success. A cohort is now applied into a buffer and **rolled back** the moment one of
-    /// its members throws, so the folder ends at the full new numbering or at the one it started
-    /// with — never between the two — and the banner and the log say which.
+    /// It holds while the moves run too: the re-derive can't promise four moves will all succeed,
+    /// and a busy iCloud placeholder can make `safeMoveItem` throw mid-cohort. A cohort is applied
+    /// into a buffer and rolled back the moment a member throws, so the folder ends at the full new
+    /// numbering or the one it started with, never two files on one slot, and the banner and log
+    /// say which.
     public func applyRenamePlans(_ plans: [RenamePlan]) async {
-        // Verify All's write-exclusion guard, mirrored from `normalizeNames` for the same reason: a
-        // rename moves a file Verify All may be hashing.
+        // Verify All's write-exclusion guard, as in `normalizeNames`: a rename moves a file Verify
+        // All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before renaming")
             return
@@ -243,15 +215,13 @@ extension FileSyncManager {
         let profile = filingFolderProfile
         let logger = Logger.shared
 
-        // **Does this folder's volume distinguish names by case?** Asked once per folder, here on
-        // the main actor, because the answer has to be a plain `Sendable` value inside the queued
-        // closure — and asked through the same seam `syncAll` uses, so a test can drive both kinds
-        // of volume on a machine that only has one.
+        // Does this folder's volume distinguish names by case? Asked once per folder, here on the
+        // main actor, because the queued closure needs a plain `Sendable` value, and through the
+        // seam `syncAll` uses, so a test can drive both kinds of volume.
         //
-        // The answer feeds BOTH the never-overwrite guard below and the `safeMoveItem` beneath it.
-        // One probe rather than two is the point: the guard runs first and can pre-empt the move
-        // entirely, so a guard that folds case while the move does not (or the reverse) is two
-        // functions disagreeing about whether the destination is a different file.
+        // The one answer feeds both the never-overwrite guard below and the `safeMoveItem` under
+        // it. The guard runs first and can pre-empt the move, so a guard that folds case while the
+        // move doesn't (or the reverse) would disagree about whether the destination is another file.
         let probeCaseSensitivity = destinationCaseSensitivity
         var caseSensitiveByFolder: [String: Bool] = [:]
         for plan in plans where caseSensitiveByFolder[plan.folderPath] == nil {
@@ -265,7 +235,7 @@ extension FileSyncManager {
 
             for plan in plans {
                 let dir = URL(fileURLWithPath: plan.folderPath)
-                // Re-derive: what does this folder look like RIGHT NOW?
+                // Re-derive: what does this folder look like right now?
                 guard let live = Self.liveFiles(in: dir, fileManager: fm) else {
                     out.stale += plan.steps.count
                     continue
@@ -280,28 +250,26 @@ extension FileSyncManager {
                 func survives(_ step: RenameStep) -> Bool {
                     stillProposed.contains(step.currentPath + "\u{0}" + step.proposedName)
                 }
-                // A renumbering is all-or-nothing, here as well as in the planner. If the folder
-                // moved under us in a way that invalidates ONE step of a cascade, the survivors
-                // would collapse two months onto one slot — so the whole cohort stands down.
+                // A renumbering is all-or-nothing, here as in the planner. If the folder moved in a
+                // way that invalidates one step of a cascade, the survivors would collapse two
+                // months onto one slot, so the whole cohort stands down.
                 let brokenCohorts = Set(plan.steps.filter { $0.cohort != 0 && !survives($0) }
                                                   .map(\.cohort))
                 let runnable = plan.steps.filter { survives($0) && !brokenCohorts.contains($0.cohort) }
                 out.stale += plan.steps.count - runnable.count
 
                 // The units of execution: a cohort-0 step stands alone (a padding fix is right
-                // whatever its neighbours do), and every step sharing a non-zero cohort travels as
-                // one. Cohorts are ordered by id so a folder with two of them — a `.csv` cascade
-                // and a `.pdf` one — applies in the same order every run.
+                // whatever its neighbours do), and steps sharing a non-zero cohort travel as one.
+                // Cohorts are ordered by id so a folder with two (a `.csv` cascade and a `.pdf` one)
+                // applies in the same order every run.
                 var units: [(cohort: Int, steps: [RenameStep])] = []
                 var byCohort: [Int: [RenameStep]] = [:]
                 for step in runnable {
                     if step.cohort == 0 { units.append((0, [step])) }
                     else { byCohort[step.cohort, default: []].append(step) }
                 }
-                // **All cohort-0 steps run before any cohort, whatever order `plan.steps` had.**
-                // A consequence of appending the singletons as they are seen and the cohorts after
-                // the whole pass, not a decision anyone stated — and it is safe for the same
-                // planner reason the rollback leans on: a cohort-0 step only widens an ordinal it
+                // All cohort-0 steps run before any cohort, whatever order `plan.steps` had. Safe for
+                // the planner reason the rollback relies on: a cohort-0 step only widens an ordinal it
                 // already holds, so it neither frees nor takes a name any cohort member targets.
                 for id in byCohort.keys.sorted() { units.append((id, byCohort[id]!)) }
 
@@ -312,26 +280,20 @@ extension FileSyncManager {
                     for step in unit.steps {
                         let src = URL(fileURLWithPath: step.currentPath)
                         var dst = dir.appendingPathComponent(step.proposedName)
-                        // Already there under exactly this name — nothing to move.
+                        // Already there under exactly this name: nothing to move.
                         if src.standardizedFileURL.path == dst.standardizedFileURL.path { continue }
-                        // NEVER overwrite. The planner already refuses a contended target, so
-                        // reaching here means the disk changed under us between the re-derive and
-                        // the move — keep both rather than lose one.
+                        // Never overwrite. The planner already refuses a contended target, so
+                        // reaching here means the disk changed between the re-derive and the move:
+                        // keep both rather than lose one.
                         //
-                        // **Unless the "occupant" is the source itself.** `07. jul 2016.pdf` →
-                        // `07. Jul 2016.pdf` is a rename this pass proposes for real, and on a
-                        // case-INSENSITIVE volume `fileExists` finds the source under the collapsed
-                        // name. The old spelling compared `standardizedFileURL` paths, which resolve
-                        // `..` and trailing slashes but never CASE, so the two read as different
-                        // files: the guard "resolved" a collision that did not exist and the file
-                        // landed as `07. Jul 2016 2.pdf` — a duplicate marker invented out of
-                        // nothing, which the next scan then preserves verbatim forever.
-                        // `safeMoveItem` performs a case-only rename correctly; this guard sits
-                        // above it and was pre-empting it, so it now asks that same question of the
-                        // same helper. When the probe cannot answer it says "folds case", and that
-                        // is the safe direction here: at worst this declines to uniquify and hands
-                        // the move to `safeMoveItem`, which refuses a genuinely occupied
-                        // destination rather than overwriting it.
+                        // Unless the occupant is the source itself. `07. jul 2016.pdf` →
+                        // `07. Jul 2016.pdf` is a real rename, and on a case-insensitive volume
+                        // `fileExists` finds the source under the folded name; treating that as a
+                        // collision would land `07. Jul 2016 2.pdf`, a duplicate marker the next
+                        // scan preserves forever. `safeMoveItem` does a case-only rename correctly,
+                        // so this guard asks the same helper. When the probe can't answer it says
+                        // "folds case", the safe direction: at worst this hands the move to
+                        // `safeMoveItem`, which refuses a genuinely occupied destination.
                         if fm.fileExists(atPath: dst.path),
                            !Self.isCaseOnlyRenaming(source: src, destination: dst,
                                                     caseSensitiveVolume: caseSensitive) {
@@ -354,51 +316,36 @@ extension FileSyncManager {
                     }
                     logger.warning("Rename pass: “\(failure.step.currentName)” → “\(failure.step.proposedName)” failed: \(failure.error.localizedDescription)")
                     guard unit.cohort != 0 else {
-                        // An independent step. Nothing else depended on it, so nothing else moves —
-                        // undoing the padding fixes that worked because a third one failed would
-                        // make the pass useless on the bulk of the backlog.
+                        // An independent step: nothing else depended on it, so nothing else moves.
+                        // Undoing the padding fixes that worked because a third failed would make
+                        // the pass useless on most of the backlog.
                         out.failed += 1
                         continue
                     }
 
-                    // Put back what this cohort already moved, newest first. Every name it restores
-                    // to was vacated by this same loop moments ago, and no other member of the
-                    // cohort targets it — so the folder returns to exactly the numbering it had.
+                    // Put back what this cohort already moved, newest first. Every name restored
+                    // was vacated by this loop moments ago and no other member targets it, so the
+                    // folder returns to exactly the numbering it had.
                     //
-                    // **That last clause is a PLANNER property, and the parenthetical this used to
-                    // carry did not establish it.** "Two files in one folder cannot share a name"
-                    // is about two steps wanting one TARGET, which `RenamePlanner.withoutCollisions`
-                    // refuses; it says nothing about a step's target being another step's SOURCE,
-                    // and a renumbering cascade looks exactly like a chain that would (01→02 beside
-                    // 02→03).
-                    //
-                    // What actually holds it: `RenamePlanner` builds each cohort member's name as
-                    // `d.parsed.canonicalName(ordinal: target)`, which keeps the file's own body,
-                    // or — for a bare month-and-year body — rebuilds it as
-                    // `OrdinalMonthName.body(month:year:)` for that member's own `MonthKey`. Two
-                    // members of one cascade carry different keys, so a cascade shifts ORDINALS
-                    // while every body stays put: `02. Jan 2025.pdf` (March's target) and
-                    // `02. Feb 2025.pdf` (April's source) are different names.
-                    //
-                    // Written down because it is the dependency a future author would break: a
-                    // non-month ordinal scheme, where two members could share a body, makes a
-                    // target equal to another member's source — and the forward loop would then
-                    // start minting " 2" names through `generateUniqueURL`, which is the defect
-                    // this branch just removed.
+                    // That last clause is a planner property. `RenamePlanner.withoutCollisions`
+                    // refuses two steps wanting one target, but says nothing about a step's target
+                    // being another's source, which a cascade looks like (01→02 beside 02→03). What
+                    // holds it: each member's name is `d.parsed.canonicalName(ordinal: target)`,
+                    // keeping the file's own body or rebuilding a bare month-and-year body for its
+                    // own `MonthKey` (`OrdinalMonthName.body(month:year:)`). Members carry different
+                    // keys, so a cascade shifts ordinals while bodies stay put: `02. Jan 2025.pdf`
+                    // and `02. Feb 2025.pdf` are different names. A non-month ordinal scheme, where
+                    // two members could share a body, would break this, and the forward loop would
+                    // start minting " 2" names through `generateUniqueURL`.
                     var putBack = 0
                     var stranded: [MoveItemState] = []
                     for move in applied.reversed() {
-                        // Somebody else took the old name in the meantime: putting the file back
-                        // would overwrite them. Leave it where it is and say so — a file stranded
-                        // under a new name is plainly visible in the folder, while the stranger's
-                        // recovery would be a `.rollback_` backup or a Trash item the user has to
-                        // know to go and look for.
-                        //
-                        // (`safeMoveItem` does not unlink an occupant: it replaces atomically with
-                        // a backup, which `finalizeReplacementBackup` prefers to put in the Trash.
-                        // This comment used to say a clobbered stranger "is not recoverable",
-                        // which is stronger than the code delivers — the guard is still right, but
-                        // for the weaker reason.)
+                        // Someone else took the old name meanwhile: putting the file back would
+                        // replace theirs. Leave it and say so. A file stranded under a new name is
+                        // plainly visible, while the stranger's recovery would be a `.rollback_`
+                        // backup or a Trash item the user must know to look for (`safeMoveItem`
+                        // replaces atomically with a backup, which `finalizeReplacementBackup`
+                        // prefers to put in the Trash).
                         guard !Self.rollbackTargetIsOccupied(
                             movedTo: move.to, puttingBackTo: move.from,
                             fileManager: fm, caseSensitiveVolume: caseSensitive) else {
@@ -416,7 +363,7 @@ extension FileSyncManager {
                             logger.error("Rename pass: could not put “\(move.to.lastPathComponent)” back to “\(move.from.lastPathComponent)” in \(plan.folderPath): \(error.localizedDescription)")
                         }
                     }
-                    // A file the rollback could not move stays under its new name, so it stays in
+                    // A file the rollback couldn't move stays under its new name, so it stays in
                     // the undo group: ⌘Z is the user's remaining way back.
                     out.moves.append(contentsOf: stranded)
                     if !stranded.isEmpty { appliedHere = true }
@@ -440,40 +387,37 @@ extension FileSyncManager {
             return
         }
 
-        // ONE grouped undo for the whole pass, exactly as the name normalizer registers one.
+        // One grouped undo for the whole pass, as the name normalizer registers one.
         let n = result.moves.count
         registerMoveUndo(items: result.moves, actionName: "Rename \(CountedNoun.phrase(n, "File"))",
                          fileManager: fm)
 
-        // Drop the folders that were fully or partly applied; their paths are stale either way, and
-        // the next scan republishes whatever is left.
+        // Drop the folders that were fully or partly applied: their paths are stale either way,
+        // and the next scan republishes whatever is left.
         let done = Set(result.doneFolders)
         renamePlans.removeAll { done.contains($0.folderPath) }
 
         Logger.shared.info("Rename pass: renamed \(n) file(s)\(result.stale > 0 ? ", \(result.stale) stale" : "")\(result.failed > 0 ? ", \(result.failed) failed" : "")\(result.abandoned > 0 ? ", \(result.abandoned) in a rolled-back renumbering" : "")")
         let message = Self.renameOutcome(renamed: n, stale: result.stale, failed: result.failed,
                                          abandoned: result.abandoned, stranded: result.stranded)
-        // **`undoable:`, on both severities.** Every `renamed > 0` outcome can be undone, and the
-        // FLAG is what shows the message's Undo button and what `invalidateUndoableBanner` reads to
-        // retire it once the undo stack moves on. Defaulted to false, this banner outlived its own
-        // step: any later operation registering an undo left it standing, still offering ⌘Z,
-        // which by then reverses that operation instead. Severity and undoability are separate
-        // axes, which is why `.warning` takes the parameter at all — a pass that renamed some files
-        // and left others is a warning AND undoable. The registration above is unconditional on
-        // this path (`result.moves` is non-empty), so the flag is true for every outcome that
-        // renamed something. The `renamed: 0` branch above correctly stays unflagged.
+        // `undoable:` on both severities. Every outcome here renamed something and registered an
+        // undo above, and the flag is what shows the banner's Undo button and what
+        // `invalidateUndoableBanner` reads to retire it once the undo stack moves on; unflagged,
+        // the banner would outlive its step and offer ⌘Z for a later operation. Severity and
+        // undoability are separate: a pass that renamed some files and left others is a warning
+        // and undoable. The `renamed: 0` branch above stays unflagged.
         banner = (result.failed > 0 || result.stale > 0 || result.abandoned > 0)
             ? .warning(message, undoable: true) : .success(message, undoable: true)
     }
 
-    /// The banner sentence for a finished pass. Pure and static so the wording — including the part
-    /// that has to stay honest about files it did **not** touch — is testable without a filesystem.
+    /// The banner sentence for a finished pass. Pure and static so the wording, including what it
+    /// says about files it didn't touch, is testable without a filesystem.
     ///
-    /// `abandoned` is a statement about a GROUP, which is why it is not folded into `failed`: only
-    /// one member of a rolled-back renumbering actually threw, and reporting four failures for one
-    /// error is as dishonest as reporting one. `stranded` is the half that must never be silent —
-    /// a file the rollback could not put back is the only way a half-applied renumbering survives
-    /// this pass, so the sentence names it and sends the user to look.
+    /// `abandoned` describes a group, so it isn't folded into `failed`: only one member of a
+    /// rolled-back renumbering threw, and reporting four failures for one error is as wrong as
+    /// reporting one. `stranded` must never be silent: a file the rollback couldn't put back is the
+    /// only way a half-applied renumbering survives, so the sentence names it and sends the user
+    /// to look.
     static func renameOutcome(renamed: Int, stale: Int, failed: Int,
                               abandoned: Int = 0, stranded: Int = 0) -> String {
         func files(_ n: Int) -> String { "\(n) file\(n == 1 ? "" : "s")" }
@@ -489,36 +433,33 @@ extension FileSyncManager {
             }
             if failed > 0 { return "Couldn’t rename \(files(failed))." + tail }
             if stale > 0 { return "\(files(stale)) had already changed — nothing renamed." + tail }
-            // Nothing renamed, nothing stale, nothing independently failed: the abandoned
-            // renumbering IS the whole story, and the leading space goes with the joining.
+            // Nothing renamed, stale or independently failed: the abandoned renumbering is the
+            // whole story, and the leading space goes with the joining.
             return tail.isEmpty ? "Nothing renamed." : String(tail.dropFirst())
         }
         var s = "Renamed \(files(renamed))"
         if stale > 0 { s += "; \(stale) had already changed" }
         if failed > 0 { s += "; \(failed) couldn’t be renamed" }
-        // No "Press ⌘Z to undo": the result message's Undo button wears the ⌘Z keycap (TE216).
-        // The opening sentence ends without a period, like every banner's, so the renumbering
-        // clause brings one or the two run together into nonsense.
+        // No "Press ⌘Z to undo": the result message's Undo button wears the ⌘Z keycap. The opening
+        // sentence ends without a period, like every banner's, so the renumbering clause brings one
+        // or the two run together.
         return s + (tail.isEmpty ? "" : "." + tail)
     }
 
-    /// The folder's direct files as they stand on disk, or nil when it cannot be listed.
-    ///
-    /// Goes through ``FileManaging`` rather than `FileManager` directly so the apply path can be
-    /// driven by the in-memory test double, like every other write path in the engine.
+    /// The folder's direct files as they stand on disk, or nil when it can't be listed. Through
+    /// ``FileManaging`` so the apply path can be driven by the in-memory test double, like every
+    /// other write path in the engine.
     nonisolated static func liveFiles(in dir: URL, fileManager fm: FileManaging) -> [FolderFile]? {
-        // Through `listing` rather than a bare enumerator: the enumerator comes back non-nil
-        // yielding nothing for a folder it cannot read, so "cannot be listed" used to arrive here
-        // as an empty folder and this function's documented promise — never a stale slot number —
-        // could not be kept. Anything short of a complete listing is a nil: a shallow listing
-        // cannot report `.listedWithUnreadableDescendants`, and if it ever could, a partial view
-        // of a numbered folder is exactly what must not be renumbered against.
+        // Through `listing`, not a bare enumerator, which comes back non-nil yielding nothing for a
+        // folder it can't read, so an unreadable folder would look empty and get a stale slot
+        // number. Anything short of a complete listing is nil: a partial view of a numbered folder
+        // is exactly what must not be renumbered against.
         let listing = fm.listing(of: dir, options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles])
         guard listing.isComplete else { return nil }
         var files: [FolderFile] = []
         for url in listing.urls {
-            // The enumerator can hand back a resolved path; re-root every entry on `dir` so the
-            // paths compare equal to the ones the plan carries.
+            // The enumerator can hand back a resolved path; re-root every entry on `dir` so paths
+            // compare equal to the ones the plan carries.
             let name = url.lastPathComponent
             let path = dir.appendingPathComponent(name).path
             var isDirectory: ObjCBool = false
@@ -532,32 +473,26 @@ extension FileSyncManager {
 
 extension FileSyncManager {
 
-    /// Whether the name a rolled-back cohort member is being restored to is held by **something
-    /// else**.
+    /// Whether the name a rolled-back cohort member is being restored to is held by something else.
     ///
-    /// **A bare `fileExists` folds case, and this ships on a volume that does.** After a case-only
-    /// forward move — `07. jul 2016.pdf` → `07. Jul 2016.pdf` — `fileExists` at the old spelling
-    /// answers **true** on any case-INSENSITIVE volume, which is every default macOS install.
-    /// Measured on this machine. The member would then be declared "occupied again" by itself and
-    /// stranded under its new name, with an error line naming a stranger that does not exist.
+    /// A bare `fileExists` folds case on a case-insensitive volume, every default macOS install:
+    /// after a case-only move (`07. jul 2016.pdf` → `07. Jul 2016.pdf`) it answers true at the old
+    /// spelling, so the member would be declared occupied by itself and stranded under its new name,
+    /// with an error naming a stranger that doesn't exist. Asked through
+    /// ``isCaseOnlyRenaming(source:destination:caseSensitiveVolume:)``, the helper and probed answer
+    /// the forward never-overwrite guard uses, so the two can't disagree.
     ///
-    /// Asked through ``isCaseOnlyRenaming(source:destination:caseSensitiveVolume:)`` — the same
-    /// helper the forward never-overwrite guard asks, and the same probed answer for the folder's
-    /// volume — because two spellings of this question are how the forward guard and `safeMoveItem`
-    /// came to disagree once already.
-    ///
-    /// **Not reachable through the planner today**, and only through a planner property: a step
-    /// whose ordinal does not move keeps cohort 0, cohort-0 steps are never rolled back, and a step
-    /// whose ordinal DOES move is not a case-only rename. The apply loop enforces none of that, and
-    /// every rollback test drives `MockFileManager`, whose disk is case-sensitive — so nothing here
-    /// would have noticed the day the planner changed. Stated as its own function so it is provable
-    /// on the volume it ships on.
+    /// Not reachable through today's planner, only by a planner property: a step whose ordinal
+    /// doesn't move keeps cohort 0 and is never rolled back, and one whose ordinal moves isn't a
+    /// case-only rename. The apply loop enforces none of that, and the rollback tests run on
+    /// `MockFileManager`, whose disk is case-sensitive, so this is its own function, provable on
+    /// the volume it ships on.
     nonisolated static func rollbackTargetIsOccupied(movedTo: URL, puttingBackTo: URL,
                                                      fileManager: FileManaging,
                                                      caseSensitiveVolume: Bool) -> Bool {
         guard fileManager.fileExists(atPath: puttingBackTo.path) else { return false }
         // The one false positive: what "occupies" the old name is the member itself, under a
-        // spelling this volume does not distinguish.
+        // spelling this volume doesn't distinguish.
         return !isCaseOnlyRenaming(source: movedTo, destination: puttingBackTo,
                                    caseSensitiveVolume: caseSensitiveVolume)
     }

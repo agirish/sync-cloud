@@ -2,24 +2,16 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The spend guardrail's behaviour when the price table has no rate for the configured model.
+/// The spend guardrail when the price table has no rate for the configured model.
 ///
-/// `CloudFilingProtocol.currentModel(for:)` deliberately honours a model id outside the three
-/// offered families — "it can only have been set by hand, so honor it rather than overriding a
-/// deliberate choice" — and `pricing(for:)` answers nil for exactly those ids. `estimatedCostUSD`
-/// propagates that nil, documented as "so the caller shows 'estimate unavailable' rather than a
-/// wrong number", and `FilingSpendEntry.costUnpriced` says in prose that "the pre-flight path
-/// already handled the identical nil honestly".
-///
-/// It did not. `cloudSpendAllows` coerced it with `?? 0`, which is not a cost estimate — it is the
-/// one value that is *below* every real one, so it disarms both cap comparisons (each adds the
-/// estimate to recorded spend before testing it) while the confirmation dialog quotes "$0.0000"
-/// for a call whose price nothing in the build knows.
+/// `CloudFilingProtocol.currentModel(for:)` honours a hand-set id outside the offered families,
+/// and `pricing(for:)` and `estimatedCostUSD` answer nil for it. `cloudSpendAllows` must not treat
+/// that nil as 0: zero is below every real cost, so it would disarm both cap checks (each adds the
+/// estimate to recorded spend) and the dialog would quote "$0.0000" for a call nobody can price.
 @Suite @MainActor struct FilingUnpricedModelSpendTests {
 
-    /// Records every preflight the guardrail hands the confirmer, and answers with a fixed verdict.
-    /// A class rather than a captured local so the recording survives the escaping closure the
-    /// manager stores.
+    /// Records every preflight the guardrail hands the confirmer and answers with a fixed verdict.
+    /// A class so the recording survives the escaping closure the manager stores.
     private final class Confirmer {
         private(set) var quoted: [FilingSpendPreflight] = []
         private let answer: (FilingSpendPreflight) -> Bool
@@ -27,12 +19,10 @@ import Foundation
         func record(_ p: FilingSpendPreflight) -> Bool { quoted.append(p); return answer(p) }
     }
 
-    /// A real Anthropic id that the price table has no rate for. `pricing(for:)` matches on the
-    /// `claude-<family>` prefix, so a dated pre-alias id like this one falls outside all its
-    /// arms — and `currentModel(for:)` passes it through untouched, because it shares no
-    /// `claude-<family>-` prefix with any selectable model. Both facts are asserted below rather
-    /// than assumed, so a future pricing or alias change fails there instead of silently making
-    /// these tests vacuous.
+    /// A real Anthropic id with no rate in the price table: a dated pre-alias id matches no
+    /// `claude-<family>` arm of `pricing(for:)`, and `currentModel(for:)` passes it through. Both
+    /// facts are asserted below, so a pricing or alias change fails there instead of making these
+    /// tests vacuous.
     private static let unpricedModel = "claude-3-5-sonnet-20241022"
 
     private func candidates(_ n: Int) -> [FilingCandidateFile] {
@@ -44,9 +34,8 @@ import Foundation
 
     private let taxonomy = ["Documents/Vehicles", "Documents/Family", "Documents/Taxes"]
 
-    /// Cloud ON, no app-supplied router, so `filingRoutesToCloud(.refine)` resolves through
-    /// `configuredFilingBackendIdentity` to `"cloud:<model>"` — the state in which the guardrail
-    /// actually prices something.
+    /// Cloud on and no app-supplied router, so `filingRoutesToCloud(.refine)` resolves through
+    /// `configuredFilingBackendIdentity` to `"cloud:<model>"`: the state where the guardrail prices.
     private func manager(model: String, suite: String,
                          seed: (ScratchDefaults) -> Void = { _ in }) -> (FileSyncManager, ScratchDefaults) {
         let defaults = ScratchDefaults(suite)
@@ -58,8 +47,8 @@ import Foundation
         return (m, defaults)
     }
 
-    /// $4.99 against the shipped $5 lifetime cap — close enough that a priced call of any size
-    /// breaches it, so what separates "allowed" from "refused" is only whether the estimate is real.
+    /// $4.99 against the shipped $5 lifetime cap, so any priced call breaches it and only whether
+    /// the estimate is real separates allowed from refused.
     private func seedNearLifetimeCap(_ d: ScratchDefaults) {
         FilingSpendStore.record(
             FilingSpendEntry(timestamp: Date(), model: CloudFilingProtocol.defaultModel,
@@ -81,9 +70,8 @@ import Foundation
                                                      files: candidates(3)) == nil)
     }
 
-    /// **The dialog must not quote a price nothing knows.** With no rate for the model the
-    /// estimate is unavailable, and the only honest preflight is no preflight: a "$0.0000" the
-    /// user reads as free, and then approves, is worse than not asking.
+    /// The dialog never quotes a price nothing knows. With no rate the call is refused without
+    /// asking: a "$0.0000" the user reads as free and approves is worse than not asking.
     @Test func anUnpricedModelIsNeverQuotedAsCostingNothing() {
         let confirmer = Confirmer { _ in true }
         let (m, _) = manager(model: Self.unpricedModel, suite: "unpricedQuote")
@@ -97,10 +85,8 @@ import Foundation
                 "the spend dialog was shown for an unpriceable call, quoting \(shown)")
     }
 
-    /// **The $5 lifetime backstop must not be disarmed by the model id.** Both cap predicates read
-    /// `monthlySpentUSD + estCostUSD` / `totalSpentUSD + estCostUSD`, so an estimate of 0 makes
-    /// "would this call push me past the cap?" answer no for every call, forever — the shipped
-    /// default cap included.
+    /// The $5 lifetime backstop holds whatever the model id. Both cap predicates add `estCostUSD`
+    /// to recorded spend, so an estimate of 0 would let every call past every cap.
     @Test func theLifetimeBackstopStillHoldsWhenTheModelIsUnpriced() {
         let (m, defaults) = manager(model: Self.unpricedModel, suite: "unpricedBackstop",
                                     seed: seedNearLifetimeCap)
@@ -116,9 +102,8 @@ import Foundation
                 "an unpriced batch of 200 files was allowed through with lifetime spend already at the cap")
     }
 
-    /// The other direction, so the two tests above are not passing on "the guardrail refuses
-    /// everything": a **priced** model at the same seam is still asked about, and the preflight it
-    /// is asked with carries a real, non-zero estimate.
+    /// The control, so the tests above can't pass on a guardrail that refuses everything: a priced
+    /// model at the same seam is still asked about, with a real non-zero estimate.
     @Test func aPricedModelIsStillQuotedAndStillAllowed() throws {
         let confirmer = Confirmer { _ in true }
         let (m, _) = manager(model: CloudFilingProtocol.defaultModel, suite: "pricedControl")
@@ -134,14 +119,13 @@ import Foundation
         #expect(preflight.model == CloudFilingProtocol.defaultModel)
     }
 
-    /// And the same control for the cap dimension: with the *priced* default model, $4.99 of
-    /// lifetime spend against the $5 cap is refused too — which is what makes the unpriced
-    /// refusal above a fix rather than a coincidence of the seeded state.
+    /// The same control for the cap: with the priced default model, $4.99 of lifetime spend against
+    /// the $5 cap is refused too, so the unpriced refusal is not an accident of the seed.
     @Test func aPricedModelAlsoRefusesAtTheLifetimeBackstop() throws {
         let (m, _) = manager(model: CloudFilingProtocol.defaultModel, suite: "pricedBackstop",
                              seed: seedNearLifetimeCap)
-        // The over-cap dialog's only button is "Use On-Device Instead", so a confirmer that says
-        // yes only when the caps allow is the honest stand-in for a user who cannot say yes.
+        // The over-cap dialog's only button is "Use On-Device Instead", so this confirmer says yes
+        // only when the caps allow, like a user who cannot say yes.
         let confirmer = Confirmer { !$0.wouldExceedCap }
         m.filingCloudSpendConfirmer = { confirmer.record($0) }
 

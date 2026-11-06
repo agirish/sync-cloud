@@ -66,11 +66,9 @@ import EventsTestSupport
         #expect(store.rootRelativePaths == ["kept"])
     }
 
-    /// An `add()` before any `activate()` updates the published set — so the row greys out and the
-    /// Settings list shows the entry, exactly as a durable ignore would — while `save()`'s
-    /// `guard let activeKey` drops the write on the floor. Nothing else can report it: `add` has no
-    /// return value, no error surfaces, and the visible state is identical to a successful save, so
-    /// the ignore simply is not there after a relaunch. The log line is the only signal.
+    /// An `add()` before any `activate()` updates the published set, so the UI shows the ignore,
+    /// but `save()` has no active key and drops the write: the ignore is gone after a relaunch.
+    /// Nothing else can report that, so the warning log line is the only signal.
     @MainActor
     @Test func testAddBeforeActivateIsSessionOnlyAndSaysSo() async {
         let log = LogCapture()

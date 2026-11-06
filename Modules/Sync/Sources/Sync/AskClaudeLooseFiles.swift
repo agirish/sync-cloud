@@ -1,9 +1,9 @@
 import Foundation
 
-/// A folder's loose files for Ask Claude's filing card (TE285): which files count, and the checks
-/// a row makes against the folder it would go to.
+/// A folder's loose files for Ask Claude's filing card: which files count, and the checks a row
+/// makes against the folder it would go to.
 ///
-/// **Loose** (decision FZ): every file in the folder and in its subfolders, each on its own.
+/// Loose means every file in the folder and in its subfolders, each on its own.
 /// Skipped: hidden files and folders (a leading dot, or the Never show Claude list, counted only),
 /// unfinished downloads, and what is inside a package, which is one document. Apps and installers
 /// are kept apart as "left here": the card never moves them.
@@ -30,7 +30,7 @@ public enum AskClaudeLooseFiles {
         public var truncated = false
         /// Each subfolder under the folder, absolute, and whether everything in it is a loose file
         /// (no installer, unfinished or hidden item anywhere inside it): one the card's moves could
-        /// leave empty (decision GA).
+        /// leave empty.
         public var emptiable: [String: Bool] = [:]
         /// Each subfolder's loose files, at any depth, for the same question.
         public var filesUnder: [String: Set<String>] = [:]
@@ -106,13 +106,13 @@ public enum AskClaudeLooseFiles {
         return emptied.filter { folder in !emptied.contains { folder.hasPrefix($0 + "/") } }.sorted()
     }
 
-    /// A file in `folder` holding exactly the bytes of `path` (decision GF), or nil. Only files of
-    /// the same size are read, and never one only in the cloud: reading it would download it.
+    /// A file in `folder` holding exactly the bytes of `path`, or nil. Only files of the same size
+    /// are read, and never one only in the cloud: reading it would download it.
     ///
     /// **Never the file itself under another spelling.** iCloud's Documents is a link to
-    /// ~/Documents, so a folder named one way can list the file named the other way: compared by
-    /// path, it was its own twin, and the card offered to Trash the only copy. The file's own
-    /// folder, however spelled, has no twin to offer; every candidate is compared by identity.
+    /// ~/Documents, so a folder named one way can list the file named the other way; compared by
+    /// path it would be its own twin, and the card would offer to Trash the only copy. So the
+    /// file's own folder, however spelled, has no twin, and every candidate is compared by identity.
     public static func sameFile(as path: String, in folder: String, size: Int?,
                                 isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true },
                                 fileManager fm: FileManager = .default) -> String? {
@@ -137,7 +137,7 @@ public enum AskClaudeLooseFiles {
         return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
     }
 
-    /// Why a copy already filed can't go to the Trash now (decision GF, checked again at Apply),
+    /// Why a copy already filed can't go to the Trash now (checked again at Apply),
     /// or nil: `twin` must still be another file, holding the same bytes. `readBytes` false checks
     /// only what needs no read.
     public static func copyRefusal(_ path: String, of twin: String, readBytes: Bool,
@@ -152,8 +152,8 @@ public enum AskClaudeLooseFiles {
         return nil
     }
 
-    /// The files a card shows, from `from` (decision GG): after the first card, those no card
-    /// before it showed, so files moved since don't shift the rest past it. `shown` holds what
+    /// The files a card shows, from `from`: after the first card, those no card before it showed,
+    /// so files moved since don't shift the rest past it. `shown` holds what
     /// earlier cards showed from this folder; with none, `from` counts from the start. `total` is
     /// `from` plus what is left, the count the card numbers against.
     public static func page(_ files: [File], from: Int, shown: Set<String>, count: Int = perCard) -> (files: [File], total: Int) {
@@ -161,7 +161,7 @@ public enum AskClaudeLooseFiles {
         return (Array(rest.prefix(count)), from + rest.count)
     }
 
-    /// Files on one filing card (decision GG, after his first use: 50 was too many to read).
+    /// Files on one filing card: few enough to read.
     public static let perCard = 10
 
     /// The two files hold the same bytes, read a megabyte at a time.
@@ -176,8 +176,8 @@ public enum AskClaudeLooseFiles {
         }
     }
 
-    /// The name `name` would land under in `folder`: itself, or "Ticket 2.pdf" when it is taken
-    /// (decision GE), as filing's own move names it.
+    /// The name `name` would land under in `folder`: itself, or "Ticket 2.pdf" when it is taken,
+    /// as filing's own move names it.
     public static func landingName(for name: String, in folder: String, fileManager fm: FileManager = .default) -> String {
         let target = URL(fileURLWithPath: folder).appendingPathComponent(name)
         guard fm.fileExists(atPath: target.path) else { return name }

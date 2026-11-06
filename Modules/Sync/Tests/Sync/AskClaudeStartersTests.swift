@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The questions an empty chat offers (TE299): fitted to the screen, and never an item's name.
+/// The questions an empty chat offers: fitted to the screen, and never an item's name.
 @Suite struct AskClaudeStartersTests {
 
     private func screen(_ workspace: String, folder: String = "Documents/Taxes", items: Int? = 12, hidden: Bool = false,

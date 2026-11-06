@@ -1,13 +1,9 @@
 import Testing
 @testable import Sync
 
-/// Pins `ProgressPublishGate`: the rule that decides how many times a bulk run is allowed to
-/// re-render the window.
-///
-/// Two properties matter and they pull against each other. The gate has to *suppress* — that is the
-/// entire reason it exists — but it must never suppress an update whose absence the user would see,
-/// which is the first report (the bar has to start where the run actually is) and the last one (it
-/// has to finish full). Everything below is one of those two claims.
+/// Pins `ProgressPublishGate`, which decides how often a bulk run may re-render the window. It must
+/// suppress, but never an update whose absence the user would see: the first report (the bar
+/// starts where the run is) and the last (it finishes full). Every test below is one of the two.
 @Suite struct ProgressPublishGateTests {
 
     /// Runs `total` reports through a gate and returns the ones it let through.
@@ -19,8 +15,7 @@ import Testing
     @Test("A large run is capped at about one update per percent, not one per file")
     func largeRunIsThrottled() {
         let admitted = published(total: 500, reports: Array(0...500))
-        // 0…99 inclusive plus the terminal 100% — the point is the order of magnitude, and that
-        // it is bounded by the percentage scale rather than by the file count.
+        // 0…99 plus the terminal 100%: bounded by the percentage scale, not the file count.
         #expect(admitted.count == 101)
         #expect(admitted.count < 500)
     }
@@ -32,8 +27,8 @@ import Testing
         #expect(small.count == large.count)
     }
 
-    /// The suppression must not reach small runs: with twenty items each file moves the bar five
-    /// points, which is a change worth drawing.
+    /// Suppression must not reach small runs: with twenty items each file moves the bar five points,
+    /// a change worth drawing.
     @Test("A small run is not throttled at all")
     func smallRunIsUnthrottled() {
         let admitted = published(total: 20, reports: Array(0...20))
@@ -47,8 +42,7 @@ import Testing
         #expect(admitted)
     }
 
-    /// Without this the bar ends on the last whole percent before completion — visibly short of
-    /// full on exactly the frame the user is looking at.
+    /// Otherwise the bar ends on the last whole percent before completion, visibly short of full.
     @Test("The terminal report always lands, so the bar finishes full")
     func terminalReportAlwaysPublishes() {
         var gate = ProgressPublishGate()
@@ -58,7 +52,7 @@ import Testing
     }
 
     /// A resumed or pre-credited run can report past its own total (the skip-credited bulk copy
-    /// starts at a non-zero base); that must publish rather than divide its way into silence.
+    /// starts at a non-zero base); that must publish, not divide its way into silence.
     @Test("A report beyond the total still lands")
     func overshootPublishes() {
         var gate = ProgressPublishGate()
@@ -67,9 +61,8 @@ import Testing
     }
 
     /// Workers finish in parallel and hop to the main actor to report, so a lower count can arrive
-    /// after a higher one. The gate compares against what it last PUBLISHED, so such a report is
-    /// let through — the same brief backwards step the ungated code already showed, rather than a
-    /// bar that sticks because a stale report moved the high-water mark.
+    /// after a higher one. The gate compares against what it last published, so the report lands as
+    /// a brief backwards step rather than a bar stuck behind a stale high-water mark.
     @Test("An out-of-order report is let through rather than sticking the bar")
     func outOfOrderReportPublishes() {
         var gate = ProgressPublishGate()
@@ -79,8 +72,8 @@ import Testing
         #expect(backwards)
     }
 
-    /// A caller with no denominator cannot render a fraction, and silently swallowing its reports
-    /// would leave it with no progress at all. Degenerate input opts out of the gate entirely.
+    /// A caller with no denominator can't render a fraction, and swallowing its reports would leave
+    /// it no progress at all, so degenerate input opts out of the gate.
     @Test("A run with no total is not gated")
     func zeroTotalIsUngated() {
         var gate = ProgressPublishGate()
@@ -88,8 +81,7 @@ import Testing
         #expect(admitted == [true, true, true])
     }
 
-    /// The mutation check: a gate that admitted everything would pass every assertion above except
-    /// this one, so this is what makes the suite mean "throttles" rather than "does not crash".
+    /// Must fail for a gate that admits everything, which would pass every test above.
     @Test("Repeating a report inside the same percent is suppressed")
     func repeatWithinAPercentIsSuppressed() {
         var gate = ProgressPublishGate()
@@ -103,12 +95,9 @@ import Testing
         #expect(twoPercent)
     }
 
-    /// The duplicate scan does not use the gate alone — it keeps its `% 50` floor and consults the
-    /// gate inside the main-actor hop. This pins why BOTH are needed, because each is wrong on its
-    /// own at one end of the range and the wrong choice is a regression rather than a smaller win.
-    ///
-    /// Counted here rather than asserted in prose: the traffic figure is the whole claim, and a
-    /// figure that is not computed has not been checked.
+    /// The duplicate scan keeps its `% 50` floor and consults the gate inside the main-actor hop.
+    /// Each alone is wrong at one end of the range, so both are needed; the publish counts are
+    /// computed here, not claimed.
     @Test("The scan's `% 50` floor and the percent gate each cover the other's bad end")
     func fiftyFloorAndPercentGateCompose() {
         func publishes(total: Int, everyFiftieth: Bool, percent: Bool) -> Int {
@@ -122,15 +111,14 @@ import Testing
             return count
         }
 
-        // Small scan: the percent gate ALONE is worse than the modulo it would replace — 120
-        // candidates move the percent on nearly every file, so it publishes 101 times against
-        // the modulo's 3. This is the case that makes a drop-in replacement a regression, and
-        // it is why the scan keeps its floor instead of adopting the gate the way Verify does.
+        // Small scan: the percent gate alone is worse than the modulo. 120 candidates move the
+        // percent on nearly every file, so it publishes 101 times against the modulo's 3, which
+        // is why the scan keeps its floor instead of adopting the gate as Verify does.
         #expect(publishes(total: 120, everyFiftieth: true, percent: false) == 3)
         #expect(publishes(total: 120, everyFiftieth: false, percent: true) == 101)
         #expect(publishes(total: 120, everyFiftieth: true, percent: true) == 3)
 
-        // Large scan: the modulo ALONE is the 460-publish case the gate exists to cut.
+        // Large scan: the modulo alone publishes 460 times, which the gate cuts.
         #expect(publishes(total: 23_000, everyFiftieth: true, percent: false) == 460)
         #expect(publishes(total: 23_000, everyFiftieth: true, percent: true) == 101)
 

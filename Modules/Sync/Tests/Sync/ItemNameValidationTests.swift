@@ -2,10 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins `FileSyncManager.validateItemName` (the single validator shared by the engine and the
-/// rename/new-folder prompts) and that `renameItem`/`createFolder` reject bad names up front —
-/// notably "../x", which `FileManager.moveItem` would otherwise resolve into the parent
-/// directory and silently relocate the file outside the visible pane.
+/// Pins `FileSyncManager.validateItemName` (the one validator shared by the engine and the
+/// rename/new-folder prompts) and that `renameItem`/`createFolder` reject bad names up front,
+/// notably "../x", which `FileManager.moveItem` would resolve into the parent directory, silently
+/// moving the file outside the visible pane.
 @Suite struct ItemNameValidationTests {
 
     // MARK: - Validator

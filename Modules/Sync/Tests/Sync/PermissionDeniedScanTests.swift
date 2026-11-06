@@ -2,11 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Round-5 fix: a permission-denied directory must scan as UNEXPLORED, never as empty.
-/// Before, both listing attempts were try?-swallowed into a plain empty node (warm/tree branch)
-/// or a silently skipped subtree (cold/disk branch, nil enumerator errorHandler), so the diff
-/// minted phantom actionable "Missing" rows for contents nobody could read — and accepting one
-/// would copy into (or "restore" from) a locked folder.
+/// A permission-denied directory must scan as unexplored, never as empty, on both the warm (tree)
+/// and cold (disk) branches. Read as empty, the diff would mint actionable "Missing" rows for
+/// contents nobody can read, and accepting one would copy into, or "restore" from, a locked folder.
 @Suite struct PermissionDeniedScanTests {
 
     private func makeTempDir() throws -> URL {
@@ -50,11 +48,9 @@ import Testing
         #expect(tree.contains { $0.name == "open.txt" })
     }
 
-    /// The same rule through an INJECTED file manager, which is a different branch of
-    /// `childURLs` — the real filesystem goes through `contentsOfDirectory`, which throws and is
-    /// handled; anything else went through a bare enumerator whose `guard let … else` never fired,
-    /// so an unlistable directory came back as `([], listingFailed: false)` — "listed, and empty".
-    /// The two branches disagreed about the same directory, and only the mock-driven one was wrong.
+    /// The same rule through an injected file manager, a different branch of `childURLs` from the
+    /// real filesystem's `contentsOfDirectory`. An unlistable directory must come back as
+    /// `listingFailed`, not as `([], listingFailed: false)`, "listed, and empty".
     @Test func buildTreeThroughAnInjectedManagerMarksAnUnlistableDirectoryUnexplored() async throws {
         let fm = MockFileManager()
         for dir in ["/base", "/base/locked"] {
@@ -76,13 +72,13 @@ import Testing
         #expect(lockedNode.isUnexplored == true,
                 "an unlistable directory must not masquerade as a genuinely empty one")
         #expect(lockedNode.children?.contains { $0.name == "secret.txt" } != true)
-        // The readable sibling is untouched — the failure is scoped to the directory that had one.
+        // The readable sibling is untouched: the failure is scoped to the directory that had one.
         #expect(tree.contains { $0.name == "open.txt" })
     }
 
-    /// The other direction, on the same branch: a directory that really is empty must still walk
-    /// as an ordinary explored folder. Without this, "mark everything unexplored" would satisfy
-    /// the test above, and every empty folder in the tree would start suppressing real diff rows.
+    /// The other direction: a directory that really is empty walks as an ordinary explored folder.
+    /// Otherwise "mark everything unexplored" would pass the test above, and every empty folder
+    /// would suppress real diff rows.
     @Test func buildTreeThroughAnInjectedManagerLeavesAGenuinelyEmptyDirectoryExplored() async throws {
         let fm = MockFileManager()
         for dir in ["/base", "/base/hollow"] {
@@ -120,11 +116,10 @@ import Testing
         #expect(info["open.txt"]?.isUnexplored == false)  // readable entries unaffected
     }
 
-    /// The same denied folder, named so that its first scalar is a combining mark — one Character
-    /// with the `/` before it. The entry's key and the failure's key are each stripped of that
-    /// slash, and they have to be stripped the SAME way: by Character, the slash stayed on both
-    /// (`/◌́locked`, a key the warm branch never makes); by scalar on one and Character on the
-    /// other, the re-mark missed its entry and the folder read as empty.
+    /// A denied folder whose name opens with a combining mark, which forms one Character with the
+    /// `/` before it. The entry's key and the failure's key must both drop that slash by scalar:
+    /// by Character the slash stays on (`/◌́locked`, a key the warm branch never makes), and mixing
+    /// the two misses the entry, so the folder reads as empty.
     @Test func getFilesInDirectoryMarksADeniedDirectoryWhoseNameOpensWithACombiningMark() throws {
         guard !runningAsRoot else { return }
         let base = try makeTempDir()
@@ -171,7 +166,7 @@ import Testing
             rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
             caseInsensitive: true)
 
-        // Nothing under the unreadable directory may surface as an actionable Missing row —
+        // Nothing under the unreadable directory may surface as an actionable Missing row:
         // the right side's view of "shared" is unknown, not empty.
         #expect(!diffs.contains { $0.relativePath.hasPrefix("shared/") },
                 "phantom rows: \(diffs.map(\.relativePath))")
@@ -182,10 +177,9 @@ import Testing
 
     @Test func unreadableDirectoryWithCaseVariantNameStillSuppressesMissingRows() throws {
         guard !runningAsRoot else { return }
-        // The pairing matches ancestors across case variants, so the suppression must too:
-        // left readable "Shared" with content, right UNREADABLE "shared". The unexplored set
-        // holds the right-side spelling; an exact-string ancestor lookup missed it and minted
-        // actionable Missing rows into a folder nobody can read.
+        // The pairing matches ancestors across case variants, so the suppression must too: left
+        // readable "Shared" with content, right unreadable "shared". The unexplored set holds the
+        // right-side spelling, which an exact-string ancestor lookup would miss.
         let leftBase = try makeTempDir()
         let rightBase = try makeTempDir()
         try write(leftBase.appendingPathComponent("Shared/doc.txt"), text: "content")
@@ -216,9 +210,9 @@ import Testing
 
     @Test func unreadableDirectoryWithNearNameVariantStillSuppressesMissingRows() throws {
         guard !runningAsRoot else { return }
-        // Near-name shape of the same hole: right's unreadable folder is "shared " (trailing
-        // space). The near-name machinery pairs the two dirs — and then REMAPPED the phantom
-        // child rows to target paths inside the unreadable variant.
+        // The near-name shape: right's unreadable folder is "shared " (trailing space). Near-name
+        // pairing matches the two dirs, and must not remap phantom child rows into the unreadable
+        // variant.
         let leftBase = try makeTempDir()
         let rightBase = try makeTempDir()
         try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
@@ -246,10 +240,10 @@ import Testing
 
     @Test func readableExactFolderBesideAnUnreadableVariantStillReportsItsMissing() throws {
         guard !runningAsRoot else { return }
-        // Negative control for the folded suppression: the right side has BOTH a readable
-        // exact-spelling "shared" (empty) and an unreadable "shared " variant. The missing row
-        // for left's shared/doc.txt targets the READABLE folder and must survive — folding
-        // may only suppress when no exact-spelling entry owns the ancestor.
+        // Negative control for the folded suppression: the right side has both a readable,
+        // empty "shared" and an unreadable "shared ". The missing row for left's shared/doc.txt
+        // targets the readable folder and must survive: folding may only suppress when no
+        // exact-spelling entry owns the ancestor.
         let leftBase = try makeTempDir()
         let rightBase = try makeTempDir()
         try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
@@ -279,12 +273,10 @@ import Testing
 
     @Test func readableCaseVariantOwnerBesideAnUnreadableVariantStillReports() throws {
         guard !runningAsRoot else { return }
-        // The readable owner of the ancestor can itself be a CASE-VARIANT spelling: left
-        // "Docs/x.txt", right has readable "docs" (empty) AND unreadable "Docs " (trailing
-        // space). The pairing matches left "Docs" with readable "docs" — so the child row is
-        // legitimate and must survive. An exact-spelling-only gate missed the readable owner
-        // (rightFilesInfo["Docs"] is nil), hit the unexplored folded key, and suppressed the
-        // very row the pairing's own decision says is actionable.
+        // The readable owner of the ancestor can be a case variant: left "Docs/x.txt", right has
+        // readable, empty "docs" and unreadable "Docs ". The pairing matches "Docs" with "docs",
+        // so the child row is actionable and must survive. An exact-spelling-only gate would miss
+        // the owner (rightFilesInfo["Docs"] is nil) and suppress it on the folded key.
         let leftBase = try makeTempDir()
         let rightBase = try makeTempDir()
         try write(leftBase.appendingPathComponent("Docs/x.txt"), text: "content")
@@ -352,8 +344,8 @@ import Testing
 
         let tree = await FileSyncManager.buildTree(url: base, sortOption: .name, maxDepth: nil)
 
-        // Never a bare [] — that read as an authoritatively EMPTY root downstream. The root
-        // itself comes back as a single unexplored node, same shape as any capped directory.
+        // Never a bare [], which reads downstream as an authoritatively empty root. The root
+        // comes back as a single unexplored node, the same shape as any capped directory.
         let rootNode = try #require(tree.first)
         #expect(tree.count == 1)
         #expect(rootNode.id == base.path)
@@ -404,7 +396,7 @@ import Testing
             rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
             caseInsensitive: true)
 
-        // The right side's ENTIRE view is unknown — nothing may surface as actionable Missing.
+        // The right side's entire view is unknown: nothing may surface as actionable Missing.
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
 
@@ -435,8 +427,8 @@ import Testing
     @Test func warmTreeBranchSuppressesRootLevelPhantomRowsToo() {
         // The warm branch's root marker: buildTree hands back [root node, unexplored] when the
         // root listing failed; filesInfo(fromTree:) must turn that into the root-key ("")
-        // record, and computeDifferences must suppress the whole side on it — matching the
-        // cold branch's answer for the same denied root.
+        // record, and computeDifferences must suppress the whole side on it, as the cold branch
+        // does.
         let leftNodes = [
             FileNode(id: "/L/doc.txt", name: "doc.txt", isDirectory: false, fileSize: 100),
         ]
@@ -462,7 +454,7 @@ import Testing
     @Test func warmTreeBranchSuppressesTheSamePhantomRows() {
         // The warm (cached-tree) branch feeds computeDifferences via filesInfo(fromTree:); an
         // isUnexplored node must carry the marker into the map and suppress the same rows the
-        // cold branch now suppresses — the two branches must give one answer.
+        // cold branch suppresses: the two branches must give one answer.
         let leftNodes = [
             FileNode(id: "/L/shared", name: "shared", isDirectory: true, children: [
                 FileNode(id: "/L/shared/doc.txt", name: "doc.txt", isDirectory: false, fileSize: 100),
@@ -488,16 +480,15 @@ import Testing
 
     // MARK: Name scan (Rename lens)
 
-    /// Round-7 fix: the denied-root marker node must never become a rename candidate. Before,
-    /// the marker flowed into `NameNormalizer.scan`'s flatten (which emits every node), so a
-    /// risky-named unreadable root appeared in the Rename lens — and "Fix all" would rename a
-    /// folder we can't even list (a rename only needs parent-write), dangling the pane focus.
+    /// The denied-root marker node must never become a rename candidate. `NameNormalizer.scan`'s
+    /// flatten emits every node, so a risky-named unreadable root would appear in the Rename lens,
+    /// and "Fix all" would rename a folder we can't list (a rename needs only parent-write),
+    /// dangling the pane focus.
     @MainActor
     @Test func nameScanOfAPermissionDeniedRootYieldsNoCandidates() async throws {
         guard !runningAsRoot else { return }
         let base = try makeTempDir()
-        // The root's own name is cloud-risky (trailing space) — exactly the shape that would
-        // have been flagged and batch-renamed before the fix.
+        // The root's own name is cloud-risky (trailing space), so it would be flagged if scanned.
         let lockedRoot = base.appendingPathComponent("Locked ")
         try write(lockedRoot.appendingPathComponent("secret.txt"), text: "hidden")
         try chmod(lockedRoot, 0o000)

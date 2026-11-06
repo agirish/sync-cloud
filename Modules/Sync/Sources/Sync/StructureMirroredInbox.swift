@@ -7,13 +7,10 @@ import Foundation
 /// and every later filing has to choose. The rule: a folder strictly **inside** an inbox whose
 /// path with the inbox component removed names a folder that exists.
 ///
-/// The inbox component must be a strict ancestor — the inbox folder itself always "mirrors" its
-/// parent by this construction and is not a finding. And the reference tree cannot validate this
-/// detector: the 6 Aug TODO drain cleared the class it detects, which is why its count there is
-/// pinned at zero and its firing case is synthetic. (The one candidate that tree still holds,
-/// `Finance/US/TODO/IRS/IRS`, is a child restating its parent's name *inside* an inbox — that is
-/// parent/child echo's observation, and the echo detector names it precisely; a mirror rule bent
-/// to also catch it would fire on a path whose de-inboxed form exists nowhere.)
+/// The inbox component must be a strict ancestor: the inbox folder itself always "mirrors" its
+/// parent by construction. The reference tree has no instances, so its count there is pinned at
+/// zero and the firing case is synthetic. A child restating its parent inside an inbox
+/// (`Finance/US/TODO/IRS/IRS`) is the echo detector's finding, not this one's.
 enum StructureMirroredInbox {
 
     static func findings(in profile: FolderProfile) -> [StructureFinding] {
@@ -37,10 +34,9 @@ enum StructureMirroredInbox {
                 break
             }
         }
-        // The SHALLOWEST mirror per subtree is the finding: `TODO/Dental/Claims` mirroring
-        // `Dental/Claims` is not a second observation, it is the inside of the first one — and
-        // the plan that merges `TODO/Dental` carries it. Sorted first so every ancestor
-        // precedes its descendants when the prefix test runs.
+        // The shallowest mirror per subtree is the finding: `TODO/Dental/Claims` mirroring
+        // `Dental/Claims` is inside the first one, and the plan merging `TODO/Dental` carries it.
+        // Sorted so every ancestor precedes its descendants for the prefix test.
         let sorted = hits.sorted { $0.subject < $1.subject }
         var kept: [StructureFinding] = []
         for hit in sorted where !kept.contains(where: { hit.subject.hasPrefix($0.subject + "/") }) {

@@ -1,23 +1,18 @@
 import Foundation
 
-/// What the roster looks like against the tree it describes — the whole-household view.
-///
-/// Per-person facts answer "what do you know about her". This answers the two questions that are
-/// about the *set*: how much of the tree the roster actually governs, and where it does not reach.
+/// The roster against the tree it describes: the whole-household view. Per-person facts describe
+/// one person; this says how much of the tree the roster governs, and where it doesn't reach.
 public struct PeopleOverview: Sendable, Equatable {
     /// Folders carrying a person axis that resolves to somebody on the roster.
     public let claimedFolders: Int
     /// Documents filed into those folders.
     public let claimedDocuments: Int
-    /// People the tree files for who are **not** on the roster.
-    ///
-    /// A survey records `axes.person` from the folder names it found; a value the registry cannot
-    /// resolve is somebody with folders and no record — so documents naming them are attributed to
-    /// nobody, and the cross-person veto cannot protect those folders. Actionable: the section
-    /// offers to add them.
+    /// People the tree files for who are not on the roster: an `axes.person` value the registry
+    /// can't resolve. Documents naming them go to nobody and the cross-person veto can't protect
+    /// their folders, so the section offers to add them.
     public let unclaimed: [UnclaimedPerson]
-    /// People on the roster with no folder in the tree recorded as theirs. Not a fault — a person
-    /// added today has none yet — but it does mean their record changes nothing until one exists.
+    /// People on the roster with no folder recorded as theirs. Not a fault (someone added today has
+    /// none yet), but their record changes nothing until one exists.
     public let peopleWithNoFolders: [String]
 
     public init(claimedFolders: Int, claimedDocuments: Int, unclaimed: [UnclaimedPerson],
@@ -33,7 +28,7 @@ public struct PeopleOverview: Sendable, Equatable {
 
     /// A name the tree files for that the roster does not know.
     public struct UnclaimedPerson: Sendable, Equatable {
-        /// The axis value exactly as the survey recorded it — the spelling to offer as a name.
+        /// The axis value exactly as the survey recorded it: the spelling to offer as a name.
         public let name: String
         public let folders: Int
         public let documents: Int
@@ -69,9 +64,8 @@ public struct PeopleOverview: Sendable, Equatable {
                 claimedDocuments += docs
                 withFolders.insert(id)
             } else {
-                // Grouped by the axis value as written, because that spelling is what the offer
-                // will propose as a name — normalising it here would propose something the tree
-                // does not actually say.
+                // Grouped by the axis value as written: the offer proposes that spelling as a
+                // name, and normalising it would propose something the tree doesn't say.
                 unknownFolders[axis, default: 0] += 1
                 unknownDocs[axis, default: 0] += docs
                 if let existing = unknownExample[axis] {
@@ -85,8 +79,8 @@ public struct PeopleOverview: Sendable, Equatable {
             }
         }
 
-        // Built with an explicit loop and type: the map-then-sort one-liner defeated the type
-        // checker ("unable to type-check in reasonable time") on the tuple destructuring.
+        // An explicit loop and type: a map-then-sort one-liner over the tuples is too slow for the
+        // type checker.
         var unclaimed: [UnclaimedPerson] = []
         for (name, count) in unknownFolders {
             unclaimed.append(UnclaimedPerson(name: name, folders: count,

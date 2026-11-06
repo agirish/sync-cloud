@@ -15,33 +15,27 @@ public struct PersonArea: Sendable, Equatable {
 
 /// What the app actually knows about one person, and what that knowledge buys when filing.
 ///
-/// **This exists because a list of names is not an answer.** The People section used to print six
-/// names, which told the user nothing about why the app was holding them or what would change if
-/// one were edited. Every number here is derived — from the roster, the surveyed profile, and the
-/// filing memory — so the section can say *what* is known rather than merely *who*.
-///
-/// Computed in `Sync` rather than in the view for the usual reason: a rule the UI states is a rule
-/// that should be testable without a window.
+/// A list of names doesn't say why the app holds them or what editing one changes, so the People
+/// section shows what is known, not just who. Every number is derived from the roster, the
+/// surveyed profile and the filing memory. Computed in `Sync` so the rules the UI states are
+/// testable without a window.
 public struct PersonFilingFacts: Sendable, Equatable {
     public let personId: String
-    /// The name forms matched against a document, longest first — the display order is the
-    /// *matching* order, so the list doubles as an explanation of precedence.
+    /// The name forms matched against a document, longest first: the display order is the
+    /// matching order, so the list also explains precedence.
     public let matchedForms: [String]
     /// Words that identify this person on their own.
     public let uniqueWords: [String]
-    /// Words another member of the household also answers to, with how many others — `father` is
-    /// shared with three. These are the reason matching is phrase-first.
+    /// Words other household members also answer to, with how many others share each. These are
+    /// why matching is phrase-first.
     public let sharedWords: [(word: String, othersSharing: Int)]
     /// Folders whose `axes.person` resolves to this person, shallowest first.
     public let folders: [String]
     /// Documents already filed into those folders, from the filing memory.
     public let filedDocuments: Int
-    /// Where those folders are, by the top level of the tree they sit under, busiest first —
-    /// `Family 34 · School 12 · Immigration 10`.
-    ///
-    /// **A count alone does not say what a person's record covers.** "56 folders" is a number;
-    /// "Family, School, Immigration" is what she has documents about, and it makes a thin record
-    /// (`Elder — Family 5`) visible as thin rather than merely small.
+    /// Where those folders are, by top-level area, busiest first: `Family 34 · School 12 ·
+    /// Immigration 10`. A count alone doesn't say what a record covers; the areas do, and they show
+    /// a thin record (`Elder — Family 5`) as thin rather than merely small.
     public let areas: [PersonArea]
 
     public var folderCount: Int { folders.count }
@@ -49,22 +43,17 @@ public struct PersonFilingFacts: Sendable, Equatable {
     /// Whether any single word names this person and nobody else.
     public var hasAnyUniqueWord: Bool { !uniqueWords.isEmpty }
 
-    /// Whether a document can be attributed to this person **at all**.
-    ///
-    /// Two ways to qualify, and the second is why this is not simply ``hasAnyUniqueWord``: a
-    /// distinctive word (`maiden`, `granny`), **or** a multi-word form the matcher can find as a
-    /// phrase. Father has no unique word — `father` and `elder` are each three other people's
-    /// too — yet "Father Elder" names him unambiguously, so warning him to "add a full name"
-    /// when he already has one is advice he cannot act on.
-    ///
-    /// **This is the whole difference between a caution that means something and one that fires on
-    /// every row.** Rendered before it existed, all seven of a real household were amber.
+    /// Whether a document can be attributed to this person at all: a distinctive word (`maiden`,
+    /// `granny`), or a multi-word form the matcher can find as a phrase. Not simply
+    /// ``hasAnyUniqueWord``: "Father Elder" names a person unambiguously though each word is shared,
+    /// and telling them to "add a full name" would be advice they can't act on. Without the phrase
+    /// case the caution would fire on nearly every row.
     public var isAttributable: Bool {
         hasAnyUniqueWord || matchedForms.contains { PersonRegistry.words($0).count >= 2 }
     }
 
-    /// "“father” (also 3 others)", … — the shared-word detail, phrased once so the row's tooltip
-    /// and the editor cannot describe the same fact differently.
+    /// "“father” (also 3 others)", …: the shared-word detail, phrased once so the row's tooltip
+    /// and the editor can't describe it differently.
     public var sharedSummary: String {
         sharedWords.map { entry in
             entry.othersSharing == 1 ? "“\(entry.word)” (also 1 other)"
@@ -84,7 +73,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
         self.areas = areas
     }
 
-    /// Nothing known — the state a half-typed draft is in.
+    /// Nothing known: the state of a half-typed draft.
     public static let none = PersonFilingFacts(personId: "", matchedForms: [], uniqueWords: [],
                                                sharedWords: [], folders: [], filedDocuments: 0)
 
@@ -99,16 +88,15 @@ public struct PersonFilingFacts: Sendable, Equatable {
 
     /// Everything known about one person.
     ///
-    /// `profile` and `memory` are optional because both are survey artifacts: a roster edited on a
-    /// machine that has never been surveyed still reports its names and its shared words, and simply
-    /// has no folders or documents to count. That is the honest answer, not a degraded one.
+    /// `profile` and `memory` are optional because both come from a survey: on a Mac never surveyed
+    /// the roster still reports names and shared words, with no folders or documents to count.
     public static func make(for person: Person, registry: PersonRegistry,
                             profile: FolderProfile?, memory: FilingMemory?) -> PersonFilingFacts {
         let breakdown = registry.tokenBreakdown(for: person.id)
         let shared = breakdown.shared.map { word in
             (word: word, othersSharing: registry.othersSharing(word, with: person.id))
         }
-        // Longest first: that is the order `detect` tries them in, and the order is the rule.
+        // Longest first: the order `detect` tries them in.
         let forms = ([person.displayName] + person.fullNames + person.aliases)
             .reduce(into: [String]()) { out, name in
                 let trimmed = name.trimmingCharacters(in: .whitespaces)
@@ -130,8 +118,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
                 folders.append(path)
                 let filed = memory?.folders[path]?.docs ?? 0
                 docs += filed
-                // The top level of the path is the area. Anything deeper would be a different
-                // answer for every person and would not group.
+                // The top level of the path is the area; anything deeper wouldn't group.
                 let area = String(path.split(separator: "/").first ?? "")
                 if !area.isEmpty {
                     areaFolders[area, default: 0] += 1
@@ -143,8 +130,8 @@ public struct PersonFilingFacts: Sendable, Equatable {
                 return da == db ? a.localizedStandardCompare(b) == .orderedAscending : da < db
             }
         }
-        // Busiest first by documents, then by folders, then by name — a stable order, so the line
-        // does not reshuffle between two renders of the same data.
+        // By documents, then folders, then name: a stable order, so the line doesn't reshuffle
+        // between renders of the same data.
         let areas = areaFolders.map { name, count in
             PersonArea(name: name, folders: count, documents: areaDocs[name] ?? 0)
         }.sorted { a, b in

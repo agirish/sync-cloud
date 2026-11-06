@@ -15,18 +15,11 @@ import Testing
 
     // MARK: - explain
 
-    /// **What the matcher answers, stated rather than derived.**
-    ///
-    /// This asserted that `detect` agrees with `explain` — over a spread of inputs, with a comment
-    /// explaining that they cannot disagree because `detect` IS `Set(explain(...).map(\.personId))`.
-    /// It compared the model to itself: every one of those cases passes with any matching rule
-    /// whatsoever, including one that names nobody at all. The shapes were well chosen; only the
-    /// assertion was empty, so they are kept and given real answers.
-    ///
-    /// Each line is a rule the file's prose claims elsewhere: a longer phrase consumes the words
-    /// inside it (`Daughter Father` is Daughter, not Daughter-and-her-father), an alias resolves to the
-    /// person, a bare given name matching two people still resolves to whoever claims it as a
-    /// first name, and text naming nobody names nobody.
+    /// What the matcher answers, stated rather than derived from `explain`, which would compare the
+    /// model to itself. Each case is a rule: a longer phrase consumes the words inside it
+    /// (`Daughter Father` is Daughter, not Daughter and her father), an alias resolves to the
+    /// person, a given name shared by two people resolves to whoever claims it as a first name, and
+    /// text naming nobody names nobody.
     @Test func theMatcherAnswersEachShapeAsTheRulesSay() {
         let cases: [(String, Set<String>)] = [
             ("Daughter Father - OCI", ["daughter"]),
@@ -43,17 +36,16 @@ import Testing
         }
     }
 
-    /// And the seam the test above used to assert: `explain` reports exactly what `detect` answers.
-    /// Worth one line, since the People section shows the explanation and the veto acts on the set —
-    /// but it is a wiring check, not the matcher's coverage, which is what the case table above is.
+    /// `explain` reports exactly what `detect` answers, since the People section shows the one and
+    /// the veto acts on the other. A wiring check; the case table above is the matcher's coverage.
     @Test func explainReportsTheSamePeopleDetectAnswers() {
         let text = "Father Elder and Mom"
         #expect(Set(Self.household.explain(in: text).matches.map(\.personId))
                 == Self.household.detect(in: text))
     }
 
-    /// The form is reported **as the roster spells it**, not as the tokenizer sees it — the point
-    /// is to quote the user's own entry back to them.
+    /// The form is reported as the roster spells it, not as the tokenizer sees it, so the user's own
+    /// entry is quoted back to them.
     @Test func theMatchedFormIsQuotedAsWritten() throws {
         let report = Self.household.explain(in: "daughter father - oci card")
         let match = try #require(report.matches.first)
@@ -66,9 +58,8 @@ import Testing
         #expect(!alias.isPhrase)
     }
 
-    /// **The explanation that makes phrase matching make sense**: the word that was spent, and who
-    /// it would otherwise have named. Without this the tester says "Daughter" and the user is left to
-    /// wonder why her father's name in the same filename did nothing.
+    /// The report names the word a phrase spent and who it would otherwise have named. Without it
+    /// the tester says "Daughter" and the user can't tell why her father's name did nothing.
     @Test func anAbsorbedWordNamesWhoItWouldHaveMatched() throws {
         let report = Self.household.explain(in: "Daughter Father - OCI Card")
         let absorbed = try #require(report.absorbed.first)
@@ -78,13 +69,13 @@ import Testing
         #expect(report.absorbed.count == 1)
     }
 
-    /// A phrase that consumes only its own person's words absorbs nothing — the report must not
-    /// invent an explanation where there is none to give.
+    /// A phrase that consumes only its own person's words absorbs nothing: the report must not
+    /// invent an explanation.
     @Test func aPhraseThatStealsNothingReportsNothingAbsorbed() {
         let report = Self.household.explain(in: "Granny Elder - Resume")
         #expect(report.matches.map(\.personId) == ["granny"])
         // "elder" belongs to Father's full name too, but on its own it names nobody in this
-        // roster — it is neither a strong token nor anyone's given name — so nothing was taken.
+        // roster (neither a strong token nor anyone's given name), so nothing was taken.
         #expect(report.absorbed.isEmpty)
     }
 
@@ -100,9 +91,8 @@ import Testing
         return FolderProfile(profileId: "t", root: "~", folders: folders, personTokens: [])
     }
 
-    /// **A person the tree files for who is not on the roster is the actionable gap.** Documents
-    /// naming them are attributed to nobody and their folders get no protection, and nothing else
-    /// in the app would ever mention it.
+    /// A person the tree files for who isn't on the roster is the actionable gap: documents naming
+    /// them are attributed to nobody, their folders get no protection, and nothing else says so.
     @Test func aPersonWithFoldersButNoRecordIsReported() throws {
         let profile = Self.profile([("Family/Ravi", "Ravi"),
                                     ("Immigration/Passport/Ravi", "Ravi"),
@@ -122,14 +112,14 @@ import Testing
         #expect(overview.claimedDocuments == 3)
     }
 
-    /// A complete roster reports no gap — the state that lets the section say so plainly instead of
-    /// showing an empty space.
+    /// A complete roster reports no gap, so the section can say so plainly instead of showing an
+    /// empty space.
     @Test func aCompleteRosterHasNoUnclaimedPeople() {
         let profile = Self.profile([("Family/Daughter", "Daughter"), ("Family/Mom", "Mom")])
         let overview = PeopleOverview.make(registry: Self.household, profile: profile, memory: nil)
         #expect(overview.unclaimed.isEmpty)
-        // `Family/Mom` counts as claimed through the alias, which is the whole point of resolving
-        // the axis through the registry rather than by string equality.
+        // `Family/Mom` counts as claimed through the alias: the axis resolves through the registry,
+        // not by string equality.
         #expect(overview.claimedFolders == 2)
     }
 
@@ -143,8 +133,8 @@ import Testing
 
     // MARK: - Areas
 
-    /// The areas are the top level of each folder's path, busiest first — what a person's record
-    /// is *about*, which a folder count cannot say.
+    /// The areas are the top level of each folder's path, busiest first: what a person's record is
+    /// about, which a folder count can't say.
     @Test func areasGroupFoldersByTheTopOfTheirPath() throws {
         let profile = Self.profile([("Family/Daughter", "Daughter"),
                                     ("Family/Daughter/Events", "Daughter"),
@@ -156,7 +146,7 @@ import Testing
         let daughter = try #require(Self.household.people.first { $0.id == "daughter" })
         let facts = PersonFilingFacts.make(for: daughter, registry: Self.household,
                                            profile: profile, memory: memory)
-        // School leads on documents despite Family holding more folders — busiest, not biggest.
+        // School leads on documents though Family holds more folders: busiest, not biggest.
         #expect(facts.areas.map(\.name) == ["School", "Family"])
         #expect(facts.areas.first?.documents == 40)
         #expect(facts.areas.last?.folders == 2)
@@ -187,8 +177,8 @@ import Testing
     /// Capped, because this is an illustration and not a filing diary.
     @MainActor
     @Test func theVetoLogForgetsTheOldest() {
-        // Cleaned up like every sibling in this file: a UUID-named suite with no teardown leaves a
-        // plist in the shared `~/Library/Preferences` on every run, for as long as the suite exists.
+        // `ScratchDefaults`, like its siblings: a UUID-named suite with no teardown would leave a
+        // plist in the shared `~/Library/Preferences` on every run.
         let log = PersonVetoLog(userDefaults: ScratchDefaults("veto-cap"))
         for i in 0..<(PersonVetoLog.capacity + 10) {
             log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",

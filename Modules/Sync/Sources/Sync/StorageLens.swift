@@ -52,15 +52,10 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
     /// Total bytes of every leaf file in the scanned tree.
     public let totalBytes: Int
 
-    // **The whole tree's numbers, counted before the lists are capped at `topN`.** The three lists
-    // above are each the first `topN` rows, so their `count` is the cap on nearly any real tree,
-    // and a headline built from them read "20 large · 20 untouched" everywhere, with a
-    // "reclaimable" figure summing only the first 20 candidates. These are what the lists were
-    // drawn from.
-    //
-    // **nil on a report saved before they existed** (every 6.0 snapshot). Its lists are capped
-    // like any other, so filling these in from them restored the very "20 files · 20 untouched"
-    // headline the totals were added to end; nil lets the headline say it needs a rescan instead.
+    // The whole tree's numbers, counted before the lists are capped at `topN`. The lists' own
+    // counts are the cap on nearly any real tree, so a headline built from them would misreport.
+    // nil on a report saved before these fields existed: its lists are capped too, so the
+    // headline asks for a rescan rather than read totals from them.
 
     /// Every leaf file the analysis measured — the pool `largest` is the top of.
     public let fileCount: Int?
@@ -71,11 +66,8 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
     /// The bytes of every reclaim candidate.
     public let reclaimableBytes: Int?
 
-    /// **The four totals are required.** They used to default to what the lists add up to, which
-    /// is exact only for lists that were never capped — so a caller that forgot them got the
-    /// capped "20 files · 20 untouched" counts back without a word. The analyzer passes the
-    /// tree's own, and a hand-built report says what its tree holds. (Only the decoder can leave
-    /// them unknown; see ``init(from:)``.)
+    /// The four totals are required: a default from the lists' lengths would silently report the
+    /// cap. Only the decoder can leave them unknown (``init(from:)``).
     public init(
         treemap: [TreemapNode],
         largest: [StorageEntry],
@@ -118,10 +110,9 @@ public struct StorageLensReport: Codable, Sendable, Equatable {
         case fileCount, staleCount, reclaimCount, reclaimableBytes
     }
 
-    /// Reads a report saved before the totals existed — every snapshot written by 6.0 and earlier —
-    /// with the totals nil. A required key would have thrown, and a snapshot that fails to decode
-    /// is a Storage page that comes up empty after an update; falling back to the lists' lengths
-    /// read the capped lists as the tree's counts again.
+    /// Reads a report saved before the totals existed with the totals nil. A required key would
+    /// throw and leave the Storage page empty after an update; the lists' lengths would read the
+    /// cap as the tree's counts.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -250,15 +241,13 @@ public enum StorageLensAnalyzer {
     /// directories (an `isUnexplored` folder's empty `children` is a construction artifact).
     private static func collectLeaves(_ nodes: [FileNode], into out: inout [StorageEntry]) {
         for node in nodes {
-            // Skip symlinks: the walk resolves a link's size/content to its target, so counting a
-            // link AND its in-tree target would double the reported usage (and list every big file
-            // twice). A symlink occupies no real space of its own. Mirrors DuplicateFinder.
+            // Skip symlinks: the walk resolves a link's size to its target's, so counting both
+            // would double the usage and list big files twice. Mirrors DuplicateFinder.
             if node.isSymbolicLink == true { continue }
-            // And skip a subtree this walk also reached by a shorter route. Same hazard, and the
-            // line above could not see it: a folder the root links in from outside is SUBSTITUTED
-            // for the real folder, so it arrives with the real path and `isSymbolicLink == false`.
-            // Measured 2026-09-08 — `~/Documents` reached twice under a `~` scan put 10.5 GB of
-            // phantom usage into this total. See `FileNode.isCoveredElsewhere`.
+            // And skip a subtree this walk also reached by a shorter route: a folder linked in from
+            // outside the root arrives with the real path and `isSymbolicLink == false`, so the
+            // check above misses it and its usage would count twice. See
+            // `FileNode.isCoveredElsewhere`.
             if node.isCoveredElsewhere == true { continue }
             if node.isDirectory {
                 if node.isUnexplored == true { continue }

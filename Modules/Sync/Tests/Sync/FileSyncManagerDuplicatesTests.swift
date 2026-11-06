@@ -90,11 +90,9 @@ import Combine
         try write(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        // `cache: nil` throughout. This test scans the SAME files with two different cloud-only
-        // answers, and a cache hit deliberately bypasses that answer — the cache holds digests.
-        // Sharing one across these scans would let the local run answer for the cloud-only run
-        // after it, which is correct behavior and the wrong thing to measure here: what is under
-        // test is the SKIP classification.
+        // `cache: nil` throughout: this scans the same files with two cloud-only answers, and a
+        // cache hit bypasses that answer, so a shared cache would let the local run answer for the
+        // cloud-only one. What is under test is the skip classification.
         await manager.findDuplicates(root: root, isCloudOnly: { _ in true }, cache: nil)
 
         #expect(manager.hasFoundDuplicates)
@@ -205,10 +203,9 @@ import Combine
         #expect(ok == false)                                         // nothing removed
         #expect(mockFM.virtualDisk["/b/x"] != nil)                   // file still there
         #expect(manager.duplicateGroups.count == 1)                  // group NOT dropped
-        // No false "Reclaimed" banner — the original point of this assertion, which used to be
-        // spelled `banner == nil` because declining produced no feedback of any kind. It now says
-        // what happened: the copy could not be trashed and the permanent delete was declined, so
-        // the file is still there. Silence was indistinguishable from the click doing nothing.
+        // No false "Reclaimed" banner: a warning says the copy couldn't be trashed and the
+        // permanent delete was declined, so the file is still there. Silence would read as the
+        // click doing nothing.
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("Reclaimed") != true)
         #expect(manager.banner?.message.contains("Kept") == true)
@@ -306,15 +303,13 @@ import Combine
         #expect(manager.banner?.severity == .warning, "a partial outcome must not read as full success")
     }
 
-    /// **A folder's stat size is not its recursive content size**, so the drift check must never
-    /// compare the two — the exemption the keeper check has always had, now expressed as a
-    /// CONTENT comparison rather than as no comparison at all. Untested, this is one wrong line
-    /// away from refusing EVERY folder duplicate group.
+    /// A folder's stat size is not its recursive content size, so the drift check compares
+    /// content and never the two sizes; one wrong line would refuse every folder group.
     ///
-    /// The mock fixtures in this block hand-build both the group AND its recorded snapshot, in
-    /// the mock walk's own convention (the injected-manager tree walk reads no sizes or dates,
-    /// so entries carry size 0 / nil mtime). They pin the count/kind semantics; the real-tree
-    /// section below is what holds the scan's and the re-walk's conventions to each other.
+    /// The mock fixtures here hand-build both the group and its recorded snapshot in the mock
+    /// walk's convention (it reads no sizes or dates, so entries carry size 0 / nil mtime). They
+    /// pin the count/kind semantics; the real-tree section below holds the scan's and the
+    /// re-walk's conventions to each other.
     @MainActor
     @Test func aFolderCopyIsNotRefusedForItsStatSize() async throws {
         let mockFM = MockFileManager()
@@ -332,10 +327,9 @@ import Combine
         #expect(mockFM.virtualDisk["/b/Photos"] == nil)
     }
 
-    /// **The gap this closes, as the report described it.** Scan two 3,000-file folders as
-    /// identical, move 1,200 photos out of the KEEPER, press Move to Trash — and the last intact
-    /// copy of those 1,200 was destroyed, because a folder group's entire resolve-time guarantee
-    /// was "a directory entry still exists at this path".
+    /// A keeper that lost files since the scan refuses the group: trashing the backup would
+    /// destroy the last intact copy of what left the keeper. A directory still existing at the
+    /// path proves nothing about its contents.
     @MainActor
     @Test func aFolderThatLostFilesSinceTheScanIsRefused() async throws {
         let mockFM = MockFileManager()
@@ -373,11 +367,9 @@ import Combine
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
-    /// **A same-count, different-name swap is caught** — one file replaced by another under a
-    /// new name leaves the entry count intact, and the per-entry baseline still sees both the
-    /// missing path and the extra one. (Byte drift under an UNCHANGED name is pinned by the
-    /// real-tree rewrite test below — the injected-manager walk reads no sizes, so a mock cannot
-    /// express it honestly.)
+    /// A same-count swap under a new name is caught: the entry count is intact, but the per-entry
+    /// baseline sees both the missing path and the extra one. Byte drift under an unchanged name
+    /// is pinned by the real-tree rewrite test below, since the mock walk reads no sizes.
     @MainActor
     @Test func aFolderWhoseFileWasSwappedForAnotherNameIsRefused() async throws {
         let mockFM = MockFileManager()
@@ -415,12 +407,10 @@ import Combine
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
-    /// A folder copy with NO baseline refuses too — but with a banner that says the scan couldn't
-    /// check it, not that it changed. The scan records nil on a folder whose subtree held an
-    /// unreadable descendant, a rescan of the same tree records nil again, and the old "changed
-    /// since it was scanned — rescan" wording asserted a change nobody measured while pointing at
-    /// a rescan that could never clear it (the banner-honesty rule: never claim what wasn't
-    /// checked).
+    /// A folder copy with no baseline refuses too, with a banner saying the scan couldn't check
+    /// it, not that it changed. The scan records nil for a folder with an unreadable descendant and
+    /// a rescan records nil again, so "changed since it was scanned" would claim an unmeasured
+    /// change and point at a rescan that can't clear it.
     @MainActor
     @Test func aFolderCopyWithNoBaselineRefusesWithoutClaimingChange() async throws {
         let mockFM = MockFileManager()
@@ -575,9 +565,9 @@ import Combine
         #expect(manager.banner?.severity == .warning)
     }
 
-    /// FR12. The copy being folded away holds a folder its walk could not read. Every flatten
-    /// read that folder as empty, so the merge copied the rest and trashed the copy — unread
-    /// folder included. Now nothing is copied or trashed, and the banner says why.
+    /// The copy being folded away holds a folder its walk can't read. A flatten would read it as
+    /// empty and the merge would trash the copy with the unread folder inside, so nothing is
+    /// copied or trashed, and the banner says why.
     @MainActor
     @Test func mergeRefusesACopyHoldingAFolderItCouldNotRead() async throws {
         let mockFM = MockFileManager()
@@ -683,8 +673,8 @@ import Combine
         #expect(manager.duplicateGroups.isEmpty)
     }
 
-    /// **Keep separate could not be taken back.** It now registers one ⌘Z step and says so in an
-    /// undoable banner — undo puts the card back and forgets the key, redo hides it again.
+    /// Keep separate can be taken back: one ⌘Z step and an undoable banner. Undo puts the card
+    /// back and forgets the key; redo hides it again.
     @MainActor
     @Test func keepSeparateCanBeUndoneAndRedone() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -721,9 +711,9 @@ import Combine
         #expect(manager.ignoredDuplicateKeys == [group.ignoreKey])
     }
 
-    /// **Undo put the card back into whatever was showing.** Ids are per scan, so after a rescan
-    /// of the same folder (the group back on screen under a new id) undo added a second card, and
-    /// after a scan of another folder it dropped this folder's group into those results.
+    /// Undo puts the card back only where it came from. Ids are per scan, so after a rescan of the
+    /// same folder (the group back under a new id) it must not add a second card, and after a scan
+    /// of another folder it must not drop this folder's group into those results.
     @MainActor
     @Test func undoingKeepSeparatePutsTheCardBackOnlyWhereItCameFrom() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -782,7 +772,7 @@ import Combine
 
         await manager.findDuplicates(root: root)
         manager.keepDuplicateGroupSeparate(try #require(manager.duplicateGroups.first))
-        // Not "won't be flagged again" outright: the key is these exact copies (L9).
+        // Not "won't be flagged again" outright: the key is these exact copies.
         #expect(manager.banner?.message.hasSuffix("it won’t be flagged again while its copies stay put.") == true,
                 "\(manager.banner?.message ?? "nil")")
         await manager.findDuplicates(root: root)
@@ -793,9 +783,9 @@ import Combine
         #expect(manager.duplicateGroups.count == 1)
     }
 
-    /// **Show them again counted and forgot every key, everywhere.** The set is kept for every
-    /// folder and provider at once; only the keys a scan of this folder could flag are this
-    /// lens's to count and forget, and the forgetting says how many.
+    /// Show them again counts and forgets only this folder's keys. The set holds every folder and
+    /// provider at once; only the keys a scan of this folder could flag are this lens's, and the
+    /// forgetting says how many.
     @MainActor
     @Test func showingKeptGroupsAgainTouchesOnlyThisFolder() throws {
         // On disk, every copy: a key whose copies are gone is not counted (below).
@@ -829,13 +819,12 @@ import Combine
                 == "Forgot 1 group kept separate — this scan flags it again if it’s still a duplicate.")
     }
 
-    /// **A kept group whose copy is gone was still counted and promised back** (L9). Its key is the
-    /// exact copy paths, so no scan can ever match it again: "You’ve kept 2 groups separate" and
-    /// "they come back with this scan" both counted a group that cannot come back. Forgotten all
-    /// the same, so the store does not keep it forever.
+    /// A kept group whose copy is gone is neither counted nor promised back: its key is the exact
+    /// copy paths, so no scan can match it again. It is forgotten all the same, so the store
+    /// doesn't keep it forever.
     ///
-    /// Known from the scan's own tree, not from a stat per copy: the lens counts these from its
-    /// body, on every redraw. So nothing is known gone until a scan has looked — the control below.
+    /// Gone is known from the scan's own tree, not a stat per copy, since the lens counts these on
+    /// every redraw. So nothing is known gone until a scan has looked: the control below.
     @MainActor
     @Test func aKeptGroupWithACopyGoneIsNeitherCountedNorPromisedBack() async throws {
         let base = try makeCanonicalTempRoot(prefix: "KeptSeparateGone")
@@ -872,10 +861,9 @@ import Combine
         #expect(manager.banner == nil, "a banner promised back groups whose copies are gone")
     }
 
-    /// **Show them again forgot under the scan's root while the list showed only the scope.** A
-    /// scan of Documents narrowed to Legal counted and forgot Pictures-of-Documents' keys too, and
-    /// the rescan then hashed Legal alone, so those came back nowhere. One folder answers all
-    /// three: the deeper of the scan root and the scope.
+    /// Show them again works under the deeper of the scan root and the scope. Under the scan root
+    /// of a scoped list it would forget keys the list never showed, and the scoped rescan would
+    /// bring none of them back.
     @MainActor
     @Test func showingKeptGroupsAgainUsesTheDeeperOfScanAndScope() throws {
         let root = "/Users/x/Documents"
@@ -1007,13 +995,11 @@ import Combine
         #expect(manager.duplicateScanProgress == nil)   // no stale republish after cancel
     }
 
-    /// The epoch guard's actual scenario: cancellation landing MID-HASH, with numeric progress
-    /// already live (the 8-file test above cancels in the walk phase and never gets there).
-    /// A gating file manager freezes hashing at exactly 50 completions — files f50–f55 block
-    /// in `sha256Hex`'s pre-hash stat, filling the 6-wide scheduling window so nothing past
-    /// f55 is ever scheduled — making the cancel point deterministic without sleeps. After
-    /// cancel + release, the drain (f50–f55) can reach neither another 50-multiple nor
-    /// done == total, so ANY numeric publish after the cancel is a stale straggler that the
+    /// The epoch guard's real case: a cancel landing mid-hash, with numeric progress live (the
+    /// 8-file test above cancels in the walk phase). A gating file manager freezes hashing at 50
+    /// completions: f50–f55 block in `sha256Hex`'s pre-hash stat and fill the 6-wide window, so
+    /// the cancel point is deterministic without sleeps. The drain can reach neither another
+    /// 50-multiple nor done == total, so any numeric publish after the cancel is a straggler the
     /// epoch guard should have dropped.
     @MainActor
     @Test(.parksThreads(6)) func cancelMidHashRepublishesNoNumericProgress() async throws {
@@ -1024,11 +1010,10 @@ import Combine
             try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
         }
 
-        // Names sort Finder-style (localizedStandardCompare is numeric-aware), so hashing
-        // schedules f0…f119 in order: f50–f55 are exactly the 6 in flight when the 50th
-        // completion publishes its progress hop. The 6 here IS hashFiles' `maxConcurrent`
-        // default — if that widens, ungated files slip past 50 and the waitUntil below times
-        // out (a graceful failure, not a hang); widen this set to match.
+        // Names sort Finder-style (numeric-aware), so hashing schedules f0…f119 in order and
+        // f50–f55 are the 6 in flight when the 50th completion publishes. 6 is hashFiles'
+        // `maxConcurrent` default: if that widens, the waitUntil below times out (a failure, not
+        // a hang); widen this set to match.
         let gate = GatingFileManager(gatedNames: Set((50...55).map { "f\($0).bin" }))
         defer { gate.release() }   // never leave hasher tasks parked if an assertion bails early
         let manager = FileSyncManager(fileManager: gate)
@@ -1089,11 +1074,10 @@ import Combine
     }
 
     @Test func planMergeRetrySkipsCollisionUniquifiedContentAlreadyInTheFolder() async throws {
-        // Retry idempotence: run 1 hit a collision at Keeper/a.txt (different content held the
-        // name), so the fold landed at the uniquified sibling "a 2.txt". A retry re-plans from
-        // scratch — it must recognize the content already landed IN THAT FOLDER and skip,
-        // not mint "a 3.txt" on every retry (the cancel banner promises "a retry skips what
-        // landed").
+        // Retry idempotence: run 1 collided at Keeper/a.txt (different content held the name) and
+        // landed at "a 2.txt". A retry re-plans from scratch and must see the content already in
+        // that folder and skip, not mint "a 3.txt" each time (the cancel banner promises "a retry
+        // skips what landed").
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -1121,11 +1105,10 @@ import Combine
     }
 
     @Test func planMergeCopiesWhenNameIsFreeEvenIfBytesExistUnderAnotherName() async throws {
-        // The name-preserving principle survives the retry fix: destination name FREE, but the
-        // bytes happen to live in that folder under the user's own different name — copy
-        // anyway. Losing a meaningfully-named file is the worse surprise; a later duplicates scan
-        // reconciles byte-duplicates. (The retry skip applies ONLY when the name is taken,
-        // where the fold could never have kept the name anyway.)
+        // Name-preserving: the destination name is free but the bytes already live in that folder
+        // under the user's own name, so copy anyway. Losing a meaningfully named file is the worse
+        // surprise; a later duplicates scan reconciles the bytes. The retry skip applies only when
+        // the name is taken, where the fold could never have kept it.
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -1139,11 +1122,11 @@ import Combine
 
     @MainActor
     @Test func uniqueSizeHardLinksNeverEnterVersionsGroups() async throws {
-        // The nlink filter must cover EVERY file the passes admit, not only size-colliding
-        // hash candidates: a hard-linked file with a UNIQUE size skipped the stat entirely,
-        // rode into a versions bucket as an unknown-hash member, and was recommended for
-        // removal with its bytes counted reclaimable — trashing a link frees nothing (its
-        // sibling entry here lies OUTSIDE the scan root, which only nlink can see).
+        // The nlink filter must cover every file the passes admit, not only size-colliding hash
+        // candidates. A hard link with a unique size would otherwise ride into a versions group as
+        // an unknown-hash member, recommended for removal with its bytes counted reclaimable,
+        // though trashing a link frees nothing (its sibling here is outside the scan root, which
+        // only nlink can see).
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let root = base.appendingPathComponent("Root")
@@ -1197,11 +1180,9 @@ import Combine
     }
 
     @Test func planMergeFoldsCaseOnInsensitiveKeeperVolumes() async throws {
-        // On a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. With
-        // exact-case keys the same-location check missed the collision: byte-identical content
-        // copied anyway and uniquified to a junk "a 2.txt" on the FIRST run — and the retry
-        // skip missed it too, so retries kept minting more. Folded keys treat it as the
-        // same-location duplicate it is.
+        // On a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. Exact-case
+        // keys would miss the collision, copy byte-identical content to a junk "a 2.txt", and mint
+        // more on each retry. Folded keys treat it as the same-location duplicate it is.
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -1264,12 +1245,10 @@ import Combine
 
     @MainActor
     @Test func mergeRefusesWhenAKeeperSymlinkDirWouldReceiveTheFold() async throws {
-        // Pruning the linked subtree from the maps was only half the fix: the plan still AIMED
-        // steps under the link and the copy loop wrote THROUGH it — into whatever it points at
-        // (an external folder silently received the "folded" file and the trash then ran; a
-        // link into the source minted junk per retry and the fold could never complete). Any
-        // step descending through a keeper symlink dir now refuses the merge up front: nothing
-        // is copied, nothing is trashed, the group stays, and the banner names the link.
+        // A step aimed under a keeper symlink dir would copy through the link into whatever it
+        // points at (an external folder gets the "folded" file and the trash runs; a link into
+        // the source mints junk per retry). So any such step refuses the merge up front: nothing
+        // copied or trashed, the group stays, and the banner names the link.
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -1301,14 +1280,12 @@ import Combine
     }
 
     @Test func planMergeNeverLetsASymlinkedDirectoryVouchForContent() async throws {
-        // buildTree deliberately FOLLOWS symlinked directories, so a keeper link-dir's children
-        // arrive as ordinary files — and fed the maps as if the keeper owned them. With
-        // Keeper/sub → Redundant/sub, the same-rel skip then saw every sub/ file as "already
-        // in the keeper", planned nothing, and the trash step removed the only real copy —
-        // leaving the keeper holding a dangling link. The whole linked subtree is pruned from
-        // the keeper's view — and the step is returned BLOCKED, not planned: a planned copy
-        // would write THROUGH the link (round 6's finding — here straight back into the
-        // source, where the self-collision minted junk per retry).
+        // buildTree follows symlinked directories, so a keeper link-dir's children arrive as
+        // ordinary files. With Keeper/sub → Redundant/sub they'd read as "already in the keeper",
+        // nothing would be planned, and the trash step would remove the only real copy, leaving a
+        // dangling link. So the linked subtree is pruned from the keeper's view and the step comes
+        // back blocked, not planned: a planned copy would write through the link (here back into
+        // the source).
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -1383,8 +1360,8 @@ import Combine
         #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
                                                    current: ["a.txt": Snap(size: 100, modificationDate: t1),
                                                              "sub/b.txt": Snap(size: 999, modificationDate: t1)]))
-        // A SAME-SIZE rewrite (mtime bumped, byte count unchanged) is drift too — size alone let
-        // the only copy of the rewritten bytes be trashed (round-5).
+        // A same-size rewrite (mtime bumped) is drift too: size alone would let the only copy of
+        // the rewritten bytes be trashed.
         #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
                                                    current: ["a.txt": Snap(size: 100, modificationDate: t2),
                                                              "sub/b.txt": Snap(size: 200, modificationDate: t1)]))
@@ -1403,10 +1380,9 @@ import Combine
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("unique.txt"), bytes: 5000, fill: 0x52)
 
-        // A file manager that simulates external activity: the first copy the merge performs
-        // also drops a brand-new file into the redundant folder — after the plan was snapshotted,
-        // before the trash step. The old code re-verified only the keeper and would trash the
-        // folder, destroying surprise.txt.
+        // Simulates external activity: the merge's first copy also drops a new file into the
+        // redundant folder, after the plan's snapshot and before the trash step. Re-verifying only
+        // the keeper would trash the folder and destroy surprise.txt.
         let fm = MidMergeInterferingFileManager(
             dropping: redundant.appendingPathComponent("surprise.txt"),
             bytes: Data(repeating: 0x21, count: 4096))
@@ -1641,17 +1617,14 @@ import Combine
 
     // MARK: Folder drift, end to end on a real tree
     //
-    // The mock-backed folder tests above hand-build their groups, which is exactly how the
-    // scan/re-walk convention mismatch survived them: a fixture that writes down both sides of
-    // the comparison can never disagree with itself. These run the REAL pipeline — scan a real
-    // temp tree, then resolve — so the baseline the scan records and the walk the resolve-time
-    // check performs are the production ones, and a convention drift between them fails here.
+    // The mock-backed tests above write down both sides of the comparison, so they can never
+    // disagree with themselves. These run the real pipeline (scan a real temp tree, then
+    // resolve), so a convention drift between the scan's baseline and the resolve-time walk
+    // fails here.
 
-    /// **A `.DS_Store` is not drift.** The scan skips `options.ignoredNames` when it measures a
-    /// folder, so a re-walk that counts them disagrees with the baseline by a constant offset —
-    /// and every folder the user ever opened in Finder is then refused with "changed since it was
-    /// scanned", permanently, because rescanning reproduces the same mismatch. The one UI built to
-    /// review folder copies was unusable on exactly the folders it exists for.
+    /// A `.DS_Store` is not drift. The scan skips `options.ignoredNames` when measuring a folder,
+    /// so a re-walk that counted them would disagree by a constant offset and refuse every folder
+    /// ever opened in Finder, permanently, since a rescan reproduces the mismatch.
     @MainActor
     @Test func aFolderPairHoldingAFinderDSStoreStillResolves() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1679,11 +1652,10 @@ import Combine
         #expect(FileManager.default.fileExists(atPath: group.keeper.path))
     }
 
-    /// **A same-length rewrite is drift.** Count and total bytes are both unchanged — `sed -i`
-    /// over fixed-width text, one 5,000-byte export replaced by another — so a count+bytes
-    /// equality waves it through and trashes the only instance of the new content. The file-level
-    /// check compares size AND mtime for exactly this reason; the folder path owes its contents
-    /// the same fidelity, per file.
+    /// A same-length rewrite is drift. Count and total bytes are unchanged (`sed -i` over
+    /// fixed-width text, one 5,000-byte export replaced by another), so a count+bytes check would
+    /// trash the only copy of the new content. Like the file-level check, the folder check
+    /// compares size and mtime, per file.
     @MainActor
     @Test func aSameLengthRewriteInsideAFolderCopyIsRefused() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1716,12 +1688,10 @@ import Combine
         #expect(manager.banner?.severity == .warning)
     }
 
-    /// The KEEP side of the same gate, end to end. The test above rewrites the copy being
-    /// trashed; this one rewrites a file inside the KEEPER — the folder being kept — which is the
-    /// half whose loss makes a "redundant" copy the last intact instance of the scanned content.
-    /// Count, membership and byte totals are all unchanged, so only the per-entry mtime half of
-    /// `folderContentsMatchScan` can catch it, and only `driftedFolderInGroup`'s
-    /// keeper-inclusive scope routes the keeper through it at all.
+    /// The keeper side of the same gate: a rewrite inside the folder being kept makes the
+    /// "redundant" copy the last intact instance of the scanned content. Count, membership and
+    /// byte totals are unchanged, so only the per-entry mtime half of `folderContentsMatchScan`
+    /// catches it, and only because `driftedFolderInGroup` checks the keeper too.
     @MainActor
     @Test func aSameLengthRewriteInsideTheKeeperFolderIsRefused() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1754,13 +1724,11 @@ import Combine
         #expect(manager.banner?.severity == .warning)
     }
 
-    /// **The re-walk's ignored-name skip, pinned from OUTSIDE the recording side.** The
-    /// convention-true snapshot test below compares the scan's baseline against the shared
-    /// re-walk, but both sides go through one builder — a mutation that changes the builder's
-    /// convention moves both sides together and still compares equal. Here the baseline is
-    /// recorded with NO ignored name on disk and the `.DS_Store` arrives AFTERWARDS (Finder
-    /// opening the folder mid-session — the ordinary way one appears), so only the re-walk's own
-    /// skip can keep the verdict true; nothing about the recording can compensate.
+    /// The re-walk's ignored-name skip, pinned from outside the recording side. The snapshot test
+    /// below runs both sides through one builder, so a change to its convention moves both and
+    /// still compares equal. Here the baseline has no ignored name and the `.DS_Store` arrives
+    /// afterwards (Finder opening the folder), so only the re-walk's own skip keeps the verdict
+    /// true.
     @MainActor
     @Test func anIgnoredNameAddedAfterTheScanIsNotDrift() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1792,10 +1760,9 @@ import Combine
             path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default) == false)
     }
 
-    /// **The ignored-name offset must not MASK real drift either** — the other face of the
-    /// `.DS_Store` bug. A copy loses one real file after the scan while an ignored name of the
-    /// same size sits in it: raw count and raw bytes both match the scan's rollup exactly, so the
-    /// count+bytes check reads a genuinely changed folder as intact.
+    /// The ignored-name offset must not mask real drift either. A copy loses one real file while
+    /// an ignored name of the same size sits in it: raw count and bytes match the scan's rollup
+    /// exactly, so a count+bytes check would read a changed folder as intact.
     @MainActor
     @Test func anIgnoredNameCannotMaskALostFile() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1827,10 +1794,9 @@ import Combine
                 "nothing may be trashed while either end of the group has drifted")
     }
 
-    /// **The scan's symlink convention and the re-walk's must be the same convention.** The scan
-    /// counts a link as one entry contributing zero bytes; a re-walk that stats the link itself
-    /// adds the link's own byte count and refuses a folder that never changed — same permanent
-    /// false refusal as the `.DS_Store` case, reproduced on every rescan.
+    /// The scan's symlink convention and the re-walk's must match. The scan records a link with
+    /// the size and mtime resolved from its target; a re-walk that read the link itself would
+    /// refuse a folder that never changed, on every rescan, as in the `.DS_Store` case.
     @MainActor
     @Test func aSymlinkInsideAFolderPairDoesNotFalselyDrift() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1961,23 +1927,15 @@ private final class MidMergeInterferingFileManager: FileManager, @unchecked Send
     }
 }
 
-/// A real FileManager that, once armed, parks callers statting one of `gatedNames` — via either
-/// metadata entry point, whichever `sha256Hex` reaches first for a file it hashes — until
-/// `release()`.
+/// A real FileManager that, once armed, parks callers statting one of `gatedNames` until
+/// `release()`, so the cancel-mid-hash test can pick its cancellation point without sleeps.
 ///
-/// **Both entry points, because pinning it to one was a latent break.** This gated
-/// `fileExists(atPath:isDirectory:)` alone, on the stated grounds that it was "the first call
-/// `sha256Hex` makes for every file it hashes" — true when written. When the verifier collapsed its
-/// three metadata reads into one `attributesOfItem`, nothing parked, the scan ran to completion,
-/// and `cancelMidHashRepublishesNoNumericProgress` cancelled a scan that had already finished.
-/// The gate is name-scoped, so covering both costs nothing: an ungated path is never parked
-/// whichever route it arrives by. It must be a FileManager SUBCLASS, not a plain FileManaging
-/// wrapper: buildTree's walk only fetches file sizes on its `fileManager is FileManager`
-/// fast path (anything else is treated as a metadata-less mock), and without sizes there are
-/// no hash candidates to gate. The walk itself never calls this override for regular files
-/// (it stats via URL.resourceValues), so only the hash phase can block. Freezing a handful of
-/// named files mid-scan lets the cancel-mid-hash test pick its cancellation point
-/// deterministically (no sleeps).
+/// It gates both `fileExists(atPath:isDirectory:)` and `attributesOfItem`, whichever `sha256Hex`
+/// reaches first: gating one alone stops parking if the verifier changes its read, and the test
+/// then cancels a finished scan. The gate is name-scoped, so covering both costs nothing. It must
+/// be a FileManager subclass: buildTree reads file sizes only on its `fileManager is FileManager`
+/// fast path, and without sizes there are no hash candidates. The walk stats regular files via
+/// URL.resourceValues, so only the hash phase can block.
 private final class GatingFileManager: FileManager, @unchecked Sendable {
     /// Lock-guarded flags in a box of their own: FileManager is already (unchecked) Sendable,
     /// and a subclass may not add mutable stored state to a Sendable class directly.

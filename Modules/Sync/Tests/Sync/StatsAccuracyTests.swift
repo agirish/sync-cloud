@@ -9,28 +9,15 @@ import Foundation
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         
-        // Setup nested structure:
-        // /root (dir)
-        //   /root/file1 (file)
-        //   /root/subDir (dir)
-        //     /root/subDir/file2 (file)
+        // /src/file1.txt, /src/subDir and /src/subDir/file2.txt.
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/file1.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/subDir"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/subDir/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         
-        // Load the tree
         await manager.loadTree(path: "/src", isLeft: true)
         
-        // Verification:
-        // root/file1, root/subDir, root/subDir/file2 -> 3 items (excluding root itself as per buildTree logic)
-        // Wait, buildNode logic for children returns nodes.
-        // Let's check buildTree(url: rootURL)
-        // It gets contents of /src, then builds nodes for each.
-        // Contents of /src: [file1.txt, subDir]
-        // Node for file1.txt: 1 item
-        // Node for subDir: 1 item + 1 child (file2.txt) = 2 items
-        // Total = 3
+        // file1.txt, subDir and subDir/file2.txt: 3 items, not counting the root.
         
         #expect(manager.leftItemCount == 3)
     }
@@ -59,10 +46,9 @@ import Foundation
         mockFM.virtualDisk["/src/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
         mockFM.virtualDisk["/dst/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
         
-        // Scan
         await manager.scanDirectories(left: srcProvider, leftPath: "/src", right: dstProvider, rightPath: "/dst")
         
-        // Should have 2 differences
+        // Two differences: the missing file and the date difference.
         #expect(manager.differences.count == 2)
     }
     
@@ -101,8 +87,8 @@ import Foundation
 
     @MainActor
     @Test func testRealFilesystemTreeBuild() async throws {
-        // Exercises the real-FileManager buildNode path (resourceValues-based existence/type),
-        // which the mock-based tests do not cover. Mirrors testItemCountsWithNesting on disk.
+        // The real-FileManager `buildNode` path (existence and type from resource values), which
+        // the mock-based tests don't cover. Mirrors testItemCountsWithNesting on disk.
         let manager = FileSyncManager() // real FileManager
         let fm = FileManager.default
 
@@ -121,7 +107,7 @@ import Foundation
 
         #expect(manager.leftItemCount == 3)
 
-        // isDirectory must be resolved correctly from resourceValues.
+        // isDirectory must come from the resource values.
         let byName = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0.isDirectory) })
         #expect(byName["file1.txt"] == false)
         #expect(byName["subDir"] == true)
@@ -129,9 +115,8 @@ import Foundation
 
     @MainActor
     @Test func testRealFilesystemSymlinkHandling() async throws {
-        // Locks in the historical symlink behavior on the real filesystem: a symlink to a
-        // directory is treated as a directory (and recurses into the target), while a broken
-        // symlink is dropped entirely.
+        // On the real filesystem a symlink to a directory is treated as a directory and recursed
+        // into, while a broken symlink is dropped.
         let manager = FileSyncManager() // real FileManager
         let fm = FileManager.default
 
@@ -161,9 +146,8 @@ import Foundation
 
     @MainActor
     @Test func testRealFilesystemSymlinkToFile() async throws {
-        // Complements testRealFilesystemSymlinkHandling (link-to-dir / broken link): a symlink that
-        // points at a regular file must survive as a non-directory leaf. The pre-C7b fileExists path
-        // resolved this to a file, and the symlink fast-path fallback must keep doing so.
+        // Complements testRealFilesystemSymlinkHandling: a symlink to a regular file survives as a
+        // non-directory leaf through the symlink fallback.
         let manager = FileSyncManager() // real FileManager
         let fm = FileManager.default
 
@@ -187,9 +171,8 @@ import Foundation
 
     @MainActor
     @Test func testRealFilesystemEmptyAndSymlinkedEmptyDirectories() async throws {
-        // The empty-listing fallback in childURLs only re-lists when the entry is a symlink.
-        // Lock in that a genuinely empty directory and a symlink to an empty directory both
-        // still come back as directories with no children, exactly as before.
+        // The empty-listing fallback in childURLs re-lists only when the entry is a symlink, so an
+        // empty directory and a symlink to one must both come back as directories with no children.
         let manager = FileSyncManager() // real FileManager
         let fm = FileManager.default
 
@@ -214,9 +197,9 @@ import Foundation
 
     @MainActor
     @Test func testRealFilesystemMetadataPopulated() async throws {
-        // The C7b fast path folded metadata (size/date) into the single resourceValues stat that also
-        // reports existence/type. testRealFilesystemTreeBuild only checks count + isDirectory, so this
-        // locks in that fileSize and modificationDate still come back populated on the real-FS path.
+        // Size and date come from the same resource-values stat as existence and type.
+        // testRealFilesystemTreeBuild checks only count and isDirectory, so this pins that fileSize
+        // and modificationDate are populated on the real-filesystem path.
         let manager = FileSyncManager() // real FileManager
         let fm = FileManager.default
 
@@ -237,10 +220,9 @@ import Foundation
 
     @MainActor
     @Test func testDiffReflectsFreshDiskState() async throws {
-        // Guards diff freshness (the reason C7a — deriving the diff from the cached tree instead of a
-        // fresh walk — was deliberately not done). After a tree is cached, a file added afterwards must
-        // still surface in a subsequent scan, proving the diff walks disk fresh rather than reusing the
-        // stale prefetched tree.
+        // A file added after the left tree was loaded still surfaces in the next scan. Only the
+        // left side is cached here, so the scan walks the disk rather than the stale tree (a warm
+        // scan needs both sides cached).
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
 

@@ -32,8 +32,7 @@ public struct SyncError: Error, Equatable, Sendable {
         self.isRetryable = isRetryable
     }
 
-    /// One-line rendering for the Activity Log, folding every known field into a single string
-    /// so nothing that used to be logged is lost when the error is structured.
+    /// One-line rendering for the Activity Log, folding every known field into a single string.
     public var logDescription: String {
         var parts = ["\(title): \(message)"]
         if let reason, !reason.isEmpty { parts.append("(\(reason))") }
@@ -61,10 +60,9 @@ extension SyncError {
         )
     }
 
-    /// A file could not be filed (Organize ▸ To File). Its own alert rather than ``syncFailed``'s:
-    /// filing is a move within one provider, not a sync between two panes, and "Couldn't sync"
-    /// sent the reader to the wrong feature. Never retryable: filing presents it with no retry to
-    /// run, so a Retry button could never be offered (F6).
+    /// A file could not be filed (Organize ▸ To File). Its own alert, not ``syncFailed``'s: filing
+    /// is a move within one provider, and "Couldn't sync" would point at the wrong feature. Never
+    /// retryable: filing presents it with no retry to run.
     public static func filingFailed(
         item: String,
         path: String?,
@@ -83,9 +81,8 @@ extension SyncError {
     /// log every failure individually and present this single summary. `verb` is the lowercase
     /// operation name ("sync", "copy", "move") and drives both the title and the message.
     ///
-    /// The first failure supplies the alert's `path` and `reason` — the detail rows — but no longer
-    /// its NAME: naming one item out of N was the old message's way of gesturing at a list it
-    /// could not show, and the Failed filter shows the list. The path row still identifies it.
+    /// The first failure supplies the alert's `path` and `reason` (the detail rows) but not its
+    /// name: the message points at the Failed filter, which lists them all.
     public static func bulkFailed(
         verb: String,
         failureCount: Int,
@@ -94,11 +91,8 @@ extension SyncError {
     ) -> SyncError {
         SyncError(
             title: "\(verb.capitalized) Failed",
-            // Names where the failed ROWS are, not just where the error text is. The Activity Log
-            // has every reason and is still worth naming, but it is a separate window holding a
-            // text log — sending someone there to work out which 12 of 400 files to retry was the
-            // only answer this alert had, and the rows themselves were sitting in the table the
-            // whole time.
+            // Names where the failed rows are, not only the log: working out from a text log which
+            // 12 of 400 files to retry is no answer when the table can filter to them.
             message: "Couldn’t \(verb) \(failureCount) items. They are listed under the “Failed to transfer” filter; the reason for each is in Activity’s log (⌘L).",
             path: firstPath,
             reason: firstReason,
@@ -171,35 +165,20 @@ extension SyncError {
 
     /// macOS refused to move an item to the Trash because this app is not permitted to.
     ///
-    /// **Its own case, because "couldn't be moved to the trash because you don't have permission"
-    /// is not a fault in the file and not something a retry fixes.** Foundation's string names the
-    /// symptom and stops; a reader is left with a file they own, in a folder they own, that the app
-    /// says it may not touch. What is actually missing is a macOS privacy grant — and for a file
-    /// inside iCloud Drive the Trash is `~/Library/Mobile Documents/.Trash`, which sits OUTSIDE the
-    /// folder grants (Documents, Desktop, Downloads) an app is usually given, so an app that can
-    /// read every one of those files can still be refused the move.
+    /// Its own case: Foundation's "you don't have permission" names a symptom, not a fault in the
+    /// file, and leaves the reader with a file they own that the app says it may not touch. For a
+    /// file in iCloud Drive the Trash is `~/Library/Mobile Documents/.Trash`, outside the usual
+    /// folder grants, so an app that reads the file can still be refused the move.
     ///
-    /// Not retryable: pressing the same button again cannot change a permission.
+    /// **The message must not name a cause.** Full Disk Access doesn't fix it, and this is raised
+    /// for every permission refusal (a root-owned folder, a deny-delete ACL, a read-only mount), so
+    /// any single cause is false for some readers and talks them out of the right check. It says
+    /// what the app tried: all three attempts (in-process, the system's Trash service, and the retry
+    /// after re-registering in place, `trashAfterReregistering`) were refused, and nothing was
+    /// removed. The cause is the log's job.
     ///
-    /// **What this message may NOT say, and the trap is symmetric.** An earlier version told the
-    /// reader to grant Full Disk Access as though that were the fix; it was granted and the refusal
-    /// stood, and an ad-hoc-signed bundle holding no grants at all was later measured trashing
-    /// files in the same folder. So Full Disk Access is gone from the text.
-    ///
-    /// The replacement then made the opposite mistake — it asserted the cause, telling every reader
-    /// "this is not a missing privacy grant: the same folder accepts other items, and the file's
-    /// own permissions allow the move". That was measured on ONE condition, and this error is
-    /// raised for EVERY permission refusal: a root-owned folder, a deny-delete ACL, a read-only
-    /// mount. On those the sentence is simply false, and it talks the reader out of the check that
-    /// would have helped. A message may state what the app tried and what it observed; the cause
-    /// is the log's job.
-    ///
-    /// What is honest by the time a reader sees this: all three attempts were refused — in-process,
-    /// the system's Trash service, and the retry after re-registering the item with a move in place
-    /// (see `trashAfterReregistering`) — and nothing was removed. And the refusal has been measured
-    /// CLEARING ON ITS OWN (12 of 12 items refused at 19:26, 24 of 24 trashable at 20:30), so
-    /// "try again later" is real advice here rather than a platitude, even though an immediate
-    /// retry is not — which is why `isRetryable` stays false and no Retry button is offered.
+    /// The refusal has been seen to clear on its own after about an hour, so "try again later" is
+    /// real advice; an immediate retry is not, so `isRetryable` stays false and no Retry is offered.
     public static func trashNotPermitted(path: String, reason: String) -> SyncError {
         SyncError(
             title: "Not Allowed to Move to the Trash",
@@ -219,14 +198,10 @@ extension SyncError {
     /// The item was parked under a hidden sibling name to re-register it with the Trash, and could
     /// not be moved back. Nothing was deleted; it is simply not where the user left it.
     ///
-    /// **Its own case because the refusal's message would be a lie here.** That one says the file
-    /// is untouched at its own path, which is exactly what is no longer true — and someone told
-    /// "nothing was removed" goes looking in a folder where the file now sits under a dotted name
-    /// Finder hides by default. The path carried is the PARKED one, so Reveal in Finder lands on
-    /// the item rather than on a path that holds nothing.
-    ///
-    /// Not retryable: the delete did not fail for a reason a second press addresses, and the thing
-    /// that needs doing is a rename the user can see.
+    /// Its own case because ``trashNotPermitted(path:reason:)`` says the file is untouched at its
+    /// path, which is no longer true: it sits under a dotted name Finder hides. The path carried is
+    /// the parked one, so Reveal in Finder lands on the item. Not retryable: what's needed is a
+    /// rename the user can see.
     public static func trashParkedAndNotRestored(originalPath: String,
                                                  parkedPath: String) -> SyncError {
         let parkedName = (parkedPath as NSString).lastPathComponent
@@ -247,16 +222,13 @@ extension SyncError {
 }
 
 extension SyncError {
-    /// A MOVE reached its destination, but its original could not be put in the Trash: it was
+    /// A move reached its destination, but its original could not be put in the Trash: it was
     /// parked under a hidden sibling name to re-register it with the Trash, and could not be moved
-    /// back (FR36). Nothing was deleted — the original is now a hidden second copy beside where it
-    /// was.
+    /// back. Nothing was deleted; the original is now a hidden second copy beside where it was.
     ///
-    /// The delete path's ``trashParkedAndNotRestored(originalPath:parkedPath:)`` tells the user the
-    /// same strand; the move path reported it only in the log and then showed "Moved", so the
-    /// leftover full-size duplicate stayed in the source folder, hidden by Finder, with nothing on
-    /// screen to say it was there. The path carried is the PARKED one, so Reveal in Finder lands
-    /// on it. `additional` counts further strands in the same operation, which the log names.
+    /// The move counterpart of ``trashParkedAndNotRestored(originalPath:parkedPath:)``, so a hidden
+    /// full-size duplicate never goes unmentioned. The path carried is the parked one, for Reveal
+    /// in Finder. `additional` counts further strands in the same operation, which the log names.
     public static func movedButOriginalParked(originalPath: String, parkedPath: String,
                                               additional: Int = 0) -> SyncError {
         let parkedName = (parkedPath as NSString).lastPathComponent
@@ -281,10 +253,9 @@ extension SyncError {
 }
 
 extension SyncError {
-    /// ``movedButOriginalParked(originalPath:parkedPath:additional:)`` for a move-UNDO (U7): the
-    /// undo moved the item back, and what it could not put in the Trash is the item it moved back
-    /// FROM — at the destination, not at the original's place. That sentence said the move had
-    /// "reached its destination", which is the opposite of what an undo does.
+    /// ``movedButOriginalParked(originalPath:parkedPath:additional:)`` for a move-undo: the undo
+    /// moved the item back, and what it couldn't trash is the copy it moved back from, at the
+    /// destination. Its own wording, since an undo doesn't "reach its destination".
     public static func undoneButMovedItemParked(originalPath: String, parkedPath: String,
                                                 additional: Int = 0) -> SyncError {
         let parkedName = (parkedPath as NSString).lastPathComponent
@@ -308,14 +279,14 @@ extension SyncError {
         )
     }
 
-    /// Whether this is FR36's leftover alert — a move, or its undo, that left a hidden copy behind.
+    /// Whether this is the leftover alert: a move, or its undo, that left a hidden copy behind.
     public var isParkedOriginalLeftover: Bool {
         title == "Moved, Original Left Behind" || title == "Moved Back, Copy Left Behind"
     }
 
-    /// This failure, also telling the user about the leftover `leftover` reported — so a later
-    /// failure in the same operation does not replace the only word of a hidden copy (U7). Reveal
-    /// in Finder lands on the leftover, the one item that needs the user's hand.
+    /// This failure, also telling the user about `leftover`, so a later failure in the same
+    /// operation doesn't replace the only word of a hidden copy. Reveal in Finder lands on the
+    /// leftover, the one item that needs the user's hand.
     public func mentioning(_ leftover: SyncError) -> SyncError {
         SyncError(title: title,
                   message: message + "\n\n" + leftover.message,
@@ -338,11 +309,9 @@ public enum SyncErrorAction: String, CaseIterable, Hashable, Sendable {
 extension SyncError {
     /// The actions an alert for this error should offer, in display order.
     ///
-    /// ORDERING CONTRACT: when `.retry` is present it must stay FIRST. The app pins
-    /// `.keyboardShortcut(.defaultAction)` on the Retry button, and SwiftUI auto-promotes the
-    /// first non-cancel button when nothing is pinned — keeping Retry first makes the explicit
-    /// default and the auto-default coincide. Reordering would render two default-looking
-    /// buttons (or split the highlight from the Return key).
+    /// **When `.retry` is present it must stay first.** The app pins `.defaultAction` on Retry, and
+    /// SwiftUI auto-promotes the first non-cancel button, so reordering would render two
+    /// default-looking buttons or split the highlight from the Return key.
     ///
     /// - Retry first (the primary recovery), only when the error is retryable *and* the caller
     ///   actually wired a re-invocation (`hasRetryHandler`) — a retryable error with nothing to

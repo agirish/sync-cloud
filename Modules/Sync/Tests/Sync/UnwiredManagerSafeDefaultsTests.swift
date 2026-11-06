@@ -2,11 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the fail-safe defaults of a freshly constructed `FileSyncManager` whose alert seams
-/// (`collisionResolver`, `bulkCollisionResolver`, `permanentDeleteConfirmer`) were never wired.
-/// Since Sync no longer depends on Design, the defaults are pure values instead of NSAlerts:
-/// an unwired manager must skip collisions rather than overwrite, refuse permanent deletion,
-/// and never require UI — `swift test` stays headless by construction, not just by convention.
+/// Pins the fail-safe defaults of a fresh `FileSyncManager` whose alert seams (`collisionResolver`,
+/// `bulkCollisionResolver`, `permanentDeleteConfirmer` and the rest) were never wired. Sync doesn't
+/// depend on Design, so the defaults are plain values, not NSAlerts: an unwired manager skips
+/// collisions rather than overwrite, refuses permanent deletion, and never needs UI, so
+/// `swift test` stays headless by construction.
 @Suite struct UnwiredManagerSafeDefaultsTests {
 
     // MARK: - Default seam values (headless by construction)
@@ -23,7 +23,7 @@ import Foundation
 
         #expect(manager.collisionResolver(Self.collision(isMove: false)) == .skip)
         #expect(manager.collisionResolver(Self.collision(isMove: true)) == .skip)
-        // A folder collision defaults to skip too — the isDirectory flag only affects wording.
+        // A folder collision defaults to skip too; the isDirectory flag only affects wording.
         #expect(manager.collisionResolver(Self.collision(isDirectory: true)) == .skip)
     }
 
@@ -38,8 +38,8 @@ import Foundation
         #expect(applyToAll == false)
     }
 
-    /// The default transfer confirmer proceeds without UI — an unwired manager keeps its
-    /// pre-confirmation behavior (transfers just run; replaces still prompt separately).
+    /// The default transfer confirmer proceeds without UI: transfers just run, and replaces still
+    /// go through the collision resolver.
     @MainActor
     @Test func testDefaultTransferConfirmerProceeds() {
         let manager = FileSyncManager()
@@ -48,12 +48,9 @@ import Foundation
         #expect(manager.transferConfirmer(summary) == true)
     }
 
-    /// The default large-walk confirmer refuses, without UI.
-    ///
-    /// Weaker harm than the permanent delete beside it — nothing is destroyed by proceeding, only
-    /// time is spent — but the same direction, because the failure it guards IS the pass never
-    /// finishing. An unwired manager that proceeded would reintroduce the hang this exists to
-    /// prevent, in the one configuration where nobody is watching it happen.
+    /// The default large-walk confirmer refuses, without UI. Proceeding destroys nothing, only
+    /// time, but the failure it guards is the pass never finishing, and an unwired manager is the
+    /// one configuration where nobody would see it hang.
     @MainActor
     @Test func testDefaultLargeWalkConfirmerRefuses() {
         let manager = FileSyncManager()

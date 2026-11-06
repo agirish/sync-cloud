@@ -7,8 +7,7 @@ import Testing
 @MainActor
 struct PeopleOrderTests {
 
-    /// The real roster as `people.json` had it — alphabetical, which put the daughter first and
-    /// the owner of the Mac fifth.
+    /// A roster in alphabetical order, which puts the daughter first and the Mac's owner fifth.
     static func alphabetical() -> [Person] {
         [Person(id: "father", displayName: "Father", relationship: "me"),
          Person(id: "daughter", displayName: "Daughter", relationship: "daughter"),
@@ -23,8 +22,8 @@ struct PeopleOrderTests {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("order-\(UUID().uuidString)")
     }
 
-    /// Yourself, spouse, children, parents, siblings — the order that was asked for, and
-    /// alphabetical inside a tier so the two children and the two parents do not swap between runs.
+    /// Yourself, spouse, children, parents, siblings; alphabetical inside a tier, so the two
+    /// children and the two parents never swap between runs.
     @Test func theDefaultOrderIsByRelationship() {
         #expect(PeopleOrder.arranged(Self.alphabetical()).map(\.id)
                 == ["father", "mother", "daughter", "son", "elder", "granny", "uncle"])
@@ -49,7 +48,7 @@ struct PeopleOrderTests {
 
     /// The tiers are the user's own household, so a qualified relationship is everyone else: an
     /// in-law says "mother" and is not a parent. Nothing at all, and words the rule does not know,
-    /// land last too — which is where a work roster would sit entirely.
+    /// land last too, which is where a work roster would sit entirely.
     @Test func qualifiedAndUnknownRelationshipsLandLast() {
         #expect(PeopleOrder.tier(of: "mother-in-law") == .others)
         #expect(PeopleOrder.tier(of: "step son") == .others)
@@ -79,8 +78,8 @@ struct PeopleOrderTests {
                 "a new child should join the children, not the end")
     }
 
-    /// **A relaunch is the only proof an arrangement was saved**, and the store must stop
-    /// re-sorting the moment the user has arranged anything — an add after that appends.
+    /// A relaunch is the only proof an arrangement was saved. Once the user has arranged anything
+    /// the store stops re-sorting, and an add appends.
     @Test func movingSomeoneIsKeptAcrossARelaunchAndStopsTheDefaultSort() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -102,8 +101,8 @@ struct PeopleOrderTests {
         #expect(object["order"] as? String == "custom")
     }
 
-    /// The ends are the ends: a refused move changes nothing and writes nothing. (The in-memory
-    /// store arranges too, so the ends are the arranged ends — Father first, Uncle last.)
+    /// A move off either end is refused and changes nothing. The in-memory store arranges too, so
+    /// the ends are Father first and Uncle last.
     @Test func aMoveOffEitherEndIsRefused() {
         let store = PeopleStore(people: Self.alphabetical())
         let before = store.people

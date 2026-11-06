@@ -2,18 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **A refresh that loads the panes without comparing them.**
-///
-/// Entering a lens from the workspace bar re-homes the source rail to the provider root. That is a
-/// pane move, a pane move is a refresh, and the refresh was walking BOTH providers and diffing
-/// them — on the way into a workspace that draws one tree and no differences at all (`FileTreeView`
-/// empties the difference index for every single-source workspace, so the rows the scan produced
-/// rendered nowhere). On a real pair that is a full double walk and about a second, paid on every
-/// entry into Organize, Storage or the editor.
-///
-/// The two halves are asserted separately, because a change that skipped the *load* as well would
-/// look identical from a test that only counted scans: the pane must still be showing the folder it
-/// was moved to.
+/// A refresh that loads the panes without comparing them. Entering a single-source workspace
+/// (Organize, Storage, the editor) re-homes the source rail, which is a pane move and so a refresh,
+/// but `FileTreeView` draws no differences there, so a comparison would cost a double walk, about a
+/// second on a real pair, for nothing. Load and comparison are asserted separately, since skipping
+/// the load too would look the same to a test that only counted scans.
 @Suite struct RefreshWithoutComparingTests {
 
     /// Two roots that differ, so a comparison has something to find and its absence is visible.
@@ -41,11 +34,9 @@ import Foundation
                        rootPath: fixture.right.path, type: .localFolder))
     }
 
-    /// **`comparing: false` loads the trees and makes no comparison.**
-    ///
-    /// `hasScanned` is the discriminator rather than `differences.isEmpty`: an empty list is also
-    /// what two identical folders produce, so a fixture that happened to match would pass either
-    /// way. This fixture is deliberately unequal, and the control at the end proves it.
+    /// `comparing: false` loads the trees and makes no comparison. `hasScanned` decides, not
+    /// `differences.isEmpty`, which two identical folders also produce. The fixture is unequal, and
+    /// the control at the end proves it.
     @MainActor
     @Test func aRefreshThatDoesNotCompareStillLoadsBothPanes() async throws {
         let fixture = try Self.makeFixture()
@@ -61,16 +52,16 @@ import Foundation
         #expect(m.differences.isEmpty)
         #expect(m.lastScanDate == nil, "a scan completed and stamped itself")
 
-        // The control: the same call, comparing, finds the two files that differ. Without this the
-        // assertions above pass for a fixture nothing could ever have compared.
+        // The control: the same call, comparing, finds the two files that differ, so the fixture
+        // can be compared at all.
         await m.refreshTreesAndScan(left: left, right: right)
         #expect(m.hasScanned, "the comparing refresh did not scan either — this fixture proves nothing")
         #expect(m.differences.count == 2,
                 "the comparing refresh found \(m.differences.count) differences in a fixture with two")
     }
 
-    /// **The default is unchanged**, which is what keeps every existing caller — a file operation, a
-    /// forced rescan, a provider switch, ordinary navigation — comparing exactly as it did.
+    /// The default still compares, so every other caller (a file operation, a forced rescan, a
+    /// provider switch, ordinary navigation) keeps its scan.
     @MainActor
     @Test func theDefaultStillCompares() async throws {
         let fixture = try Self.makeFixture()
@@ -84,9 +75,8 @@ import Foundation
         #expect(m.differences.count == 2)
     }
 
-    /// **A skipped comparison is owed, and `scanDirectories` is what settles it** — the app's
-    /// Compare-entry path. Asserted here because that is the claim the app's flag depends on: the
-    /// trees are already loaded, so the debt can be paid without another double walk.
+    /// A skipped comparison is owed, and `scanDirectories`, the app's Compare-entry path, settles it
+    /// without another double walk, since the trees are already loaded. The app's flag relies on it.
     @MainActor
     @Test func theSkippedComparisonCanBeMadeGoodWithoutReloading() async throws {
         let fixture = try Self.makeFixture()

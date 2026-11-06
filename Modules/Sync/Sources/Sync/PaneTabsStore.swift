@@ -3,45 +3,29 @@ import Events
 
 /// What survives a quit, for a pane's tab strip.
 ///
-/// **Both panes' strips are persisted, under separate keys.** Only the left one was until
-/// 2026-08-15: Browse *is* the left pane, and restoring Compare's right-hand location was held back
-/// as a behaviour change that should not ride along with a Browse feature. It is now deliberate.
-/// The keys stay asymmetric in name — the left keeps the original `browseTabs` / `browseSelectedTab`
-/// so no existing strip is orphaned by the change, and the right adds its own beside them.
+/// Both panes' strips are persisted, under separate keys. The left keeps the original
+/// `browseTabs` / `browseSelectedTab` names so no existing strip is orphaned; the right has its
+/// own. A right strip never written reads as nothing stored, so the pane falls back on the older
+/// `lastRightFocusPath` restore until it has a strip worth remembering.
 ///
-/// **A right strip that has never been written reads as nothing stored**, which lands the pane back
-/// on the older `lastRightFocusPath` restore that has always run before this. So the first launch
-/// after upgrading behaves exactly as the last one did, and the strip takes over once the user has
-/// a right pane worth remembering.
+/// The stored shape is `[{providerId, relativePath, stackDepth, pinned}]` and nothing else: where a
+/// tab is and how the strip is arranged. Selection, history and the search query are session
+/// state: a restored selection may point at files gone since, and a query restored into a field
+/// the user can't see reads as the pane filtering itself.
 ///
-/// The stored shape is `[{providerId, relativePath, stackDepth, pinned}]` and nothing else,
-/// deliberately: every field is part of *where a tab is* or *how the strip is arranged*. Selection,
-/// history and the search query are *session* state — a selection restored into a folder whose
-/// contents changed while the app was closed points at files that may not be there, and a search
-/// query restored into a field the user cannot see reads as the pane filtering itself.
+/// `relativePath` is the tab's combined location (scope + column stack), and `stackDepth` says
+/// where to cut it back into the pane's two halves. The cut must be stored: scope draws one column
+/// and the stack the rest (`columnDirectories`), so a tab restored as all scope shows one
+/// full-width column however many the user had, and the combined string can't say where the cut
+/// was.
 ///
-/// `relativePath` is the tab's **combined** location (scope + column stack), which is the one thing
-/// a person would call "where this tab was" — and `stackDepth` says where to cut it back into the
-/// two halves the pane actually holds.
-///
-/// **Why the split has to be stored, rather than re-derived.** The two halves render differently:
-/// scope contributes exactly one column and the stack draws the rest (`columnDirectories`), so a
-/// tab restored entirely as scope comes back showing one full-width column no matter how many the
-/// user had built. The header's path line reads the same either way — it renders the two joined —
-/// which is exactly why this went unnoticed: the breadcrumb was right and only the columns were
-/// gone. Nothing in the combined string says where the cut was, so the depth is stored beside it.
-///
-/// **The format is additive on purpose, and safe in both directions.** `relativePath` keeps meaning
-/// what it always meant, so a strip written by a build without `stackDepth` restores exactly as it
-/// did before (depth 0 — all scope, one column), and a strip written *with* one still restores in
-/// an older build the old way rather than landing it somewhere else. Redefining `relativePath` as
-/// the scope alone would have broken that second direction silently: the older build would reopen
-/// the tab at an ancestor of where the user left it.
+/// The format is additive and safe both ways: a strip without `stackDepth` restores as depth 0
+/// (all scope), and an older build still reads one with it the old way. Redefining `relativePath`
+/// as the scope alone would make an older build reopen the tab at an ancestor of where it was.
 public enum PaneTabsStore {
 
-    /// The v4.x roadmap companion §1 keys — **the LEFT pane's**, and named without a side because
-    /// they predate the right pane being persisted at all. Renaming them to match the right's would
-    /// orphan every strip already on disk, which is a worse trade than the asymmetry.
+    /// The left pane's keys, named without a side because they predate the right pane's: renaming
+    /// them would orphan every strip already on disk.
     ///
     /// `[{"providerId": …, "relativePath": …, "stackDepth": …, "pinned": …}]` as JSON in a string,
     /// matching how the rest of the app parks small structured values in defaults. Both trailing
@@ -49,36 +33,32 @@ public enum PaneTabsStore {
     public static let tabsKey = "browseTabs"
     public static let selectedKey = "browseSelectedTab"
 
-    /// The right pane's, added 2026-08-15. Separate keys rather than one two-element value: the two
-    /// strips are written at different moments by different panes, and a single blob would make
-    /// every left-pane save a read-modify-write of the right pane's state.
+    /// The right pane's. Separate keys rather than one two-element value: the strips are written at
+    /// different moments by different panes, and one blob would make every left-pane save a
+    /// read-modify-write of the right pane's state.
     public static let rightTabsKey = "browseTabsRight"
     public static let rightSelectedKey = "browseSelectedTabRight"
 
-    /// **The one place a side becomes a key.** Both `load` and `save` resolve through this, so a
-    /// strip can never be written under one pane's key and read back under the other's.
+    /// The one place a side becomes a key: `load` and `save` both resolve through it, so a strip
+    /// can never be written under one pane's key and read back under the other's.
     static func keys(isLeft: Bool) -> (tabs: String, selected: String) {
         isLeft ? (tabsKey, selectedKey) : (rightTabsKey, rightSelectedKey)
     }
 
-    /// One persisted tab. A named type rather than the live `PaneTab` because this is a **format**:
-    /// `PaneTab` gains fields as the feature grows and none of them should silently start being
-    /// written to disk.
+    /// One persisted tab. A named type rather than the live `PaneTab` because this is a format:
+    /// `PaneTab` gains fields, and none should silently start being written to disk.
     public struct Entry: Codable, Equatable, Sendable {
         public var providerId: String
         public var relativePath: String
-        /// How many of `relativePath`'s trailing components were the **column stack** rather than
-        /// the scope — i.e. `PaneBrowsePath.depth`. `0` means the whole path is scope, which is
-        /// both the pre-`stackDepth` behaviour and the honest reading of a tab that was opened at a
-        /// folder rather than drilled into it.
+        /// How many of `relativePath`'s trailing components were the column stack rather than the
+        /// scope (`PaneBrowsePath.depth`). `0` means all scope: a strip written before
+        /// `stackDepth`, or a tab opened at a folder rather than drilled into it.
         ///
-        /// A count rather than a second path string because the two halves are a *cut* of one
-        /// location: storing them separately lets a hand-edited plist disagree with itself about
-        /// where the tab was, while a count out of range is clamped on the way back in and cannot.
+        /// A count rather than a second path, because the halves are a cut of one location: two
+        /// paths in a hand-edited plist could disagree, while an out-of-range count is clamped.
         public var stackDepth: Int
-        /// Whether this tab was pinned. **Optional on the way in**, so a strip written before
-        /// pinning existed still decodes — the whole file is rejected on a missing key otherwise,
-        /// and a user's tabs would silently vanish on the first launch after an upgrade.
+        /// Whether this tab was pinned. Optional on the way in, so a strip written before pinning
+        /// still decodes: a missing key would otherwise reject the whole strip and lose the tabs.
         public var pinned: Bool
 
         public init(providerId: String, relativePath: String, stackDepth: Int = 0,
@@ -93,9 +73,8 @@ public enum PaneTabsStore {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             providerId = try c.decode(String.self, forKey: .providerId)
             relativePath = try c.decode(String.self, forKey: .relativePath)
-            // Same optionality, and the same reason, as `pinned` directly below: a strip written
-            // before the column stack was persisted must still decode rather than take the user's
-            // whole set of tabs with it.
+            // Optional like `pinned` below, for the same reason: a strip written before the column
+            // stack was persisted must still decode.
             stackDepth = try c.decodeIfPresent(Int.self, forKey: .stackDepth) ?? 0
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         }
@@ -103,15 +82,10 @@ public enum PaneTabsStore {
 
     /// Cuts a stored combined path back into the pane's two halves.
     ///
-    /// Clamped, because `stackDepth` arrives from a file and a hand-edited plist can say anything.
-    ///
-    /// **The two halves of the clamp are not equally load-bearing**, measured by removing each:
-    /// `max(0,` is the one that matters — `dropLast` traps outright on a negative count ("Can't drop
-    /// a negative number of elements"), so a `-1` in the stored strip would crash the app during
-    /// launch's restore, before a window. The upper `min(…, count)` is belt-and-braces: `dropLast`
-    /// and `suffix` both saturate at the collection's length, so a depth past the end already lands
-    /// on everything-is-stack without it. Kept anyway, so `depth` is a valid count by construction
-    /// rather than by two standard-library behaviours a reader has to know.
+    /// Clamped, because `stackDepth` comes from a file and a hand-edited plist can say anything.
+    /// **Keep `max(0,`**: `dropLast` traps on a negative count, so a `-1` would crash the launch
+    /// restore before a window opens. The `min(…, count)` half keeps `depth` a valid count by
+    /// construction, though `dropLast` and `suffix` already saturate.
     static func split(relativePath: String, stackDepth: Int) -> (scope: String, stack: PaneBrowsePath) {
         let components = relativePath.split(separator: "/").map(String.init)
         let depth = min(max(0, stackDepth), components.count)
@@ -119,35 +93,29 @@ public enum PaneTabsStore {
                 PaneBrowsePath(components: Array(components.suffix(depth))))
     }
 
-    /// Reads the stored strip. `nil` — not an empty array — when the key has never been written,
-    /// which is what tells the caller to seed from the pane's own stored provider instead.
+    /// Reads the stored strip. `nil`, not an empty array, when the key has never been written,
+    /// which tells the caller to seed from the pane's own stored provider instead.
     public static func load(isLeft: Bool,
                             from defaults: UserDefaults = .standard) -> (entries: [Entry], selected: Int)? {
         let key = keys(isLeft: isLeft)
         guard let raw = defaults.string(forKey: key.tabs), let data = raw.data(using: .utf8) else {
-            // No key: the ordinary case, and the one this `nil` is *for*. Silent on purpose — every
+            // No key: the ordinary case, and the one this `nil` is for. Silent on purpose: every
             // fresh install and every never-used right pane comes through here.
             return nil
         }
         guard let decoded = try? JSONDecoder().decode([Entry].self, from: data) else {
-            // **A key that is there but unreadable is not the same thing, and it is the one worth a
-            // line.** The caller cannot tell it from "never written" — both return `nil` here — so
-            // it seeds a fresh strip and the next save overwrites this value for good. That stays
-            // the right answer, since there is nothing here to restore; doing it in silence is what
-            // is not, because a strip the user had is then gone with nothing to say it existed.
-            //
-            // Reachable today by hand-editing the plist, which `split` and `restore` below both
-            // already treat as a live source of nonsense, and by any future change to the stored
-            // format that a build written before it has to read. Deliberately no more than this:
-            // no refusal to overwrite, no backup key — the value is unusable either way, and a
-            // strip the app declines to replace is a pane that cannot save its tabs.
+            // A key that is there but unreadable is worth a line: the caller can't tell it from
+            // "never written", seeds a fresh strip, and the next save overwrites it for good. Right,
+            // since there is nothing to restore, but not in silence. Reachable by a hand-edited
+            // plist or a newer format. Deliberately no more: no backup key and no refusal to
+            // overwrite, or the pane could never save its tabs.
             Logger.shared.warning(
                 "The stored \(isLeft ? "left" : "right") browse tab strip could not be read and will "
                 + "be replaced by the next save: \(raw.prefix(200))")
             return nil
         }
-        // A key that decodes to nothing is indistinguishable, for the caller, from no key at
-        // all — and seeding is the right answer for both.
+        // A key that decodes to nothing is, for the caller, no key at all: seeding is right for
+        // both.
         guard !decoded.isEmpty else { return nil }
         let selected = min(max(0, defaults.integer(forKey: key.selected)), decoded.count - 1)
         return (decoded, selected)
@@ -163,9 +131,9 @@ public enum PaneTabsStore {
         }
         guard let data = try? JSONEncoder().encode(entries),
               let raw = String(data: data, encoding: .utf8) else {
-            // A silent return here means the strip quietly stops persisting — every tab mutation
-            // from now on is lost on quit while the UI looks fine. Unreachable for these plain
-            // string fields, which is exactly when a branch must announce itself if it ever fires.
+            // A silent return here would quietly stop the strip persisting while the UI looks
+            // fine. Unreachable for these plain string fields, so it must announce itself if it
+            // ever fires.
             Logger.shared.error("The \(isLeft ? "left" : "right") pane's tab strip could not be encoded for saving — tab changes from this session will not survive a relaunch")
             return
         }
@@ -176,81 +144,67 @@ public enum PaneTabsStore {
 
     /// What a restore produced: the strip, and what it had to give up to produce it.
     ///
-    /// **The second half exists because the first cannot say it.** A tab whose folder is gone is
-    /// not dropped — it comes back at its source root — so it is indistinguishable, in the returned
-    /// list, from a tab the user genuinely left at the root. The count of restored tabs matches the
-    /// count of stored ones, nothing is missing, and the next save writes the root over the stored
-    /// path permanently. Only the caller can say where that folder was, and only if it is told.
+    /// A tab whose folder is gone comes back at its source root, which the list alone can't tell
+    /// from a tab left at the root, and the next save writes the root over the stored path for
+    /// good. Only the caller can say where that folder was, and only if told.
     ///
-    /// **A report, not a value to hold.** `restore` is the only thing that builds one and the host
-    /// reads it and drops it, so both halves are `let` and the memberwise initializer stays
-    /// internal. It is deliberately not `Equatable`: every `PaneTab` takes a fresh `UUID` on the way
-    /// in, so two reports of the same restore could never compare equal and nothing would learn
-    /// anything from asking.
+    /// A report, not a value to hold: only `restore` builds one and the host reads and drops it, so
+    /// both halves are `let` and the memberwise initializer stays internal. Not `Equatable`: every
+    /// `PaneTab` gets a fresh `UUID`, so two reports of one restore could never compare equal.
     public struct Restored: Sendable {
         /// The strip, ready to install.
         public let list: PaneTabList
-        /// The stored COMBINED path of every entry that came back at its source root because that
-        /// folder no longer exists, **in stored order — the order of the file, not of the strip.**
-        /// The two differ: the strip below floats the pinned run to the front, and this report is
-        /// about what was on disk rather than about what the user will see. It said "in strip
-        /// order" and did not mean it. Empty is the ordinary case.
+        /// The stored combined path of every entry that came back at its source root because its
+        /// folder no longer exists, in stored order: the file's, not the strip's, which floats the
+        /// pinned run to the front. Empty is the ordinary case.
         public let lostFolders: [String]
     }
 
     /// Turns stored entries back into tabs, dropping any whose provider is gone and re-rooting any
     /// whose folder no longer exists.
     ///
-    /// **A stored path is a claim about a disk that has been out of this app's sight since the last
-    /// quit.** A folder deleted, renamed or moved while the app was closed would otherwise restore
-    /// a tab onto nothing: an empty pane with a path in the header and no way to tell whether the
-    /// folder is missing or merely empty. Falling back to the provider root loses the location and
-    /// says so by showing the root; keeping the tab and letting it fail says nothing.
+    /// A stored path is a claim about a disk the app hasn't seen since the last quit. A folder
+    /// deleted, renamed or moved meanwhile would restore a tab onto nothing: an empty pane, with no
+    /// way to tell missing from empty. Falling back to the provider root loses the location but
+    /// shows it; keeping the tab says nothing.
     ///
-    /// `folderExists` is injected rather than called: the roots come from the host's settings and
-    /// the check hits the disk, neither of which belongs in a decoder.
+    /// `folderExists` is injected: the roots come from the host's settings and the check hits the
+    /// disk, neither of which belongs in a decoder.
     public static func restore(entries: [Entry],
                                selected: Int,
                                isKnownProvider: (String) -> Bool,
                                folderExists: (_ providerId: String, _ relativePath: String) -> Bool) -> Restored? {
         var restored: [PaneTab] = []
-        // Reported rather than merely counted: "one tab lost its folder" does not tell him WHICH
-        // folder, and the stored path is the only place that answer still exists — the entry is
-        // about to be rewritten at the root by the first thing that saves.
+        // Reported, not just counted: the stored path is the only record of which folder was
+        // lost, and the first save rewrites the entry at the root.
         var lostFolders: [String] = []
-        // **Where the stored selection ends up after entries are dropped.** Clamping the stored
-        // index into the shortened list is right only by accident: drop entry 0 of four with entry
-        // 2 selected and a clamp lands on the wrong tab, silently opening the pane somewhere the
-        // user did not leave it. Counting the survivors ahead of it is the answer that holds.
+        // Where the stored selection lands after entries are dropped: clamping the stored index
+        // into the shorter list can pick the wrong tab (drop entry 0 of four with entry 2
+        // selected), so count the survivors ahead of it.
         var selectedAfterDrops: Int?
         for (index, entry) in entries.enumerated() {
             guard isKnownProvider(entry.providerId) else { continue }
-            // Checked as the COMBINED path, which is the folder the tab was actually showing.
-            // Testing the scope alone would restore a stack into a folder that is gone; the scope
-            // is a prefix of what is checked here, so a combined path that exists proves both.
+            // Checked as the combined path, the folder the tab was showing: the scope is a prefix
+            // of it, so one check proves both, while the scope alone could restore a stack into a
+            // folder that is gone.
             let exists = folderExists(entry.providerId, entry.relativePath)
-            // The fallback drops the stack with the scope, deliberately: the components name
-            // folders *under* a path that no longer resolves, so there is nothing left for them to
-            // be relative to. That is the same "show the root and say so" answer the doc above
-            // gives for the scope.
+            // The fallback drops the stack with the scope: its components name folders under a
+            // path that no longer resolves.
             let (scope, stack) = exists
                 ? split(relativePath: entry.relativePath, stackDepth: entry.stackDepth)
                 : ("", PaneBrowsePath())
-            // An entry already AT the root cannot have fallen back to it, and reporting one would
-            // make every ordinary launch of a pane sitting at its source root emit a warning about
-            // a folder that was never lost.
+            // An entry already at the root can't have fallen back to it; reporting one would warn on
+            // every ordinary launch about a folder never lost.
             if !exists, !entry.relativePath.isEmpty { lostFolders.append(entry.relativePath) }
             if index == selected { selectedAfterDrops = restored.count }
             restored.append(PaneTab(providerId: entry.providerId, relativePath: scope,
                                     browsePath: stack, isPinned: entry.pinned))
         }
         guard !restored.isEmpty else { return nil }
-        // **The pinned run is a prefix, and a file is not a promise.** Every rule in `PaneTabList`
-        // is stated in terms of that prefix; a strip whose stored order interleaves them — a
-        // hand-edited plist, or a format that grows a reorder we did not think about — would leave
-        // `pinnedCount` and `pinned` disagreeing about the same list. Sorted here, once, where the
-        // untrusted data comes in. `sorted(by:)` is stable in the only sense that matters: equal
-        // elements keep their relative order, so pins stay in pin order and the rest in theirs.
+        // The pinned run must be a prefix, and a file is no promise: a stored order that
+        // interleaves pins (a hand-edited plist, a future format) would leave `pinnedCount` and
+        // `pinned` disagreeing. Sorted once, where the untrusted data comes in; sorting on
+        // (pin, offset) keeps pins in pin order and the rest in theirs.
         let live = restored[min(selectedAfterDrops ?? 0, restored.count - 1)].id
         restored = restored.enumerated()
             .sorted { ($0.element.isPinned ? 0 : 1, $0.offset) < ($1.element.isPinned ? 0 : 1, $1.offset) }

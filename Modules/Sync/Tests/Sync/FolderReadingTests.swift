@@ -2,11 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The words the Structure screen puts on each folder.
-///
-/// Every reading is a restatement of an entry the builder produced, so these are written against a
-/// profile built from a fixture tree rather than a hand-written profile: a reading that passes on a
-/// profile the builder would never produce is a sentence about nothing.
+/// The words the Structure screen puts on each folder. Every reading restates an entry the builder
+/// produced, so these use a profile built from a fixture tree: a reading that passes on a profile
+/// the builder would never produce is a sentence about nothing.
 @Suite struct FolderReadingTests {
 
     private static func profile(folders: [String], files: [String] = [],
@@ -37,8 +35,8 @@ import Testing
 
     // MARK: - One rule at a time
 
-    /// An inbox is read as an inbox before it is read as anything else — it is the one role that
-    /// changes what the app will *do* with the folder.
+    /// An inbox is read as an inbox before anything else: it is the one role that changes what the
+    /// app will do with the folder.
     @Test func anInboxSaysNothingWillBeFiledThere() {
         let profile = Self.profile(folders: ["Finance/TODO", "Finance/Receipts"])
         #expect(Self.read("Finance/TODO", of: profile) == "inbox: nothing will be filed here")
@@ -87,7 +85,7 @@ import Testing
                 "the anchors are the profile's, parent words and all")
     }
 
-    /// A folder whose children are all people is described by naming them — the one case where the
+    /// A folder whose children are all people is described by naming them, the one case where the
     /// members are more use than the shape.
     @Test func aFolderOfPeopleNamesThem() {
         let registry = PersonRegistry(people: [
@@ -117,7 +115,7 @@ import Testing
         #expect(Self.read("Finance", of: profile) == "a country first, then the year")
     }
 
-    /// One level is a list, not a habit — nothing is claimed about a tree one folder deep.
+    /// One level is a list, not a habit: nothing is claimed about a tree one folder deep.
     @Test func oneLevelIsNotAShape() {
         let profile = Self.profile(folders: ["Finance/US", "Finance/IN"], countries: ["US", "IN"])
         #expect(FolderReading.shapeSentence(under: "Finance", in: profile,

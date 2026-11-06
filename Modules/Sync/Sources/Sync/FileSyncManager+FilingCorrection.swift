@@ -1,8 +1,8 @@
 import Events
 import Foundation
 
-/// Rules taught in Ask Claude's chat (TE286): the offer built from a correction, its save, and the
-/// rules answering filing help as they answer To File.
+/// Rules taught in Ask Claude's chat: the offer built from a correction, its save, and the rules
+/// answering filing help as they answer To File.
 extension FileSyncManager {
 
     /// The first saved rule that files `path` inside the survey at `root`, as filing help's answer:
@@ -56,13 +56,11 @@ extension FileSyncManager {
         }
     }
 
-    /// The rule a correction teaches (TE286): `path` goes into `folder` (absolute, inside the
-    /// survey that covers it), and `phrases` are the words of its kind. Nothing is saved.
-    /// `.failure(nil)` when the folder isn't in a survey.
-    ///
-    /// The rule is that survey's: its folder is relative to the survey's root, so it carries that
-    /// root and acts only in that tree's scans — a ticket rule taught for iCloud's Travel never
-    /// files a Dropbox ticket into Dropbox/Travel. Only rules that act there are weighed against it.
+    /// The rule a correction teaches: `path` goes into `folder` (absolute, inside the survey that
+    /// covers it), and `phrases` are the words of its kind. Nothing is saved. `.failure(nil)` when
+    /// the folder isn't in a survey. The rule belongs to that survey: it carries its root and acts
+    /// only in that tree's scans, so a ticket rule taught for iCloud's Travel never files a Dropbox
+    /// ticket into Dropbox/Travel. Only rules that act there are weighed against it.
     public func ruleFromCorrection(_ path: String, into folder: String, name: String, phrases: [String],
                                    also: [String], pageSample: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? {
         guard let survey = filingHelpSurvey(for: folder),

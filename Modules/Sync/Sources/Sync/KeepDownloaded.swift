@@ -1,24 +1,16 @@
 import Foundation
 
-/// Finder's **Keep Downloaded**: a pin that makes the provider fetch an item — a folder's whole tree
-/// — and keep it on this Mac.
+/// Finder's Keep Downloaded: a pin that makes the provider fetch an item (a folder's whole tree) and
+/// keep it on this Mac.
 ///
-/// **The pin is an extended attribute, and it is the one Finder writes.** Measured 2026-10-27 on
-/// macOS 27: Finder's pinned folders (`~/Documents`, `~/Desktop`) carry
-/// `com.apple.fileprovider.pinned#PX` = `"1"`, and writing that attribute on a cloud-only iCloud
-/// folder downloaded every file in it, two levels deep, within 15 s; removing it leaves the files
-/// where they are. The `#PX` suffix is part of the name — `xattr_name_with_flags` flags, P never
-/// preserved and X never exported — so a pin belongs to this Mac and is not copied or synced.
+/// The pin is the extended attribute Finder writes, `com.apple.fileprovider.pinned#PX` = `"1"`.
+/// Setting it on a cloud-only iCloud folder downloads everything in it; removing it leaves the files
+/// where they are. The `#PX` suffix is part of the name (`xattr_name_with_flags`: never preserved,
+/// never exported), so a pin belongs to this Mac and is not copied or synced.
 ///
-/// **iCloud Drive only, because it is the only provider measured to honour it.** The same attribute
-/// on a cloud-only Google Drive file left it cloud-only for 24 s, and on OneDrive for 60 s, while a
-/// plain download of each landed at once. Dropbox could not be staged (it refused to evict a file).
-/// Offering the item there would be a promise nothing keeps.
-///
-/// **A pin does not stop an explicit eviction**: `evictUbiquitousItem` on a pinned file succeeded
-/// and it stayed cloud-only for 40 s. What it stops, per `NSFileProviderContentPolicy`'s
-/// "keep downloaded" policy, is the system's own eviction — low disk, Optimize Mac Storage — which
-/// cannot be staged here.
+/// iCloud Drive only: Google Drive and OneDrive ignored the attribute, and Dropbox couldn't be
+/// tested, so offering it there would be a promise nothing keeps. A pin doesn't stop an explicit
+/// `evictUbiquitousItem`; it stops the system's own eviction (low disk, Optimize Mac Storage).
 public enum KeepDownloaded {
     /// The attribute Finder's Keep Downloaded writes, flags suffix and all.
     public static let attributeName = "com.apple.fileprovider.pinned#PX"
@@ -27,10 +19,8 @@ public enum KeepDownloaded {
     static let domainAttributeName = "com.apple.file-provider-domain-id"
     static let iCloudDomainPrefix = "com.apple.CloudDocs."
 
-    /// The File Provider domain a folder roots, read from its attribute. Only ever READ: writing
-    /// that attribute is refused to a process without the right privacy grant — the CI runner, a
-    /// launchd service, was refused while a Terminal shell was not — so a test hands in its own
-    /// answer here rather than staging the attribute.
+    /// The File Provider domain a folder roots, read from its attribute. Only ever read: writing it
+    /// needs a privacy grant the CI runner lacks, so a test hands in its own answer here.
     public typealias DomainOf = @Sendable (String) -> String?
     public static let realDomainOf: DomainOf = { attribute(domainAttributeName, atPath: $0) }
 
@@ -40,18 +30,14 @@ public enum KeepDownloaded {
         case off
         /// Pinned itself.
         case on
-        /// Not pinned itself, but a folder above it is — so it is kept regardless, and turning it
-        /// off here would change nothing.
+        /// Not pinned itself, but a folder above it is, so turning it off here would change nothing.
         case inherited(fromFolder: String)
     }
 
-    /// Whether the item at `path` is kept downloaded.
-    ///
-    /// Asked by a row's context menu while it is built, which the right-click waits on, so it is
-    /// cheap: a path outside iCloud costs string comparisons (and, under `~/Desktop` or
-    /// `~/Documents`, one `getxattr` on that folder); one inside costs an `lstat` and a `getxattr`
-    /// per folder between it and the iCloud root. A link in iCloud is asked about as the file it points to, which is
-    /// the file the pin would fetch; a link elsewhere is not offered, wherever it points.
+    /// Whether the item at `path` is kept downloaded. A right-click waits on this while the context
+    /// menu is built, so it stays cheap: string compares outside iCloud, and inside an `lstat` plus
+    /// one `getxattr` per folder up to the iCloud root. A link in iCloud is asked about as its
+    /// target, the file the pin would fetch; a link elsewhere is not offered.
     public static func state(ofPath path: String, home: String = NSHomeDirectory(),
                              domainOf: DomainOf = realDomainOf) -> State {
         guard iCloudRoot(containing: path, home: home, domainOf: domainOf) != nil else { return .unavailable }
@@ -85,8 +71,8 @@ public enum KeepDownloaded {
                            domainOf: DomainOf = realDomainOf) -> String? {
         let mobileDocuments = home + "/Library/Mobile Documents"
         if let rest = descendant(path, of: mobileDocuments) {
-            // The container is the first component below; `Mobile Documents` itself is not iCloud
-            // Drive, it is the folder that holds every app's container.
+            // The container is the first component below; `Mobile Documents` itself only holds
+            // every app's container.
             guard let container = rest.split(separator: "/").first else { return nil }
             return mobileDocuments + "/" + container
         }

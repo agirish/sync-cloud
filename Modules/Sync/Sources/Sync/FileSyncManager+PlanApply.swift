@@ -1,7 +1,7 @@
 import Events
 import Foundation
 
-/// What applying a card of changes did (TE262), row by row.
+/// What applying an Ask Claude card of changes did, row by row.
 public struct AskClaudePlanOutcome: Sendable, Equatable {
     public enum Row: Sendable, Equatable {
         /// Done, in words: "Moved", "Kept as Ticket 2.pdf".
@@ -40,8 +40,8 @@ extension FileSyncManager {
         return nil
     }
 
-    /// Why one change can't run, or nil (TE262): checked when Claude proposes it and again at
-    /// Apply, so nothing is asked partway through. `creating` are folders the card makes first;
+    /// Why one change can't run, or nil: checked when Claude proposes it and again at Apply, so
+    /// nothing is asked partway through. `creating` are folders the card makes first;
     /// `protected` are the sources' own folders.
     public func planRefusal(_ change: AskClaudePlan.Change, creating: Set<String> = [], isHidden: (String) -> Bool,
                             protected: Set<String>) -> String? {
@@ -115,7 +115,7 @@ extension FileSyncManager {
         return inside(standard(path), standard(folder)) || inside(resolved(path), resolved(folder))
     }
 
-    /// Both paths are on one volume: a move is a rename, quick and fully undone (decision FD).
+    /// Both paths are on one volume, so a move is a rename: quick and fully undoable.
     /// A path not there yet is judged by the nearest folder above it that is.
     nonisolated static func onSameDisk(_ a: String, _ b: String) -> Bool {
         func volume(_ path: String) -> NSObjectProtocol? {
@@ -131,11 +131,10 @@ extension FileSyncManager {
         return va.isEqual(vb)
     }
 
-    /// Applies a card's ticked rows as ONE undo step named `actionName` (TE262): new folders
-    /// first, then renames and moves, then the Trash. Each row is checked again here, at the click;
-    /// one that fails its check is skipped with the reason, and the rest run. No dialog: a taken
-    /// name keeps both (decision GE), and nothing is deleted outright. Every change is a History
-    /// record, a new folder included.
+    /// Applies a card's ticked rows as one undo step named `actionName`: new folders first, then
+    /// renames and moves, then the Trash. Each row is checked again at the click; one that fails
+    /// is skipped with the reason, and the rest run. No dialog: a taken name keeps both, and
+    /// nothing is deleted outright. Every change is a History record, a new folder included.
     public func applyPlan(_ rows: [(id: Int, change: AskClaudePlan.Change)], actionName: String,
                           isHidden: (String) -> Bool, protected: Set<String>) async -> AskClaudePlanOutcome {
         var outcome = AskClaudePlanOutcome()
@@ -175,7 +174,7 @@ extension FileSyncManager {
             /// Moves, spelled as the card found them, before its renames: Undo takes the renames
             /// back first, and the moves then go back to where the card found each item.
             var moved: [MoveItemState] = []
-            /// Files (not folders) moved into a folder: filings, which teach the router (GW).
+            /// Files (not folders) moved into a folder: filings, which teach the router.
             var filed: [(from: URL, to: URL)] = []
             /// Where each of `moved` is now.
             var movedTo: [String] = []
@@ -321,7 +320,7 @@ extension FileSyncManager {
         recordSyncHistory(records, pairedWithUndo: outcome.undoName != nil)
         for url in done.created { noteOwnWrite(atPath: url.path) }
         for path in done.renames.map(\.to.path) + done.movedTo { noteOwnWrite(atPath: path) }
-        // A file Claude's card filed teaches the folder as a To File filing does (GW); the router
+        // A file Claude's card filed teaches the folder as a To File filing does; the router
         // keeps it only for a folder in the tree it ranks, and drops it when Undo moves it back.
         for item in done.filed {
             learnFromFiling(fileName: item.from.lastPathComponent, sourcePath: item.from.path,
@@ -332,10 +331,9 @@ extension FileSyncManager {
         return outcome
     }
 
-    /// A card's Undo: undoes its Apply only while that step, by `token`, is the one on top, and
-    /// nil without touching anything when it isn't — two cards can share a name, so the name
-    /// alone can't say whose step it is. The task ends once the undo has run on the disk, with
-    /// the rows of `applied` it didn't put back as they were.
+    /// A card's Undo: undoes its Apply only while that step, by `token`, is on top, and returns
+    /// nil untouched otherwise (two cards can share a name). The task ends once the undo has run
+    /// on disk, with the rows of `applied` it didn't put back.
     public func undoPlan(_ token: UUID, named name: String,
                          applied: [(id: Int, change: AskClaudePlan.Change)]) -> Task<[Int], Never>? {
         guard let undoManager, undoManager.canUndo, planUndoToken == token, undoManager.undoActionName == name else { return nil }

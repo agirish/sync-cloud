@@ -1,59 +1,34 @@
 import Foundation
 
 /// Pure request/response shaping for the opt-in **cloud** Filing classifier (Anthropic Messages
-/// API). Kept in Sync with no networking so it's unit-testable; the app performs the actual HTTPS
-/// call with these pieces. One request classifies a whole batch of files against the folder
-/// taxonomy — far cheaper and more consistent than one call per file.
+/// API). In Sync with no networking so it's unit-testable; the app makes the HTTPS call with these
+/// pieces. One request classifies a whole batch of files against the folder taxonomy, far cheaper
+/// and more consistent than one call per file.
 public enum CloudFilingProtocol {
-    /// Default model — Haiku: capable for folder classification and roughly a penny a scan. Switch
+    /// Default model, Haiku: capable for folder classification and roughly a penny a scan. Switch
     /// to Sonnet/Opus in Settings for harder cases.
     public static let defaultModel = "claude-haiku-4-5"
 
-    /// The models Settings offers, cheapest first — id AND the label the picker shows.
-    ///
-    /// One list, not two. The picker used to spell its own `Text(…).tag(…)` rows under a comment
-    /// asking the next editor to keep them in step with the ids; a refresh that updated only one
-    /// side is exactly how the picker went blank once before. Naming the generation rather than
-    /// just the family is deliberate: this is the only place the app says which Claude a scan will
-    /// actually run on, and the families outlive their versions.
+    /// The models Settings offers, cheapest first: id and the label the picker shows, in one list so
+    /// the two can't drift apart and leave the picker blank. Labels name the generation, not just
+    /// the family: this is the only place the app says which Claude a scan will run on.
     public static let selectableModelOptions: [(id: String, label: String)] = [
         ("claude-haiku-4-5", "Haiku 4.5 — cheapest (default)"),
         ("claude-sonnet-5", "Sonnet 5 — balanced"),
         ("claude-opus-5", "Opus 5 — best quality"),
     ]
 
-    /// Just the ids, in the same order — the family-resolution and validation paths want these.
+    /// Just the ids, in the same order, for the family-resolution and validation paths.
     public static let selectableModels = selectableModelOptions.map(\.id)
-    /// The version of the QUESTION asked about a file — not just the words in this file.
+    /// The version of the question asked about a file, not just of the words in this file.
     ///
     /// It is part of ``FilingVerdictKey``, so bumping it invalidates every cached verdict and the
-    /// next scan re-asks. **Bump it whenever anything changes what the backend is shown**: the
-    /// instruction block, the `input_schema`, *which folders the menu carries*, or *whether the
-    /// file's text is included*. A cached answer to the old question is not an answer to the new
-    /// one, and serving it silently keeps the change from ever taking effect. Wording that cannot
-    /// change a verdict (a typo fix in a comment, reflowing a line) does not need a bump; when
-    /// unsure, bump — the cost is one scan's worth of re-asking, against an edit that never lands.
-    ///
-    /// **2** — the menu became the router's shortlist instead of the 250 shallowest folders, and
-    /// every excerpt already read is now sent. Caught the honest way: the scan that was supposed to
-    /// demonstrate the fix logged "reused 12 of 13 classification(s) from cache" and replayed the
-    /// wrong answer, because neither input was part of the key and the old comment only named this
-    /// file's own text. Two of the three things that shape the prompt are assembled elsewhere.
-    ///
-    /// **3** — both of those inputs now cover the files that already have a home, which is most of
-    /// them. Version 2 only changed the question for files the router had ranked, and the router
-    /// only ranked the homeless ones; eleven of thirteen files in a real scan still went out as a
-    /// bare filename against a menu describing everything except them.
-    ///
-    /// **4** — the router now reads the 400-character sample it was measured on rather than the
-    /// extractor's five pages, which changes its shortlist, which is the menu.
-    /// **5** — a verdict is now arbitrated against the router's shortlist and capped when the file
-    /// was read and yielded nothing, so a cached answer from before means something different.
-    /// **6** — both schemas gained `createsNewFolder`, so a backend must now DECLARE a folder that
-    /// does not exist instead of expressing it by typing a path that is not on the list. A cached
-    /// answer from before carries no declaration and would be read as an invention.
-    /// **7** — a verdict naming a different person than the file is refused, so a cached one from
-    /// before was arbitrated under a different rule.
+    /// next scan re-asks. **Bump it whenever anything changes what the backend is shown or how its
+    /// answer is judged**: the instruction block, the `input_schema`, which folders the menu
+    /// carries, whether the file's text is included, or how a verdict is arbitrated. Several of
+    /// these are assembled outside this file. A cached answer to the old question would silently
+    /// keep the change from taking effect. Wording that can't change a verdict needs no bump; when
+    /// unsure, bump: the cost is one scan's worth of re-asking.
     public static let promptVersion = 7
 
     public static let apiVersion = "2023-06-01"
@@ -62,20 +37,13 @@ public enum CloudFilingProtocol {
 
     static let maxSnippetChars = 800
 
-    /// Maps a stored model ID onto the currently offered model of the same family. A setting saved
-    /// before a model refresh (say `claude-opus-4-8`) still names a real model, so nothing breaks —
-    /// but it would leave the Settings picker showing no selection and quietly pin every scan to a
-    /// superseded model. Resolving it here means "the user picked Opus" keeps meaning today's Opus.
-    /// A model outside the three families is left alone: it can only have been set by hand, so
-    /// honor it rather than overriding a deliberate choice.
+    /// Maps a stored model ID onto the currently offered model of the same family. An older id (say
+    /// `claude-opus-4-8`) would leave the Settings picker with no selection and pin every scan to a
+    /// superseded model; resolved here, "the user picked Opus" keeps meaning today's Opus.
     ///
-    /// "Outside the families" is the precise rule, and it is narrower than "set by hand" — a DATED
-    /// snapshot within a family (`claude-haiku-4-5-20251001`) IS rewritten to that family's current
-    /// alias, which `CloudFilingProtocolTests` pins deliberately: pinning a snapshot would leave the
-    /// Settings picker with no selection and freeze the scan on a superseded model, the failure this
-    /// whole function exists to prevent. Someone wanting a specific snapshot must therefore use an
-    /// id outside the three families. Said explicitly because the sentence above reads, wrongly, as
-    /// though any hand-set id survives.
+    /// A model outside the three families is left alone, as a deliberate hand-set choice. A dated
+    /// snapshot within a family (`claude-haiku-4-5-20251001`) is still rewritten to the family's
+    /// current alias, as `CloudFilingProtocolTests` pins.
     public static func currentModel(for stored: String) -> String {
         if selectableModels.contains(stored) { return stored }
         return selectableModels.first { current in
@@ -85,8 +53,8 @@ public enum CloudFilingProtocol {
         } ?? stored
     }
 
-    /// The JSON request body (a plain dictionary ready for `JSONSerialization`). Forces a single
-    /// structured tool call so the response is guaranteed to be the placement array.
+    /// The JSON request body, a plain dictionary for `JSONSerialization`. Forces a single structured
+    /// tool call so the response is the placement array.
     public static func requestBody(model: String = defaultModel, taxonomyFolders: [String],
                                    files: [FilingCandidateFile]) -> [String: Any] {
         let instructions = """
@@ -110,20 +78,13 @@ public enum CloudFilingProtocol {
         Always answer with paths relative to the folder list — never absolute paths.
         """
         // The folder taxonomy is stable per provider, so it rides in a system block marked for
-        // prompt caching below. The breakpoint goes on the LAST system block deliberately: the
-        // cache prefix renders tools → system → messages, so one marker there covers the tool
-        // schema too. A second breakpoint on `tools` would buy nothing.
+        // prompt caching. The breakpoint goes on the last system block: the cache prefix renders
+        // tools → system → messages, so one marker there covers the tool schema too.
         //
-        // Whether it actually caches depends on the model, and NOT monotonically by generation:
-        // the minimum cacheable prefix is 512 tokens on Opus 5, 1024 on Opus 4.8 / Sonnet 5, and
-        // 4096 on Haiku 4.5 — our `defaultModel`. Measured against a real 250-folder taxonomy
-        // (the `relativeFolderPaths` cap): 808 chars of instructions + 7,363 of folders + 700 of
-        // tool schema ≈ 2,200 tokens. That clears Opus 5 and Sonnet 5 four- and two-fold, and
-        // falls well short of Haiku's floor — so on the DEFAULT model the marker is inert and
-        // `usage` reports zero cache-creation and zero cache-read tokens. That is the API
-        // silently declining to cache a too-short prefix, not a bug here, and it self-corrects
-        // on the larger models. Also worth knowing before optimizing for it: the ephemeral TTL
-        // is 5 minutes, so hand-driven scans minutes apart mostly find a cold cache regardless.
+        // A full 250-folder request is about 2,200 tokens, under Haiku 4.5's 4096-token minimum
+        // (our `defaultModel`) but over Sonnet 5's and Opus 5's. So on the default model `usage`
+        // reports zero cache tokens: the API declining a short prefix, not a bug. The TTL is
+        // 5 minutes, so scans minutes apart mostly find a cold cache anyway.
         let folderBlock = "The user's existing folders (relative paths):\n"
             + taxonomyFolders.joined(separator: "\n")
 
@@ -132,11 +93,9 @@ public enum CloudFilingProtocol {
             userText += "[\(i)] name: \(f.fileName) | type: \(f.ext.isEmpty ? "unknown" : f.ext)"
             if let year = f.year { userText += " | modified: \(year)" }
             userText += "\n"
-            // Every excerpt the caller supplies is sent. The cost worth controlling is *reading*
-            // the file, and that decision belongs to the caller who knows what it has already read
-            // — this used to re-apply `canRemember` here and throw away a page the scan had already
-            // extracted, which is how a document with a meaningful name reached the model as a bare
-            // filename even though its text was sitting in memory.
+            // Every excerpt the caller supplies is sent. The cost worth controlling is reading the
+            // file, which the caller decides; filtering here again would throw away text the scan
+            // already has and send the model a bare filename.
             if let snippet = f.contentSnippet, !snippet.isEmpty {
                 userText += "    excerpt: \(String(snippet.prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " "))\n"
             }
@@ -191,9 +150,9 @@ public enum CloudFilingProtocol {
         ]
     }
 
-    /// Parses the Anthropic response into verdicts keyed by `filePath`. Returns nil when the response
-    /// is an error or an unreadable shape (so the caller falls back to the on-device backend); an
-    /// empty dictionary means the model placed nothing.
+    /// Parses the Anthropic response into verdicts keyed by `filePath`. nil for an error or an
+    /// unreadable shape, so the caller falls back to the on-device backend; an empty dictionary
+    /// means the model placed nothing.
     public static func parseVerdicts(responseData: Data, files: [FilingCandidateFile]) -> [String: FilingVerdict]? {
         guard let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else { return nil }
         if (root["type"] as? String) == "error" { return nil }
@@ -254,15 +213,12 @@ public enum CloudFilingProtocol {
             .flatMap { $0["message"] as? String }
     }
 
-    /// Approximate list price ($/million tokens) as of 2026 — for a rough cost estimate only; the
-    /// Anthropic Console is the source of truth. nil for a model we don't have a rate for.
+    /// Approximate list price ($/million tokens) for a rough cost estimate; the Anthropic Console is
+    /// the source of truth. nil for a model we have no rate for.
     ///
-    /// Sonnet's rate changed with its generation, so it is priced by generation: Sonnet 5 (what
-    /// Settings offers) is $2/$10, and an older Sonnet id is $3/$15. The app never asks with an
-    /// older one — ``currentModel(for:)`` moves a stored `claude-sonnet-4-6` to Sonnet 5 before any
-    /// call — so that rate is only what this answers for such an id passed in directly. These rates
-    /// feed the spend caps as well as the log, so a family-wide rate overcharged every Sonnet 5
-    /// scan against the caps by half.
+    /// Sonnet is priced by generation: Sonnet 5 is $2/$10, an older Sonnet id $3/$15 (only reached
+    /// for such an id passed in directly; ``currentModel(for:)`` moves stored ones to Sonnet 5).
+    /// These rates feed the spend caps as well as the log, so a family-wide rate would overcharge.
     public static func pricing(for model: String) -> (input: Double, output: Double)? {
         if model.hasPrefix("claude-opus") { return (5, 25) }
         if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }
@@ -288,13 +244,11 @@ public enum CloudFilingProtocol {
     /// instruction block plus the tool schema JSON. The taxonomy and per-file lines are added on top.
     private static let requestOverheadChars = 1500
 
-    /// A BEFORE-the-call token estimate for a batch, so the user can see a cost up front (the real
-    /// usage is only known after the API responds). Approximates the same billable text `requestBody`
-    /// assembles — the folder taxonomy plus one line per file (name/type/year, and every content
-    /// excerpt the caller supplied, exactly as the body decides) — at the usual ~4 chars/token. The
-    /// output estimate reuses the body's own `512 + files*80` budget (capped at 16384). Heuristic and
-    /// deliberately a slight over-estimate (it ignores prompt-cache read discounts on the taxonomy),
-    /// so the pre-flight figure never undersells the cost.
+    /// A before-the-call token estimate for a batch, so the user sees a cost up front. Approximates
+    /// the billable text `requestBody` assembles (the taxonomy plus one line per file, with every
+    /// excerpt supplied) at ~4 chars/token, and reuses the body's `512 + files*80` output budget
+    /// (capped at 16384). Deliberately a slight over-estimate (it ignores cache discounts), so it
+    /// never undersells the cost.
     public static func estimateTokens(taxonomyFolders: [String], files: [FilingCandidateFile]) -> (input: Int, output: Int) {
         var chars = requestOverheadChars
         chars += "The user's existing folders (relative paths):\n".count
@@ -317,7 +271,7 @@ public enum CloudFilingProtocol {
 
     /// Estimated USD cost of a batch BEFORE it runs, from the pre-call token estimate at list prices.
     /// nil when the model has no known rate (so the caller shows "estimate unavailable" rather than a
-    /// wrong number). No cache-rate adjustment — the estimate can't know what will be cache-hit.
+    /// wrong number). No cache-rate adjustment: the estimate can't know what will be cache-hit.
     public static func estimatedCostUSD(model: String, taxonomyFolders: [String], files: [FilingCandidateFile]) -> Double? {
         guard let price = pricing(for: model) else { return nil }
         let est = estimateTokens(taxonomyFolders: taxonomyFolders, files: files)

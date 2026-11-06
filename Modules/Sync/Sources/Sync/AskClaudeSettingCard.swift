@@ -1,16 +1,16 @@
 import Foundation
 
-/// A card of SyncCloud settings in Ask Claude's chat (TE290 step 4a): each row is one setting,
-/// drawn with its real control at its live value, and a click on the control changes it.
+/// A card of SyncCloud settings in Ask Claude's chat: each row is one setting, drawn with its real
+/// control at its live value, and a click on the control changes it.
 ///
-/// **It holds ids and what the card itself did, never the settings' live values.** The value on
+/// It holds ids and what the card itself did, never the settings' live values. The value on
 /// screen is read live when the card is drawn, so a card restored from a saved chat can't show a
 /// stale one. What a row remembers is only its own doing: the value it found before its first
 /// change, so it can say "was X" (for a folder setting, that is a path), and the list items it put
 /// in or took out. It never holds a key, a folder on Hidden from Claude, or an item inside one.
 public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
 
-    /// One item a card put in a list or took out of it (TE290 step 8).
+    /// One item a card put in a list or took out of it.
     public struct ListEdit: Codable, Equatable, Sendable {
         /// The item as its undo and record hold it; nil on Hidden from Claude, whose paths are
         /// never written into the chat.
@@ -34,15 +34,14 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
         public var changedFrom: String?
         /// Why the last click didn't change it, shown under the control; nil when it did.
         public var refusal: String?
-        /// Claude changed it itself, with set (TE290 step 4c); nil once their own click changes it.
+        /// Claude changed it itself, with set; nil once their own click changes it.
         public var byClaude: Bool?
-        /// The API key card saved a key to the Keychain (TE290 step 7). The key itself is never
-        /// kept on the card.
+        /// The API key card saved a key to the Keychain. The key itself is never kept on the card.
         public var keySaved: Bool?
         /// What this card put in or took out of a list, in order; nil for a setting that isn't one.
         public var listEdits: [ListEdit]?
-        /// What a one-off action did, in words for the card (TE290 step 9): "Added Projects as a
-        /// source." It is never a value Undo could put back.
+        /// What a one-off action did, in words for the card: "Added Projects as a source." It is
+        /// never a value Undo could put back.
         public var outcome: String?
 
         public init(id: String, target: String? = nil, pick: String? = nil, changedFrom: String? = nil,
@@ -60,13 +59,13 @@ public struct AskClaudeSettingCard: Codable, Equatable, Sendable {
     public let title: String?
     public var rows: [Row]
     /// The panel's own words above the rows, for a card the panel put up itself rather than
-    /// Claude: the at-limit card (TE290 step 6). Nothing was sent for it.
+    /// Claude: the at-limit card. Nothing was sent for it.
     public let notice: String?
     /// The question the limit stopped, for Ask Again once the limit is raised; nil after it is
     /// asked, and on every card Claude showed.
     public var askAgain: String?
-    /// A message that held an API key and wasn't sent, with the key masked (TE290 step 7). The
-    /// key itself lives only in the chat's memory, never here.
+    /// A message that held an API key and wasn't sent, with the key masked. The key itself lives
+    /// only in the chat's memory, never here.
     public var caught: String?
 
     public init(title: String? = nil, rows: [Row], notice: String? = nil, askAgain: String? = nil,

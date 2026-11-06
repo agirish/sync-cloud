@@ -2,10 +2,9 @@ import Combine
 import Events
 import Foundation
 
-/// One change made from Ask Claude's chat (TE290 step 5), kept after the chat is gone.
-///
-/// It holds what Revert needs — the setting's catalog id, its target, the values before and after
-/// as stored — and the words Activity shows, taken when the change was made.
+/// One change made from Ask Claude's chat, kept after the chat is gone. It holds what Revert needs
+/// (the setting's catalog id, its target, the stored values before and after) and the words
+/// Activity shows, taken when the change was made.
 public struct SettingsChange: Codable, Equatable, Identifiable, Sendable {
 
     /// Who made it, and how.
@@ -18,8 +17,8 @@ public struct SettingsChange: Codable, Equatable, Identifiable, Sendable {
         case undo, redo
         /// Revert, in Activity ▸ History.
         case revert
-        /// A filing rule saved from a card (TE286). It has no Revert: rules are removed in
-        /// Organize ▸ Rules.
+        /// A filing rule saved from a card. It has no Revert: rules are removed in Organize ▸
+        /// Rules.
         case rule
     }
 
@@ -72,16 +71,16 @@ public struct SettingsChange: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// **Changed from Chat** (TE290 step 5): every setting changed from Ask Claude's chat, in a file of
-/// its own beside the History file, so Activity can list it — with Revert — after the chat is gone.
+/// Changed from Chat: every setting changed from Ask Claude's chat, in a file of its own beside the
+/// History file, so Activity can list it, with Revert, after the chat is gone.
 ///
-/// **Recorded the moment it's made.** Each change is written as it happens, so a crash mid-answer
-/// can lose a card's state but never this record. **Kept 90 days, 500 at most**, whichever is less,
-/// trimmed at every write. The file is outside the preferences: Reset All leaves it, and it has its
-/// own Clear. Under a test runner it is a per-process temp file, as the History file is.
+/// Each change is written as it happens, so a crash mid-answer can lose a card's state but never
+/// this record. Kept 90 days and 500 at most, trimmed at every write. The file is outside the
+/// preferences: Reset All leaves it, and it has its own Clear. Under a test runner it is a
+/// per-process temp file, as the History file is.
 ///
-/// **Read through the hidden filter.** A change whose words name something later hidden from
-/// Claude is shown, and told to Claude, without them (`visible(hiding:)`).
+/// Read through the hidden filter: a change whose words name something later hidden from Claude is
+/// shown, and told to Claude, without them (`visible(hiding:)`).
 @MainActor
 public final class SettingsChangeLog: ObservableObject {
     public static let shared = SettingsChangeLog()
@@ -89,8 +88,8 @@ public final class SettingsChangeLog: ObservableObject {
     /// Oldest first.
     @Published public private(set) var changes: [SettingsChange] = []
     public let fileURL: URL
-    /// Rows this build can't read — written by a newer one, say — kept as they were and written
-    /// back, so running an older build never deletes them.
+    /// Rows this build can't read (written by a newer one, say), kept and written back, so running
+    /// an older build never deletes them.
     private var unreadable: [Data] = []
     /// Rows this copy holds that it couldn't write. Only these are written back over the file: a row
     /// it wrote that is gone from the file was trimmed or cleared by another copy.
@@ -162,7 +161,7 @@ public final class SettingsChangeLog: ObservableObject {
     }
 
     /// One matcher per hidden name, matching it as a whole word or path component only: a hidden
-    /// "Old" names "Old" and "Archive/Old", never "Folder" (TE290 review).
+    /// "Old" matches "Old" and "Archive/Old", never "Folder".
     private static func matchers(_ names: [String]) -> [NSRegularExpression] {
         names.compactMap { name in
             let plain = name.precomposedStringWithCanonicalMapping

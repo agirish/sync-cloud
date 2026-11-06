@@ -2,15 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins ``JurisdictionCandidates`` — a proposer whose output is *confirmed by a person*, never
-/// trusted.
-///
-/// The tests below deliberately include one that asserts a **known false positive is proposed**.
-/// That is not a bug being enshrined: the rule is permissive on purpose because a human filters it,
-/// and on the reference tree it invents `EMP`, `IT` and `PRD` while scoring 83.2% against a
-/// hand-built profile that scores 100% when handed the confirmed values. A future tightening that
-/// silently stops offering `EMP` should have to look at this test and decide, because the same
-/// tightening is what drops `IN`.
+/// Pins ``JurisdictionCandidates``, a proposer whose output a person confirms, never trusted.
+/// One test asserts a known false positive is proposed. That is by design: the rule is permissive
+/// because a human filters it, and on the reference tree it also offers `EMP`, `IT` and `PRD`. A
+/// tightening that stops offering `EMP` should have to face that test, because the same tightening
+/// drops `IN`.
 @Suite struct JurisdictionCandidatesTests {
 
     /// A genuine two-value split: both are proposed, each carrying the parents that are the
@@ -33,9 +29,8 @@ import Testing
         #expect(candidates[1].parents == ["Finance", "Legal", "School"])
     }
 
-    /// **The ≥3-parent rule, tested where it costs something.** `EU` lives under two parents and is
-    /// not proposed; `IN`, in the same tree, is. A fixture that proposed nothing at all would pass
-    /// with the whole rule deleted, so the refusal and the acceptance are measured together.
+    /// The ≥3-parent rule: `EU` under two parents is not proposed, `IN` in the same tree is. The
+    /// refusal and the acceptance are checked together, so proposing nothing can't pass.
     @Test func aValueUnderTooFewParentsIsNotProposed() {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Finance/EU/VAT", "Legal/EU/GDPR",                       // two parents only
@@ -46,17 +41,17 @@ import Testing
         #expect(candidates.first?.folderCount == 6)      // three `IN` folders and one child each
     }
 
-    /// A single acronym under one parent — the `Work/EMP/Payslips` shape with nothing to
-    /// generalise from — proposes nothing at all. The dialog is not opened for one folder.
+    /// A single acronym under one parent (`Work/EMP/Payslips`, nothing to generalise from)
+    /// proposes nothing, so the dialog doesn't open for one folder.
     @Test func anAcronymUnderOneParentProposesNothing() {
         #expect(JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Work/EMP/Payslips", "Work/EMP/Reviews", "Work/EMP/Offers", "Personal/Notes"
         ]), root: "/root").isEmpty)
     }
 
-    /// Ordering is by **folders affected**, not by parents and not alphabetically. The fixture is
-    /// built so all three orders differ: `ZZ` sits under three parents but owns a deep subtree,
-    /// `AB` sits under five parents and owns nothing.
+    /// Ordering is by folders affected, not by parents and not alphabetically. The fixture makes
+    /// all three orders differ: `ZZ` is under three parents with a deep subtree, `AB` under five
+    /// with nothing below.
     @Test func candidatesAreOrderedByHowManyFoldersTheyWouldAffect() {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "One/AB", "Two/AB", "Three/AB", "Four/AB", "Five/AB",
@@ -70,10 +65,9 @@ import Testing
         #expect(candidates[1].parents.count == 5)
     }
 
-    /// **A known false positive IS proposed, and that is the design.** `EMP` is an employer and
-    /// `PRD` a product stage; both clear the bar on the reference tree, and both reach the user as
-    /// a tick box beside `US`. Wiring this straight into a profile would write
-    /// `jurisdiction: EMP` onto 40-odd folders and give the router a fact that does not exist.
+    /// A known false positive is proposed, by design. `EMP` (an employer) and `PRD` (a product
+    /// stage) clear the bar and reach the user as tick boxes beside `US`. Wired straight into a
+    /// profile, this would stamp `jurisdiction: EMP` on dozens of folders: a fact that isn't so.
     @Test func aKnownFalsePositiveIsProposedBecauseAPersonFiltersIt() {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",
@@ -85,19 +79,17 @@ import Testing
         #expect(values.contains("EMP"))
         #expect(values.contains("PRD"))
         #expect(values.contains("US"))
-        // And the evidence that lets a person tell them apart is carried, rather than the caller
-        // being handed three bare strings: an employer's parents read nothing like a place's.
+        // The parents are carried so a person can tell them apart: an employer's read nothing
+        // like a place's.
         #expect(candidates.first { $0.value == "EMP" }?.parents == ["Benefits", "Equity", "Work"])
         #expect(candidates.first { $0.value == "US" }?.parents == ["Finance", "Legal", "School"])
     }
 
-    /// **The miss the dialog has to cover.** `Singapore` is a real jurisdiction on the reference
-    /// tree (10 folders) and this rule cannot reach it: nine characters, and only two parents. The
-    /// fixture reproduces both halves — a long name under three parents, and a short one under two
-    /// — beside a value that *is* proposed, so the test cannot pass by proposing nothing.
-    ///
-    /// A confirmation dialog built on this must let the user ADD a value, or that tree's third
-    /// jurisdiction can never be recorded at all.
+    /// The miss the dialog has to cover. `Singapore` is a real jurisdiction on the reference tree
+    /// that this rule can't reach: nine characters, and only two parents. The fixture has both (a
+    /// long name under three parents, a short one under two) beside a value that is proposed, so
+    /// proposing nothing can't pass. The dialog must let the user add a value, or that
+    /// jurisdiction can never be recorded.
     @Test func aRealValueThisRuleCannotReachIsAbsentFromTheProposals() {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Immigration/Visa/Singapore", "Travel/Trips/Singapore", "Legal/Singapore",  // too long
@@ -120,15 +112,14 @@ import Testing
         #expect(!JurisdictionCandidates.isCandidateName("Us"))
         #expect(!JurisdictionCandidates.isCandidateName("USA1"))
         #expect(!JurisdictionCandidates.isCandidateName("U"))
-        // **The upper bound, which nothing else here reaches.** The reference tree's only all-caps
-        // name of four-plus characters under three or more parents is `TODO` — under 16 of them,
-        // more than `US` — so a dropped cap proposes the inbox marker as the strongest
-        // jurisdiction on the tree. This assertion is the one that catches that.
+        // The upper bound, which nothing else here reaches. On the reference tree `TODO` sits
+        // under more parents than `US`, so without the length cap the inbox marker would be
+        // proposed as the strongest jurisdiction.
         #expect(!JurisdictionCandidates.isCandidateName("TODO"))
         #expect(!JurisdictionCandidates.isCandidateName("USCIS"))
 
-        // And the same names refused through the real entry point, under enough parents to clear
-        // every other bar — so a rule that only lived in the helper would still fail here.
+        // The same names refused through the real entry point, under enough parents to clear
+        // every other bar, so a rule that only lived in the helper would still fail here.
         #expect(JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Finance/529/2023", "College/529/2024", "Savings/529/2025",
             "Utilities/PG&E/2023", "Bills/PG&E/2024", "Archive/PG&E/2025",
@@ -136,9 +127,8 @@ import Testing
         ]), root: "/root").isEmpty)
     }
 
-    /// The root may be handed over either way — as the root node itself, or as its children — and
-    /// both must name the same folders. Passing the root node in used to be the way to get every
-    /// path prefixed with `Documents`, which no profile path carries.
+    /// The root may be handed over as the root node itself or as its children, and both must name
+    /// the same folders. The root's own name must not prefix the paths: no profile path carries it.
     @Test func theRootItselfContributesNoValueAndNoPrefix() {
         let paths = ["Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts"]
         let children = JurisdictionCandidates.propose(tree: FixtureTree.of(paths), root: "/root")
@@ -167,17 +157,12 @@ import Testing
 
     // MARK: - It counts the tree the survey actually walks
 
-    /// **Every number here is a promise about what confirming a value would do**, so it has to be
-    /// counted over the folders the survey will really give an entry to.
-    ///
-    /// This filtered on `isDirectory` alone, while ``FolderSurveyBuilder`` skips dot-directories and
-    /// symlinks and gives an unexplored directory no entry at all. Each of the three below is
-    /// therefore a folder that would have counted toward the evidence and the blast radius and then
-    /// never received the axis. The symlink is the sharpest: ``FileNode/isDirectory`` describes the
-    /// link's *target*, so a link reads as a perfectly ordinary folder here.
-    ///
-    /// Written as one tree with all three kinds present, and asserted through `parents` — the list
-    /// the dialog shows — so a partial fix that drops one kind and keeps another still fails.
+    /// Every number here promises what confirming a value would do, so it must be counted over the
+    /// folders the survey really gives an entry to. ``FolderSurveyBuilder`` skips dot-directories
+    /// and symlinks and gives an unexplored directory no entry, so none of those may count toward
+    /// the evidence or the blast radius. A symlink is the easy one to miss:
+    /// ``FileNode/isDirectory`` describes the link's target. All three kinds share one tree and are
+    /// asserted through `parents`, the list the dialog shows, so dropping only some still fails.
     @Test func foldersTheSurveyWillNeverStampAreNotCounted() throws {
         let real = FixtureTree.of(["Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts"])
         let ignorable = [
@@ -208,20 +193,10 @@ import Testing
                 "the blast radius counted folders the survey never gives an entry to")
     }
 
-    /// A folder whose path names the value twice is **one** folder.
-    ///
-    /// The count was taken per matching path *component*, so `Taxes/US/Consulate/US` added 2 for a
-    /// single folder and every descendant repeated the inflation. `folderCount` is what the list is
-    /// ordered by and what the dialog reports as "how many folders would take this value", so a
-    /// doubled one is a wrong number and can be a wrong order too.
-    ///
-    /// **A value nested under itself does not clear the parents bar on its own.**
-    ///
-    /// `minimumDistinctParents` exists because an axis value *splits* branches. Counting every
-    /// occurrence let one branch supply all the evidence: `A/US/B/US/C/US` yields three different
-    /// parent strings and proposed a value that splits nothing. The blast radius had the same defect
-    /// and was fixed first; this is the half that was missed, and it is the one that decides whether
-    /// the value is offered at all.
+    /// A value nested under itself doesn't clear the parents bar on its own.
+    /// `minimumDistinctParents` exists because an axis value splits branches; counting every
+    /// occurrence would let one branch supply all the evidence, since `A/US/B/US/C/US` yields three
+    /// different parent strings for a value that splits nothing.
     @Test func aValueNestedUnderItselfDoesNotClearTheParentsBar() {
         let candidates = JurisdictionCandidates.propose(
             tree: FixtureTree.of(["A/US/B/US/C/US/Papers"]), root: "/root")
@@ -236,11 +211,11 @@ import Testing
         #expect(genuine.contains { $0.value == "US" })
     }
 
-    /// The other three parents are what get `US` proposed at all; the repeat is the folder under
-    /// test. Ten folders carry `US` somewhere in their path — three single-depth branches at two
-    /// each, plus four down the repeating branch (`Taxes/US`, `…/Consulate`, `…/Consulate/US`,
-    /// `…/Visa`). The old rule counted **twelve**: eight of the ten matched once and the two below
-    /// the second `US` matched twice each.
+    /// A folder whose path names the value twice is one folder. `folderCount` orders the list and
+    /// is what the dialog reports, so a doubled count is a wrong number and can be a wrong order.
+    /// The other three parents get `US` proposed; ten folders carry it (two per single-depth
+    /// branch, plus `Taxes/US`, `…/Consulate`, `…/Consulate/US`, `…/Visa`). Counting per path
+    /// component would give twelve.
     @Test func aValueRepeatedInOnePathCountsThatFolderOnce() throws {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",

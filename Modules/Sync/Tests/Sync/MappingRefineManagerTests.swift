@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.6's manager gate: the route is a HARD gate (naming has no on-device fallback, and the
-/// transport reads the Keychain directly — it must never be reached around the router), the
-/// estimate is shown before anything is sent, and declined is its own outcome.
+/// The mapping refine's manager gate: the route is a hard gate (naming has no on-device fallback,
+/// and the transport reads the Keychain directly, so it must never be reached around the router),
+/// the estimate is shown before anything is sent, and declined is its own outcome.
 @MainActor
 @Suite struct MappingRefineManagerTests {
 
@@ -29,8 +29,8 @@ import Testing
         return manager
     }
 
-    /// Cloud off (or no usable key) means the pass does not run AT ALL — a stored key must not
-    /// be billed around the router, and there is no on-device model to fall back to.
+    /// Cloud off (or no usable key) means the pass doesn't run at all: a stored key must not be
+    /// billed around the router, and there's no on-device model to fall back to.
     @Test func aNonCloudRouteIsAHardGateAndSendsNothing() async {
         let calls = Calls()
         let manager = makeManager(route: "device:apple-fm", calls: calls)
@@ -43,8 +43,8 @@ import Testing
         #expect(calls.refined == 0, "the transport was reached around the router")
     }
 
-    /// The estimate comes first, named honestly — folder names, not files — and Cancel is its
-    /// own outcome, never conflated with a failure.
+    /// The estimate comes first and counts folder names, not files; Cancel is its own outcome,
+    /// never a failure.
     @Test func decliningTheEstimateSendsNothingAndSaysSo() async {
         let calls = Calls()
         let manager = makeManager(route: "cloud:claude", calls: calls)
@@ -73,9 +73,9 @@ import Testing
                                   verdict: .propose(target: "Application"), why: "w"),
         ]))
     }
-    /// §5.9's staleness truth is a coverage question, not an emptiness one: a clean scan of the
-    /// surveyed root COVERS it with zero groups, and a scan of some other root covers nothing
-    /// however many groups it left. Both directions lied through `duplicateGroups.isEmpty`.
+    /// Staleness is a coverage question, not an emptiness one: a clean scan of the surveyed root
+    /// covers it with zero groups, and a scan of another root covers nothing however many groups it
+    /// left. `duplicateGroups.isEmpty` gets both wrong.
     @Test func scanCoverageIsAboutTheRootNotTheGroupCount() {
         let manager = FileSyncManager()
         manager.filingFolderProfile = FolderProfile(profileId: "p", root: "/tree",
@@ -90,18 +90,17 @@ import Testing
         #expect(!manager.duplicateScanCoversSurvey,
                 "groups from an unrelated root say nothing about the survey's tree")
 
-        // A RE-scan does not flicker the answer off: the lifecycle publishes the root WITH
-        // results, so a non-nil root always labels what is on screen, mid-rescan included.
+        // A rescan doesn't flicker the answer off: the lifecycle publishes the root with results,
+        // so a non-nil root always labels what is on screen, mid-rescan included.
         manager.duplicateScanRoot = "/tree"
         manager.isFindingDuplicates = true
         #expect(manager.duplicateScanCoversSurvey,
                 "the previous results stay covered while their replacement runs")
     }
 
-    /// A cap block is the BUDGET saying no, not the person declining: the over-cap dialog
-    /// offers no proceed button, so its `false` must land in `.unavailable` (whose sentence
-    /// names the caps), never in `.declined` ("their choice, not a failure" — a choice they
-    /// never made).
+    /// A cap block is the budget saying no, not the person declining: the over-cap dialog offers no
+    /// proceed button, so its `false` must land in `.unavailable` (whose sentence names the caps),
+    /// never in `.declined` ("their choice, not a failure", a choice they never made).
     @Test func aCapBlockIsTheBudgetSayingNoNotADecline() async {
         let calls = Calls()
         let manager = makeManager(route: "cloud:claude", calls: calls)

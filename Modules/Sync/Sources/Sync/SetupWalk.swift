@@ -3,17 +3,11 @@ import Foundation
 
 /// One read of the folder tree, kept for the life of the setup sheet.
 ///
-/// **This reverses a choice the deleted `proposePlaces`/`proposePeople` pair recorded.** Three
-/// walks of the same tree were the cheaper mistake while each one sat behind a separate button: a
-/// tree held across a user decision can go stale while they think. A guided sheet asks five
-/// questions off one tree, and walking again per screen would mean the user waits four more times
-/// for an answer the first walk already had — and could see the People chips and the Countries
-/// chips disagree, because each list came from its own read of a tree that moved between them.
-/// So: one ``FileSyncManager/walkForSetup(root:known:)``, and every screen after it is a pure
-/// function of what it returned.
-///
-/// The cost is a few thousand `FileNode`s held for the couple of minutes the sheet is open, which
-/// is the same tree a pane holds while it is on screen.
+/// The sheet asks five questions of one tree: walking again per screen would make the user wait
+/// each time, and could make the People and Countries chips disagree about a tree that moved in
+/// between. So there is one ``FileSyncManager/walkForSetup(root:known:)``, and every screen after
+/// it is a pure function of its result. The cost is a few thousand `FileNode`s held while the sheet
+/// is open, about what a pane holds on screen.
 public struct SetupWalk: Sendable {
     /// The folder that was read.
     public let root: URL
@@ -24,10 +18,8 @@ public struct SetupWalk: Sendable {
     public let folderCount: Int
     /// Files anywhere below the root that the survey would count.
     public let fileCount: Int
-    /// Names of the files sitting directly in the root, sorted.
-    ///
-    /// Depth 0 only: these are the ones with no folder of their own yet, which is what the Structure
-    /// screen offers to route.
+    /// Names of the files sitting directly in the root, sorted: the ones with no folder yet, which
+    /// the Structure screen offers to route.
     public let looseFileNames: [String]
     /// Household names the tree suggests, minus the ones already on the roster.
     public let people: [PersonCandidate]
@@ -49,11 +41,9 @@ public struct SetupWalk: Sendable {
         self.documentCount = documentCount
     }
 
-    /// Counts, loose names, candidates and the document count, from a tree already in hand.
-    ///
-    /// Pure, and separate from the walk so the setup sheet's arithmetic can be tested against a
-    /// fixture tree without a filesystem. `recordedRoot` is what the profile would record — the
-    /// jurisdiction proposal takes it so its evidence reads in the same terms the profile will.
+    /// Counts, loose names, candidates and the document count, from a tree already in hand. Pure,
+    /// so it can be tested on a fixture tree. `recordedRoot` is the root as the profile records it,
+    /// so the place proposal's evidence reads in the profile's terms.
     public static func summarising(tree: [FileNode], root: URL, recordedRoot: String,
                                    known: Set<String>) -> SetupWalk {
         var folders = 0
@@ -86,10 +76,9 @@ extension FileSyncManager {
 
     /// Reads `root` once and returns everything the setup sheet asks of it.
     ///
-    /// Fails before touching the disk when there is nowhere to write a profile, the same first
-    /// guard ``deriveFolderProfile(root:jurisdictionValues:registry:now:)`` makes — so the user
-    /// learns that on the screen that offered to read, rather than at the end of the sheet with
-    /// four screens of answers behind them.
+    /// Fails before touching the disk when there is nowhere to write a profile, as
+    /// ``deriveFolderProfile(root:jurisdictionValues:registry:now:)`` does, so the user learns it
+    /// here rather than at the end of the sheet.
     ///
     /// - Parameter known: names already on the roster, so somebody added is not offered back.
     public func walkForSetup(root: URL, known: Set<String> = []) async -> Result<SetupWalk, FolderWalkFailure> {
@@ -97,9 +86,8 @@ extension FileSyncManager {
             return .failure(.noProfilesDirectory)
         }
 
-        // Asked of the filesystem before the walk, for the reason `deriveFolderProfile` gives:
-        // `buildTree` on a path that is not there returns one node and nothing downstream can tell
-        // that from a real one-folder tree.
+        // Checked before the walk: `buildTree` on a missing path returns one node, which nothing
+        // downstream can tell from a real one-folder tree.
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -112,15 +100,13 @@ extension FileSyncManager {
         let tree = await Self.buildTree(url: root, sortOption: .name)
         let recordedRoot = Self.recordedRoot(for: root)
 
-        // Off the main actor: everything below is pure over the tree, and it is a few thousand
-        // folders' worth of proposing and counting.
+        // Off the main actor: pure over the tree, but a few thousand folders' worth of work.
         let walk = await Task.detached(priority: .userInitiated) {
             SetupWalk.summarising(tree: tree, root: root, recordedRoot: recordedRoot, known: known)
         }.value
 
-        // The same bar `deriveFolderProfile` applies at the end, applied here instead: a tree with
-        // no folders below its root cannot produce a profile worth writing, and saying so at the
-        // Learn screen is the difference between choosing another folder and finding out at Save.
+        // `deriveFolderProfile`'s bar, applied early: a tree with no folders can't produce a
+        // profile, and saying so at the Learn screen lets the user pick another folder before Save.
         guard walk.folderCount > 0 else {
             Logger.shared.warning("Setup walk refused: \(root.path) is readable but holds no folders")
             return .failure(.nothingToLearn(root.path))

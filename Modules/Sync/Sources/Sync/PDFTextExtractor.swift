@@ -3,43 +3,22 @@ import PDFKit
 
 /// Reads a PDF into the ``ExtractedDocument`` that ``ContentFingerprint`` digests.
 ///
-/// **Here rather than in `MacApp`, unlike `ContentSignalExtractor`.** That one lives in the app
-/// because it reaches for Vision and NaturalLanguage, and because Filing injects it through a seam
-/// the user's read-contents setting gates. This one is PDFKit alone, it is not user-gated, and
-/// `MacApp` belongs to no SPM package — anything put there can only be compiled by the app build
-/// and can never be unit-tested. Keeping it in `Sync` is what lets the extraction rules (page cap,
-/// locked documents, cloud-only placeholders) have tests at all.
+/// In `Sync` rather than `MacApp`, unlike `ContentSignalExtractor` (which needs Vision and
+/// NaturalLanguage and is gated by the user's read-contents setting): this is PDFKit alone, not
+/// user-gated, and `MacApp` belongs to no SPM package, so only here can the extraction rules (page
+/// cap, locked documents, cloud-only placeholders) be unit-tested.
 ///
-/// The parse runs on ``PDFKitSerialAccess``'s lane — off the cooperative pool, and one at a time
-/// across the whole process. A full-tree pass is 10,569 documents.
+/// The parse runs on ``PDFKitSerialAccess``'s lane: off the cooperative pool, and one at a time
+/// across the process. PDFKit's text extraction is not thread-safe (about 1% of documents, those
+/// whose embedded fonts need substitution, read differently under concurrency), and a private
+/// serial queue would still race `ContentSignalExtractor`'s. A fingerprint that flaps is worse
+/// than none: cached and fresh digests would disagree, so groups would appear and vanish between
+/// scans. The cost is a slower cold scan (minutes rather than seconds on a full tree) and nothing
+/// after, since every digest is cached by (path, mtime, size, file number, ctime).
 ///
-/// **Why the lane, and not merely "off the main thread".** This reader started out on a private
-/// `.concurrent` queue, six parses at a time. The corpus replay caught it: the same 10,569
-/// documents, the same binary, two runs back to back produced **226 groups and then 235**. Reading
-/// every document serially once and then concurrently twice showed **~1% extract different text
-/// under concurrency** while serial passes were byte-for-byte identical — PDFKit's text extraction
-/// is not thread-safe, and the affected files are the ones whose embedded fonts need substitution.
-/// A private *serial* queue then fixed this reader against itself and nothing more, because
-/// `ContentSignalExtractor` was parsing PDFs on its own queue at the same time and two serial
-/// queues race exactly like one concurrent one. Hence the process-wide lane.
-///
-/// A fingerprint that flaps is worse than no fingerprint: the cache would hold one digest and the
-/// next scan compute another, so groups would appear and vanish between scans, and two copies of
-/// one document read in the same batch could be handed different digests and missed. The price is
-/// bounded — ~5.5 minutes for the full tree on a COLD scan against ~46 s, and nothing afterwards,
-/// because every digest is cached by (path, mtime, size, file number, ctime).
-///
-/// **Serialization removed the large effect, not every trace of it, and the residue is worth
-/// knowing.** Two full replays of the same 10,569 documents now agree exactly (248 groups and 248),
-/// and two independent serial re-extractions of the whole tree are byte-for-byte identical — 0 of
-/// 10,569 documents differ. But the *workload itself* still shows: a pair of Chase statements that
-/// groups when the two are read on their own fails to group inside the full-tree run, and about 5
-/// of ~250 groups move that way. Whatever the mechanism (cache pressure inside PDFKit is the
-/// obvious suspect; it is not parse order — 2,500 unrelated parses between two reads of the same
-/// file change nothing), the DIRECTION is what matters and it is one-way: recall against
-/// byte-identical pairs stayed 485/485 with **0 disagreements** in every configuration measured.
-/// The residue costs an occasionally unreported duplicate, never a false claim about one — which
-/// is the side of the trade this feature is allowed to be wrong on.
+/// A small residue remains: a pair that groups when read alone can occasionally fail to group
+/// inside a full-tree run. It only ever costs an unreported duplicate, never a false one, which
+/// is the side this feature may be wrong on.
 public enum PDFTextExtractor {
 
     private static let maxCharsPerPage = 20_000
@@ -47,15 +26,13 @@ public enum PDFTextExtractor {
     /// The document at `path`, or nil when there is nothing to read: not a PDF, unparseable,
     /// password-locked, or an iCloud file that is not on this disk.
     ///
-    /// **The availability check runs before the lane, not on it.** It is a `stat` and a resource
-    /// read, not PDFKit, and on a tree that lives in cloud storage most of the documents a scan is
-    /// handed fail it — each one used to take the lane's turn, and hold up Edit's PDFs, Print and
-    /// the column preview behind it, only to be turned away.
+    /// The availability check runs before the lane, not on it: it is a `stat` and a resource
+    /// read, not PDFKit, and on a cloud-stored tree most documents fail it, so each would hold up
+    /// Edit's PDFs, Print and the column preview only to be turned away.
     ///
-    /// **The `lstat` half is asked again on the lane**, just before the open. The lane's queue can
-    /// be seconds long on a cold scan, and a file "Optimize Storage" evicts in that wait would
-    /// otherwise be opened there — a synchronous download that holds the lane, and everything
-    /// queued behind it, for its whole length. The dataless flag is one `lstat`, no resource read.
+    /// The `lstat` half is asked again on the lane, just before the open. The lane's queue can be
+    /// seconds long on a cold scan, and a file "Optimize Storage" evicts in that wait would be
+    /// opened as a synchronous download, holding the lane and everything behind it.
     public static func read(atPath path: String,
                             isAvailable: @Sendable (String) -> Bool = FilingSurvey.isAvailable) async -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path), isAvailable(path) else { return nil }
@@ -64,7 +41,7 @@ public enum PDFTextExtractor {
         }
     }
 
-    /// What reading `path` came to, three ways — see ``FingerprintReading``. Not read is
+    /// What reading `path` came to, three ways (``FingerprintReading``). Not read is
     /// ``FingerprintReading/unreadable``; read but under the token floor is
     /// ``FingerprintReading/tooLittleText``.
     public static func reading(atPath path: String,
@@ -75,35 +52,24 @@ public enum PDFTextExtractor {
 
     /// Synchronous half, so tests can drive it without an executor.
     ///
-    /// **Call it on ``PDFKitSerialAccess``'s lane, or from a test that is the only reader.** It is
-    /// the parse itself, with none of the serialization — the lane is taken by ``read(atPath:)``
-    /// above, not here.
+    /// **Call it on ``PDFKitSerialAccess``'s lane**, or from a test that is the only reader: this
+    /// is the parse with none of the serialization, which ``read(atPath:)`` provides.
     ///
-    /// `isAvailable` is a parameter for the same reason `findDuplicates` takes `isCloudOnly` as
-    /// one: a genuinely dataless file cannot be fabricated in a test, and this is the guard whose
-    /// absence would cost the most — see below. A defaulted parameter rather than a settable
-    /// static, so two tests running in parallel cannot see each other's substitution.
+    /// `isAvailable` is a parameter because a dataless file can't be made in a test, and this
+    /// guard matters most (see below). Defaulted rather than a settable static, so parallel tests
+    /// can't see each other's substitution.
     static func readSync(_ path: String,
                          isAvailable: (String) -> Bool = FilingSurvey.isAvailable) -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path) else { return nil }
         let url = URL(fileURLWithPath: path)
-        // Never force-download a cloud-only placeholder to fingerprint it. `FilingSurvey.isAvailable`
-        // makes the same call for the same reason: the extractor would come back with nothing and
-        // the absence would be indistinguishable from an image-only scan.
-        //
-        // **The one guard here with a cost behind it.** The scan hands this every PDF in the tree,
-        // so on a tree that lives in cloud storage, losing this line does not degrade an answer
-        // — it downloads the user's entire offloaded library, once per cold scan.
+        // Never force-download a cloud-only placeholder to fingerprint it. The scan hands this
+        // every PDF in the tree, so without this line a cloud-stored tree would download the
+        // user's whole offloaded library on every cold scan.
         guard isAvailable(path) else { return nil }
-        // A locked document yields no text, and "no text" is a claim we must not make about it —
-        // returning nil declines instead, which is what the skip counter reports.
-        //
-        // **Measured INERT, and kept for the same reason ``ContentFingerprint/minimumTokens`` is.**
-        // A PDF written with a user password reports `pageCount` 1 and `isLocked` true, and PDFKit
-        // hands back nothing through it: 0 characters of page text AND 0 widget values (checked
-        // separately, because form fields are the one channel that could reach the token floor
-        // without any page text). So the floor declines every locked document on its own, and no
-        // test can tell this line from its absence — which is why there is no test pretending to.
+        // A locked document yields no text, and "no text" is a claim we must not make about it:
+        // nil declines instead, which the skip counter reports. Belt and braces: PDFKit gives a
+        // locked document no page text and no widget values, so the token floor declines it too,
+        // and no test can tell this line from its absence.
         guard let document = PDFDocument(url: url), !document.isLocked else { return nil }
 
         var pages: [String] = []
@@ -123,12 +89,12 @@ public enum PDFTextExtractor {
                                  pageCount: document.pageCount, pageBoxes: boxes)
     }
 
-    /// The default extraction seam the duplicate scan and To File use — path in, reading out.
+    /// The default extraction seam the duplicate scan and To File use: path in, reading out.
     public static let fingerprintReading: @Sendable (String) async -> FingerprintReading = { path in
         await reading(atPath: path)
     }
 
-    /// Path in, digest out, nil for either kind of no-digest — for a caller that caches nothing.
+    /// Path in, digest out, nil for either kind of no-digest: for a caller that caches nothing.
     public static let fingerprint: @Sendable (String) async -> String? = { path in
         if case .digest(let digest) = await reading(atPath: path) { return digest }
         return nil

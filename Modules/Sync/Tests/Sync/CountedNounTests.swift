@@ -3,11 +3,10 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Count titles — undo action names (read in Edit ▸ Undo as "Undo Move 2 Items to Trash") and progress
-/// titles — inflect their noun for the count and group the number the way the counter under them
-/// does. `CopyMoveBehaviorPinTests`, `ProgressAccountingTests` and `UndoRedoLogLabelTests` pin the
-/// single-item copy, move and delete names; this suite pins the rule itself and the bulk titles
-/// nothing else watches.
+/// Count titles (undo action names, read in Edit ▸ Undo as "Undo Move 2 Items to Trash", and
+/// progress titles) inflect their noun for the count and group the number as the counter under
+/// them does. `CopyMoveBehaviorPinTests`, `ProgressAccountingTests` and `UndoRedoLogLabelTests` pin
+/// the single-item names; this pins the rule itself and the bulk titles.
 @Suite struct CountedNounTests {
 
     @Test func oneTakesTheSingularAndEveryOtherCountThePlural() {
@@ -19,8 +18,8 @@ import Combine
         #expect(CountedNoun.phrase(1, "Copy", plural: "Copies") == "1 Copy")
     }
 
-    /// "Deleting 7363 Items" sat over a counter reading "3,336 of 7,363". The locale is pinned so
-    /// the separator is a fact of the test, not of the machine it runs on.
+    /// The title groups its number like the counter under it ("7,363 Items" over "3,336 of
+    /// 7,363"). The locale is pinned so the separator doesn't depend on the machine.
     @Test func theCountIsGroupedForTheLocale() {
         let us = Locale(identifier: "en_US")
         #expect(CountedNoun.phrase(7363, "Item", locale: us) == "7,363 Items")
@@ -55,7 +54,7 @@ import Combine
         return seen
     }
 
-    /// A bulk MOVE was titled "Syncing N files", as if it copied.
+    /// A bulk move is titled "Moving", not "Syncing", which would say it copied.
     @MainActor
     @Test func aBulkMoveIsTitledMovingAndABulkCopySyncing() async throws {
         let moveFM = MockFileManager()
@@ -91,7 +90,7 @@ import Combine
         let seen = await titles(of: manager) {
             await manager.bulkCopyDifferencesLeftToRight([diff], asOf: manager.fileOperationsEpoch)
         }
-        // The run matches dates and copies nothing (review E6), whatever stamps it is handed.
+        // The run matches dates and copies nothing, whatever stamps it is handed.
         #expect(seen == ["Matching the dates of 1 file"])
     }
 }
@@ -99,7 +98,7 @@ import Combine
 /// The words a delete gesture leaves behind: Edit ▸ Undo's action name and the banner.
 @Suite struct TrashWordingTests {
 
-    /// Undo names the act chosen — a recoverable move to the Trash — in the row menu's words.
+    /// Undo names the act chosen, a recoverable move to the Trash, in the row menu's words.
     @Test func theUndoNameIsTheRowMenusMoveToTrash() {
         #expect(FileSyncManager.trashUndoActionName(count: 1) == "Move to Trash")
         #expect(FileSyncManager.trashUndoActionName(count: 3) == "Move 3 Items to Trash")

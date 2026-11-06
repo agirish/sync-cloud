@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The seven new detectors, each proved three ways (ROADMAP v5 §5.2): a synthetic fixture that
-/// fires, a control that stays silent, and the reference tree with its count pinned — a detector
-/// whose count moves on the fixture moves for a reason someone has to write down.
+/// The seven detectors, each proved three ways (ROADMAP v5 §5.2): a synthetic fixture that fires, a
+/// control that stays silent, and the reference tree with its count pinned, so a count that moves
+/// moves for a reason someone has to write down.
 @Suite struct StructureDetectorsTests {
 
     // MARK: Builders
@@ -16,7 +16,7 @@ import Foundation
                            axes: axes)
     }
 
-    /// paths as (path, files, subfolders); subfolder counts are derived when omitted.
+    /// Paths as (path, files, subfolders).
     private static func profile(_ entries: [(String, Int, Int)]) -> FolderProfile {
         var folders: [String: FolderProfileEntry] = [:]
         for (path, files, subfolders) in entries {
@@ -59,8 +59,8 @@ import Foundation
     }
 
     @Test func backlogScaffoldCarriesDiskSpellingNotVocabularyCase() {
-        // The vocabulary comparison lowercases; the scaffold must not — a `claims/` scaffold on
-        // a tree that spells it `Claims/` would be a divergence created by this tool.
+        // The vocabulary comparison lowercases; the scaffold must not, or a `claims/` scaffold on a
+        // tree that spells it `Claims/` would be a divergence this tool created.
         let hits = Self.findings([
             ("A", 0, 2),
             ("A/2023", 0, 1), ("A/2023/MiXeD Case", 1, 0),
@@ -71,8 +71,8 @@ import Foundation
     }
 
     @Test func backlogWithOneShapedSiblingFiresWithAnEmptyScaffold() {
-        // One shaped sibling makes the flatness a finding, but its layout is not a convention —
-        // a lone member's idiosyncrasy must not become next year's folders.
+        // One shaped sibling makes the flatness a finding, but its layout is not a convention: a
+        // lone member's quirk must not become next year's folders.
         let hits = Self.findings([
             ("B", 0, 2),
             ("B/2024", 1, 1), ("B/2024/Archive", 2, 0),
@@ -89,7 +89,7 @@ import Foundation
             ("A/2024", 0, 1), ("A/2024/Claims", 1, 0),
             ("A/2025", 0, 1), ("A/2025/Claims", 1, 0),
         ], .backlog).isEmpty)
-        // Newest is flat but EMPTY: nothing waiting to be filed.
+        // Newest is flat but empty: nothing waiting to be filed.
         #expect(Self.findings([
             ("B", 0, 2),
             ("B/2024", 0, 1), ("B/2024/Claims", 1, 0),
@@ -124,14 +124,14 @@ import Foundation
     }
 
     @Test func shadowAxisIgnoresRangesAndFamiliesWithNoBareYears() {
-        // A fiscal span carries two years — an axis value of its own, not a shadow of either.
+        // A fiscal span carries two years: an axis value of its own, not a shadow of either.
         #expect(Self.findings([
             ("IN", 0, 3),
             ("IN/2022", 1, 0), ("IN/2023", 1, 0),
             ("IN/2005 - 2006", 2, 0),
         ], .shadowAxis).isEmpty)
-        // Monthly statement folders sit among months, not years — the family itself must
-        // testify that bare years are its convention.
+        // Monthly statement folders sit among months, not years: the family itself must show that
+        // bare years are its convention.
         #expect(Self.findings([
             ("Statements", 0, 2),
             ("Statements/01. Jan 2019", 1, 0), ("Statements/02. Feb 2019", 1, 0),
@@ -192,7 +192,7 @@ import Foundation
 
     @Test func onlyTheShallowestMirrorInASubtreeFires() {
         // `TODO/Dental/Claims` mirroring `Dental/Claims` is the inside of the `TODO/Dental`
-        // finding, not a second one — the plan that merges the mirror carries it.
+        // finding, not a second one: the plan that merges the mirror carries it.
         let hits = Self.findings([
             ("Health", 0, 2),
             ("Health/Dental", 0, 1), ("Health/Dental/Claims", 3, 0),
@@ -285,8 +285,8 @@ import Foundation
     // MARK: Grouping and identity
 
     @Test func aFoldersRowsSortTogetherAndKindsKeepTheirDeclaredOrder() throws {
-        // Finance/US/Income Tax produces a shape finding AND a loose-above finding — the measured
-        // overlap §5.0's grouping rule exists for. Same subject, adjacent rows, shape first.
+        // Finance/US/Income Tax produces a shape finding and a loose-above finding, the overlap the
+        // grouping rule (ROADMAP v5 §5.0) exists for. Same subject, adjacent rows, shape first.
         let report = try Self.referenceReport
         let incomeTax = report.findings.enumerated()
             .filter { $0.element.subject == "Finance/US/Income Tax" }
@@ -302,9 +302,8 @@ import Foundation
 
     // MARK: The reference tree, pinned
 
-    /// The full detector set over the reference tree — every count the roadmap's §5.2 table now
-    /// carries, measured through the Swift detectors on 2026-08-28. A movement here is a rule
-    /// change or a fixture re-lift, and either one is a decision, not a drift.
+    /// The full detector set over the reference tree, matching the counts in ROADMAP v5 §5.2. A
+    /// movement here is a rule change or a fixture re-lift, and either is a decision, not a drift.
     @Test func theReferenceTreeCountsArePinned() throws {
         let report = try Self.referenceReport
         var byKind: [FindingKind: Int] = [:]
@@ -318,7 +317,7 @@ import Foundation
         #expect(weights.count { $0 == .empty } == 20)
     }
 
-    /// The named hits, not just the counts — a count of 2 that swapped a real hit for junk would
+    /// The named hits, not just the counts: a count of 2 that swapped a real hit for junk would
     /// pass a count pin.
     @Test func theReferenceTreeNamedHitsAreTheRoadmaps() throws {
         let findings = try Self.referenceReport.findings
@@ -332,35 +331,31 @@ import Foundation
         #expect(subjects(.backlog).contains("Work/EMP/Compensation/Benefits/2026"))
         #expect(subjects(.looseAboveSeries).contains("Finance/US/Investments/Fidelity/Statements"))
         #expect(subjects(.echoName).contains("Finance/US/Income Tax/2023/Forms/Form W2"))
-        // The degenerate Finance/US/TODO/IRS/IRS is parent/child echo's observation, not
-        // mirrored inbox's — the 6 Aug TODO drain cleared the class mirrored inbox detects,
-        // so its reference count is zero and its firing case is the synthetic one above.
+        // The degenerate Finance/US/TODO/IRS/IRS is a parent/child echo, not a mirrored inbox. The
+        // reference tree holds no mirrored inbox, so that detector's count is zero and its firing
+        // case is the synthetic one above.
         #expect(subjects(.mirroredInbox).isEmpty)
         #expect(subjects(.echoName).contains("Finance/US/TODO/IRS/IRS"))
     }
 
     // MARK: The reserved kind
 
-    /// **`FindingKind.ask` is reserved, and this is what makes that word checkable.**
+    /// `FindingKind.ask` is reserved, and this makes "reserved" checkable. Nothing constructs one
+    /// yet (its detector is ROADMAP v5 §5.3); the case exists so that landing it is a detector and
+    /// nothing else, since `carriesPlan` and the lens's glyph, symbol and verb already answer for it.
+    /// But a case with rules and no producer looks, in every switch, like one that ships.
     ///
-    /// Nothing constructs one: §5.3's detector is not in 5.0. The case exists so that landing it
-    /// later is a detector and nothing else — `carriesPlan`, the lens's glyph, symbol and verb
-    /// all already answer for it. But a case with rules and no producer reads, in every one of
-    /// those switches, exactly like a case that ships; the type's own doc said so in prose until
-    /// this test was written, and prose is the thing that goes stale silently.
-    ///
-    /// Scans every source that could construct one — `Modules/*/Sources`, `MacApp` and the CLI —
-    /// because "no detector produces it" is a claim about the whole app, not about the file the
-    /// enum lives in. **The pathspec is the conclusion's boundary**, so it is asserted, and so is
-    /// the scan's ability to find a construction at all.
+    /// Scans every source that could construct one (`Modules/*/Sources`, `MacApp` and the CLI),
+    /// because "no detector produces it" is a claim about the whole app. The scanned roots bound the
+    /// conclusion, so they are asserted, and so is the scan's ability to find a construction at all.
     @Test func nothingConstructsTheReservedAskKind() throws {
         let sources = try Self.appAndCLISwiftSources()
         var offenders: [String] = []
         var controls = 0
         for url in sources {
             let text = try String(contentsOf: url, encoding: .utf8)
-            // The two spellings a construction can take: the labelled initialiser argument, and
-            // the manifest/key builders that pass a kind positionally as `kind:`.
+            // The spelling a construction takes: the labelled initialiser argument, and the
+            // manifest/key builders that pass a kind as `kind:`.
             if text.contains("kind: .ask") { offenders.append(url.lastPathComponent) }
             if text.contains("kind: .echoName") || text.contains("kind: .backlog") { controls += 1 }
         }
@@ -370,9 +365,8 @@ import Foundation
                 "the scan found no `kind: .<case>` construction anywhere, so its empty result about .ask says nothing — the roots or the spelling are wrong")
     }
 
-    /// `Modules/*/Sources`, `MacApp` and `SyncCloudCLI/Sources`. The CLI is the addition over the
-    /// Design scans' roots: it builds findings of its own to report, so a scan that skipped it
-    /// would answer about the app and be read as answering about the product.
+    /// `Modules/*/Sources`, `MacApp` and `SyncCloudCLI/Sources`. The CLI builds findings of its own
+    /// to report, so a scan that skipped it would answer about the app, not the product.
     private static func appAndCLISwiftSources() throws -> [URL] {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

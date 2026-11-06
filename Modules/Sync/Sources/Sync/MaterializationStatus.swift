@@ -15,14 +15,10 @@ public enum MaterializationStatus {
         flags & datalessFlag != 0
     }
 
-    /// One file's `st_flags`, or nil when the path cannot be statted.
-    ///
-    /// **This is the seam a test substitutes, and it is deliberately the syscall itself** — the one
-    /// thing about a dataless file that cannot be staged. `SF_DATALESS` is an `SF_` flag, which
-    /// `chflags` refuses to anyone but root and which only a File Provider ever sets, so a test that
-    /// wants to say "this file's content lives on the provider" has no other way to say it. Stubbing
-    /// here leaves the whole decision — the flag math, the fold to a Bool, and every predicate built
-    /// on it — running as production runs it, rather than replacing the answer wholesale.
+    /// One file's `st_flags`, or nil when the path cannot be statted. The seam a test substitutes,
+    /// and deliberately the syscall itself: only a File Provider sets `SF_DATALESS` (`chflags`
+    /// refuses it to non-root), so this is the one part that can't be staged, and everything built
+    /// on it still runs as in production.
     public typealias StatFlags = @Sendable (String) -> UInt32?
 
     /// The real `lstat`: metadata only, so it never fetches the file's content.
@@ -33,18 +29,12 @@ public enum MaterializationStatus {
     }
 
     /// True when the file at `path` is a cloud-only placeholder, false for anything without the flag
-    /// (ordinary local files, directories) — and **nil when the path cannot be statted at all**.
+    /// (ordinary local files, directories), and nil when the path cannot be statted at all.
     ///
-    /// The three-way answer exists because "not dataless" and "not there" are opposite facts that
-    /// `lstat` reports through the same failure. A download poll asking "has the content landed
-    /// yet?" reads a bare `false` as YES: a file deleted mid-download counted as materialized, and
-    /// the memo gained an entry asserting local content for a path with no file behind it. Nil says
-    /// "no answer", which is the truth, and lets a caller decline to record anything.
-    ///
-    /// Used by the two callers that WRITE what they learn into the process-wide badge memo — the
-    /// download poll and the memo's own stat. Everything else takes the two-way form below.
-    ///
-    /// One `lstat` — cheap enough to call lazily per visible row.
+    /// Three-way because "not dataless" and "not there" are opposite facts: a download poll would
+    /// read a bare `false` for a deleted file as "landed" and memoize local content for a path with
+    /// no file. Used by the two callers that write into the process-wide badge memo (the download
+    /// poll and the memo's own stat); everything else takes the two-way form below. One `lstat`.
     public static func isCloudOnlyIfKnown(atPath path: String,
                                           statFlags: StatFlags = realStatFlags) -> Bool? {
         guard let flags = statFlags(path) else { return nil }
@@ -54,79 +44,52 @@ public enum MaterializationStatus {
     /// True when the file at `path` is a cloud-only placeholder. False on any stat error and for
     /// anything without the flag (ordinary local files, directories).
     ///
-    /// The two-way form, kept for every caller where **"cannot stat" and "not a placeholder" lead
-    /// to the same next step** — don't skip the read, don't offer the download, don't badge it:
-    /// proceed, and let whatever comes next fail on its own. That is the property its callers
-    /// share, and it is not "deciding whether to read a file": two of the four are not reads at all.
+    /// For callers where "cannot stat" and "not a placeholder" lead to the same next step: proceed,
+    /// and let what comes next fail on its own. `FileContentVerifier.hashOutcome` (and the duplicate
+    /// hasher through it) skips a placeholder rather than fetch it; `FileTreeView`'s row menu
+    /// decides whether to show Download; `ColumnPreviewProbe.read` pairs it with an existence check,
+    /// so an unstattable path reads as `.missing`.
     ///
-    /// - `FileContentVerifier.hashOutcome` — a read decision proper: a placeholder is skipped
-    ///   rather than force-fetched. Reached only after a successful `fileExists`, so nil here would
-    ///   mean a path that vanished in between — and hashing it fails at the open regardless.
-    /// - `FileSyncManager+Duplicates.hashFilesCounting` — the duplicate hasher, which routes
-    ///   through that same call and inherits the same answer.
-    /// - `FileTreeView`'s row context menu — whether to SHOW the Download item, not whether to
-    ///   read. A path that cannot be statted is not one to offer a download for, which is what
-    ///   `false` produces.
-    /// - `ColumnPreviewProbe.read` — CLASSIFICATION, not a read: `ColumnPreviewSource.classify`
-    ///   pairs it with an existence check, so an unstattable path lands on `.missing` ("this file
-    ///   is no longer here"), which is the honest answer for it.
-    ///
-    /// The distinction is needed only where a non-answer must not be written down as a fact, and
-    /// both such callers ask `isCloudOnlyIfKnown` directly. `CloudDownloadPoll.run` is the sharp
-    /// case — it asks "has it ARRIVED yet?", for which the two are opposites. `CloudOnlyBadgeCache`
-    /// is the quiet one: it hands its caller the same `false` this would, and differs only in
-    /// declining to MEMOIZE it, so the next realization of that row asks the filesystem again
-    /// instead of being served what one stat failed to find out.
+    /// Where a non-answer must not be recorded as a fact, ask `isCloudOnlyIfKnown`:
+    /// `CloudDownloadPoll.run` asks whether content has arrived, and `CloudOnlyBadgeCache` declines
+    /// to memoize a failed stat.
     public static func isCloudOnly(atPath path: String,
                                    statFlags: StatFlags = realStatFlags) -> Bool {
         isCloudOnlyIfKnown(atPath: path, statFlags: statFlags) ?? false
     }
 
-    /// The file a door should ask about: `path` itself, or — when `path` is a symbolic link — the
-    /// file the link finally points to (TE206).
+    /// The file a door should ask about: `path` itself, or the file a symbolic link finally points
+    /// to. The predicates above ask about the link itself (`lstat` doesn't follow the last
+    /// component), and a link is always local, so a door about to read a link to a cloud-only file
+    /// would fetch it unasked. Such doors ask here first; a row's badge does not.
     ///
-    /// **Every predicate above asks about the LINK when handed one**, because `lstat` does not
-    /// follow the last component of a path, and a link is always local and always tiny. So a link
-    /// to a cloud-only PDF read as downloaded, and the door then opened it — which made the
-    /// provider fetch the whole file, unasked. That is right for a row's badge, which describes the
-    /// row; it is wrong for any door that is about to read what the link points to. Those ask here
-    /// first.
-    ///
-    /// **Only a path that ends in a link is resolved.** A folder link higher up the path is already
-    /// followed by the `lstat` itself, and leaving every other path exactly as spelled keeps a
-    /// caller's own comparisons (`/var` against `/private/var`) as they were. A link that dangles
-    /// answers the link again (measured: Foundation stops at the last component it can resolve),
-    /// so the door goes on to fail its read — which is the truth about it.
-    ///
-    /// One `lstat` for an ordinary file; a link pays the resolution too.
+    /// Only a path ending in a link is resolved: `lstat` already follows folder links higher up, and
+    /// other paths stay as spelled so callers' comparisons (`/var` vs `/private/var`) hold. A
+    /// dangling link answers itself, so the read fails honestly. One `lstat`, plus resolution for a
+    /// link.
     public static func linkTarget(of path: String) -> String {
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFLNK else { return path }
         return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
-    /// Asks the system to fetch a dataless file's content, returning at once while it fetches in the
-    /// background. `startDownloadingUbiquitousItem` is not iCloud-only: measured 2026-10-25 on a real
-    /// Google Drive placeholder, it did not throw and the content was on disk within a second.
-    /// Dropbox and OneDrive have not been measured. When it does throw, callers fall back to
-    /// revealing the item in Finder.
+    /// Asks the system to fetch a dataless file's content and returns at once. Works beyond iCloud
+    /// (a Google Drive placeholder downloads too; Dropbox and OneDrive are untested). When it
+    /// throws, callers fall back to revealing the item in Finder.
     ///
-    /// **Read the result with a fresh URL.** `URL` caches resource values, so polling
-    /// `ubiquitousItemDownloadingStatus` on the same instance kept saying "not downloaded" after the
-    /// content had landed; `lstat`'s `SF_DATALESS` flag and a new URL both told the truth.
-    ///
-    /// A link is downloaded as the file it points to (``linkTarget(of:)``): that is the file every
-    /// door that offers Download said was not downloaded.
+    /// **Read the result with a fresh URL**: `URL` caches resource values, so polling
+    /// `ubiquitousItemDownloadingStatus` on the same instance keeps saying "not downloaded". A link
+    /// is downloaded as its target (``linkTarget(of:)``).
     public static func download(atPath path: String) throws {
         try FileManager.default.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: linkTarget(of: path)))
     }
 
     // MARK: - A folder's Download All
 
-    /// Whether `path` is inside a cloud provider's folder — `~/Library/CloudStorage/<provider>`,
-    /// an iCloud container, or an iCloud-synced `~/Desktop` / `~/Documents` — which is where a folder
-    /// is offered Download All. Path arithmetic plus at most one `getxattr`: a row's menu asks it on
-    /// every render, and whether the folder holds anything cloud-only would take a walk to know.
+    /// Whether `path` is inside a cloud provider's folder (`~/Library/CloudStorage/<provider>`, an
+    /// iCloud container, or an iCloud-synced `~/Desktop` / `~/Documents`), where a folder is offered
+    /// Download All. Path arithmetic plus at most one `getxattr`, since a row's menu asks on every
+    /// render; whether the folder holds anything cloud-only would take a walk.
     public static func isInCloudLocation(_ path: String, home: String = NSHomeDirectory(),
                                          domainOf: KeepDownloaded.DomainOf = KeepDownloaded.realDomainOf) -> Bool {
         KeepDownloaded.descendant(path, of: home + "/Library/CloudStorage") != nil
@@ -149,20 +112,14 @@ public enum MaterializationStatus {
         }
     }
 
-    /// Requests every cloud-only file at any depth below the folder at `path`.
+    /// Requests every cloud-only file at any depth below the folder at `path`. A walk, because
+    /// `startDownloadingUbiquitousItem` on a cloud-only folder downloads nothing in it.
     ///
-    /// **A walk, because the folder itself cannot be asked.** Measured 2026-10-27 on a cloud-only
-    /// iCloud folder: `startDownloadingUbiquitousItem` on the folder returned without throwing and
-    /// downloaded nothing in it, ten seconds on.
-    ///
-    /// **Blocks its thread — call it off the cooperative pool.** The walk is
-    /// `FileManaging.listing(of:)`, so a cloud-only folder inside is asked for through
-    /// `DatalessFolderReads` — at most their deadline per folder, and a provider that never answers
-    /// leaves that folder unexplored and counted in `unreadable`, never a hung walk. Listing a
-    /// cloud-only folder is what brings its contents on disk, so every level is reached.
-    ///
-    /// A link is never followed: the listing does not descend into a linked folder, and a link's
-    /// `lstat` never reads cloud-only, so nothing outside the folder is fetched.
+    /// **Blocks its thread; call it off the cooperative pool.** The walk is
+    /// `FileManaging.listing(of:)`, so each cloud-only folder is read through `DatalessFolderReads`
+    /// within its deadline; one that never answers is counted in `unreadable`, never a hung walk.
+    /// Listing a cloud-only folder brings its contents on disk, so every level is reached. Links
+    /// are never followed, so nothing outside the folder is fetched.
     public static func downloadContents(
         ofFolder path: String,
         using disk: FileManaging = FileManager.default,
@@ -188,9 +145,8 @@ public enum MaterializationStatus {
     /// below each of `folders` — ``downloadContents(ofFolder:using:statFlags:download:)`` per
     /// folder, so it blocks its thread the same way.
     ///
-    /// **Each file is asked for once**, however the selection overlaps: a file selected beside its
-    /// own folder, or a folder selected beside one inside it, would otherwise be requested twice
-    /// and watched twice. A file is checked as the file a link points to, which is what
+    /// Each file is asked for once however the selection overlaps (a file beside its own folder, a
+    /// folder beside one inside it). A file is checked as its link target, which is what
     /// ``download(atPath:)`` fetches.
     public static func downloadAll(
         files: [String], folders: [String],

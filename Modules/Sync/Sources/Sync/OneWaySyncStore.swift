@@ -7,12 +7,12 @@ import CryptoKit
 import Foundation
 import IOKit
 
-/// RD67's saved state on this Mac, in one folder of Application Support:
+/// One-way sync's saved state on this Mac, in one folder of Application Support:
 ///
 /// | File | Holds |
 /// |---|---|
 /// | `record.json` | the record (`OneWaySyncRecord`) and the first run it belongs to |
-/// | `state.json` | the DA settings, the removal window, Pause, the last sync |
+/// | `state.json` | the settings, the removal window, Pause, the last sync |
 /// | `exclusions.json` | files you stopped syncing, apart from the record so a new first run keeps them |
 /// | `outside.json` | iCloud's files in unsynced and shared folders at the last pass, by ID: where a file moved in came from |
 /// | `notices.json` | Activity ▸ Now's saved rows (`OneWaySyncNoticeStore`) |
@@ -40,7 +40,7 @@ public struct OneWaySyncStore: Sendable {
     public var exclusionsURL: URL { directory.appendingPathComponent("exclusions.json") }
     public var noticesURL: URL { directory.appendingPathComponent("notices.json") }
     public var outsideURL: URL { directory.appendingPathComponent("outside.json") }
-    /// What changed in the synced folders since the last completed Sync Now (FV).
+    /// What changed in the synced folders since the last completed Sync Now.
     public var changesURL: URL { directory.appendingPathComponent("changes.json") }
     public var historyDirectory: URL { directory.appendingPathComponent("History") }
     public var lockURL: URL { directory.appendingPathComponent("sync.lock") }
@@ -260,7 +260,7 @@ public struct OneWaySyncSavedState: Codable, Equatable, Sendable, OneWaySyncEmpt
     /// When this Mac took the sync over from another (*Sync From This Mac Instead…*), in seconds,
     /// until the user answers: the Dropbox-only files its first run finds may be removals that
     /// waited on the other Mac, whose list this Mac can't see, so they are offered as one group to
-    /// confirm (decided 31 Oct). Nil otherwise.
+    /// confirm. Nil otherwise.
     public var takenOverAt: Int64?
 
     public init(
@@ -315,9 +315,10 @@ public struct OneWaySyncExclusions: Codable, Equatable, Sendable, OneWaySyncEmpt
 }
 
 /// iCloud's files in folders outside the synced ones at a pass — in folders that aren't synced, or
-/// shared ones; not files loose in the parent, which isn't listed — by document ID (EU). At the next pass, a new file in a synced folder with one of these
-/// IDs was moved in from there: its copy's History step says where from, and *Reverse in iCloud*
-/// can move it back. iCloud keeps a file's ID across a move (measured).
+/// shared ones; not files loose in the parent, which isn't listed — by document ID. At the next
+/// pass, a new file in a synced folder with one of these IDs was moved in from there: its copy's
+/// History step says where from, and *Reverse in iCloud* can move it back. iCloud keeps a file's
+/// ID across a move (measured).
 public struct OneWaySyncOutsideFiles: Codable, Equatable, Sendable, OneWaySyncEmpty {
     public static let currentVersion = 1
 
@@ -368,8 +369,8 @@ public extension OneWaySyncBinding {
     ///
     /// - The hardware ID is `IOPlatformUUID`, which survives a reinstall and a rename of the Mac.
     /// - The iCloud account is a SHA-256 of `ubiquityIdentityToken`, which needs no iCloud
-    ///   permission; empty while signed out or with iCloud Drive off. Measured 30 Oct: the token's
-    ///   bytes are the same across launches.
+    ///   permission; empty while signed out or with iCloud Drive off. The token's bytes are the
+    ///   same across launches (measured).
     /// - The Data volume is the home folder's volume (the Data volume on a Mac set up as usual),
     ///   which a migration to a new disk changes.
     static func current(dropboxAccountFolder: String) -> OneWaySyncBinding {

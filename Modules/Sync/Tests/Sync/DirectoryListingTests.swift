@@ -4,25 +4,19 @@ import Testing
 
 /// The seam that keeps "could not be listed" apart from "listed, and it is empty".
 ///
-/// Most of these run against the REAL filesystem on purpose. The whole reason the seam exists is a
-/// behaviour of the real `FileManager` — a non-nil enumerator that yields zero entries for a
-/// directory it cannot read — and a mock is only evidence about the mock. The mock cases at the
-/// bottom exist to prove the double is faithful to what the real one was measured doing, so that
-/// tests written against it in other suites are not passing vacuously.
+/// Most of these run on the real filesystem on purpose: the seam exists for a real `FileManager`
+/// behaviour (a non-nil enumerator that yields nothing for a directory it can't read), and a mock
+/// is only evidence about the mock. The mock cases at the bottom prove the double matches the real
+/// one, so suites that use it aren't passing vacuously.
 @Suite struct DirectoryListingTests {
 
     private func chmod(_ url: URL, _ mode: Int) throws {
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
     }
 
-    /// chmod 000 is a no-op for root (it can read anything), so these fixtures prove nothing there
-    /// and the test has to bow out.
-    ///
-    /// It records an issue on the way out rather than plainly returning. `return` reports the test
-    /// as **PASSED**, so on a root runner every locked-directory fixture in this file — which is
-    /// most of it — would go green while proving nothing at all, and nothing in the output would
-    /// say so. Measured `geteuid() == 501` on this machine, so the fixtures do run here; the point
-    /// is that the day they stop, the run says which ones and why.
+    /// chmod 000 is a no-op for root, so these fixtures prove nothing there and the test bows out.
+    /// It records an issue rather than plainly returning: a bare `return` passes, and on a root
+    /// runner most of this file would go green while proving nothing, with nothing said.
     private func skippedBecauseRoot(_ fixture: String, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
         guard geteuid() == 0 else { return false }
         Issue.record("""
@@ -67,9 +61,9 @@ import Testing
         #expect(listing.urls.count == 3)
     }
 
-    /// The finding this seam was built for. Before it, this directory and the empty one above were
-    /// the same value — which is how a folder-replace confirmation could say "0 items will be
-    /// removed" about a folder whose contents it was about to remove.
+    /// The case this seam exists for. If this directory and the empty one above were the same
+    /// value, a folder-replace confirmation could say "0 items will be removed" about a folder
+    /// whose contents it is about to remove.
     @Test func anUnreadableDirectoryIsNotReportedAsEmpty() throws {
         guard !skippedBecauseRoot("anUnreadableDirectoryIsNotReportedAsEmpty") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListLocked")
@@ -81,8 +75,8 @@ import Testing
             try? FileManager.default.removeItem(at: base)
         }
 
-        // The idiom this replaces, measured in place: the guard's else-branch never fires, and the
-        // enumerator hands back nothing. Anything reading that as "empty" is reading a failure.
+        // The plain enumerator idiom: its `guard let` else-branch never fires, and it hands back
+        // nothing. Reading that as "empty" is reading a failure.
         let rawEnumerator = FileManager.default.enumerator(at: locked, includingPropertiesForKeys: nil,
                                                            options: [], errorHandler: nil)
         #expect(rawEnumerator != nil, "the else-branch of `guard let enumerator` is dead on a real disk")
@@ -152,16 +146,11 @@ import Testing
 
     // MARK: The spelling of the root must not change the answer
 
-    /// The reason the root-failure decision is made on the entry count and not by comparing the
-    /// reported URL to the asked-for one: measured, `/var/…` asked comes back reported as
-    /// `/private/var/…`, and `standardizedFileURL` does not close that gap. Each spelling below is
-    /// the same directory and must give the same verdict.
-    ///
-    /// Asserted in BOTH directions over the same four spellings, because one direction alone is
-    /// not a test. The symlink spelling used to answer `.unreadable` whether or not its target was
-    /// locked — the expected value was the failure fallback, so `chmod 000 → 0o755` could not fail
-    /// it, and the assertion pinned a bug as correct behaviour. The readable pass is what gives
-    /// every spelling something it can get wrong.
+    /// Why the root-failure decision uses the entry count, not the reported URL: `/var/…` comes
+    /// back as `/private/var/…`, and `standardizedFileURL` doesn't close that gap. Each spelling
+    /// below is the same directory and must give the same verdict. Both directions are asserted:
+    /// `.unreadable` is also the failure fallback, so only the readable pass can catch a spelling
+    /// that always fails.
     @Test func everySpellingOfARootTracksWhetherTheRootIsActuallyLocked() throws {
         guard !skippedBecauseRoot("every-spelling") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListSpelling")
@@ -200,14 +189,11 @@ import Testing
 
     // MARK: A symlinked directory is a directory
 
-    /// `FileManager.enumerator(at:)` does not traverse a SYMLINKED directory: measured, it yields
-    /// zero entries and fires the error handler with the link's own URL — byte for byte the
-    /// signature of a directory that cannot be read. Without a fallback the picker says "Can't be
-    /// read" about a folder Finder lists fine, which is the same class of unearned claim this
-    /// whole type exists to stop, pointing the other way.
-    ///
-    /// The repo already knew the quirk: `FileSyncManager+Scanning`'s cold walk falls back to the
-    /// path-based listing for exactly this reason.
+    /// `FileManager.enumerator(at:)` doesn't traverse a symlinked directory: it yields nothing and
+    /// fires the error handler with the link's own URL, exactly like an unreadable directory.
+    /// Without a fallback the picker says "Can't be read" about a folder Finder lists fine.
+    /// `FileSyncManager+Scanning`'s cold walk falls back to the path-based listing for the same
+    /// reason.
     @Test func aReadableDirectoryReachedThroughASymlinkIsListedNotUnreadable() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListSymlink")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -220,8 +206,8 @@ import Testing
         let link = base.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
 
-        // The premise, measured rather than assumed: the raw URL-based enumerator refuses, while
-        // the path-based listing hands back all three names.
+        // The premise: the URL-based enumerator refuses, while the path-based listing hands back
+        // all three names.
         var refused = 0
         let raw = FileManager.default.enumerator(at: link, includingPropertiesForKeys: nil,
                                                  options: [.skipsSubdirectoryDescendants],
@@ -244,20 +230,11 @@ import Testing
         }
     }
 
-    /// The fallback must not launder a real failure. A symlink to a LOCKED directory is still
-    /// unreadable, and so are the two shapes that resolve to themselves, and so is one to a file.
-    ///
-    /// **This is also the whole of what keeps the retry one-way.** A ternary preferring the direct
-    /// walk's answer used to sit at the end of `listing`, described in three commit bodies as
-    /// enforcing it; it enforced nothing, because a `.unreadable` listing is `([], .unreadable, [])`
-    /// whichever walk produced it, so both branches of it were the same value and replacing it with
-    /// `return retried` passed all 75 tests here. What actually holds the line is `classify` running
-    /// on the retried walk, and what checks THAT is this fixture — so it has to be able to fail.
-    ///
-    /// It could not before. All four cases expected `.unreadable`, which is also the answer for a
-    /// fallback that has stopped rescuing anything, and two of them (broken, self-referential) never
-    /// reach the retry at all. The readable control below is what gives the four something they can
-    /// get wrong: it goes through the same call, on the same disk, and must come back with entries.
+    /// The fallback must not launder a real failure. A symlink to a locked directory is still
+    /// unreadable, and so are the two shapes that resolve to themselves, and one to a file. This is
+    /// what checks the retry is one-way: `classify` runs on the retried walk, and only this fixture
+    /// would catch it stopping. The readable control goes through the same call and must come back
+    /// with entries, so a fallback that rescues nothing fails here too.
     @Test func aSymlinkThatLeadsNowhereReadableIsStillUnreadable() throws {
         guard !skippedBecauseRoot("symlink-failures") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListSymlinkBad")
@@ -295,8 +272,8 @@ import Testing
             let listing = FileManager.default.listing(of: url)
             #expect(listing.outcome == .unreadable,
                     "a symlink \(name) is not something the fallback may report as readable")
-            // `urls` is not just meaningless here, it is empty — the retry may not smuggle a
-            // partial answer out behind an `.unreadable` verdict.
+            // `urls` is empty: the retry may not smuggle a partial answer out behind
+            // `.unreadable`.
             #expect(listing.urls.isEmpty, "a symlink \(name) handed back \(listing.urls.count) entries")
         }
 
@@ -306,14 +283,11 @@ import Testing
         #expect(control.urls.count == 2)
     }
 
-    /// `traversableTarget` is the single seam all three retries reach through, and the two refusals
-    /// inside it are invisible from every one of them: a self-referential link and a broken one end
-    /// in `.unreadable` whether the guard drops them here or the retried walk refuses them again a
-    /// step later. Dropping `resolved.path == url.path ? nil : resolved` therefore passed the whole
-    /// suite, leaving a documented rule as an untested optimisation.
-    ///
-    /// Asked of the seam directly, where the two answers do differ, and paired with the case that
-    /// must come back non-nil so it cannot pass for a `traversableTarget` that refuses everything.
+    /// `traversableTarget` is the seam all three retries go through, and its two refusals can't be
+    /// seen from any of them: a self-referential or broken link ends in `.unreadable` either way.
+    /// So the seam is asked directly, with a case that must come back non-nil so a
+    /// `traversableTarget` that refuses everything fails. Dropping
+    /// `resolved.path == url.path ? nil : resolved` must make this fail.
     @Test func traversableTargetOffersARetryOnlyWhenThereIsSomewhereElseToLook() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListRetrySeam")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -327,16 +301,15 @@ import Testing
         try FileManager.default.createSymbolicLink(
             at: broken, withDestinationURL: base.appendingPathComponent("no-such-thing"))
 
-        // The one that must offer a second URL — and it must be a DIFFERENT one, which is the half
-        // the guard decides.
+        // This one must offer a second URL, and a different one: that is the half the guard
+        // decides.
         let offered = try #require(
             DirectoryListingSupport.traversableTarget(of: good, using: FileManager.default),
             "a link onto a real folder is exactly what the retry exists for")
         #expect(offered.path != good.path)
         #expect(DirectoryListingSupport.identity(of: offered) == DirectoryListingSupport.identity(of: real))
 
-        // Both shapes that resolve to themselves. Retrying either repeats the same refusal, so the
-        // guard is what keeps a second enumerator from being built to be told the same thing.
+        // Both shapes that resolve to themselves: retrying either would only repeat the refusal.
         #expect(DirectoryListingSupport.traversableTarget(of: selfie, using: FileManager.default) == nil,
                 "a self-referential link resolves to itself — there is nowhere else to look")
         #expect(DirectoryListingSupport.traversableTarget(of: broken, using: FileManager.default) == nil,
@@ -348,18 +321,10 @@ import Testing
         #expect(DirectoryListingSupport.traversableTarget(of: good, using: MockFileManager()) == nil)
     }
 
-    /// The other half of the re-spelling promise: it holds at every DEPTH, not only when the final
-    /// path component is the link.
-    ///
-    /// Re-spelling used to happen on the retry alone, and the retry fires only when the last
-    /// component is a symlink — so one level in, the direct walk succeeded and the enumerator's
-    /// canonicalised TARGET path went back to the caller unchanged. Measured before the fix:
-    ///
-    ///     listing(of: <base>/link)        → <base>/link/Health          ✓
-    ///     listing(of: <base>/link/Health) → <base>/real/Health/Medical  ✗
-    ///
-    /// Both levels are asserted here because level 1 is what already worked; a fixture whose leaves
-    /// all sit at depth 1 cannot see this.
+    /// Entries keep the caller's spelling at every depth, not only when the last path component is
+    /// the link. The retry fires only for that case; one level in, the direct walk succeeds and
+    /// the enumerator would hand back the target's canonical path unless it is re-spelled too.
+    /// Level 2 is the one that matters; a fixture with leaves only at depth 1 can't see it.
     @Test func entriesKeepTheCallersSpellingBelowASymlinkTooNotOnlyAtIt() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListSymlinkLevel2")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -368,7 +333,7 @@ import Testing
         let link = base.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
 
-        // Level 1: the retry path, which already re-spelled.
+        // Level 1: the retry path.
         let level1 = FileManager.default.listing(of: link)
         #expect(level1.urls.map(\.path) == [link.appendingPathComponent("Health").path])
 
@@ -378,17 +343,16 @@ import Testing
         #expect(level2.urls.map(\.path) == [link.appendingPathComponent("Health/Medical").path],
                 "level 2 answered in the target's spelling: \(level2.urls.map(\.path))")
 
-        // Control: asked by its real name, it answers in that name — so the assertions above are
-        // about carrying the CALLER's spelling, not about prefixing everything with the argument.
+        // Control: asked by its real name, it answers in that name, so the assertions above check
+        // the caller's spelling, not a blind prefix of the argument.
         let direct = FileManager.default.listing(of: real.appendingPathComponent("Health"))
         #expect(direct.urls.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
     }
 
-    /// **The links among the entries, by the caller's spelling, when asked — and `nil` when not.**
-    /// A link to a folder lists with `hasDirectoryPath` false, so this is how a caller tells one
-    /// without a `stat` per entry (Edit's folder menu, TE205). Dangling links and links to files are
-    /// links too: what one leads to is the caller's question. Through the retried walk as well — a
-    /// folder that is itself a link — where the entries are re-spelled under the link.
+    /// The links among the entries, in the caller's spelling, when asked, and `nil` when not. A link
+    /// to a folder lists with `hasDirectoryPath` false, so this is how a caller (Edit's folder menu)
+    /// spots one without a `stat` per entry. Dangling links and links to files count: what a link
+    /// leads to is the caller's question. Also through the retried walk, re-spelled under the link.
     @Test func theLinksAmongTheEntriesAreNamedWhenAsked() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListLinks")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -424,9 +388,8 @@ import Testing
             .symbolicLinkPaths == [])
     }
 
-    /// The recursive shape too, since that is the only one that can answer
-    /// `.listedWithUnreadableDescendants` — and the one where re-spelling entries under the link
-    /// is arithmetic rather than a `lastPathComponent`.
+    /// The recursive shape too: the only one that can answer `.listedWithUnreadableDescendants`,
+    /// and where re-spelling under the link is path arithmetic, not a `lastPathComponent`.
     @Test func aRecursiveListingThroughASymlinkKeepsTheCallersSpelling() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListSymlinkDeep")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -446,16 +409,11 @@ import Testing
                 "recursive entries must be re-spelled under the link, got \(listing.urls.map(\.path))")
     }
 
-    /// The same quirk on the counting API, whose one caller is the folder-replace warning. A
-    /// symlinked destination folder answered `.unreadable`, so the sentence fell back to
-    /// "everything" for a folder it could perfectly well have counted.
-    ///
-    /// Both directions over the same fixture, because the retry here has to be one-way and nothing
-    /// else asks it to be: `childCount`'s rescue must never turn a real failure into a number.
-    /// A link onto a LOCKED directory is a folder the warning genuinely cannot count, and reporting
-    /// "0 items" for it is the original defect this whole seam exists to stop, arriving by the new
-    /// route. The readable half is what keeps the locked half from being satisfied by a `childCount`
-    /// that had simply stopped rescuing anything.
+    /// The same symlink quirk on the counting API, whose one caller is the folder-replace warning:
+    /// without the fallback it says "everything" about a folder it could have counted. Both
+    /// directions: the rescue must never turn a real failure into a number, so a link onto a locked
+    /// directory stays `.unreadable`, never "0 items". The readable half keeps a `childCount` that
+    /// rescues nothing from passing.
     @Test func countingThroughASymlinkReachesTheRealNumber() throws {
         guard !skippedBecauseRoot("count-through-symlink") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirCountSymlink")
@@ -480,18 +438,17 @@ import Testing
         #expect(counted.count == 4, "the target's four files, counted through the link")
         #expect(!counted.isCapped)
 
-        // The one-way half. A count of 0 here is exactly the "0 items will be removed" sentence
-        // this seam was built to stop, so `.unreadable` and nothing else will do.
+        // The one-way half. A count of 0 here would be the "0 items will be removed" sentence, so
+        // only `.unreadable` will do.
         let refused = FileManager.default.childCount(of: toLocked, options: [], cap: 1000)
         #expect(refused.outcome == .unreadable,
                 "a link onto a locked folder is not a folder with \(refused.count) items in it")
         #expect(refused.count == 0)
     }
 
-    /// A regular file is not a directory, and this API cannot say so — it answers `.unreadable`,
-    /// the same value a locked directory gets. Pinned because it is a conflation a caller could
-    /// otherwise discover the hard way, and because the safe direction today is an accident of
-    /// which callers exist rather than a property of the type.
+    /// A regular file answers `.unreadable`, the same as a locked directory: this API can't tell
+    /// them apart. Pinned so a caller knows it must check for a directory itself; the safe
+    /// direction holds only because of which callers exist, not because of the type.
     @Test func aRegularFileHandedToTheListingApiReadsAsUnreadable() throws {
         let base = try makeCanonicalTempRoot(prefix: "DirListNotADir")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -507,8 +464,8 @@ import Testing
     }
 
     /// A hidden unreadable child must not drag its readable parent down to `.unreadable`, or a
-    /// caller would refuse to act on a folder that is perfectly fine. Measured: with
-    /// `.skipsHiddenFiles` the enumerator neither yields nor reports it.
+    /// caller would refuse a folder that is fine. With `.skipsHiddenFiles` the enumerator neither
+    /// yields nor reports it.
     @Test func aHiddenUnreadableChildDoesNotMakeItsParentUnreadable() throws {
         guard !skippedBecauseRoot("aHiddenUnreadableChildDoesNotMakeItsParentUnreadable") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListHidden")
@@ -529,15 +486,10 @@ import Testing
 
     // MARK: Filtering inside the walk
 
-    /// `keeping:` decides what the listing RETAINS, never what it saw. The distinction is the
-    /// whole reason the drain counts entries separately from the ones it keeps: a zero ENTRY count
-    /// alongside a reported failure is precisely how `classify` recognises that the root itself
-    /// could not be read, and a filter that happens to reject everything is a completely different
-    /// statement about a directory that opened fine.
-    ///
-    /// Collapsed into one number — `classify(entryCount: kept.count, …)` — this fixture answers
-    /// `.unreadable` for a root that was read perfectly well, which is the same false failure the
-    /// symlink case produced.
+    /// `keeping:` decides what the listing retains, never what it saw. `classify` reads a zero
+    /// entry count plus a reported failure as "the root couldn't be read", so the drain counts
+    /// entries separately from the ones it keeps. Passing `kept.count` to `classify` must make
+    /// this fail with `.unreadable` for a root that was read fine.
     @Test func aFilterThatKeepsNothingIsNotAnUnreadableDirectory() throws {
         guard !skippedBecauseRoot("aFilterThatKeepsNothingIsNotAnUnreadableDirectory") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirListFilterAll")
@@ -579,9 +531,9 @@ import Testing
 
     // MARK: Counting without collecting
 
-    /// `childCount` exists so the folder-replace warning can ask "how many?" of a folder that may
-    /// hold a hundred thousand entries without building an array of them — but it has to reach the
-    /// same verdict `listing` does, or the warning would be back to reading a failure as a zero.
+    /// `childCount` lets the folder-replace warning ask "how many?" of a huge folder without
+    /// building an array, but it must reach the same verdict `listing` does, or the warning reads a
+    /// failure as a zero.
     @Test func countingAnUnreadableDirectoryIsNotACountOfZero() throws {
         guard !skippedBecauseRoot("countingAnUnreadableDirectoryIsNotACountOfZero") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirCountLocked")
@@ -625,20 +577,16 @@ import Testing
         #expect(counted.isCapped, "4 is a floor under an actual 9")
         #expect(counted.outcome == .listed, "capping is our choice, not a failure of the directory")
 
-        // Same directory, cap above its size: the count is then the whole truth. Stated so the
-        // assertions above cannot be satisfied by a `childCount` that always reports the cap.
+        // Same directory, cap above its size: the count is the whole truth, so a `childCount` that
+        // always reports the cap fails.
         let uncapped = FileManager.default.childCount(of: full, options: [], cap: 100)
         #expect(uncapped.count == 9)
         #expect(!uncapped.isCapped)
     }
 
-    /// A cap of zero opens the directory like any other cap, and this states what falls out of
-    /// that: counting stops on the first entry, so the answer is "at least 1".
-    ///
-    /// It exists because the first version of `childCount` short-circuited a non-positive cap to
-    /// an authoritative `.listed` zero — a verdict about a directory it had not opened, and
-    /// therefore the very thing this file exists to stamp out. The locked half is the half that
-    /// matters: a short-circuit cannot see a failure it never went looking for.
+    /// A cap of zero still opens the directory: counting stops on the first entry, so the answer is
+    /// "at least 1". Short-circuiting a non-positive cap to a `.listed` zero would be a verdict about
+    /// a directory never opened; the locked half catches that, since it can't see the failure.
     @Test func aNonPositiveCapStillOpensTheDirectory() throws {
         guard !skippedBecauseRoot("aNonPositiveCapStillOpensTheDirectory") else { return }
         let base = try makeCanonicalTempRoot(prefix: "DirCountZeroCap")
@@ -689,8 +637,8 @@ import Testing
         fm.virtualDisk["/locked/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         fm.unlistableDirectories = ["/locked"]
 
-        // Faithful means non-nil-and-empty, not nil: a mock returning nil would make the dead
-        // `guard let … else` branch look tested while it stays dead in production.
+        // Faithful means non-nil and empty, not nil: a mock returning nil would make the dead
+        // `guard let … else` branch look tested.
         let raw = fm.enumerator(at: URL(fileURLWithPath: "/locked"), includingPropertiesForKeys: nil,
                                 options: [], errorHandler: nil)
         #expect(raw != nil)
@@ -709,17 +657,11 @@ import Testing
         #expect(fm.listing(of: URL(fileURLWithPath: "/locked")).outcome == .unreadable)
     }
 
-    /// With nested unlistable directories the mock must name the OUTERMOST one, which is the one
-    /// the real enumerator meets first on its way down. Picking the first match out of a `Set`
-    /// instead made the answer depend on an iteration order Swift's per-launch hash seed decides.
-    ///
-    /// This asserts the rule, not the repetition: a Set's order is fixed within a process, so
-    /// looping here would re-run the same draw rather than sample new ones. What makes the code
-    /// deterministic is that the choice no longer consults that order at all.
-    ///
-    /// The fixture deliberately does not create `/root/a` as a stub — only `/root/a/b` below it —
-    /// because that is the shape that exposed the mock withholding the blocked directory from its
-    /// own listing, which turned a partial answer into a wholly unreadable one.
+    /// With nested unlistable directories the mock must name the outermost one, the one the real
+    /// enumerator meets first. Taking the first match from a `Set` would depend on the per-launch
+    /// hash seed, and looping wouldn't help: a Set's order is fixed within a process. `/root/a` has
+    /// no stub of its own, only `/root/a/b` below it, so the mock must still list the blocked
+    /// directory as an entry rather than call the whole root unreadable.
     @Test func theMockNamesTheOutermostUnlistableAncestor() throws {
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "/root"), withIntermediateDirectories: true)

@@ -2,38 +2,24 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Every read of `Logger.shared.entries` in the repository's test code is eviction-proof.**
+/// Every read of `Logger.shared.entries` in the repository's test code must be eviction-proof.
 ///
-/// The buffer is capped at 1,000 entries and every test target runs its suites in parallel against
-/// it — this package alone runs ~3,500 tests across ~320 suites — so a bare
-/// `Logger.shared.entries.contains { … }` is racing every other suite's logging. When it loses, the
-/// assertion reports a missing log line, which is exactly what the test would report if the
-/// production code had stopped writing it — "A log assertion reading a window that has already
-/// rolled" in `docs/flaky-tests.md`. It reddened the v4.4 release run and two attempts at the v4.5
-/// one, each time in a different suite, and each time passing 3/3 in isolation on the same tree.
+/// The buffer holds 1,000 entries and every target runs its suites in parallel against it, so a
+/// bare `Logger.shared.entries.contains { … }` races every other suite's logging. When it loses, it
+/// reports a missing log line, just as it would if the code had stopped writing it ("A log assertion
+/// reading a window that has already rolled" in `docs/flaky-tests.md`).
 ///
-/// Three shapes are eviction-proof, and only the last one names the buffer:
-/// - **`LogCapture`** (`EventsTestSupport`) — accumulates at publish time, so a later trim cannot
-///   take an entry away. The preferred form; the test reads `await log.entries`.
-/// - **reading the DISK log** — `loggedLineOnDisk`, `Logger.shared.flushToDisk()`. The file is not
-///   capped. `DuplicatesGateFailClosedTests` says so in its own comment.
-/// - **an index-bounded read** — `firstIndex`/`lastIndex` on a marker the test wrote itself, then
-///   a slice. This DIAGNOSES eviction rather than preventing it, so it is allowed but not
-///   recommended: the marker is older than the lines it bounds and is evicted first, which makes
-///   the test fail more often, not less.
+/// Three shapes are safe:
+/// - `LogCapture` (`EventsTestSupport`) accumulates at publish time, so a trim can't take an entry
+///   away. The preferred form; the test reads `await log.entries`.
+/// - Reading the disk log (`loggedLineOnDisk`, `Logger.shared.flushToDisk()`), which isn't capped.
+/// - An index-bounded read: `firstIndex`/`lastIndex` on a marker the test wrote, then a slice. This
+///   diagnoses eviction rather than preventing it (the marker goes first), so it is allowed but not
+///   recommended.
 ///
-/// **There is no allow-list any more.** Sixteen suites predated `LogCapture` and were listed here;
-/// the last fifteen were converted on 2026-09-27 and the list went with them. The judgement got
-/// stricter at the same time, because the old one excused a whole FILE that built a capture, read
-/// the disk log or called an index anywhere, comments included — and with a capture now in every
-/// log suite, a new bare read in any of them would have passed. `PaneTabsTests`, which does bound
-/// its read, was passing on a comment. Each read is now judged on its own, on code alone.
-///
-/// **It reads every test tree in the repository, not just this directory** — the app target's,
-/// each package's `Tests`, and the test-support libraries under a package's `Sources`. It read only
-/// this one until `LogCapture` moved out of this test target, because nothing else could import
-/// it; the app target, `Dashboard` and `FileExplorer` held nineteen reads of the buffer between
-/// them, and four of their files read it with nothing bounding the window.
+/// Each read is judged on its own, on code alone. The scan covers every test tree in the
+/// repository: the app target's, each package's `Tests`, and the test-support libraries in a
+/// package's `Sources`.
 @Suite struct LogBufferReadScanTests {
 
     /// The repository root, walked up from this file: `Modules/Sync/Tests/Sync/<this file>`.
@@ -118,13 +104,10 @@ import Testing
             """)
     }
 
-    /// **The positive control for the walk.** The tree is clean, so the scan above finds nothing —
-    /// and it would find nothing just the same in a tree it had stopped reading. So a bare read is
-    /// planted in one real file of every tree it walks, and the judgement has to name that file.
-    ///
-    /// The trees are found, not listed, so the ones that held the bare reads this scan was widened
-    /// for are required by name: a walk that stopped finding one would otherwise drop it from this
-    /// control too, and pass.
+/// Positive control for the walk: a clean tree and a tree the scan stopped reading look the same.
+/// So a bare read is planted in one real file of every tree it walks, and the judgement must name
+/// it. The trees that once held bare reads are required by name, so a walk that lost one can't
+/// silently drop it from this control too.
     @Test func theScanSeesABareReadPlantedInEveryTestTree() {
         let trees = Self.testTrees()
         for tree in ["SyncCloudTests", "Modules/Sync/Tests", "Modules/Dashboard/Tests",
@@ -143,8 +126,7 @@ import Testing
         }
     }
 
-    /// **…and for the judgement.** One that had stopped seeing a bare read would find nothing in a
-    /// clean tree either. These are the shapes it has to tell apart.
+/// Positive control for the judgement: the shapes it has to tell apart.
     @Test func theScanSeesABareReadAndOnlyThat() {
         let far = Array(repeating: "let x = 1", count: Self.boundReach).joined(separator: "\n")
         let cases: [(source: String, bare: Bool, why: Comment)] = [

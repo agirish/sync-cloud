@@ -1,10 +1,10 @@
 import Foundation
 
-/// The questions an empty chat offers, one click each (TE299): a fixed table on this Mac, keyed by
-/// the workspace and what is on screen. Free, and nothing is sent until one is clicked; a click
+/// The questions an empty chat offers, one click each: a fixed table on this Mac, keyed by the
+/// workspace and what is on screen. Free, and nothing is sent until one is clicked; a click
 /// sends it exactly as if it were typed. They go once the chat has its first question.
 ///
-/// **No item's name, ever.** A question names nothing but a source, and a source only while the
+/// **No item's name, ever**: a question names nothing but a source, and a source only while the
 /// folder on screen isn't hidden from Claude: a hidden folder hides everything under it, so a
 /// shown one means its source's top isn't hidden either. The file open in Edit is "this file".
 public enum AskClaudeStarters {

@@ -17,9 +17,8 @@ import Testing
 
     @Test func concurrentRecordsLoseNoIncrements() {
         // `record` runs off the main actor (from CloudFilingClassifier.classify) and does a
-        // non-atomic read-modify-write of UserDefaults; two overlapping cloud calls would otherwise
-        // drop a spend increment and under-count the total the budget cap is enforced against. The
-        // lock must serialize them so every record lands.
+        // read-modify-write of UserDefaults. Two overlapping cloud calls must not drop an
+        // increment and under-count what the budget cap enforces against; the lock serializes them.
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
 
@@ -36,10 +35,9 @@ import Testing
     }
 
     @Test func everyWritePostsTheChangeSignal() {
-        // The signal exists because per-surface refresh lists do not compose across windows: the
-        // Organize lens enumerated its own three refresh moments and was still left quoting an
-        // erased record when the SAME history view cleared spend from the Settings window. Both
-        // writers must post, or a cached reader is exactly one unlisted writer away from stale.
+        // Per-surface refresh lists don't compose across windows: a Clear in Settings would leave
+        // the Organize lens quoting an erased record. Both writers must post, or a cached reader
+        // goes stale.
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
 
@@ -50,9 +48,8 @@ import Testing
             var value: Int { lock.lock(); defer { lock.unlock() }; return n }
         }
         let posts = Counter()
-        // Scoped to THIS test's defaults instance: the suite runs in parallel and the center is
-        // process-wide, so an unscoped observer counts the other tests' posts too — measured, it
-        // read 6 where this test wrote 2.
+        // Scoped to this test's defaults: the suite runs in parallel and the center is
+        // process-wide, so an unscoped observer would count other tests' posts too.
         let observer = NotificationCenter.default.addObserver(
             forName: FilingSpendStore.didChange, object: defaults, queue: nil) { _ in posts.bump() }
         defer { NotificationCenter.default.removeObserver(observer) }
@@ -85,9 +82,9 @@ import Testing
         for _ in 0..<(FilingSpendStore.maxEntries + 20) {
             FilingSpendStore.record(entry(cost: 0.001, tokens: 100), defaults: defaults)
         }
-        // History is capped…
+        // History is capped,
         #expect(FilingSpendStore.entries(defaults: defaults).count == FilingSpendStore.maxEntries)
-        // …but the lifetime scan count and cost still reflect every recorded scan.
+        // but the lifetime scan count and cost still reflect every recorded scan.
         let totals = FilingSpendStore.totals(defaults: defaults)
         #expect(totals.scans == FilingSpendStore.maxEntries + 20)
         #expect(abs(totals.costUSD - Double(FilingSpendStore.maxEntries + 20) * 0.001) < 1e-9)
@@ -103,8 +100,8 @@ import Testing
         #expect(FilingSpendStore.totals(defaults: defaults) == FilingSpendTotals())
     }
 
-    /// **Clear asks first, and a No keeps every figure.** What it resets is what both caps count
-    /// against — the total cap is the $5 backstop — and both Clear buttons wiped on one click.
+    /// Clear asks first, and a No keeps every figure: it resets what both caps count against,
+    /// including the $5 total backstop.
     @Test func declinedClearKeepsTheSpend() {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
@@ -119,7 +116,7 @@ import Testing
         #expect(FilingSpendStore.entries(defaults: defaults).count == 1)
     }
 
-    /// And a Yes clears — asked while the figures are still there to be lost.
+    /// A Yes clears, and the question is asked while the figures are still there.
     @Test func confirmedClearClearsAfterAsking() {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }

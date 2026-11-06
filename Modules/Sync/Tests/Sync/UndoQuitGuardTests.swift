@@ -2,19 +2,13 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the quit-guard accounting for undo/redo: the handlers spawn a `Task` to run their file
-/// I/O, so `activeFileOperationsCount` must be bumped synchronously inside the handler itself —
-/// otherwise ⌘Z immediately followed by ⌘Q reads a zero counter in
-/// `applicationShouldTerminate` before the undo's operation is even scheduled.
+/// Pins the quit-guard accounting for undo/redo: the handlers spawn a `Task` for their file I/O,
+/// so `activeFileOperationsCount` must be bumped synchronously in the handler itself, or ⌘Z then
+/// ⌘Q reads a zero counter in `applicationShouldTerminate` before the undo is even scheduled.
 ///
-/// **The two drains go through `waitUntil`, not a hand-rolled deadline.** They were
-/// `ContinuousClock.now + .seconds(5)` loops, and on 2026-09-08 the first one lost that budget in a
-/// full 3411-test parallel run at load average ~12: it failed on the final `== 0` reading 1, after
-/// 8.270 s, against a suite that needs **21-25 ms** alone. Wall time is the wrong unit here — what
-/// these wait for arrives on main-actor turns, and a congested run has fewer of them per second,
-/// so a seconds-only budget shrinks exactly when the wait needs it most. `waitUntil` is bounded by
-/// POLLS as well (`waitPollFloor`), which is the part that makes it survive congestion, and it
-/// names the poll count in the failure so a starved wait can be told from a disproved one.
+/// The drains use `waitUntil`, not a seconds-only deadline: what they wait for arrives on
+/// main-actor turns, which a congested run has fewer of per second. `waitUntil` is bounded by
+/// polls too (`waitPollFloor`) and names the poll count, so a starved wait reads as one.
 @Suite struct UndoQuitGuardTests {
 
     @MainActor
@@ -59,9 +53,7 @@ import Foundation
             destination: URL(fileURLWithPath: "/dst/copied.txt"),
             overwritten: nil,
             // The real identity of what is on the mock disk, so the drift guard passes and the
-            // undo proceeds — which is what this test is about. It used to pass `nil`, which meant
-            // the same thing only because nil SKIPPED the guard; there is no longer a value that
-            // does that, so the intent has to be stated rather than fallen into.
+            // undo proceeds, which is what this test is about.
             destinationIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: "/dst/copied.txt"),
                                                        fileManager: mockFM),
             overwrittenIdentity: .absent,

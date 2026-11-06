@@ -2,12 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins Verify All's exclusion guard in the WRITE direction: Verify All refuses to start
-/// while anything is writing, but a write starting MID-verify could still overwrite a file
-/// as it's hashed — the pair can read "identical" against bytes that no longer exist,
-/// poisoning the copy-to-match-dates offer. `syncFile` and the copy/move entry points
-/// (`transferItems`) must refuse with a visible banner while the verify run is in flight,
-/// and proceed normally once it's done.
+/// Pins Verify All's exclusion guard in the write direction. Verify All refuses to start while
+/// anything is writing, but a write starting mid-verify could overwrite a file as it is hashed,
+/// so the pair reads "identical" against bytes that no longer exist and poisons the
+/// copy-to-match-dates offer. `syncFile`, copy and move (`transferItems`), delete, the duplicate
+/// merge and filing refuse with a visible banner while the run is in flight, and proceed after.
 @Suite struct VerifyAllWriteExclusionTests {
 
     @MainActor
@@ -36,7 +35,7 @@ import Foundation
         let ran = await manager.syncFile(diff, fileManager: mockFM)
 
         #expect(ran == false)
-        // (Field comparison — banner equality includes a per-publish id.)
+        // (Field comparison: banner equality includes a per-publish id.)
         #expect(manager.banner?.message == "Wait for Verify All to finish before syncing")
         #expect(manager.banner?.severity == .warning)
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
@@ -66,8 +65,8 @@ import Foundation
         #expect(manager.banner?.message == "Wait for Verify All to finish before copying or moving items")
         #expect(manager.banner?.severity == .warning)
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
-        // The guard fires before the operation pre-count latches — a refusal must not leave
-        // a phantom in-flight operation that would refuse the NEXT Verify All forever.
+        // The guard fires before the operation pre-count latches: a refusal must not leave a
+        // phantom in-flight operation that would refuse every later Verify All.
         #expect(manager.activeFileOperationsCount == 0)
         #expect(manager.isVerifyAllRunning)
 
@@ -123,7 +122,7 @@ import Foundation
     @Test func mergeDuplicateGroupRefusedWhileVerifyAllInFlight() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        // Both folders on disk — only the verify run blocks the merge.
+        // Both folders on disk: only the verify run blocks the merge.
         mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
         mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
         mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
@@ -142,7 +141,7 @@ import Foundation
         #expect(ok == false)
         #expect(manager.banner?.message == "Wait for Verify All to finish before merging duplicates")
         #expect(manager.banner?.severity == .warning)
-        // The merge copies into the keeper while Verify All may be hashing it — nothing may move.
+        // The merge copies into the keeper while Verify All may be hashing it: nothing may move.
         #expect(mockFM.virtualDisk["/base/K/rfile"] == nil)
         #expect(mockFM.virtualDisk["/base/R"] != nil)
         #expect(manager.duplicateGroups.count == 1)

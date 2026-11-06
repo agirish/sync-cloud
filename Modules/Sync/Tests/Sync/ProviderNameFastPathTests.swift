@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins the fast paths added to `normalizedComponent` and `nearNameKey` against the
-/// implementations they short-circuit.
-///
-/// Both are pure optimizations: they must return, byte for byte, what the slow path would have
-/// returned. `legacyNormalizedComponent` / `legacyNearNameKey` below are that slow path kept
-/// verbatim, and every case is asserted against BOTH it and a written-out expectation — two
-/// implementations agreeing only proves they agree.
+/// Pins the fast paths in `normalizedComponent` and `nearNameKey` against the slow paths they
+/// short-circuit, which they must match byte for byte. `legacyNormalizedComponent` and
+/// `legacyNearNameKey` are that slow path, and cases are also checked against written-out answers,
+/// since two implementations agreeing only proves they agree.
 @Suite struct ProviderNameFastPathTests {
 
     // MARK: - The pre-change implementations, verbatim
@@ -29,8 +26,8 @@ import Testing
         return foldCase ? normalized.lowercased() : normalized
     }
 
-    /// Every name that must survive the fast path unchanged, and every name that must fall off it.
-    /// Used by several tests, so a case added here is covered by all of them at once.
+    /// Names that must survive the fast path unchanged, and names that must fall off it. Shared by
+    /// several tests, so a case added here is covered by all of them.
     private static let names: [String] = [
         "", "a", "file.txt", "Some Folder", "a.b.c", "UPPER", "x y z", "a..b",
         "-", "_", "0", "~", "!@#$%^&()", "a\tb", "a\nb",              // interior control chars
@@ -86,22 +83,18 @@ import Testing
 
     // MARK: - The two properties the fast paths rest on
 
-    /// The ASCII whitespace list is hard-coded in `ProviderNameRules`. Rather than trust it to
-    /// have been remembered correctly, walk every ASCII scalar and compare against the very
-    /// `CharacterSet` the slow path trims with. If Foundation's set ever disagrees, the fast
-    /// path would silently stop stripping something — this is the tripwire.
+    /// The ASCII whitespace list is hard-coded in `ProviderNameRules`, so every ASCII scalar is
+    /// checked against the `CharacterSet` the slow path trims with. If Foundation's set ever
+    /// disagrees, the fast path would silently stop stripping something.
     @Test func asciiWhitespacePredicateMatchesFoundation() {
-        // "." is excluded from the first assertion and asserted separately: it is stripped by the
-        // slow path without being whitespace, so folding it into the comparison as `|| byte == "."`
-        // made that expectation unconditionally true for it — a hole exactly where the trailing-dot
-        // rule lives.
+        // "." is asserted separately: the slow path strips it without it being whitespace, and
+        // folding it in as `|| byte == "."` would make its expectation vacuously true.
         let dot = UInt8(ascii: ".")
         for byte in UInt8(0)...UInt8(127) where byte != dot {
             let scalar = Unicode.Scalar(byte)
             let foundationSaysWhitespace = CharacterSet.whitespacesAndNewlines.contains(scalar)
-            // A single-scalar name made of this byte: the slow path trims it to empty and so
-            // hands back the original, which tells us nothing — so probe it as an EDGE byte on a
-            // name with a real body, which is exactly how the predicate is used.
+            // A one-byte name trims to empty and comes back unchanged, which tells nothing, so probe
+            // the byte at the edge of a name with a body, as the predicate is used.
             let probe = "a" + String(scalar)
             let stripped = legacyNormalizedComponent(probe) != probe
             #expect(foundationSaysWhitespace == stripped,
@@ -117,10 +110,9 @@ import Testing
         #expect(!ProviderNameRules.hasNothingToNormalize("a."), "the fast path must not claim \"a.\" is a no-op")
     }
 
-    /// `asciiLowercased` is only ever reached for strings the ASCII predicate accepted, and over
-    /// that domain it must be indistinguishable from `lowercased()`. Checked scalar by scalar
-    /// rather than on a sample, because the whole justification is "ASCII case mapping is
-    /// byte-local" and one exception would be enough to break a diff key.
+    /// `asciiLowercased` is reached only for strings the ASCII predicate accepted, and there must
+    /// equal `lowercased()`. Checked for every scalar, not a sample: it rests on ASCII case mapping
+    /// being byte-local, and one exception would break a diff key.
     @Test func asciiLowercaseMatchesFoundationForEveryAsciiScalar() {
         for byte in UInt8(0)...UInt8(127) {
             let s = "x" + String(Unicode.Scalar(byte)) + "Y"
@@ -145,8 +137,8 @@ import Testing
         }
     }
 
-    /// A name the fast path accepts must be returned identically — the property that makes the
-    /// short-circuit legal at all.
+    /// A name the fast path accepts must come back unchanged from the slow path, which is what
+    /// makes the short-circuit legal.
     @Test func anythingTheFastPathAcceptsIsUnchangedByTheSlowPath() {
         for name in Self.names where ProviderNameRules.hasNothingToNormalize(name) {
             #expect(legacyNormalizedComponent(name) == name,

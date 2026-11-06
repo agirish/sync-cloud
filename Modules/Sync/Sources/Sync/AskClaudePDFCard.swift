@@ -1,6 +1,6 @@
 import Foundation
 
-/// **A file's stamp as a card keeps it** — when it was modified, its size and its identity on disk —
+/// A file's stamp as a card keeps it (when it was modified, its size and its identity on disk),
 /// so a card can tell the file it read, or the file it wrote, from one that has changed since. The
 /// app's own stamp lives in FileExplorer and isn't saved; this one is, with the chat.
 public struct AskClaudeFileStamp: Codable, Equatable, Sendable {
@@ -15,9 +15,9 @@ public struct AskClaudeFileStamp: Codable, Equatable, Sendable {
     }
 }
 
-/// **A card that runs one of SyncCloud's PDF tools on the person's click** (TE294). Claude offers
-/// it; nothing is written until they click its button, and what it wrote it can take back to the
-/// Trash. Saved with the chat — never a password, which lives only in the card's field.
+/// A card that runs one of SyncCloud's PDF tools on the person's click. Claude offers it; nothing
+/// is written until they click its button, and what it wrote it can take back to the Trash. Saved
+/// with the chat, but **never** a password, which lives only in the card's field.
 public struct AskClaudePDFCard: Codable, Equatable, Sendable {
 
     public enum Action: String, Codable, CaseIterable, Sendable {
@@ -201,7 +201,7 @@ public struct AskClaudePDFCard: Codable, Equatable, Sendable {
         isOpen && action == other.action && Set(rows.map(\.path)) == Set(other.rows.map(\.path)) && options == other.options
     }
 
-    /// The most files on one card, and the most parts a split makes (TE294).
+    /// The most files on one card, and the most parts a split makes.
     public static let maxFiles = 20
     public static let maxParts = 20
 }

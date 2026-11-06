@@ -2,15 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The size guard on the passes that cannot be budgeted.**
-///
-/// Storage and Find Duplicates walk whole trees by necessity — a storage total or a duplicate group
-/// computed from part of a tree is a wrong ANSWER, not a partial view — so the budget that fixed the
-/// pane is the wrong instrument here. What they can do is run a budgeted walk as a PROBE and stop to
-/// ask, which is what these pin.
-///
-/// The probe budget is an instance property precisely so these can run: driving the confirm and
-/// decline paths against a real 400,000-entry tree would mean building one.
+/// The size guard on the passes that can't be budgeted. Storage, Find Duplicates and the other
+/// whole-tree passes must read everything, since a total or a duplicate group from part of a tree is
+/// a wrong answer, not a partial view. So they run a budgeted walk as a probe and stop to ask, which
+/// these pin. The probe budget is an instance property so tests can drive the confirm and decline
+/// paths without building a 400,000-entry tree.
 @Suite struct LargeWalkGuardTests {
 
     private func write(_ url: URL, bytes: Int = 8) throws {
@@ -30,9 +26,9 @@ import Testing
 
     // MARK: - The seam's default
 
-    /// **Refuse, unwired.** The failure this guards is a pass that never finishes, and an unwired
-    /// manager that proceeded would reintroduce exactly that in the configuration where nobody is
-    /// watching. Same fail-safe principle as `permanentDeleteConfirmer`, for a weaker harm.
+    /// Unwired, the guard refuses. The harm it guards is a pass that never finishes, and an unwired
+    /// manager that proceeded would allow it where nobody is watching. The same fail-safe as
+    /// `permanentDeleteConfirmer`, for a weaker harm.
     @MainActor
     @Test func anUnwiredManagerRefusesALargeWalk() async throws {
         let root = try fixture(files: 12)
@@ -81,8 +77,8 @@ import Testing
                 "the confirmed pass reported \(report.totalBytes) bytes for 12 files of 8 — it published the PROBE's truncated tree rather than re-walking")
     }
 
-    /// **No prompt at all when the tree fits**, which is every ordinary source. If this fired
-    /// routinely the guard would be worse than the hang it prevents.
+    /// No prompt at all when the tree fits, as every ordinary source does. A guard that asked
+    /// routinely would be worse than the hang it prevents.
     @MainActor
     @Test func aTreeUnderTheBudgetNeverAsks() async throws {
         let root = try fixture(files: 3)
@@ -95,16 +91,11 @@ import Testing
         #expect(manager.storageLensReport != nil)
     }
 
-    /// **The boundary, at the call site.** A tree that exactly spends the probe budget is complete,
-    /// so the pass must run without asking.
-    ///
-    /// This exists because the unit-level version below did not catch the mutation it was written
-    /// for: swapping the lens's `didStopADescent` for `isExhausted` left all nine other tests green,
-    /// since none of them put a tree *at* the budget through the lens. Testing a distinction on the
-    /// helper proves the helper draws it; only the call site proves anyone uses it.
-    ///
-    /// 3, not 6, for three directories of one file each — the root's own listing is never charged.
-    /// See `aTreeExactlyAtTheBudgetIsNotTruncated`.
+    /// The boundary, at the call site: a tree that exactly spends the probe budget is complete, so
+    /// the pass runs without asking. Swapping the lens's `didStopADescent` for `isExhausted` must
+    /// fail this; the helper's own test below proves only that the helper draws the distinction.
+    /// The budget is 3, not 6, for three directories of one file each: the root's own listing is
+    /// never charged (see `aTreeExactlyAtTheBudgetIsNotTruncated`).
     @MainActor
     @Test func aTreeExactlyAtTheBudgetRunsWithoutAsking() async throws {
         let root = try fixture(files: 3)
@@ -123,13 +114,12 @@ import Testing
 
     // MARK: - The other call sites' declines
     //
-    // Testing the decline on the storage lens alone proves the SEAM declines; only each pass's own
-    // call site proves that pass consults it — the lesson `aTreeExactlyAtTheBudgetRunsWithoutAsking`
-    // records, pointed at the other four walks. Each test's premise is the recorded preflight: a
-    // pass that never asked either never probed or ran unbounded, and both are the finding.
+    // The storage lens's decline proves only that the seam declines; each pass's own call site
+    // proves that pass consults it. Each test's premise is the recorded preflight: a pass that
+    // never asked either never probed or ran unbounded.
 
-    /// Find Duplicates declined must publish no groups — the fixture holds a real identical pair,
-    /// so an empty result here is the decline working rather than a tree with nothing to find.
+    /// Find Duplicates, declined, publishes no groups. The fixture holds a real identical pair, so
+    /// an empty result is the decline working, not a tree with nothing to find.
     @MainActor
     @Test func decliningTheDuplicatesWalkPublishesNoGroups() async throws {
         let root = try fixture(files: 12)
@@ -152,9 +142,9 @@ import Testing
                 "a declined scan reported completion — an empty 'no duplicates' over a tree it refused to read")
     }
 
-    /// Rename declined must report no risky names. The fixture plants a name the detector is
-    /// proven to flag (`NameNormalizerTests` pins the zero-width space for iCloud), so an empty
-    /// list is the decline and not a clean tree.
+    /// Rename, declined, reports no risky names. The fixture plants a name the detector flags
+    /// (`NameNormalizerTests` pins the zero-width space for iCloud), so an empty list is the
+    /// decline, not a clean tree.
     @MainActor
     @Test func decliningTheRenameWalkReportsNoRiskyNames() async throws {
         let root = try fixture(files: 12)
@@ -175,8 +165,8 @@ import Testing
                 "a declined scan reported completion, which is indistinguishable from a clean tree")
     }
 
-    /// Filing declined must publish nothing — no suggestions, and no risky names either, because
-    /// `detectRiskyNames` runs on the taxonomy the gate protects and sits on the line after it.
+    /// Filing, declined, publishes nothing: no suggestions, and no risky names either, since
+    /// `detectRiskyNames` runs on the taxonomy the gate protects.
     @MainActor
     @Test func decliningTheFilingWalkPublishesNothing() async throws {
         let root = try fixture(files: 12)
@@ -199,13 +189,10 @@ import Testing
         #expect(!manager.filingScanLifecycle.hasCompleted)
     }
 
-    /// **The folder-memory re-survey, which is the pass that WRITES.** Declined, it must open no
-    /// document and leave no artifact — a re-survey that proceeded on the probe's truncated tree
-    /// would not merely be slow, it would merge what it happened to read over the corpus.
-    ///
-    /// Reuses `FilingResurveyTests.makeTree`, the one fixture that stands up the survey's
-    /// preconditions (profile directory, folder profile, recording extractor); its recorder is
-    /// this test's second premise, proving the pass read nothing rather than merely reported
+    /// The folder-memory re-survey is the pass that writes. Declined, it opens no document and
+    /// writes nothing: run on the probe's truncated tree, it would merge what it happened to read
+    /// over the corpus. Reuses `FilingResurveyTests.makeTree`, which sets up the survey's
+    /// preconditions; its recording extractor proves the pass read nothing, not just reported
     /// nothing.
     @MainActor
     @Test func decliningTheResurveyWalkWritesNothingAndReadsNothing() async throws {
@@ -249,24 +236,19 @@ import Testing
         #expect(p.rootName == root.lastPathComponent, "the prompt would print a whole path")
     }
 
-    /// **The prompt names a folder the way the rest of the app names it**, through
-    /// `FolderSource.defaultDisplayName` rather than a second rule of its own.
-    ///
-    /// The two roots this guard exists for are the two that rule was written for. Its own
-    /// last-component answer called the home folder “father” — a person, in a sentence about a
-    /// folder — and the startup disk “/”, which is a path separator, not a name. Both are the
-    /// prompt's most likely subjects: they are the trees big enough to trip the probe.
+    /// The prompt names a folder as the rest of the app does, through
+    /// `FolderSource.defaultDisplayName`. The home folder and the startup disk are its likeliest
+    /// subjects, being big enough to trip the probe, and their last path components would read as
+    /// an account name and “/”.
     @Test func theHomeFolderIsNamedAsAPlaceNotAsAnAccount() {
         let p = LargeWalkPreflight(pass: .storageLens, rootPath: NSHomeDirectory(), probeLimit: 1)
         #expect(p.rootName == "Home folder")
     }
 
-    /// The startup disk answers with the volume's name, read from the real disk — this is the one
-    /// assertion here that the delegation actually happened rather than being reasoned about.
-    ///
-    /// Compared against the lookup rather than against “Macintosh HD”, which would be a test of
-    /// whoever is running it. `FolderSourceTests` covers the rule itself, injected and offline,
-    /// including the fallback for a volume that declines to name itself.
+    /// The startup disk answers with the volume's name, read from the real disk, which proves the
+    /// delegation happens. Compared against the lookup, not “Macintosh HD”, which would depend on
+    /// the machine. `FolderSourceTests` covers the rule itself offline, including the fallback for
+    /// a volume with no name.
     @Test func theStartupDiskTakesTheVolumesName() throws {
         let volume = try #require(FolderSource.volumeName(of: "/"),
                                   "the startup disk did not name itself — a mounted volume always does; if this is ever legitimate the rule falls back to “/” and there is nothing here to compare")
@@ -274,8 +256,7 @@ import Testing
         #expect(p.rootName == volume, "the prompt says “/” where the sidebar says “\(volume)”")
     }
 
-    /// An ordinary folder still answers with its own last component — the rule change must not have
-    /// reached the common case.
+    /// An ordinary folder still answers with its own last component.
     @Test func anOrdinaryFolderKeepsItsOwnName() {
         let p = LargeWalkPreflight(pass: .duplicates, rootPath: "/Volumes/Backup/Photos",
                                    probeLimit: 1)
@@ -289,15 +270,8 @@ import Testing
         #expect(LargeWalkPreflight.Pass.filing.title == "Filing")
     }
 
-    /// **Every whole-tree pass Organize and Storage can start is guarded.**
-    ///
-    /// The first version of this guard covered two of four. Storage and Find Duplicates were
-    /// named and fixed; Rename and Filing walk whole trees from the same workspace, are reached by
-    /// the same sidebar click, and were left unbounded — so "the guard is done" was true of the
-    /// two I had thought about and false of the feature.
-    ///
-    /// Asserted as a count against `allCases` rather than by listing, so a fifth pass added later
-    /// has to be considered rather than inheriting silence.
+    /// Every whole-tree pass Organize and Storage can start is guarded. Asserted as a count of
+    /// `allCases`, so a pass added later must be checked rather than silently left unbounded.
     @Test func everyPassThatWalksAWholeTreeHasACase() {
         #expect(LargeWalkPreflight.Pass.allCases.count == 4,
                 "a pass was added or removed — check that every whole-tree walk still asks before it runs")
@@ -306,9 +280,9 @@ import Testing
         }
     }
 
-    /// **Which passes read file contents is a property, not a special case.** The prompt tested
-    /// `pass == .duplicates`, so Filing — which reads the first page of documents it cannot place
-    /// by name — silently got the cheaper sentence the moment it was added.
+    /// Which passes read file contents is a property, not a special case, so a new pass that reads
+    /// them (as Filing reads the first page of documents it can't place by name) can't silently get
+    /// the cheaper sentence.
     @Test func thePassesThatReadContentsSayTheyDo() {
         #expect(LargeWalkPreflight.Pass.duplicates.readsFileContents)
         #expect(LargeWalkPreflight.Pass.filing.readsFileContents)
@@ -318,18 +292,12 @@ import Testing
 
     // MARK: - The probe's own question
 
-    /// **`didStopADescent` is not `isExhausted`**, and the difference is the boundary case — which
-    /// is exactly where anyone tuning the number will land. A tree holding precisely the budget
-    /// spends it to zero and is nonetheless complete: there was no next directory for the
-    /// exhaustion to refuse.
-    ///
-    /// The budget is **3, not 6**, for a fixture of 3 directories holding 1 file each — and the
-    /// premise guard below is what taught me that. Charging is per *listing*, and the root's own
-    /// listing happens in `buildTree` before the walk begins, so it is never charged: only the
-    /// three subdirectories are, one entry each. Worth knowing beyond this test, because it means
-    /// a root with an enormous number of DIRECT children is not bounded by this at all. That is one
-    /// directory enumeration, so it is not a hole worth plugging — but it is not what the constant's
-    /// name suggests either.
+    /// `didStopADescent` is not `isExhausted`, and they differ at the boundary, where anyone tuning
+    /// the number lands. A tree holding exactly the budget spends it to zero yet is complete: there
+    /// was no next directory to refuse. The budget is 3, not 6, for 3 directories of 1 file each:
+    /// charging is per listing, and the root's own listing happens before the walk, so it is never
+    /// charged. So a root's direct children are not bounded by the budget at all; that is one
+    /// directory listing, not worth bounding.
     @Test func aTreeExactlyAtTheBudgetIsNotTruncated() async throws {
         let root = try fixture(files: 3)
         defer { try? FileManager.default.removeItem(at: root) }

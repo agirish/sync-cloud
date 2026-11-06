@@ -2,13 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **"Changed since you looked", on the panes** — ROADMAP item 5's passive signal, end to end:
-/// real folders, a real FSEvents stream, and writes from another process.
-///
-/// Each absence (a pane that must NOT flip) is asserted only after a positive control on the SAME
-/// stream has proved the batch that would have flipped it was absorbed: FSEvents delivers one
-/// stream's events in id order, so once a later change there has landed, an earlier one has too.
-/// Two panes are two streams, with no order between them.
+/// "Changed since you looked", on the panes, end to end: real folders, a real FSEvents stream, and
+/// writes from another process. Each absence (a pane that must not flip) is asserted only after a
+/// positive control on the same stream proved the batch that would have flipped it was absorbed:
+/// FSEvents delivers one stream's events in id order, so once a later change there has landed, an
+/// earlier one has too. Two panes are two streams, with no order between them.
 @Suite(.serialized) struct FolderWatchPaneFreshnessTests {
 
     private struct Fixture {
@@ -41,8 +39,8 @@ import Testing
         return m
     }
 
-    /// Both panes loaded. Their streams start from now (`FolderWatchReplay.none` — nothing cached
-    /// relies on an older walk yet), so no rescan or replay is coming.
+    /// Both panes loaded. Their streams start from now (`FolderWatchReplay.none`, since nothing
+    /// cached relies on an older walk yet), so no rescan or replay is coming.
     @MainActor
     private static func settle(_ m: FileSyncManager) async {
         await waitUntil("the panes never loaded") { !m.isLoadingLeftTree && !m.isLoadingRightTree && !m.leftTree.isEmpty }
@@ -76,10 +74,10 @@ import Testing
         #expect(finance.children?.map(\.name).sorted() == ["a.txt", "b.txt"])
     }
 
-    /// **Our own writes and hidden noise leave the pane alone, against real FSEvents** — the app
-    /// accounts for its own writes, and Finder's `.DS_Store` is no row a hidden-files-off pane shows.
-    /// The control is on the same stream: a hidden change still drops the cached walk, so once the
-    /// walk is gone the `.DS_Store` event has been absorbed, and the own write before it too.
+    /// Our own writes and hidden noise leave the pane alone, against real FSEvents: the app accounts
+    /// for its own writes, and Finder's `.DS_Store` is no row a hidden-files-off pane shows. The
+    /// control is on the same stream: a hidden change still drops the cached walk, so once the walk
+    /// is gone the `.DS_Store` event has been absorbed, and the own write before it too.
     @MainActor
     @Test func ourOwnWritesAndHiddenFilesDoNotMarkThePane() async throws {
         let f = try Self.makeFixture()
@@ -94,13 +92,13 @@ import Testing
         await waitUntil("the hidden change was never absorbed", timeout: 10) { m.prefetchedTrees[f.left] == nil }
         #expect(!m.leftChangedOnDisk, "our own write or a hidden file marked the left pane")
 
-        // And shown, the hidden change that already happened is news — no new write needed.
+        // And shown, the hidden change that already happened is news, with no new write needed.
         m.showHiddenFiles = true
         #expect(m.leftChangedOnDisk, "showing hidden files revealed a changed hidden item with no warning")
     }
 
-    /// **The same two filters, deterministically**: each pair is one change to the same path, at the
-    /// same id, as an outside visible write (which must mark — the control) and as the thing that
+    /// The same two filters, deterministically: each pair is one change to the same path, at the
+    /// same id, as an outside visible write (the control, which must mark) and as the thing that
     /// must not. With the filter removed, the second case marks exactly like the first.
     @MainActor
     @Test func ownAndHiddenChangesAreFilteredAgainstAControl() async throws {
@@ -126,9 +124,9 @@ import Testing
         }
     }
 
-    /// **The order is by FSEvents id, not by arrival.** A change older than the walk is no news to
-    /// it however late it is delivered; one newer is. Driven through `absorbFolderChanges` with the
-    /// ids placed either side of the left pane's read mark.
+    /// Order is by FSEvents id, not arrival: a change older than the walk is no news to it however
+    /// late it is delivered, and a newer one is. Driven through `absorbFolderChanges` with ids
+    /// either side of the left pane's read mark.
     @MainActor
     @Test func aChangeIsOrderedAgainstTheWalkByItsId() async throws {
         let f = try Self.makeFixture()
@@ -154,9 +152,9 @@ import Testing
         #expect(m.prefetchedTrees[f.left] == nil)
     }
 
-    /// **A change to a file's extended attributes alone is no news unless the panes read tags**
-    /// (measured 31 Oct: opening a file, a quarantine mark and a Finder tag each arrive as that and
-    /// nothing else). Sorting by tags reads them, and then a tag change is news.
+    /// A change to a file's extended attributes alone is no news unless the panes read tags:
+    /// opening a file, a quarantine mark and a Finder tag each arrive as only that. Sorting by tags
+    /// reads them, and then a tag change is news.
     @MainActor
     @Test func anAttributeOnlyChangeIsNewsOnlyWhileTagsAreListed() async throws {
         let f = try Self.makeFixture()
@@ -180,11 +178,11 @@ import Testing
         #expect(m.leftChangedOnDisk, "a tag change didn't mark a pane sorted by tags")
     }
 
-    /// **The app hears nothing while a refresh runs** — its answer is a refresh, which would cancel
-    /// and restart that one — and hears it once that refresh lets go, through the refresh's own end
-    /// (`refreshTreesAndScan`), not a hand call. The change lands inside the refresh, as its left
-    /// load starts (`folderWatchLoadWitness`), and is dated far past any walk, so the refresh leaves
-    /// the pane stale and the held news must come out at its end.
+    /// The app hears nothing while a refresh runs (its answer is a refresh, which would cancel and
+    /// restart that one) and hears it once that refresh lets go, through the refresh's own end
+    /// (`refreshTreesAndScan`), not a hand call. The change lands as the refresh's left load starts
+    /// (`folderWatchLoadWitness`) and is dated past any walk, so the pane stays stale and the held
+    /// news must come out at the end.
     @MainActor
     @Test func newsWaitsForTheRefreshInFlight() async throws {
         let f = try Self.makeFixture()
@@ -214,8 +212,8 @@ import Testing
         #expect(told == [.leftOnly], "the held news was delivered twice")
     }
 
-    /// **One telling per `paneNewsInterval`**, however busy the folder: a second change inside the
-    /// interval is held, and delivered when the interval runs out — not dropped.
+    /// One telling per `paneNewsInterval`, however busy the folder: a second change inside the
+    /// interval is held and delivered when the interval runs out, not dropped.
     @MainActor
     @Test func newsComesNoOftenerThanTheInterval() async throws {
         let f = try Self.makeFixture()
@@ -237,9 +235,9 @@ import Testing
         #expect(told == [.leftOnly, .rightOnly])
     }
 
-    /// **A cache hit is dated by the walk it serves, not by the hit.** A change made after that walk
-    /// but delivered after the hit must still mark the pane — which it can only do if the pane's mark
-    /// is the walk's. Also for a slice of the cached root, which is part of the root's walk.
+    /// A cache hit is dated by the walk it serves, not by the hit. A change made after that walk but
+    /// delivered after the hit must still mark the pane, which needs the pane's mark to be the
+    /// walk's. Also for a slice of the cached root, which is part of the root's walk.
     @MainActor
     @Test func aCacheHitKeepsTheMarkOfTheWalkItServes() async throws {
         let f = try Self.makeFixture()
@@ -264,7 +262,7 @@ import Testing
         #expect(m.leftWatch.readMark == walked, "a slice of the cached root did not inherit the root's mark")
     }
 
-    /// **A pane on a network volume asks for no stream**: nothing to see there, and starting one
+    /// A pane on a network volume asks for no stream: nothing to see there, and starting one
     /// resolves the path on the main thread.
     @MainActor
     @Test func aPaneOnANetworkVolumeIsNotWatched() throws {
@@ -279,7 +277,7 @@ import Testing
         }
     }
 
-    /// **The walk kept across a source switch keeps its mark** (`dropPrefetchedTrees(keeping:)`).
+    /// The walk kept across a source switch keeps its mark (`dropPrefetchedTrees(keeping:)`).
     @MainActor
     @Test func aKeptWalkKeepsItsMark() async throws {
         let m = FileSyncManager()
@@ -289,7 +287,7 @@ import Testing
         #expect(m.prefetchedTreeReadMark == ["/a": 7])
     }
 
-    /// **A folder that went takes the walks below it** — no event of theirs will say so — and only
+    /// A folder that went takes the walks below it, since no event of theirs will say so, but only
     /// those older than the change.
     @MainActor
     @Test func aRemovedFolderDropsTheWalksBelowIt() async throws {
@@ -300,16 +298,16 @@ import Testing
         let dropped = m.dropPrefetchedTrees(changedBy: [(["/r/sub"], true, 10)])
         #expect(dropped == 2)
         #expect(Set(m.prefetchedTrees.keys) == ["/r", "/other"], "the parent's walk is newer than the change and must stay")
-        // Without `below`, only walks LISTING the path go — and its own walk lists it ("" tail).
+        // Without `below`, only walks listing the path go, and its own walk lists it ("" tail).
         m.prefetchedTrees["/r/sub/deep"] = []; m.prefetchedTreeReadMark["/r/sub/deep"] = 5
         #expect(m.dropPrefetchedTrees(changedBy: [(["/r/sub"], false, 10)]) == 0)
         #expect(m.dropPrefetchedTrees(changedBy: [(["/r/sub/deep/f"], false, 10)]) == 1)
     }
 
-    /// **A stream started for a folder a cached walk lists through a link replays from that walk.**
-    /// The iCloud Drive container's walk lists `~/Documents` through its link; when a pane returns to
-    /// the container and `~/Documents` is watched again, its stream must replay from the container's
-    /// walk, or a change made there meanwhile is lost.
+    /// A stream started for a folder a cached walk lists through a link replays from that walk. The
+    /// iCloud Drive container's walk lists `~/Documents` through its link, so when `~/Documents` is
+    /// watched again its stream must replay from the container's walk, or a change made there
+    /// meanwhile is lost.
     @MainActor
     @Test func aLinkedTargetReplaysFromTheWalkThatListsIt() async throws {
         let m = FileSyncManager()
@@ -321,8 +319,8 @@ import Testing
         #expect(m.folderWatchReplayMark(for: FolderWatchRoot(path: "/unrelated")) == nil)
     }
 
-    /// **A rescan marks every pane at, under or above the folder it names** — FSEvents could not
-    /// say what changed there, so nothing listed there is vouched for.
+    /// A rescan marks every pane at, under or above the folder it names: FSEvents couldn't say what
+    /// changed there, so nothing listed there is vouched for.
     @MainActor
     @Test func aRescanAboveAPaneMarksIt() async throws {
         let f = try Self.makeFixture()
@@ -338,7 +336,7 @@ import Testing
         #expect(m.prefetchedTrees.isEmpty, "a walk under the rescanned folder survived: \(m.prefetchedTrees.keys.sorted())")
     }
 
-    /// **A pane on a symlinked folder hears a write made through the real path.**
+    /// A pane on a symlinked folder hears a write made through the real path.
     @MainActor
     @Test func aPaneOnALinkHearsAWriteToItsTarget() async throws {
         let f = try Self.makeFixture()
@@ -360,7 +358,7 @@ import Testing
         }
     }
 
-    /// **Swapping panes swaps what the watcher said about them**: the mark belongs to the listing.
+    /// Swapping panes swaps what the watcher said about them: the mark belongs to the listing.
     @MainActor
     @Test func aSwapMovesTheMarkWithTheListing() async throws {
         let f = try Self.makeFixture()
@@ -377,7 +375,7 @@ import Testing
         #expect(m.rightChangedOnDisk && !m.leftChangedOnDisk)
     }
 
-    /// **Nothing watching, nothing claimed** — and turning watching off clears what was said.
+    /// Nothing watching, nothing claimed, and turning watching off clears what was said.
     @MainActor
     @Test func withoutAWatcherNothingIsEverMarked() async throws {
         let f = try Self.makeFixture()

@@ -4,8 +4,7 @@ import Foundation
 /// Back/forward stack for one pane's focused relative path. Each pane owns an independent
 /// history, so the back button in a pane's header only undoes that pane's navigation.
 /// `Sendable` because a parked tab carries one (`PaneTab`), and a public struct's conformance is
-/// not inferred across a module boundary the way an internal one's is. Two value fields, no
-/// reference types: the conformance is a statement of what this already was.
+/// not inferred across a module boundary.
 public struct PaneNavigationHistory: Equatable, Sendable {
     /// Visited relative paths, oldest first. Always contains at least the root entry `""`.
     public private(set) var entries: [String] = [""]
@@ -14,13 +13,9 @@ public struct PaneNavigationHistory: Equatable, Sendable {
 
     public init() {}
 
-    /// A fresh history for a pane opening at `landing` — the source's `openAt` folder rather than
-    /// its root.
-    ///
-    /// The landing folder is the *first* entry, not a second one above the root, so Back is
-    /// unavailable immediately after a provider switch — exactly as it was when every pane opened
-    /// at its root. Seeding `["", landing]` instead would offer a Back into a folder the user has
-    /// not been to, which is not what Back means.
+    /// A fresh history for a pane opening at `landing`, the source's `openAt` folder. The landing
+    /// is the first entry, not one above the root, so Back is unavailable right after a provider
+    /// switch rather than offering a folder the user hasn't been to.
     public init(startingAt landing: String) {
         entries = [landing]
         index = 0
@@ -49,7 +44,7 @@ public struct PaneNavigationHistory: Equatable, Sendable {
         if canGoForward { index += 1 }
     }
 
-    /// Back to a single-entry history at the pane's opening folder — the root unless the source
+    /// Back to a single-entry history at the pane's opening folder, the root unless the source
     /// says otherwise.
     public mutating func reset(to landing: String = "") {
         entries = [landing]
@@ -66,13 +61,12 @@ extension FileSyncManager {
     ///   - relativePath: Subfolder path relative to the pane root (e.g. `"Documents/Projects"`).
     ///   - isLeft: `true` if the user drilled into this folder from the left pane; `false` for the right pane.
     public func focusOn(relativePath: String, isLeft: Bool) {
-        // Already showing this folder in this pane → no-op (mirrors focusBoth), so re-focusing the
-        // current folder doesn't stack a duplicate history entry that makes Back appear to stall.
+        // Already there: no-op (as in focusBoth), so a duplicate history entry doesn't make Back
+        // seem to stall.
         guard (isLeft ? leftRelativePath : rightRelativePath) != relativePath else { return }
         clearSessionIgnoredPaths()
-        // Re-rooting replaces the tree this pane's columns were walking, so the column stack is
-        // about to name folders relative to a root that no longer applies. Reset rather than prune:
-        // the new tree is a different scope, not a changed one.
+        // Re-rooting replaces the tree the columns were walking. Reset rather than prune: the new
+        // tree is a different scope, not a changed one.
         resetBrowsePath(isLeft: isLeft)
         if isLeft {
             leftHistory.push(relativePath)
@@ -86,23 +80,19 @@ extension FileSyncManager {
     /// Panes already focused on `relativePath` keep their history untouched, so Back in each
     /// pane still undoes exactly that pane's last move. No-op when both panes are already there.
     ///
-    /// Both panes to the SAME root-relative path — correct exactly while the two sources land in
-    /// the same place, which is every same-type pair and was every pair at all before a source's
-    /// root and its landing folder came apart. `focusBoth(left:right:)` is the general form.
+    /// Both panes to the same root-relative path, which is right only while the two sources land in
+    /// the same place. `focusBoth(left:right:)` is the general form.
     public func focusBoth(relativePath: String) {
         focusBoth(left: relativePath, right: relativePath)
     }
 
-    /// Each pane to its own root-relative path — the general form, because a linked move now has to
-    /// be translated across two sources that may open at different depths.
-    ///
-    /// The caller does the translating (`PathBoundary.reanchor`), because it is the layer that
-    /// knows both sources' landing folders; this one only knows relative paths.
+    /// Each pane to its own root-relative path, since a linked move must be translated across
+    /// sources that may open at different depths. The caller translates (`PathBoundary.reanchor`):
+    /// it knows both landing folders.
     public func focusBoth(left: String, right: String) {
         guard leftRelativePath != left || rightRelativePath != right else { return }
         clearSessionIgnoredPaths()
-        // Only the panes that actually move lose their column stack, matching the history rule
-        // directly below — a pane already focused there keeps both.
+        // Only a pane that moves loses its column stack and gains a history entry.
         if leftRelativePath != left { resetBrowsePath(isLeft: true); leftHistory.push(left) }
         if rightRelativePath != right { resetBrowsePath(isLeft: false); rightHistory.push(right) }
         syncPathsFromHistory()
@@ -119,53 +109,40 @@ extension FileSyncManager {
         }
     }
 
-    /// A pane's location as one path: its comparison scope joined with where it is browsing.
-    ///
-    /// The two are separate state on purpose (see `PaneBrowsePath`), but that is an implementation
-    /// distinction, not something to make the user hold. The header's path line renders this, so
-    /// walking into a column moves the breadcrumb exactly as re-rooting does — one location, one
-    /// readout, and no way for the header to describe a folder the pane is not showing.
+    /// A pane's location as one path: its comparison scope joined with where it is browsing. The
+    /// two are separate state (`PaneBrowsePath`), but the header shows one location, so walking
+    /// into a column moves the breadcrumb just as re-rooting does.
     public func combinedRelativePath(isLeft: Bool) -> String {
         PathBoundary.joinRelative(isLeft ? leftRelativePath : rightRelativePath,
                                  (isLeft ? leftBrowsePath : rightBrowsePath).relativePath)
     }
 
-    /// Where a pane **in a given presentation** is — the folder its header reads out, and the one
-    /// its "act on the current folder" actions target.
-    ///
-    /// Columns draws the stack, so the location is the join above. Tree draws no columns at all: it
-    /// lists the pane's scope whole, and the stack is parked state rather than a place. Handing the
-    /// join to a Tree pane is how the header came to name `Documents/Claude/Projects/Investing`
-    /// over a tree sitting at its root — the columns' last resting place, kept on screen by a
-    /// presentation that cannot show a column. **The stack is preserved, not cleared**, so flipping
-    /// back to Columns restores both the columns and the path that describes them.
+    /// Where a pane in a given presentation is: the folder its header names and its "current
+    /// folder" actions target. Columns draws the stack, so it is the join above. Tree draws no
+    /// columns and lists the scope whole, so it is the scope, or the header would name a column
+    /// folder the tree isn't showing. The stack is kept, so switching back restores the columns.
     ///
     /// `drawsColumns` rather than a `PaneViewMode`: this module has no view vocabulary, and the
-    /// question the answer actually turns on is whether the stack is on screen.
+    /// answer turns only on whether the stack is on screen.
     public func paneLocation(isLeft: Bool, drawsColumns: Bool) -> String {
         drawsColumns
             ? combinedRelativePath(isLeft: isLeft)
             : (isLeft ? leftRelativePath : rightRelativePath)
     }
 
-    /// Routes a click on that joined path back to whichever half owns it.
-    ///
-    /// A crumb inside the scope is a browse move — cheap, no rescan. A crumb *above* the scope is
-    /// the only way back out, so it re-roots. Without this split, clicking an ancestor while three
-    /// columns deep would either do nothing or re-scan for a folder you were already looking at.
+    /// Routes a click on that joined path to whichever half owns it. A crumb inside the scope is a
+    /// browse move, cheap and with no rescan; a crumb above the scope is the only way out, so it
+    /// re-roots.
     @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String, drawsColumns: Bool) {
         let focus = isLeft ? leftRelativePath : rightRelativePath
         let side = isLeft ? "left" : "right"
-        // Logged because this whole routing was previously silent: a crumb click that navigated
-        // nowhere left not one line behind, which is what let a dead root crumb go unexplained.
+        // Every branch logs, so a crumb click that goes nowhere still leaves a line.
         let target = combined.isEmpty ? "root" : combined
-        // Tree has no stack to move, so the browse branches below would all be writes to state it
-        // never draws: the crumb and the quick-jump menu clicked through to *nothing at all*. Every
-        // target is a re-root there, which is also what makes it reachable by Back.
+        // Tree has no stack, so a browse move would write state it never draws and the click would
+        // do nothing. Every target is a re-root there, which also makes it reachable by Back.
         if !drawsColumns {
-            // Split so the log stays honest about which of the two happened — `focusOn` no-ops on
-            // the folder the tree is already rooted at, and a "re-roots to" line for a click that
-            // moved nothing is exactly the silence this logging was added to end.
+            // Split so the log says which happened: `focusOn` no-ops on the folder the tree is
+            // already rooted at.
             if combined == focus {
                 Logger.shared.debug("[crumb] \(side) pane is already rooted at \(target) (tree)")
             } else {
@@ -182,41 +159,25 @@ extension FileSyncManager {
             Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(focus)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: String(combined.dropFirst(focus.count + 1))))
         } else {
-            // Above the comparison scope — genuinely a re-root, history and all.
+            // Above the comparison scope: a real re-root, history and all.
             Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(focus)")
             focusOn(relativePath: combined, isLeft: isLeft)
         }
     }
 
     /// The both-panes form of `navigatePane`: the ⌥-click, and every plain crumb click while the
-    /// seam link is on.
+    /// seam link is on. Each pane is routed through its own halves, independently, since their
+    /// scopes need not agree. `focusBoth` compares only focus paths, so with both panes scoped at
+    /// the root it would ignore a root-crumb click, and re-root (and rescan) for any other crumb.
     ///
-    /// It must route **each pane through its own halves**, which is precisely what `focusBoth` —
-    /// the call this replaced — could not do. `focusBoth` compares only the focus paths, so with
-    /// both panes scoped at their root (the normal state: you walk into folders by clicking
-    /// columns, which never re-roots) a click on the root crumb asked it to focus `""` while both
-    /// panes already *were* focused on `""`, and its guard returned. The crumb was dead: three
-    /// columns deep with the panes linked, the only way back out was `‹`, one column at a time.
-    /// Every other crumb "worked" by re-rooting both panes — a tree reload and a full rescan for a
-    /// folder the panes were already showing.
+    /// `otherIndex` prunes the sibling's new stack against the tree it has, as a mirrored column
+    /// drill does (`applyColumnNavigation`). An autoclosure, so landing both at the root never
+    /// builds the index.
     ///
-    /// Routing each side through `navigatePane` fixes both halves at once: a crumb inside a pane's
-    /// scope moves its columns, a crumb above it re-roots that pane, and the two decisions are made
-    /// independently because the panes' scopes need not agree.
-    ///
-    /// `otherIndex` prunes the sibling's new stack against the tree it actually has — the same
-    /// honesty a mirrored column drill applies (see `applyColumnNavigation`), since the two sides
-    /// are being compared precisely because they differ. It is an autoclosure so the common case
-    /// that lands both panes at their root never pays for building the index.
-    ///
-    /// **Two `drawsColumns` flags, not one.** The presentation is a per-pane setting, so a linked
-    /// click can be a browse move on one side and a re-root on the other; asking the clicked pane's
-    /// mode on the sibling's behalf would drive the sibling through a stack it does not draw.
-    ///
-    /// **`otherCombinedPath` is the sibling's own spelling of the same folder**, and defaults to
-    /// the clicked pane's. The two agree while both sources land in the same place and can be two
-    /// components apart when they do not — see `PathBoundary.reanchor`. The caller translates,
-    /// because it is the layer that knows both landing folders.
+    /// Two `drawsColumns` flags: the presentation is per pane, so one side may browse while the
+    /// other re-roots. `otherCombinedPath` is the sibling's own spelling of the same folder
+    /// (default: the clicked pane's); it can differ when the sources land in different places
+    /// (`PathBoundary.reanchor`). The caller translates.
     @MainActor public func navigateBothPanes(
         toCombinedPath combined: String,
         otherCombinedPath: String? = nil,
@@ -231,9 +192,8 @@ extension FileSyncManager {
         navigatePane(isLeft: !isLeft, toCombinedPath: otherCombinedPath ?? combined,
                      drawsColumns: otherDrawsColumns)
 
-        // Only a browse move can be pruned here. If the sibling re-rooted, its tree is being
-        // reloaded and `otherTreeRoot`/`otherIndex` describe the tree it just left — the prune that
-        // runs on the next republish is the one that applies.
+        // Only a browse move can be pruned here. If the sibling re-rooted, `otherTreeRoot` and
+        // `otherIndex` describe the tree it left; the prune on the next republish applies instead.
         guard (isLeft ? rightRelativePath : leftRelativePath) == otherFocusBefore,
               !(isLeft ? rightBrowsePath : leftBrowsePath).isEmpty else { return }
         pruneBrowsePath(isLeft: !isLeft, against: otherIndex(), treeRoot: otherTreeRoot)
@@ -249,23 +209,14 @@ extension FileSyncManager {
         }
     }
 
-    /// Applies a column drill, optionally mirroring it onto the sibling pane.
+    /// Applies a column drill, optionally mirroring it onto the sibling pane. The mirror is pruned
+    /// against the other pane's tree, not copied: a folder opened on one side may not exist on the
+    /// other, so it lands on the deepest folder both share (or the root column), never on an empty
+    /// column for a missing folder.
     ///
-    /// The mirror is *pruned* against the other pane's tree rather than copied outright. The two
-    /// sides are being compared precisely because they differ, so a folder opened on one may not
-    /// exist on the other; pruning walks that pane as deep as it genuinely can and stops. That
-    /// lands it on the deepest folder the two still share, instead of on an empty column claiming a
-    /// folder that isn't there — and a pane that shares nothing simply returns to its root column.
-    ///
-    /// `mirror` is decided by the caller because it depends on the seam link, the ⌥ key and the
-    /// layout, none of which belong down here.
-    ///
-    /// `otherIndex` is an autoclosure so an unmirrored click doesn't pay for it. Swift evaluates
-    /// arguments eagerly, so the plain parameter ran the caller's
-    /// `rightChildrenIndex(treeRoot:)` on **every** column click — and that is a cache miss, i.e. a
-    /// full walk of the other pane's ~40k-node tree, whenever that pane is in Tree mode (nothing
-    /// else warms its index there) and its tree has republished since the last click. That is
-    /// main-thread work inside the click handler, spent on a mirror the seam link had switched off.
+    /// The caller decides `mirror`: it depends on the seam link, the ⌥ key and the layout.
+    /// `otherIndex` is an autoclosure so an unmirrored click doesn't build it: a cold index is a
+    /// full walk of the other pane's tree, on the main thread inside the click handler.
     @MainActor public func applyColumnNavigation(
         _ path: PaneBrowsePath,
         isLeft: Bool,
@@ -277,10 +228,8 @@ extension FileSyncManager {
         let from = (isLeft ? leftBrowsePath : rightBrowsePath).depth
         setBrowsePath(isLeft: isLeft, path)
         guard mirror else {
-            // Columns navigation logged NOTHING until now, which is why the log covering the two
-            // 2026-07-27 layout crashes was silent for the 80 minutes leading up to one of them:
-            // walking columns writes no history entry and runs no scan, so not one line was left
-            // behind describing what the user was actually doing.
+            // Walking columns writes no history and runs no scan, so this line is the only record
+            // of what the user was doing.
             Logger.shared.debug("[columns] \(side) pane depth \(from) → \(path.depth) at \(path.relativePath.isEmpty ? "root" : path.relativePath)")
             return
         }
@@ -295,44 +244,19 @@ extension FileSyncManager {
             + "mirrored to depth \(mirrored.depth) in \(String(format: "%.1fms", elapsed))")
     }
 
-    /// The folder a pane's published tree was read at — absolute, as the walk was handed it — or
+    /// The folder a pane's published tree was read at (absolute, as the walk was handed it), or
     /// `nil` when the pane holds no walk (never loaded, or dropped by `invalidatePaneTree`).
     ///
-    /// **What tells a caller the tree on screen describes where the pane now IS.** `focusOn` moves
-    /// `leftRelativePath` at once and the walk that answers it lands later, so for that window the
-    /// published tree is still the OLD folder's — and a path can be listed in it, nested, while the
-    /// pane already claims the new one. Edit's owed selection (TE47) asks this before selecting a
-    /// row, so it never selects against a tree that is about to be replaced. Read-only: the value
-    /// is `lastLoadedFocusPath`, which `loadTree` and `invalidatePaneTree` own.
+    /// Tells a caller whether the tree on screen is for where the pane now is: `focusOn` moves
+    /// `leftRelativePath` at once, but the old folder's tree stays published until the walk lands.
+    /// Edit's owed selection checks this so it never selects in a tree about to be replaced.
+    /// Read-only; `loadTree` and `invalidatePaneTree` own the value.
     public func paneTreeFolder(isLeft: Bool) -> String? {
         isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
     }
 
-    /// Where a folder this pane lists sits below its source's root — the relative path a focus on
-    /// it takes — or nil when the pane does not hold it.
-    ///
-    /// **The id when it is spelled under the root, the tree's shape when it is not.** The walk
-    /// names most nodes by their parent's id plus their name, and three things break that, each of
-    /// which left "Compare only this folder" refusing a folder the pane was showing (measured
-    /// 2026-10-02): two levels below a folder symlink, where `contentsOfDirectory(at:)` answers
-    /// where the link leads (`R/link → T` lists `R/link/sub`, then `T/sub/deeper`); everywhere
-    /// under a root spelled through a link (a `/var/…` root lists `/private/var/…`); and iCloud
-    /// Drive's linked folders under a root above its container, listed as `~/Documents`. There the
-    /// names down the tree — each the last component of a node's id, as `FileDiffEngine.filesInfo`
-    /// keys a warm Compare — go onto the relative path of the folder the tree was walked at, and
-    /// `focusURL` joins them back to the same folder, through the link.
-    ///
-    /// **The id first**, because a folder can be in the tree twice and a node does not say which
-    /// row was clicked: Home holds `~/Dropbox` and the folder it links to, and below the link both
-    /// routes carry one id. Where the id is spelled under the root it names the real route, whose
-    /// walk keeps its ids' spelling, and it is what this answered before; the names would take
-    /// whichever route sorts first.
-    ///
-    /// **The raw tree, with `paneTreeFolder`**, because `adoptRawTree` writes the two together and
-    /// the published tree trails them by a filter pass: names read off the previous walk's rows
-    /// would go onto the new walk's folder.
     /// ``paneRelativePath(of:isLeft:root:)`` for a whole selection, walking the pane's tree once
-    /// for every node whose id is not spelled under `root` rather than once per node (B4).
+    /// for all nodes whose id is not spelled under `root`, rather than once per node.
     public func paneRelativePaths(of nodes: [FileNode], isLeft: Bool, root: String) -> [String: String] {
         var placed: [String: String] = [:]
         var unplaced: Set<String> = []
@@ -351,6 +275,19 @@ extension FileSyncManager {
         return placed
     }
 
+    /// Where a folder this pane lists sits below its source's root (the relative path a focus on
+    /// it takes), or nil when the pane doesn't hold it.
+    ///
+    /// The node's id when it is spelled under the root, the tree's shape when it isn't. Ids leave
+    /// the root below a folder symlink (`contentsOfDirectory(at:)` answers where the link leads),
+    /// under a root spelled through a link (`/var/…` lists `/private/var/…`), and in iCloud Drive's
+    /// linked folders. Then the names down the tree go onto the walked folder's relative path, and
+    /// `focusURL` joins them back through the link.
+    ///
+    /// The id comes first because a folder can appear twice (Home holds `~/Dropbox` and the folder
+    /// it links to) and the names would take whichever route sorts first. It reads the raw tree
+    /// with `paneTreeFolder`, which `adoptRawTree` writes together; the published tree trails them
+    /// by a filter pass, so its names could land on the new walk's folder.
     public func paneRelativePath(of node: FileNode, isLeft: Bool, root: String) -> String? {
         if let relative = PathBoundary.relativize(node.id, under: root, links: linkedFolders) {
             return relative
@@ -362,20 +299,13 @@ extension FileSyncManager {
         return PathBoundary.joinRelative(base, names.joined(separator: "/"))
     }
 
-    /// Drops **one** pane's tree, so it reloads while the other keeps what it is showing.
+    /// Drops one pane's tree, so it reloads while the other keeps what it shows. A comparison
+    /// belongs to the pair, but a tree is a walk of one root at one focus, so a pane that didn't
+    /// move keeps its tree rather than being rebuilt for nothing.
     ///
-    /// `invalidateComparisonState` is symmetric because a comparison is symmetric — the differences
-    /// belong to a folder *pair*. A pane's TREE does not: it is a walk of one root at one focus, and
-    /// neither of those changes for a pane that did not move. Re-pointing one pane was therefore
-    /// dropping and re-adopting the other one's tree for nothing, which on a real strip measured
-    /// 15–36ms of a tab switch spent rebuilding a pane the switch never touched.
-    ///
-    /// **Not the prefetch cache**, deliberately: it is keyed by absolute path, so its entries stay
-    /// true descriptions of folders that still exist, and every genuine staleness source — a file
-    /// operation, a forced rescan, a sort or hidden-files change — clears it on its own.
-    ///
-    /// The caller still drops the comparison (`invalidateDifferencesForPaneRetarget`): one pane
-    /// moving does change the pair.
+    /// Not the prefetch cache: it is keyed by absolute path, so its entries stay true, and every
+    /// real staleness source (a file operation, a forced rescan, a sort or hidden-files change)
+    /// clears it. The caller still drops the comparison (`invalidateDifferencesForPaneRetarget`).
     @MainActor public func invalidatePaneTree(isLeft: Bool) {
         if isLeft {
             rawLeftTree = []
@@ -383,9 +313,7 @@ extension FileSyncManager {
             leftTreeBeforeTypeFilter = []
             if leftItemCount != 0 { leftItemCount = 0 }
             lastLoadedLeftFocusPath = nil
-            // The stamp described the tree that just went; leaving it would date the EMPTY pane by
-            // a walk of somewhere else. Nil is the state a pane that has never loaded is in, which
-            // is what this pane now is.
+            // The stamp dated the tree that just went. Nil, as for a pane that never loaded.
             leftTreeReadAt = nil
             // Its links went with it: a pane holding no walk reaches nothing.
             leftTreeLinkTargets = []
@@ -403,38 +331,19 @@ extension FileSyncManager {
         publishDiskChanges()
     }
 
-    /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
-    /// folders that no longer exist.
+    /// Re-resolves a pane's column stack against a freshly published tree, dropping trailing
+    /// folders that no longer exist. Must run on every republish: otherwise a deleted folder leaves
+    /// empty columns while `currentDirectory` still names it, where New Folder and paste would act.
+    /// Assigns only on a real change, so an unaffected stack costs no publish.
     ///
-    /// Must run on every republish. The stack is folder names resolved against a tree that has just
-    /// been rebuilt, so a folder deleted here — externally, or by the user's own Delete — would
-    /// otherwise leave columns rendering nothing while `currentDirectory` still names it, which is
-    /// where New Folder and paste would then act. Assigns only on a real change so an unaffected
-    /// stack costs no publish.
-    ///
-    /// **Never against a tree that is not loaded.** An empty tree is not the answer "these folders
-    /// are gone" — it is "there is nothing to ask yet", and pruning against it can only ever return
-    /// the root. `invalidateComparisonState` drops both trees synchronously, so every caller that
-    /// re-points a pane publishes an empty tree one view update before the reload refills it; the
-    /// republish prune then fires on that empty publish and flattens a stack that was perfectly
-    /// valid. That is what made **every browse-tab switch land the pane back at its root**: the
-    /// switch restores the outgoing tab's column stack, and the prune wiped it before the tree the
-    /// stack belongs to had finished loading.
-    ///
-    /// `lastLoadedFocusPath` is the discriminator, and it is exactly the one needed: set when a
-    /// walk completes, cleared by `invalidateComparisonState`. So a tree that is genuinely empty
-    /// because its root has no children still prunes — that is a real answer — while a tree that is
-    /// empty because it was dropped does not. `pruneSelection` skips a loading pane for the same
-    /// reason, and predates this by long enough that the omission here was plainly an oversight
-    /// rather than a decision.
+    /// **Never against a tree that isn't loaded.** An empty tree means "nothing to ask yet", and
+    /// pruning against it returns the root. Re-pointing a pane publishes an empty tree before the
+    /// reload, so pruning then would send every browse-tab switch back to the root. A loaded tree
+    /// with no children still prunes; `lastLoadedFocusPath` tells the two apart.
     @MainActor public func pruneBrowsePath(isLeft: Bool, against index: PaneChildrenIndex, treeRoot: String) {
-        // **Both halves of `pruneSelection`'s guard, and the second is not optional.** Progressive
-        // loading publishes a SHALLOW tree — the root's children and nothing under them — before the
-        // deep walk finishes, and that publish sets `lastLoadedFocusPath` like any other. Guarding
-        // on the marker alone therefore still prunes, just against a tree one level deep: the stack
-        // collapses to its first component instead of to the root. That is not a smaller version of
-        // the bug, it is the same bug wearing a plausible answer, and it is what shipped when only
-        // half of this guard was copied across.
+        // Both halves of `pruneSelection`'s guard. Progressive loading publishes a shallow tree
+        // (the root's children only) that sets `lastLoadedFocusPath` too, so the marker alone
+        // would prune against it and collapse the stack to its first component.
         guard (isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath) != nil,
               !(isLeft ? isLoadingLeftTree : isLoadingRightTree) else { return }
         if isLeft {
@@ -446,17 +355,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Whether this pane's `‹` has anywhere to go — the column stack first, then the focus history.
-    ///
-    /// One button, one meaning: "undo my last navigation". A pane can be three columns deep without
-    /// having re-rooted once, so gating the arrow on the focus history alone left it dead exactly
-    /// where the Columns view leans on it hardest — in a narrow pane, where the single column
-    /// replaces its contents and `‹` is the only way back out.
-    ///
-    /// `drawsColumns` because the reverse is just as dead: a Tree pane's stack is parked, not on
-    /// screen, so counting it lit `‹` for a move that would change nothing visible — and `goBack`
-    /// then spent the click unwinding an invisible column instead of the history. Three columns
-    /// deep before flipping to Tree, that was three dead clicks before Back appeared to work.
+    /// Whether this pane's `‹` has anywhere to go: the column stack first, then the focus history.
+    /// One meaning, "undo my last navigation": a pane can be columns deep without ever re-rooting,
+    /// and in a narrow pane `‹` is the only way out. The stack counts only when `drawsColumns`,
+    /// since a Tree pane's stack is parked off screen and stepping out of it would change nothing.
     public func canGoBack(isLeft: Bool, drawsColumns: Bool) -> Bool {
         let browse = isLeft ? leftBrowsePath : rightBrowsePath
         return (drawsColumns && !browse.isEmpty) || (isLeft ? leftHistory : rightHistory).canGoBack
@@ -472,16 +374,10 @@ extension FileSyncManager {
     /// Navigates one pane back: out of a column if it is inside one, otherwise to the previous
     /// entry in its own focus history.
     @MainActor public func goBack(isLeft: Bool, drawsColumns: Bool) {
-        // Columns first. Browsing costs no history entry (it never re-roots), so if the pane is
-        // inside a column stack that is unambiguously the most recent navigation to undo.
-        //
-        // Deliberately returns WITHOUT `clearSessionIgnoredPaths()`: that clear belongs to a change
-        // of comparison scope, and stepping out of a column changes only where you are looking. An
-        // item ignored for this session stays ignored while you walk around.
-        //
-        // Skipped whole in Tree: unwinding a stack the pane does not draw is a click that changes
-        // nothing on screen, and it does not even leave the stack alone — it consumes the columns
-        // waiting to be flipped back to. See `canGoBack`.
+        // Columns first: browsing adds no history entry, so a column is the latest navigation.
+        // Returns without `clearSessionIgnoredPaths()`, which belongs to a change of comparison
+        // scope; stepping out of a column only changes where you look. Skipped in Tree, where it
+        // would change nothing on screen and use up the columns kept for switching back.
         if drawsColumns, isLeft ? leftBrowsePath.popLast() : rightBrowsePath.popLast() {
             let browse = isLeft ? leftBrowsePath : rightBrowsePath
             Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane out to column depth \(browse.depth)")
@@ -504,8 +400,7 @@ extension FileSyncManager {
     /// Navigates one pane forward: back into a column `‹` stepped out of, otherwise to the next
     /// entry in its own focus history. The inverse of `goBack(isLeft:)`, in the same order.
     @MainActor public func goForward(isLeft: Bool, drawsColumns: Bool) {
-        // The mirror of `goBack`'s skip, and for the same reason: `›` must not spend a click
-        // re-entering a column a Tree pane cannot show.
+        // As in `goBack`: `›` must not spend a click re-entering a column a Tree pane can't show.
         if drawsColumns, isLeft ? leftBrowsePath.advance() : rightBrowsePath.advance() {
             let browse = isLeft ? leftBrowsePath : rightBrowsePath
             Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane into column depth \(browse.depth)")
@@ -525,74 +420,37 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
-    /// Re-points **one** pane at a new source: re-homes it on that source's opening folder, drops
-    /// the state that was only meaningful where it was, and drops the comparison the pair used to
-    /// have. Called when a pane's provider changes.
+    /// Re-points one pane at a new source: re-homes it on that source's opening folder, drops the
+    /// state that only meant something where it was, and drops the pair's comparison. Called when
+    /// a pane's provider changes.
     ///
-    /// The comparison has to go: differences scanned against the old roots carry absolute paths and
-    /// copy directions that no longer match what the panes claim to show, so leaving them clickable
-    /// until the rescan lands (seconds on network volumes) misdirects sync arrows and context-menu
-    /// copy/move targets. That part is symmetric — a comparison belongs to the pair.
-    ///
-    /// **Everything else is not, and the whole point of this method is that it stops pretending
-    /// otherwise.** This used to be `resetNavigation(leftLanding:rightLanding:)`, which took both
-    /// panes' landings and then reset *both* panes regardless: it emptied both trees, cleared both
-    /// selections, rewrote both histories, and flattened both column stacks. So picking a different
-    /// source on the RIGHT pane threw away the LEFT pane's open columns, its selection and its Back
-    /// stack, and put a spinner over it while it re-walked a root that had not moved — a pane the
-    /// user had not touched, re-rooted by a menu on the other side of the window. The caller could
-    /// hand the untouched side its own current path, and did, but that only preserved the *folder*;
-    /// nothing preserved what was open inside it.
-    ///
-    /// A tree is per-pane and a column stack is per-pane, so a switch on one side leaves the
-    /// other's correct — the same reasoning `applyTab` already applies to a browse-tab switch, and
-    /// this is now the second caller of that rule rather than its counter-example. The untouched
-    /// pane keeps its tree, so the reload is scoped to the pane that moved (`PaneReloadScope`); the
-    /// scan still runs and still compares both, with the untouched pane contributing the tree it
-    /// already holds.
+    /// The comparison must go: its absolute paths and copy directions no longer match the panes,
+    /// and left clickable until the rescan lands they would misdirect sync arrows and copy/move
+    /// targets. Everything else is per pane, as in `applyTab`: the other pane keeps its tree,
+    /// columns, selection and history, and the reload is scoped to the moved pane
+    /// (`PaneReloadScope`). The scan still compares both.
     ///
     /// - Parameters:
     ///   - isLeft: the pane whose source changed. The only pane this touches.
-    ///   - landing: where it should open, relative to its NEW root. `""` is the root.
+    ///   - landing: where it should open, relative to its new root. `""` is the root.
     ///
-    /// `landing` is required, with no default. `""` used to be the only possible answer, so a
-    /// default of `""` was free; now it names the account folder *above* a source's documents tree,
-    /// and a caller that omits it is asking for somewhere quite different from what it would have
-    /// got. It is passed in rather than looked up because this type has no `SettingsManager`: the
-    /// manager owns the sources, this owns the panes, and the direction of that dependency is what
-    /// keeps the navigation layer testable without a provider list.
+    /// `landing` has no default: `""` can name the account folder above a source's documents tree,
+    /// so omitting it would mean somewhere else. Passed in because this type has no
+    /// `SettingsManager`, which keeps navigation testable without a provider list.
     @MainActor public func retargetPane(isLeft: Bool, landing: String) {
         let side = isLeft ? "left" : "right"
         let other = isLeft ? "right" : "left"
         let history = isLeft ? leftHistory : rightHistory
-        // Two different questions, and conflating them is what made the first attempt at an honest
-        // line dishonest anyway.
-        //
-        // **What the LOG says** is about the folder: did this pane end up somewhere other than
-        // where it was? A switch onto a source that opens where the pane already was moves nothing,
-        // and the line must not claim a re-homing. Comparing whole HISTORIES answers a different
-        // question: a pane sitting on the right folder with two entries behind it differs from a
-        // fresh one-entry history, so every pane the user had navigated at all reported as
-        // re-homed. That is the common case, which left the line saying what it said before.
-        //
-        // **What the WRITE is guarded on** is the history, because the write replaces the history:
-        // skipping it when the position matches would leave a Back stack pointing into the tree the
-        // pane is being taken off.
+        // Two questions. The log asks about the folder: did the pane end up somewhere new? A
+        // history with entries behind it differs from a fresh one even at the same folder. The
+        // write asks about the history, which it replaces: skipping it when only the folder
+        // matches would leave Back pointing into the tree the pane is leaving.
         let moves = history.current != landing
         let rewrites = history != PaneNavigationHistory(startingAt: landing)
         let place = landing.isEmpty ? "the source root" : landing
-        // The sibling is named because "untouched" is now a claim about more than the folder — that
-        // pane keeps its tree, its columns, its selection and its history — and the log is the only
-        // place that says so to someone reading back a session.
-        //
-        // **Phrased as what THIS CALL did, not as the state the window ends in.** Two of these can
-        // land in one gesture: `undoProviderPin` releases a duplicate review's pin from the sibling
-        // and retargets it, and then the handler that dispatched the review retargets the pane the
-        // user actually switched. An earlier wording ("the right pane is untouched") then produced
-        // two consecutive lines each declaring the other pane untouched, for a gesture that moved
-        // both — a log that contradicts itself, about the one fact these lines exist to report.
-        // Two "this touched only the left/right pane" lines read as what they are: two pane
-        // re-points, one per call.
+        // Names what the sibling keeps, phrased as what this call did, not the window's end state:
+        // one gesture can retarget both panes (`undoProviderPin` retargets the sibling first), and
+        // two lines each calling the other pane untouched would contradict each other.
         let onlyThisPane = "This touched only the \(side) pane — the \(other) pane's tree, "
                          + "columns, selection and history are as they were."
         if moves {
@@ -601,43 +459,33 @@ extension FileSyncManager {
             Logger.shared.info("The \(side) pane did not move: it is already at \(place). "
                                + onlyThisPane)
         }
-        // **The pane's half.** Only the moved pane's tree: the sibling's is a walk of a root and a
-        // focus this switch did not touch, so it is still exactly right.
+        // The pane's half: only the moved pane's tree. The sibling's root and focus didn't change.
         invalidatePaneTree(isLeft: isLeft)
-        // The prefetch cache goes, but for the sibling's walk. Keyed by absolute path, so its
-        // entries stay true — but they are whole walked trees (this app's iCloud root measures
-        // 39,399 nodes) and the source just left is the one that will not be asked for again.
-        // Dropped for memory, exactly as `applyTab` drops it when a tab changes source. The
-        // sibling's entry is normally the very array that pane is showing, so keeping it costs
-        // nothing, and the Compare after this switch reads cached trees only when both sides hit.
+        // The prefetch cache goes, except the sibling's walk. Its entries stay true, but they are
+        // whole walked trees (tens of thousands of nodes) for a source not asked for again, so
+        // they go for memory, as in `applyTab`. The sibling's entry is the array it shows anyway.
         dropPrefetchedTrees(keeping: isLeft ? lastLoadedRightFocusPath : lastLoadedLeftFocusPath)
-        // **The pair's half.** The differences and the verification results were computed for a
-        // comparison that no longer exists, and every row of them carries absolute paths under a
-        // root one pane no longer shows — actionable and misdirected until the rescan lands.
+        // The pair's half: differences and verification results carry absolute paths under a
+        // root one pane no longer shows, and would misdirect actions until the rescan lands.
         invalidateDifferencesForPaneRetarget()
         clearSessionIgnoredPaths()
-        // One pane holds a selection at a time, so clearing the moved pane's keeps that invariant
-        // true without going near the sibling's — which points at files under a root that has not
-        // moved and is still exactly what the user selected.
+        // Only the moved pane's selection: the sibling's still points at files the user selected
+        // under a root that didn't move.
         if isLeft {
             if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         } else {
             if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
         }
-        // Compared against a history that is ALREADY at the landing, not against a root-only one:
-        // the guard exists to skip a no-op write, and with a landing folder the no-op state is a
-        // single entry naming that folder. A pane already AT its landing with history behind it
-        // still rewrites — the tree it could go Back into is the one being replaced.
+        // Skips only a no-op write: a single entry already naming the landing. A pane at its
+        // landing with history behind it still rewrites, since Back would lead into the old tree.
         if rewrites {
             if isLeft { leftHistory.reset(to: landing) } else { rightHistory.reset(to: landing) }
         }
-        // This pane's tree is about to be replaced by one from a different root; a column stack
-        // naming folders in the old one is meaningless, not merely stale. The sibling's names
-        // folders in a tree that is still on screen, so it stays.
+        // A column stack naming folders under the old root is meaningless now. The sibling's
+        // still names folders on screen, so it stays.
         resetBrowsePath(isLeft: isLeft)
-        // Forced rather than inferred: the pane that moved is the pane to walk even when its
-        // landing happens to be the folder it was already on, because its ROOT changed under it.
-        // See `syncPathsFromHistory`.
+        // Forced, not inferred: walk the moved pane even when its landing is the folder it was
+        // on, because its root changed. See `syncPathsFromHistory`.
         syncPathsFromHistory(forcing: .movedPane(isLeft: isLeft))
     }
 
@@ -650,20 +498,14 @@ extension FileSyncManager {
     /// (with `hasScanned` false and `differences` empty the UI shows "No Scan Performed",
     /// never a false "Everything is in sync").
     ///
-    /// - Parameter reloading: whose trees to drop. **The differences always go — a comparison
-    ///   belongs to the pair — but a tree belongs to one pane**, and dropping the sibling's puts a
-    ///   spinner over a pane whose root did not move and flattens the column stack standing in it
-    ///   (see `pruneBrowsePath`, which cannot tell a dropped tree from an empty folder until the
-    ///   reload lands). `.both` is the honest answer only when both roots moved. **Pass the same
-    ///   scope to the rescan that follows**: a pane whose tree was dropped here and not walked
-    ///   there stays blank, which is the failure this parameter has to be spent carefully to avoid.
+    /// - Parameter reloading: whose trees to drop. The differences always go, but a tree belongs
+    ///   to one pane: dropping a sibling's puts a spinner over a pane whose root didn't move and
+    ///   flattens its column stack. `.both` only when both roots moved. **Pass the same scope to
+    ///   the rescan that follows**, or a pane whose tree was dropped here stays blank.
     @MainActor public func invalidateComparisonState(reloading scope: PaneReloadScope = .both) {
-        // Drop the prefetch cache (it is keyed by absolute path): after a provider/root change the
-        // old root's fully-walked tree is dead weight — this app's iCloud root measures 39,399
-        // nodes — and the rescan repopulates what is still wanted. **All but the walk of a pane this
-        // does not reload**, for `retargetPane`'s reason: its root did not move, it is the array that
-        // pane shows, and the rescan after a one-pane reload compares from cached trees only when
-        // both sides hit — dropped, it walked both folders from disk.
+        // Drop the prefetch cache: the old root's walked tree is dead weight (tens of thousands
+        // of nodes). Keep the walk of a pane this doesn't reload, as in `retargetPane`: the rescan
+        // reads cached trees only when both sides hit, and would otherwise walk both from disk.
         switch scope {
         case .both: dropPrefetchedTrees()
         case .leftOnly: dropPrefetchedTrees(keeping: lastLoadedRightFocusPath)
@@ -672,27 +514,22 @@ extension FileSyncManager {
         if scope != .rightOnly { invalidatePaneTree(isLeft: true) }
         if scope != .leftOnly { invalidatePaneTree(isLeft: false) }
 
-        // The differences half (plus the in-flight supersedence and the fresh filter pass) is
-        // shared with the retarget-only invalidation below; everything runs in this one
-        // synchronous main-actor block, so no observer can see a half-cleared intermediate.
+        // The differences half, shared with the retarget-only invalidation. All in one synchronous
+        // main-actor block, so no observer sees a half-cleared state.
         invalidateDifferencesForPaneRetarget()
     }
 
-    /// The differences-only subset of `invalidateComparisonState`: drops the published diff
-    /// results — differences (raw and published), checksum-verification results, the pending
-    /// copy-identical offer, and the scan-freshness fields — and supersedes in-flight loads,
-    /// scans, and filter passes, WITHOUT touching the pane trees, navigation, selections, or
-    /// any lens state (`duplicateGroups` et al. survive untouched).
+    /// The differences-only subset of `invalidateComparisonState`: drops the diff results
+    /// (differences, verification results, the copy-identical offer, scan-freshness fields) and
+    /// supersedes in-flight loads, scans and filter passes, without touching pane trees,
+    /// navigation, selections or lens state such as `duplicateGroups`.
     ///
-    /// For the suppressed provider-change paths (the Duplicates lens's "Compare copies" hand-off and its
-    /// restore): those repoint both panes while deliberately suppressing the provider-id
-    /// onChange — the full reset there would wipe the duplicate results the user must be
-    /// able to return to (see `pendingSwapProviderChanges`) — but skipping ALL invalidation
-    /// left the OLD comparison's differences published and actionable during the re-scan
-    /// window (`isScanning` false while trees load), where a row click ran syncFile on
-    /// absolute paths from roots the panes no longer show. Call this synchronously before the
-    /// re-focus + refresh; the rescan repopulates (with `hasScanned` false and `differences`
-    /// empty the UI shows "No Scan Performed", never a false "Everything is in sync").
+    /// For the provider changes that suppress the full reset (the Duplicates lens's "Compare
+    /// copies" hand-off and its restore, `pendingSwapProviderChanges`), which must keep the
+    /// duplicate results. Without it the old differences stay actionable while trees load, and a
+    /// row click would sync absolute paths from roots the panes no longer show. Call it
+    /// synchronously before the re-focus and refresh; until the rescan the UI shows "No Scan
+    /// Performed", never a false "Everything is in sync".
     @MainActor public func invalidateDifferencesForPaneRetarget() {
         supersedeInFlightPaneWork()
         rawDifferences = []
@@ -704,14 +541,12 @@ extension FileSyncManager {
         lastScanRootNames = nil
         lastScanReadAt = nil
         lastScanDate = nil
-        // The coverage claim belongs to the rows above it — see `lastScanCoverage`. Left standing
-        // it would warn about a comparison that has just been dropped.
+        // The coverage claim belongs to the dropped rows (`lastScanCoverage`).
         if !lastScanCoverage.isComplete { lastScanCoverage = .complete }
         if hasScanned { hasScanned = false }
 
-        // A filter pass that snapshotted state before this clear may still publish after it.
-        // Start a fresh pass over the cleared raws: its newer generation supersedes the stale
-        // one, so any resurrection is corrected within one (in-memory, ms-scale) pass.
+        // A filter pass that snapshotted state before this clear may still publish after it. A
+        // fresh pass over the cleared raws supersedes it by generation within one in-memory pass.
         Task { await self.applyFilters() }
     }
 
@@ -726,39 +561,30 @@ extension FileSyncManager {
         rawTreeGeneration += 1
         scanRequestGeneration += 1
         pendingScanRequest = nil
-        // The next refresh must supersede any in-flight one, never dedupe against it: that
-        // refresh's loads were just cancelled and its scan publish gated off, so treating a
-        // same-target follow-up as a duplicate would leave the cleared panes blank.
+        // The next refresh must supersede the in-flight one, never dedupe against it: that one's
+        // loads were just cancelled, so a dedupe would leave the cleared panes blank.
         noteScanConfigChanged()
     }
 
-    /// Swaps the left and right panes wholesale: focused relative paths, selections, each
-    /// pane's navigation history, both trees (raw and published) with their counts and
-    /// loading/focus bookkeeping, and every difference — remapped via `FileDifference.mirrored()`
-    /// so paths, sizes, direction arrows, and actions all flip with the pane labels. Everything
-    /// moves in one synchronous update, so observers never see a half-swapped intermediate
-    /// (e.g. flipped column labels over rows whose arrows still point the pre-swap way).
+    /// Swaps the left and right panes wholesale: paths, selections, histories, both trees with
+    /// their bookkeeping, and every difference, remapped via `FileDifference.mirrored()` so paths,
+    /// sizes, arrows and actions flip with the labels. One synchronous update, so no observer sees
+    /// a half-swapped state.
     ///
-    /// Refused (returns `false`, with a warning banner) while any file operation or sync is in
-    /// flight: those operations captured pre-swap paths and directions, and remapping the rows
-    /// under them would show arrows that no longer match what the running operation does.
-    /// Also refused during Verify All: a run completing after the swap would publish a
-    /// `verifiedIdenticalForCopy` offer built from pre-swap differences, and the follow-up
-    /// copy would run in the pre-swap direction under mismatched labels.
+    /// Refused (returns `false`, with a banner) while a file operation or sync is in flight: it
+    /// captured pre-swap paths and directions, and the remapped arrows would no longer match it.
+    /// Also during Verify All, whose `verifiedIdenticalForCopy` offer would copy the pre-swap way.
     ///
-    /// The provider ids live in @AppStorage (ContentView) and are swapped there in lockstep;
-    /// this method owns only the manager's paired @Published state. It does not itself trigger
-    /// a rescan — the caller drives the single post-swap refresh once the provider ids are
-    /// swapped too.
+    /// The provider ids live in @AppStorage (ContentView) and are swapped there in lockstep; this
+    /// owns only the manager's paired state. The caller drives the one refresh after both swaps.
     @MainActor @discardableResult public func swapPanes() -> Bool {
         guard activeFileOperationsCount == 0,
               !isBulkSyncRunning,
               bulkSyncProgress == nil,
               !isVerifyAllRunning,
               syncingDifferenceIds.isEmpty else {
-            // `isBulkSyncRunning` is set at the very start of syncAll — before markSyncing and
-            // bulkSyncProgress — so it's the only flag up during the confirm-prompt window, where
-            // a swap would mirror the rows out from under a snapshot the running sync still holds.
+            // `isBulkSyncRunning` is the only flag up during syncAll's confirm prompt, when a swap
+            // would mirror rows under a snapshot the sync still holds.
             Logger.shared.warning("Ignored pane swap while file operations are in flight")
             banner = .warning("Can’t swap panes while an operation is running")
             return false
@@ -773,30 +599,20 @@ extension FileSyncManager {
         let typeFilterKeeps = (left: leftTypeFilterKeep, right: rightTypeFilterKeep)
         swap(&leftRelativePath, &rightRelativePath)
         swap(&selectedLeftPaths, &selectedRightPaths)
-        // Travels with the selection: the pane the user was working in is now the other one, and
-        // a focused side left behind aims ⌘F, ⌘[ and ⇧⌘N at the pane their content just left.
-        // `nil` stays nil — with focus still implicit the fallback reads the selection, which the
-        // line above has already moved, and `noteFocusedPane` writes nothing for a value that did
-        // not change, so an implicit focus also leaves no line claiming the chords moved.
+        // Focus travels with the selection, or ⌘F, ⌘[ and ⇧⌘N would aim at the pane their content
+        // left. `nil` stays nil: implicit focus reads the selection, which has already moved.
         noteFocusedPane(focusedPaneSide?.opposite, because: "the panes were swapped")
 
         swap(&leftHistory, &rightHistory)
-        // Travels with the tree it indexes, like the history beside it: after a swap the left pane
-        // shows what the right one did, so it must be looking at the same folder within it.
+        // The column stack travels with the tree it indexes, like the history.
         swap(&leftBrowsePath, &rightBrowsePath)
-        // **The two LISTS swap, not the two active tabs.** ⇄ already moves each pane's location
-        // wholesale to the other side, and a tab list is a list of locations for one pane — so
-        // moving the pane without its parked tabs would leave a strip whose other tabs belong to
-        // the folder tree that just left. The active entries stay correct by construction: each is
-        // a snapshot of the pane it travelled with.
+        // The two tab lists swap, not the active tabs: a list is one pane's locations, and the
+        // pane's location just moved sides. Each active entry is a snapshot of its pane.
         swap(&leftPaneTabs, &rightPaneTabs)
 
-        // **In-flight column listings are dropped, not mirrored.** Each carries the side it was
-        // asked for, and after this line that side names the other pane's tree — so the answer is
-        // about a folder that has moved. Bumping the generation makes every listing already in
-        // flight drop its result rather than graft it into the wrong pane, and clearing the set
-        // stops the column captions claiming the wrong pane is being read. The column re-asks on
-        // its own; that is the same self-healing path a re-root already relies on.
+        // In-flight column listings are dropped, not mirrored: each names the side it was asked
+        // for, which now holds the other tree. The generation bump makes them discard their result
+        // rather than graft it into the wrong pane, and the column re-asks on its own.
         paneOrientationGeneration += 1
         columnGraftsInFlight.removeAll()
         columnGraftsUnreadable.removeAll()
@@ -804,12 +620,9 @@ extension FileSyncManager {
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
         swap(&leftItemCount, &rightItemCount)
-        // **And each pane's type filter, with what it keeps and what it learned** (RD70). The filter
-        // belongs to the pane's tree like everything above: left behind, the pass below ran each
-        // tree through the other pane's filter, so a row selected on one side could land hidden on
-        // the other — still selected, and in reach of ⌘⌫ — and the next tab switch parked the
-        // wrong pane's filter in the strip. The filters' own didSets empty the keep-sets, so those
-        // are written back after.
+        // Each pane's type filter travels with its tree, or each tree would pass through the other
+        // pane's filter, and a selected row could land hidden yet still in reach of ⌘⌫. The
+        // filters' didSets empty the keep-sets, so those are written back after.
         swap(&leftTypeFilter, &rightTypeFilter)
         leftTypeFilterKeep = typeFilterKeeps.right
         rightTypeFilterKeep = typeFilterKeeps.left
@@ -817,7 +630,7 @@ extension FileSyncManager {
         swap(&leftTypeFilterFacts, &rightTypeFilterFacts)
         swap(&leftTreeBeforeTypeFilter, &rightTreeBeforeTypeFilter)
         swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
-        // The walk's provenance travels with the walk: "which pane holds this file" must name the
+        // The walk's provenance travels with the walk, so "which pane holds this file" names the
         // pane the tree is on now.
         swap(&leftTreeLinkTargets, &rightTreeLinkTargets)
         swap(&isLoadingLeftTree, &isLoadingRightTree)
@@ -826,73 +639,56 @@ extension FileSyncManager {
         owedPaneChanges = (owedPaneChanges.right, owedPaneChanges.left)
         publishDiskChanges()
 
-        // Remap rather than clear: the scan results stay valid after a swap (same folders,
-        // same files), only their side labels flip — and remapping keeps the list actionable
-        // instead of flashing empty until the rescan lands (seconds on network volumes).
+        // Remap rather than clear: the results stay valid (same folders and files), only their
+        // side labels flip, and the list stays actionable instead of empty until the rescan.
         rawDifferences = rawDifferences.map { $0.mirrored() }
         differences = differences.map { $0.mirrored() }
-        // verifiedSameDifferenceIds survives deliberately: mirrored() preserves ids and
-        // checksum equality is symmetric. The pending copy-identical offer does not — its
-        // captured differences and left→right wording are pre-swap.
+        // verifiedSameDifferenceIds survives: mirrored() keeps ids and checksum equality is
+        // symmetric. The copy-identical offer doesn't: its differences and wording are pre-swap.
         verifiedIdenticalForCopy = nil
         // The Drive date-noise filter is right-pane-specific; the provider just changed sides,
         // and the post-swap rescan re-learns the new right pane's type.
         lastRightProviderType = nil
-        // The name-check provider pair stays valid across a swap — same two roots — but its
-        // side labels flip with everything else. Same for the Path column's root names.
+        // The name-check provider pair and the Path column's root names stay valid (same two
+        // roots), but their sides flip.
         lastScanProviders = lastScanProviders.map { ($0.right, $0.left) }
         lastScanRootNames = lastScanRootNames.map { ($0.right, $0.left) }
-        // **And the coverage claim, which is side-labelled too.** It is a pair of booleans read
-        // beside `lastScanProviders` to name the source that came back partial, so leaving it
-        // un-mirrored while that pair flips does not merely stale the banner — it makes the banner
-        // name the side that WAS read in full and say nothing about the one that was not. Wrong is
-        // worse than absent here: the whole point of the sentence is that the count is a floor.
+        // The coverage claim is side-labelled too, read beside `lastScanProviders` to name the
+        // source that came back partial. Unmirrored, the banner would name the wrong side.
         lastScanCoverage = PartialComparison(left: lastScanCoverage.right,
                                              right: lastScanCoverage.left)
 
-        // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
-        // pre-swap snapshot may publish after this method; a fresh pass over the swapped
-        // raws supersedes it within one in-memory recompute. A row that pass hides leaves the
-        // selection, as after any filter change (TE276).
+        // As in invalidateComparisonState, a fresh pass supersedes any holding a pre-swap
+        // snapshot. A row it hides leaves the selection, as after any filter change.
         Task { await self.applyFilters(); self.scheduleSelectionPrune() }
         return true
     }
 
     // MARK: - Which pane the user is working in
 
-    /// **The one writer of `focusedPaneSide`, and the only place a move of it is said out loud.**
-    ///
-    /// That value answers "which pane am I working in", and every pane-scoped chord reads it: ⌘F,
-    /// ⌘[, ⌘], ⇧⌘N, ⇧⌘P, ⌘T — and ⌘W, which is the one with teeth. `closeTab`'s last-tab branch
-    /// closes the WINDOW, so a focused side pointing at the pane the user is not looking at turns
-    /// ⌘W from "close this tab" into "close everything", and the log that a report is answered from
-    /// said nothing at all about which pane the chords were aimed at.
-    ///
-    /// Five callers wrote the property bare — a strip verb, a row selection, ⌃⇥, a pin, a reorder
-    /// — and none of them logged. One door, so the line cannot be forgotten by the sixth.
+    /// The one writer of `focusedPaneSide`, and the one place its moves are logged. Every
+    /// pane-scoped chord reads it (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P, ⌘T, ⌘W). ⌘W matters most: on the last tab
+    /// `closeTab` closes the window, so a wrong side turns "close this tab" into "close
+    /// everything", and the log must say where the chords were aimed. Never write it bare.
     ///
     /// - Parameter reason: what moved it, in the log's voice ("⌃⇥", "a row was picked in the left
-    ///   pane"). The side alone does not answer "why did ⌘W close my window" — the cause does.
+    ///   pane"). The cause, not just the side, answers "why did ⌘W close my window".
     @MainActor public func noteFocusedPane(_ side: PaneTree.Side?, because reason: String) {
-        // **Nothing is said about a no-op**, which is not tidiness: the commonest way to reach this
-        // is clicking a row in the pane you are already working in, and a line per click would bury
-        // the moves that actually explain a chord landing somewhere surprising. `selectTab` carries
-        // the same rule for the same reason (clicking the chip you are already on).
+        // No line for a no-op: most calls are clicks in the pane already focused, and a line per
+        // click would bury the moves that matter. `selectTab` follows the same rule.
         guard focusedPaneSide != side else { return }
         let was = focusedPaneSide
         focusedPaneSide = side
-        // Debug, matching the strip's own selecting/cycling lines: a pane click moves this, so at
-        // info a few minutes' ordinary use would bury everything worth reading. `minimumLevel`
-        // defaults to debug, so it still reaches `~/sync-cloud.log`.
+        // Debug, like the strip's own lines: a pane click moves this, so info would flood the log.
+        // `minimumLevel` defaults to debug, so it still reaches `~/sync-cloud.log`.
         Logger.shared.debug(
             "The pane-scoped chords (⌘W, ⌘T, ⌘F) now aim at \(Self.paneName(side)) rather than "
             + "\(Self.paneName(was)): \(reason)")
     }
 
-    /// The `isLeft` spelling every host call site uses. **The polarity lives here**, on a type a
-    /// test can instantiate, rather than in a `ContentView` extension where nothing could reach it:
-    /// flipping the ternary in the host aimed every tab verb at the opposite pane and left the whole
-    /// app suite green.
+    /// The `isLeft` spelling every host call site uses. The polarity lives here, where a test can
+    /// reach it; in `ContentView`, a flipped ternary would aim every tab verb at the wrong pane
+    /// with no test failing.
     @MainActor public func noteFocusedPane(isLeft: Bool, because reason: String) {
         noteFocusedPane(isLeft ? .left : .right, because: reason)
     }
@@ -905,39 +701,18 @@ extension FileSyncManager {
         }
     }
 
-    /// Publishes each pane's current history entry into its relative path and triggers a refresh —
-    /// **of the pane that moved, and only that one.**
+    /// Publishes each pane's current history entry into its relative path and refreshes only the
+    /// pane that moved. Walking the other pane re-reads a root nothing changed: a visible reload
+    /// when warm, and a full walk of tens of thousands of nodes when the cache is cold.
     ///
-    /// The two comparisons were already here, deciding whether to write each pane's path; they are
-    /// also the answer to which panes the refresh has to walk, and for a long time nothing asked
-    /// them for it. Navigating the left pane sent a scopeless refresh, the host turned that into
-    /// `.both`, and the right pane's root was re-walked on a source and a focus this navigation had
-    /// not touched. Warm that is a cache hit the user still sees as the other pane reloading; cold —
-    /// after any file operation, sort change or force refresh, all of which drop the prefetch cache
-    /// — it is a full walk of a second root, tens of thousands of nodes for nothing.
+    /// Neither moving sends `.both`: the caller wants a refresh for a reason this can't see, and
+    /// `.both` is what that has always meant. A narrow scope can't strand a pane by timing:
+    /// `refreshTreesAndScan` widens it when a wider refresh is in flight, and the scan still
+    /// compares both, the unmoved pane using the tree it holds.
     ///
-    /// **Neither moving is `.both`, deliberately.** This is reached with both paths already current,
-    /// and the caller is then asking for a refresh for some reason this function cannot see.
-    /// Answering "walk nothing" would be inferring intent from an absence; `.both` is what that
-    /// request has always meant. A caller that does know better says so through `forcing`.
-    ///
-    /// A narrow scope cannot strand a pane by *timing*: `refreshTreesAndScan` widens a one-pane
-    /// request to `.both` when a wider refresh is already in flight, and the scan afterwards still
-    /// compares both sides — the pane that did not move contributes the tree it already holds.
-    ///
-    /// - Parameter forcing: the scope to send regardless of what moved, for a caller that knows
-    ///   something this function cannot see from the paths.
-    ///
-    ///   `retargetPane` is the only one, and what it knows is that the pane it re-pointed has to be
-    ///   walked *even when its landing is the folder it was already on* — because its ROOT changed
-    ///   underneath it, which the history cannot show. Inferred instead, that switch comes out as
-    ///   "nothing moved" → `.both`, and the untouched pane is re-walked for nothing.
-    ///
-    ///   This parameter replaced an `afterInvalidation: Bool` that forced `.both`, and the reason
-    ///   it could is the reason this whole change exists: back then a provider switch emptied BOTH
-    ///   pane trees, so `.both` was not a preference but a repair — "the tree it already holds" was
-    ///   the empty one, and a narrow scope left the untouched pane blank. `retargetPane` drops one
-    ///   pane's tree, so the sibling has a real tree to contribute and the narrow scope is honest.
+    /// - Parameter forcing: the scope to send regardless of what moved. Only `retargetPane` uses
+    ///   it, because the pane it re-pointed must be walked even at the same folder: its root
+    ///   changed, which the history can't show.
     func syncPathsFromHistory(forcing: PaneReloadScope? = nil) {
         let leftMoved = leftRelativePath != leftHistory.current
         let rightMoved = rightRelativePath != rightHistory.current

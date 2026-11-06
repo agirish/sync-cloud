@@ -2,20 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins `PathBoundary` — the module's one boundary-safe path arithmetic, which every hand-rolled
-/// copy was consolidated onto.
-///
-/// `relativize` came first: the boundary-collision cases pin the round-3 bug class (a bare
-/// `hasPrefix(root)` strip claiming a sibling that merely shares a string prefix); the exact-match,
-/// trailing-slash, and root-"/" cases pin the normalization every converted call site inherits.
-///
-/// **The rest of the type was reached only transitively, and that was the gap.** `join`,
-/// `joinRelative`, `normalizedRoot`, `reanchor` and `namesSameDirectory` were exercised solely
-/// through `RootsMigration.rebased` and `CloudProvider.landingPath`, so each was pinned at whatever
-/// inputs those two happen to produce — and three of them arrived with the root/landing split
-/// carrying rules that are load-bearing and silent when wrong: a leading slash falling back to the
-/// bare root, a tilde expanded on one side only, and a linked-navigation translation that must pass
-/// a path through UNCHANGED rather than guess when it cannot express it.
+/// Pins `PathBoundary`, the module's one boundary-safe path arithmetic. `relativize` must never
+/// claim a sibling that only shares a string prefix, and must normalize exact matches, trailing
+/// slashes and root "/" the same for every caller. The other members are tested directly here
+/// because their rules are silent when wrong: a leading slash falls back to the bare root, a tilde
+/// expands on one side only, and `reanchor` passes through what it can't express rather than guess.
 struct PathBoundaryTests {
 
     // MARK: Containment and stripping
@@ -37,7 +28,7 @@ struct PathBoundaryTests {
     // MARK: Boundary collision (the round-3 bug class)
 
     @Test func siblingSharingAStringPrefixIsOutside() {
-        // "/root/abc" merely string-starts-with "/root/ab" — it is NOT inside it.
+        // "/root/abc" only string-starts-with "/root/ab"; it is not inside it.
         #expect(PathBoundary.relativize("/root/abc", under: "/root/ab") == nil)
         #expect(PathBoundary.relativize("/root/abc/x", under: "/root/ab") == nil)
         #expect(PathBoundary.relativize("/Users/x/DocsArchive/Foo", under: "/Users/x/Docs") == nil)
@@ -54,9 +45,8 @@ struct PathBoundaryTests {
     }
 
     @Test func trailingSlashOnThePathIsNotNormalized() {
-        // Pure string math: "/root/a/" is the child "" — one exact-string layer past the root —
-        // not the root itself. (No call site produces trailing-slash paths; pinned so a future
-        // caller knows relativize does not canonicalize its first argument.)
+        // Pure string math: relativize doesn't canonicalize its first argument. No call site
+        // passes a trailing-slash path; this records the behaviour for one that might.
         #expect(PathBoundary.relativize("/root/a/", under: "/root/a") == "")
         #expect(PathBoundary.relativize("/root/a/", under: "/root/a/") == "")
     }
@@ -71,13 +61,10 @@ struct PathBoundaryTests {
 
     // MARK: Empty root
 
-    /// An empty root is the ABSENCE of a root, not the volume root. Before the guard, `""`
-    /// normalized to the same empty base that root "/" produces, so it prefix-matched every
-    /// absolute path: `contains` answered true for everything and `relativize` handed back a
-    /// near-absolute "Users/…" as though it were root-relative. That is the empty-root hazard the
-    /// transfer and folder-creation paths each guard before building a URL (an empty path resolves
-    /// against the process working directory); this keeps the shared helper from re-offering the
-    /// permissive answer to a future caller that forgets its own check.
+    /// An empty root is the absence of a root, not the volume root. Without the guard `""`
+    /// normalizes like "/" and claims every absolute path, handing back "Users/…" as if it were
+    /// root-relative. An empty path resolves against the working directory, so the shared helper
+    /// must refuse it even for a caller that forgets its own check.
     @Test func emptyRootClaimsNothing() {
         #expect(PathBoundary.relativize("/Users/me/file.txt", under: "") == nil)
         #expect(PathBoundary.relativize("/", under: "") == nil)
@@ -85,9 +72,8 @@ struct PathBoundaryTests {
         #expect(!PathBoundary.contains("/Users/me/file.txt", under: ""))
     }
 
-    /// The guard tests the ARGUMENT, not the normalized base — root "/" also reduces to an empty
-    /// base and must keep working. Pinned separately so a future simplification to `base.isEmpty`
-    /// fails loudly instead of silently un-rooting the filesystem root.
+    /// The guard tests the argument, not the normalized base, since "/" also reduces to an empty
+    /// base. Fails if the guard is simplified to `base.isEmpty`.
     @Test func filesystemRootIsUnaffectedByTheEmptyRootGuard() {
         #expect(PathBoundary.relativize("/x/y", under: "/") == "x/y")
         #expect(PathBoundary.contains("/x/y", under: "/"))
@@ -98,9 +84,8 @@ struct PathBoundaryTests {
     @Test func unicodeNamesCompareAsExactStrings() {
         #expect(PathBoundary.relativize("/root/résumé/août.txt", under: "/root/résumé") == "août.txt")
         #expect(PathBoundary.relativize("/root/日本語/ファイル", under: "/root/日本語") == "ファイル")
-        // Same visible name in a different normalization form is a DIFFERENT string — no
-        // canonicalization happens here (Swift String == compares canonical equivalence, so
-        // precomposed vs decomposed é DO match; a genuinely different scalar sequence does not).
+        // No canonicalization happens here, but Swift's String == compares canonical
+        // equivalence, so precomposed and decomposed é still match.
         let precomposed = "/root/caf\u{E9}"          // café, precomposed
         let decomposed = "/root/cafe\u{301}"         // café, combining accent
         #expect(PathBoundary.relativize(precomposed + "/x", under: decomposed) == "x")
@@ -115,30 +100,23 @@ struct PathBoundaryTests {
 
     // MARK: Composition — the inverse of relativize
 
-    /// **A leading slash yields the bare root, and that is the deliberate half.**
-    ///
-    /// An absolute path is not a relative one, and after `appendingPathComponent` has run them
-    /// together the two cannot be told apart: `/a/b` + `/c/d` is `/a/b/c/d`, a folder nobody asked
-    /// for that usually exists nowhere. Falling back to the root makes the failure an empty pane
-    /// rather than a wrong one — a caller that built its relative half wrongly stays somewhere it
-    /// is entitled to be.
+    /// A leading slash on the relative half yields the bare root. Appending it would give
+    /// `/a/b/c/d` from `/a/b` + `/c/d`, a folder nobody asked for; falling back to the root keeps
+    /// a caller that built its relative half wrongly somewhere it is entitled to be.
     @Test func joinDiscardsAnAbsoluteRelativeHalfRatherThanRunningThemTogether() {
         #expect(PathBoundary.join(root: "/a/b", relative: "c") == "/a/b/c")
         #expect(PathBoundary.join(root: "/a/b", relative: "c/d") == "/a/b/c/d")
         // The rule: an absolute right-hand side is refused, not appended.
         #expect(PathBoundary.join(root: "/a/b", relative: "/c") == "/a/b")
         #expect(PathBoundary.join(root: "/a/b", relative: "/c/d") == "/a/b")
-        // Empty means the root itself — a source with no `openAt` lands on its own root.
+        // Empty means the root itself: a source with no `openAt` lands on its own root.
         #expect(PathBoundary.join(root: "/a/b", relative: "") == "/a/b")
         // A trailing slash on the root does not double the separator.
         #expect(PathBoundary.join(root: "/a/b/", relative: "c") == "/a/b/c")
     }
 
-    /// The tilde is expanded on the ROOT only, because only roots are stored abbreviated.
-    ///
-    /// Roots arrive `~/Documents` (`FolderSource.abbreviated`); a root-relative path never begins
-    /// with one. Expanding both would make a folder literally named `~` unreachable, and expanding
-    /// neither leaves a path that no filesystem call can use.
+    /// The tilde is expanded on the root only, because only roots are stored abbreviated
+    /// (`FolderSource.abbreviated`). Expanding both would make a folder named `~` unreachable.
     @Test func joinExpandsTheTildeOnTheRootAndNotTheRelativeHalf() {
         let home = NSHomeDirectory()
         #expect(PathBoundary.join(root: "~/Documents", relative: "Legal") == "\(home)/Documents/Legal")
@@ -147,35 +125,30 @@ struct PathBoundaryTests {
         #expect(PathBoundary.join(root: "/a", relative: "~") == "/a/~")
     }
 
-    /// `joinRelative` short-circuits on either empty side, so no doubled or leading separator can
-    /// be produced — which is what keeps its output something `join` will accept rather than
-    /// discard for looking absolute.
+    /// `joinRelative` short-circuits on either empty side, so it never yields a doubled or leading
+    /// separator, and `join` never discards its output as absolute.
     @Test func joinRelativeNeverProducesAnEmptyComponent() {
         #expect(PathBoundary.joinRelative("Documents", "Family/Photos") == "Documents/Family/Photos")
         #expect(PathBoundary.joinRelative("", "Family") == "Family")
         #expect(PathBoundary.joinRelative("Documents", "") == "Documents")
         #expect(PathBoundary.joinRelative("", "") == "")
-        // The invariant that ties the two together: a rebase's output is canonical root-relative
-        // form, so feeding it straight back to `join` reaches the folder it names.
+        // A rebase's output is canonical root-relative form, so `join` reaches the folder it names.
         let rebased = PathBoundary.joinRelative("", "Family")
         #expect(PathBoundary.join(root: "/a", relative: rebased) == "/a/Family")
     }
 
     // MARK: The key spelling
 
-    /// Tilde expanded, trailing slashes trimmed, and deliberately nothing more.
-    ///
-    /// Case-folding would merge two genuinely distinct roots on a case-sensitive volume, and
-    /// symlink resolution would make a key depend on disk state that can change under a persisted
-    /// pin — so both are absent on purpose, and asserted absent here rather than left to be
-    /// rediscovered as a missing feature.
+    /// Tilde expanded, trailing slashes trimmed, and nothing more. Case-folding would merge two
+    /// distinct roots on a case-sensitive volume, and resolving symlinks would make a key depend on
+    /// disk state that can change under a persisted pin.
     @Test func normalizedRootTrimsAndExpandsAndDoesNothingElse() {
         let home = NSHomeDirectory()
         #expect(PathBoundary.normalizedRoot("~/Documents") == "\(home)/Documents")
         #expect(PathBoundary.normalizedRoot("/a/b/") == "/a/b")
         #expect(PathBoundary.normalizedRoot("/a/b///") == "/a/b")
-        // "/" is one character and must survive: trimming it to "" would turn the volume root into
-        // the absence of a root, which is what `relativize`'s empty-root guard refuses to claim.
+        // "/" must survive: trimmed to "" it would become the absence of a root, which
+        // `relativize`'s empty-root guard refuses.
         #expect(PathBoundary.normalizedRoot("/") == "/")
         // NOT case-folded, and NOT symlink-resolved.
         #expect(PathBoundary.normalizedRoot("/A/B") == "/A/B")
@@ -183,13 +156,10 @@ struct PathBoundaryTests {
 
     // MARK: Re-anchoring — linked panes whose sources land in different places
 
-    /// A position below the source anchor is re-expressed below the destination's.
-    ///
-    /// This is the whole of what linked navigation needs now that two panes' roots no longer share
-    /// an origin. Left OneDrive at `Documents/Family` linked to an iCloud right used to send that
-    /// pane to `~/Documents/Documents/Family`, which does not exist — and the reverse was worse,
-    /// because `<account>/Family` often DOES exist and is a different tree, so the comparison
-    /// diffed the wrong pair and Sync acted on it.
+    /// A position below the source anchor is re-expressed below the destination's, which linked
+    /// panes need when their sources land in different places. Untranslated, OneDrive's
+    /// `Documents/Family` names a missing folder in iCloud, and the reverse can name a real but
+    /// different tree that Compare would diff and Sync would act on.
     @Test func reanchorTranslatesAPositionBelowOneLandingFolderToAnother() {
         // OneDrive (lands at Documents) → iCloud (lands at its own root).
         #expect(PathBoundary.reanchor("Documents/Family", from: "Documents", to: "") == "Family")
@@ -205,50 +175,38 @@ struct PathBoundaryTests {
                 == "My Drive/Documents")
     }
 
-    /// **At or above the landing folder it carries the path across unchanged, rather than guessing.**
-    ///
-    /// A pane sitting at its account root is somewhere the sibling's anchor cannot express — there
-    /// is no landing-relative reading of it — and passing it through is exactly what linked
-    /// navigation did before landing folders existed. Inventing one would be the silent wrong-tree
-    /// failure this function was written to stop, reintroduced from the other side.
+    /// At or above the landing folder the path passes through unchanged rather than guessed. A pane
+    /// at its account root has no landing-relative reading, and inventing one would send the
+    /// linked pane silently into the wrong tree.
     @Test func reanchorPassesThroughWhatTheDestinationAnchorCannotExpress() {
         // Above the source's landing folder: `Teams Recordings` sits beside Documents, not under it.
         #expect(PathBoundary.reanchor("Teams Recordings", from: "Documents", to: "") == "Teams Recordings")
         // The account root itself.
         #expect(PathBoundary.reanchor("", from: "Documents", to: "My Drive/Documents") == "")
-        // Equal anchors are a no-op whatever the path — the commonest case, two sources of one type.
+        // Equal anchors are a no-op whatever the path: the commonest case, two sources of one type.
         #expect(PathBoundary.reanchor("Anything/At/All", from: "Documents", to: "Documents")
                 == "Anything/At/All")
-        // A sibling that merely shares a string prefix is NOT below the anchor — the same boundary
-        // rule `relativize` carries, reached through this door.
+        // A sibling that only shares a string prefix is not below the anchor, as in `relativize`.
         #expect(PathBoundary.reanchor("Documentsly/Q4", from: "Documents", to: "") == "Documentsly/Q4")
     }
 
-    /// An EMPTY source anchor means the landing folder IS the root, not that there is no root.
-    ///
-    /// `relativize` answers nil for an empty root by design — `""` is the ABSENCE of a root there —
-    /// so this case is handled before it rather than through it. It is iCloud's ordinary state and
-    /// therefore the commonest half of every mixed pair: everything is below it, so the position
-    /// passes through whole.
+    /// An empty source anchor means the landing folder is the root, not that there is no root. It
+    /// is iCloud's ordinary state. `relativize` answers nil for an empty root, so this case must be
+    /// handled before reaching it.
     @Test func anEmptySourceAnchorIsTheRootItselfNotAnAbsentRoot() {
         #expect(PathBoundary.reanchor("Family/Photos", from: "", to: "Documents")
                 == "Documents/Family/Photos")
         #expect(PathBoundary.reanchor("", from: "", to: "Documents") == "Documents")
-        // The control: were this routed through `relativize`, the nil would fall to the
-        // pass-through branch and the path would arrive un-translated.
+        // The control: routed through `relativize`, this nil would take the pass-through branch.
         #expect(PathBoundary.relativize("Family/Photos", under: "") == nil)
     }
 
     // MARK: Same-directory, which decides whether a file is moved
 
-    /// Case is folded when the volume folds it, and that direction is the safe one.
-    ///
-    /// An automation destination template is matched case-insensitively by design, so a hand-typed
-    /// `documents/inbox` naming the on-disk `Documents/Inbox` is expected input. Read exactly, the
-    /// destination looked like a DIFFERENT folder from the file's parent, so the move went ahead —
-    /// `fileExists` then found the file itself with case collapsed on disk, the unique-name helper
-    /// stepped around it, and the file was renamed in place to "name 2" under a banner claiming it
-    /// had been filed.
+    /// Case is folded when the volume folds it. Automation destinations match case-insensitively,
+    /// so `documents/inbox` for the on-disk `Documents/Inbox` is expected input. Compared exactly it
+    /// would look like a different folder, and the move would rename the file in place to "name 2"
+    /// while reporting it filed.
     @Test func namesSameDirectoryFoldsCaseOnlyWhenTheVolumeDoes() {
         #expect(PathBoundary.namesSameDirectory("/a/Documents/Inbox", "/a/documents/inbox",
                                                 caseSensitive: false))
@@ -258,22 +216,16 @@ struct PathBoundaryTests {
         #expect(PathBoundary.namesSameDirectory("/a/Documents", "/a/Documents", caseSensitive: true))
         // Different folders stay different under both.
         #expect(!PathBoundary.namesSameDirectory("/a/Documents", "/a/Desktop", caseSensitive: false))
-        // Standardization still happens — it resolves `..` and trailing slashes, just never case.
+        // Standardization still resolves `..` and trailing slashes, just never case.
         #expect(PathBoundary.namesSameDirectory("/a/b/../Documents/", "/a/Documents",
                                                 caseSensitive: true))
     }
 
-    /// **An empty root composes to nothing, not to the relative half.**
-    ///
-    /// `appendingPathComponent` on `""` hands back the relative path unchanged, which is not a
-    /// pane path at all: it resolves against the process working directory, so a composition that
-    /// should have failed loudly instead names a real folder somewhere else entirely. And the empty
-    /// root is an ordinary state here — `SettingsManager.rootPath(for:)` answers `""` for a source
-    /// dropped from settings while its stale tree is still on screen, which is exactly the window
-    /// several call sites guard against one at a time.
-    ///
-    /// The same stance `relativize` takes for the same reason, and the pair is asserted together so
-    /// neither can drift: `""` is the ABSENCE of a root, and `/` is the volume root.
+    /// An empty root composes to nothing, not to the relative half, which would resolve against the
+    /// working directory and name a real folder elsewhere. It is an ordinary state:
+    /// `SettingsManager.rootPath(for:)` answers `""` for a source dropped from settings while its
+    /// tree is still on screen. Asserted beside `relativize`, which takes the same stance: `""` is
+    /// the absence of a root, and `/` is the volume root.
     @Test func anEmptyRootComposesToNothing() {
         #expect(PathBoundary.join(root: "", relative: "Documents/Family") == "")
         #expect(PathBoundary.join(root: "", relative: "") == "")

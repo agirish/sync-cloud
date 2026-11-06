@@ -2,22 +2,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The family-group table and one shared mapping across it (proposal O17).
-///
-/// The fixture is the immigration trio the 6 Aug session actually worked on — three sibling
-/// families whose child names nearly agree, and whose disagreements were invisible until someone
-/// laid them side by side. That is the thing this table exists to make visible in one glance, so
-/// it is the thing the tests are written against.
+/// The family-group table and one shared mapping across it. The fixture is a real immigration
+/// trio: three sibling families whose child names nearly agree, and whose disagreements show only
+/// side by side, which is what this table makes visible at a glance.
 @Suite struct RestructureGroupPlanTests {
 
-    /// H-1B, H-4 and H-4 EAD under `Immigration`, each with one member year holding the child
-    /// names the 6 Aug notes record.
-    ///
-    /// **It clears `parallelFamilies`' own bar, and the first version did not.** That gate needs
-    /// three shared names; the first fixture shared two, so `parallelFamilies` returned `[]` and
-    /// every test below passed a family list the app could never have formed — the rules were
-    /// right and nothing reachable called them. `theGateActuallyFormsThisGroup` is the test that
-    /// keeps the fixture and the gate in step.
+    /// H-1B, H-4 and H-4 EAD under `Immigration`, each with one member year holding the real child
+    /// names. It must clear `parallelFamilies`' own bar of three shared names, or every test below
+    /// runs on a family list the app could never form; `theGateActuallyFormsThisGroup` keeps the
+    /// fixture and the gate in step.
     private static func trio() -> RestructureTreeView {
         let children: [String: [String]] = [
             "Immigration": ["H-1B", "H-4", "H-4 EAD"],
@@ -38,9 +31,8 @@ import Testing
 
     // MARK: The gate that forms the group at all
 
-    /// **`parallelFamilies` is the only producer of a group in the app**, so a fixture it refuses
-    /// makes every test below vacuous — the rules exercised over a set nothing could construct.
-    /// This is the test that ties the two together: the trio really is a group by the app's own
+    /// `parallelFamilies` is the only producer of a group in the app, so a fixture it refuses makes
+    /// every test below vacuous. This ties the two together: the trio is a group by the app's own
     /// bar, and the bar is still three.
     @Test func theGateActuallyFormsThisGroup() {
         let siblings = RestructurePlanner.parallelFamilies(of: "Immigration/H-1B", in: Self.trio())
@@ -61,9 +53,9 @@ import Testing
 
     // MARK: The table
 
-    /// One row per distinct name, one flag per family, **ordered so the disagreements collect at
-    /// the bottom**: the names everyone shares are the spine, and the ones only one family has
-    /// are the thing worth reading.
+    /// One row per distinct name, one flag per family, ordered so the disagreements collect at the
+    /// bottom: the names everyone shares are the spine, and the ones only one family has are the
+    /// thing worth reading.
     @Test func theTableLaysTheGroupSideBySide() throws {
         let table = try #require(RestructurePlanner.familyGroupTable(families: Self.families,
                                                                      in: Self.trio()))
@@ -122,9 +114,9 @@ import Testing
                 == ["Application", "Approval", "Correspondence", "Petition", "Receipts"])
     }
 
-    /// **Each family's manifest is derived against its own folders**, and a row naming a folder
-    /// this family does not carry is simply not about it. Passing the shared mapping through
-    /// whole would refuse a good plan on a name only a sibling has.
+    /// Each family's manifest is derived against its own folders, and a row naming a folder this
+    /// family does not carry is not about it. Passing the shared mapping through whole would refuse
+    /// a good plan on a name only a sibling has.
     @Test func oneMappingDerivesAManifestPerFamily() throws {
         let mapping = RestructureMapping(rows: [
             .init(source: "Application", target: "Petition"),

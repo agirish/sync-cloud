@@ -1,13 +1,12 @@
 import Foundation
 
-/// Where the tree already holds each document — built from the persisted content indexes, and the
-/// shared input to both "this folder is somebody else's copy" and "this file is already filed".
+/// Where the tree already holds each document, built from the persisted content indexes: the shared
+/// input to "this folder is somebody else's copy" and "this file is already filed".
 ///
-/// One identity per file: the ``ContentFingerprint`` digest where there is one, and the byte hash
-/// otherwise. **The fingerprint has to win for PDFs**, because the case this exists for is a
-/// provider handing out the same statement twice with a fresh `/ID` stamped into it — the four
-/// payslips copied into an H-1B petition folder share not one byte-hash with the originals they
-/// were copied from, and only the text digest sees them as the same documents.
+/// One identity per file: the ``ContentFingerprint`` digest where there is one, else the byte hash.
+/// The fingerprint must win for PDFs, because a provider can hand out the same statement twice with
+/// a fresh `/ID` stamped in, so copies share no byte hash with their originals and only the text
+/// digest sees them as the same document.
 public struct DocumentIdentityIndex: Sendable {
     /// Identity → the provider-relative folders holding a copy.
     public let foldersByIdentity: [String: Set<String>]
@@ -28,14 +27,13 @@ public struct DocumentIdentityIndex: Sendable {
     public static let empty = DocumentIdentityIndex(foldersByIdentity: [:], pathsByIdentity: [:],
                                                     documentCounts: [:])
 
-    /// Builds the index from the persisted stores. `textless` is the "too little text" markers'
-    /// own store: it holds no identity, but a marker newer than a path's digest says that digest
-    /// describes the file as it was — a PDF with text, since overwritten by a scan of nothing.
+    /// Builds the index from the persisted stores. `textless` is the "too little text" markers' own
+    /// store: it holds no identity, but a marker newer than a path's digest says that digest
+    /// describes the file as it was (a PDF with text, since overwritten by a scan of nothing).
     ///
-    /// `existsOnDisk` is injected so this stays pure and testable, and because it matters: the
-    /// indexes are a cache and outlive the files they describe. A stale record would let a folder
-    /// that no longer exists vouch for a document, or inflate the count that decides which of two
-    /// folders is the established one.
+    /// `existsOnDisk` is injected to keep this pure, and it matters: the indexes are a cache that
+    /// outlives its files, and a stale record would let a vanished folder vouch for a document or
+    /// inflate the count that decides which of two folders is the established one.
     public static func build(hashes: [ContentHashRecord], fingerprints: [ContentHashRecord],
                              textless: [ContentHashRecord] = [],
                              providerRoot: String,
@@ -43,15 +41,14 @@ public struct DocumentIdentityIndex: Sendable {
     -> DocumentIdentityIndex {
         let prefix = providerRoot.hasSuffix("/") ? providerRoot : providerRoot + "/"
         var identity: [String: String] = [:]
-        // Byte hashes first, fingerprints second, so a PDF that is in both ends up keyed by what it
-        // SAYS. Prefixed rather than bare so the two namespaces can never collide.
+        // Byte hashes first, fingerprints second, so a PDF in both is keyed by what it says.
+        // Prefixed so the two namespaces can never collide.
         //
         // A negative marker is not an identity: every document that said too little carries the
-        // same one, and keyed by it they would all be "the same document" — satellites made of
-        // scans, and loose scans marked already filed beside each other. Where the newest record
-        // is a marker the document keeps its byte hash, as one with no fingerprint record does;
-        // an older digest describes a state of the file that is gone. The markers live in their
-        // own store (`textless`), so they are read in beside the digests to be weighed with them.
+        // same one, and keyed by it they would all be "the same document". Where the newest record
+        // is a marker the document keeps its byte hash, as one with no fingerprint does; an older
+        // digest describes a state of the file that is gone. The markers live in their own store
+        // (`textless`), so they are read in beside the digests to be weighed with them.
         for (path, r) in newestPerPath(hashes, under: prefix) { identity[path] = "b:" + r.hex }
         for (path, r) in newestPerPath(fingerprints + textless, under: prefix)
         where !ContentFingerprint.isNoFingerprintMarker(r.hex) {
@@ -76,24 +73,14 @@ public struct DocumentIdentityIndex: Sendable {
 
     /// The newest record for each path under `prefix`.
     ///
-    /// **A content index is an append-only log, not a map from path to digest.** Its key is (path,
-    /// mtime, size, file number, ctime), so editing a file adds a SECOND record for the same path
-    /// and the old one survives until it ages out — 30 days after its last use, per
-    /// ``ContentHashCache/maxEntryAge``, and nothing looks its old key up again.
-    /// Reading the records straight into a dictionary therefore let the last one in array order
-    /// win, and that order is `ContentHashCache.save`'s `entries.map` over a Swift `Dictionary`:
-    /// arbitrary, and reseeded every launch. Measured on the real index, 13 paths under the
-    /// provider root carry two records with DIFFERENT digests — so which identity those files had
-    /// was decided by the hash seed, and could differ between two launches over an unchanged tree.
+    /// A content index is an append-only log, not a map from path to digest. Its key is (path,
+    /// mtime, size, file number, ctime), so editing a file adds a second record for the same path,
+    /// and the old one survives until it ages out (``ContentHashCache/maxEntryAge``). Taking the
+    /// last record in array order would let the save's `Dictionary` order, reseeded every launch,
+    /// pick a file's identity, so it could differ between two launches over an unchanged tree.
     ///
-    /// Today all 13 are `.DS_Store`, which changes no relation this feeds (checked: removing every
-    /// dotfile from the index leaves the satellite set identical, 19 folders either way). The shape
-    /// is not special to them, though — any document edited or re-downloaded in place leaves the
-    /// same pair behind, and the fingerprint index exists precisely because re-downloads happen.
-    ///
-    /// Newest wins, and the tie-breaks are only there to make the answer total: `storedAt` first
-    /// (when the digest was computed), then `mtime` (which state of the file it describes), then
-    /// the digest itself, so equal-in-every-way records still resolve the same way twice.
+    /// Newest wins; the tie-breaks only make the answer total: `storedAt` (when the digest was
+    /// computed), then `mtime` (which state of the file it describes), then the digest itself.
     private static func newestPerPath(_ records: [ContentHashRecord],
                                       under prefix: String) -> [String: ContentHashRecord] {
         var out: [String: ContentHashRecord] = [:]
@@ -109,10 +96,10 @@ public struct DocumentIdentityIndex: Sendable {
         (foldersByIdentity[identity] ?? []).filter { $0 != excluding }.sorted()
     }
 
-    /// The same answer for an index built with `existsOnDisk: { _ in true }`: the check is asked
-    /// here instead, of the paths behind `identity` alone. A caller that looks up a handful of
-    /// identities then stats a handful of paths, not every record in two index files — what the
-    /// filing scan paid on every run. `providerRoot` must be the one the index was built for.
+    /// The same answer for an index built with `existsOnDisk: { _ in true }`, asking the check here
+    /// of the paths behind `identity` alone. A caller looking up a few identities then stats a few
+    /// paths, not every record in two index files. `providerRoot` must be the one the index was
+    /// built for.
     public func folders(holding identity: String, excluding: String? = nil, providerRoot: String,
                         existsOnDisk: (String) -> Bool) -> [String] {
         let prefix = providerRoot.hasSuffix("/") ? providerRoot : providerRoot + "/"
@@ -122,51 +109,41 @@ public struct DocumentIdentityIndex: Sendable {
         return folders.filter { $0 != excluding }.sorted()
     }
 
-    /// Whether any path in an index built without the existence check is still on disk — its
+    /// Whether any path in an index built without the existence check is still on disk: its
     /// ``isEmpty`` as an index built with the check would answer it. Stops at the first one found.
     public func holdsAnyPath(existsOnDisk: (String) -> Bool) -> Bool {
         pathsByIdentity.values.contains { $0.contains(where: existsOnDisk) }
     }
 }
 
-/// Folders that are somebody else's copies — an evidence packet, a submission bundle, a scratch
-/// duplicate — rather than a document's home.
+/// Folders that are somebody else's copies (an evidence packet, a submission bundle, a scratch
+/// duplicate) rather than a document's home.
 ///
-/// **The distinction the router cannot make from content**, and that is not a shortcoming of the
-/// weights. `Immigration/…/Petition/Supporting Documents/pay_statements` holds four copies of
-/// payslips whose originals are in `Work/EMP/Compensation/Salary Statements/2026`; the two folders
-/// say the same words because they hold the same documents. Measured on the real tree, the raw
-/// content evidence for a fifth payslip is 76.49 for the copy against 70.69 for the home — and the
-/// entire 5.80 difference is the anchor `payslip`, which the copies' folder learned from the
-/// filenames they were saved under. Equalise the `÷√docs` term and the two land 1.3154 to 1.3128, a
-/// 0.2% gap. **No amount of tuning separates a folder from a stash of its own documents.**
+/// Content can't make this distinction, and no tuning of the router's weights fixes it: a folder of
+/// copied payslips says the same words as the folder that holds the originals, because it holds the
+/// same documents. On the real tree the two scored within 0.2% of each other once the folder size
+/// term was equalised.
 ///
 /// So the signal is structural and directional: A is a satellite of B when most of A's documents
 /// are also in B and B is substantially the larger folder.
 public enum SatelliteFolders {
 
     /// How much of a folder's own documents must also live in the candidate home. Below this the
-    /// relation is coincidence: at 0.5 the tree produces pairs like `Home/Insurance/2022` inside a
-    /// hiring folder's candidate list, on the strength of two documents out of three.
+    /// relation is coincidence: at 0.5 it pairs unrelated folders on two documents out of three.
     public static let minimumShare = 0.75
-    /// And at least this many documents, for the same reason — a share is not evidence at n = 2.
+    /// And at least this many documents, for the same reason: a share is not evidence at n = 2.
     public static let minimumShared = 3
-    /// How much bigger the home must be. **This is the threshold that separates a satellite from
-    /// two folders that merely overlap**, and it was chosen by reading what each value admits on
-    /// the real tree: at 1.01× the relation includes `Papers/SQL` inside `Papers/Data Analytics`
-    /// (3 documents against 4), `Checking 5670/2016` inside `Savings 3931/2016` (6 against 7) and
-    /// two sem-results asset folders pointing at each other — pairs where "bigger" is noise and the
-    /// direction is arbitrary. At 2× those are gone and every case the relation exists for remains.
+    /// How much bigger the home must be: the threshold that separates a satellite from two folders
+    /// that merely overlap. Chosen on the real tree: near 1× it admits pairs like 3 documents
+    /// against 4, where "bigger" is noise and the direction arbitrary; at 2× those are gone and
+    /// every case the relation exists for remains.
     public static let minimumSizeRatio = 2.0
 
     /// Satellite folder → the folders it is a copy of. Both sides are provider-relative.
     ///
-    /// `accepts` is the profile's own ``FolderProfile/acceptsNewFiles(_:)``, and it is not a
-    /// nicety: without it the biggest folder in a family is routinely an **inbox**, and the
-    /// relation reads backwards. On this tree it made satellites of
-    /// `Finance/US/Credit Accounts/Chase/Credit 2809/2024` (inside `Chase/TODO`, 47 documents),
-    /// `Work/EMP/Compensation/401(k)` (inside `Fidelity/TODO - 2023`) and five more — every one of
-    /// them a real home being demoted in favour of the pile it was filed out of.
+    /// `accepts` is the profile's own ``FolderProfile/acceptsNewFiles(_:)``, and it is required:
+    /// the biggest folder in a family is often an inbox, and without it real homes would be made
+    /// satellites of the pile they were filed out of.
     public static func homesBySatellite(in index: DocumentIdentityIndex,
                                         accepts: (String) -> Bool) -> [String: Set<String>] {
         // How many of A's documents each other folder B also holds.
@@ -174,7 +151,7 @@ public enum SatelliteFolders {
         for folders in index.foldersByIdentity.values where folders.count > 1 {
             for a in folders {
                 for b in folders where b != a {
-                    // One increment per (a, b) per identity — a folder holding the same document
+                    // One increment per (a, b) per identity: a folder holding the same document
                     // twice must not count it twice against its own total.
                     sharedWith[a, default: [:]][b, default: 0] += 1
                 }

@@ -2,72 +2,53 @@ import Foundation
 
 /// The one subtree Organize is currently answering about.
 ///
-/// ## Why this type exists
-///
-/// Organize's rail presents five lenses as peers, which implies they answer about the same subject.
-/// They did not. To File answered about the scanned folder (or, worse, about the `TODO` inbox
-/// whenever the pane happened to sit at the provider root), Duplicates about the pane's folder at
-/// the moment its scan ran, and Renames and Restructure about the whole provider tree —
-/// four different territories behind one row of peers. Measured on the real profile: with the left
-/// pane at `Documents/Legal`, the Renames badge read 126 folders / 611 renames, every one of them
-/// outside what the user was looking at.
-///
-/// The second half of the defect was that scope was a **side-effect of whichever scan last ran**
-/// rather than something the user set. Navigating away left the list answering about where you had
-/// been; `LensWorkspaceView.targetMoved(from:)` exists precisely because that gap was already felt.
-///
-/// So scope becomes a first-class thing Organize owns: **the pane proposes, the scope is explicit
-/// and sticky, and browsing never silently moves it.**
+/// Organize's rail presents its lenses as peers, so they must answer about one subject. The scope
+/// is that subject, set by the user rather than left as a side effect of whichever scan last ran:
+/// the pane proposes, the scope is explicit and sticky, and browsing never silently moves it.
 ///
 /// ## Scope filters; it does not rescan
 ///
 /// Filing, names and renames all come off one provider-wide walk and restructure reads the folder
-/// profile, so narrowing all four is pure predicate work — free and instant. Only Duplicates needs
+/// profile, so narrowing all four is pure predicate work, free and instant. Only Duplicates needs
 /// a scan of its own, and that cost already sits on its own rail item.
 ///
 /// ## Normalizing the root is what keeps this one state
 ///
-/// **There is no separate "global" view: global is the absence of a scope, and it is the default.**
-/// Pointing at the provider root therefore *clears* the scope rather than setting it to the root
-/// path — otherwise `scope = provider root` and `scope = cleared` become two encodings of one
-/// state, identical in every result and different only in the chip, which is exactly the kind of
-/// distinction a user cannot see and a test cannot justify. ``init(path:providerRoot:)`` is
+/// There is no separate "global" view: global is the absence of a scope, and the default. Pointing
+/// at the provider root clears the scope rather than setting it to the root path, or the two would
+/// be two encodings of one state, differing only in the chip. ``init(path:providerRoot:)`` is
 /// failable for that reason and returns nil for the root.
 public struct OrganizeScope: Equatable, Sendable, Hashable {
 
     /// Absolute path of the subtree. Never empty, never the provider root, always inside it.
     public let path: String
 
-    /// The provider root this scope was resolved against — kept so a scope can be re-validated when
-    /// the pane's provider changes underneath it, and so ``relativePath`` can be rendered without
-    /// the caller having to re-supply it.
+    /// The provider root this scope was resolved against, so a scope can be re-validated when the
+    /// pane's provider changes and ``relativePath`` needs no second argument.
     public let providerRoot: String
 
     /// The leaf name, for the chip.
     public var name: String { (path as NSString).lastPathComponent }
 
-    /// The scope relative to its provider root — "Finance/US", for the chip's tooltip and for any
+    /// The scope relative to its provider root ("Finance/US"), for the chip's tooltip and any
     /// readout that should not leak the `/Users/<you>` prefix.
     public var relativePath: String {
         PathBoundary.relativize(path, under: providerRoot) ?? path
     }
 
-    /// Resolves a scope, or **nil for the provider root and for anything outside it**.
+    /// Resolves a scope, or nil for the provider root and for anything outside it.
     ///
-    /// Nil is not an error path — it is the global view. A caller that has just been handed the
-    /// root (from the context menu, from ⌘K, from the "Scan '<folder>'" affordance) writes that nil
-    /// straight through and the chip disappears, which is the whole normalization rule above.
-    ///
-    /// Outside-the-root also answers nil rather than trapping: a provider can be switched while a
-    /// stale scope is still persisted, and the honest resolution of "that subtree is not in this
-    /// tree" is to fall back to the global view rather than to filter every lens to nothing.
+    /// Nil is the global view, not an error: a caller handed the root (the context menu, ⌘K,
+    /// "Scan '<folder>'") writes nil straight through and the chip disappears. Outside the root
+    /// also answers nil rather than trapping: a provider can switch while a stale scope is
+    /// persisted, and falling back to global beats filtering every lens to nothing.
     public init?(path: String, providerRoot: String) {
         let folder = (path as NSString).expandingTildeInPath
         let root = (providerRoot as NSString).expandingTildeInPath
         guard !folder.isEmpty, !root.isEmpty else { return nil }
         // `relativize` gives all three answers at once: nil for outside, "" for the root itself,
-        // and a non-empty relative path for a genuine subtree. Reusing it here is what keeps the
-        // boundary rule — `/a/b` must not claim `/a/bc` — in the one place that already owns it.
+        // and a non-empty relative path for a subtree. Reusing it keeps the boundary rule (`/a/b`
+        // must not claim `/a/bc`) in the one place that owns it.
         guard let relative = PathBoundary.relativize(folder, under: root), !relative.isEmpty else {
             return nil
         }
@@ -75,33 +56,18 @@ public struct OrganizeScope: Equatable, Sendable, Hashable {
         self.providerRoot = root
     }
 
-    /// **The one owner of the write-side normalization: what a chosen folder is STORED as.**
+    /// What a chosen folder is stored as: the one owner of the write-side normalization.
     ///
-    /// Returns the resolved absolute path, or `""` — the global view — for everything that is not
-    /// a genuine subtree of a live provider root: a nil or empty path, the provider root itself, a
-    /// path outside it, and a nil or empty root.
+    /// Returns the resolved absolute path, or `""` (the global view) for anything that is not a
+    /// subtree of a live provider root: a nil or empty path, the root itself, a path outside it, a
+    /// nil or empty root. Both writers of this persisted key come through here, so the global view
+    /// keeps one encoding. A missing root and an empty one both mean no provider and so no scope,
+    /// which is why the root is optional: `ContentView` passes `lensProviderRootExpanded` (`""` when
+    /// there is no root), `LensWorkspaceView` a `String?`.
     ///
-    /// **Why this is a function rather than a rule each writer spells for itself.** It was spelled
-    /// twice — once in `ContentView.setOrganizeScope(_:)` and once in
-    /// `LensWorkspaceView.setScope(_:)` — under two doc comments that each claimed to be the only
-    /// one, on two different shapes of provider root (one non-optional, one optional). They agreed,
-    /// but nothing made them agree: this writes **persisted** user state under a single key, so two
-    /// copies of one normalization is one edit away from two encodings of the global view, which is
-    /// the exact state ``init(path:providerRoot:)`` is failable to prevent.
-    ///
-    /// **A missing root and an empty root mean the same thing — no provider, therefore no scope —
-    /// and that is why the parameter is optional here even though one caller cannot produce nil.**
-    /// `ContentView` hands over `lensProviderRootExpanded`, a non-optional string that is `""` when
-    /// settings hold no path for the pane's provider; `LensWorkspaceView` holds `String?` and gets
-    /// nil for the same condition. Both spellings already cleared the scope for their own flavour
-    /// of "no root" — measured, by running both of them over every input in
-    /// ``OrganizeScopeNormalizationTests`` before this function existed — so collapsing them loses
-    /// nothing and gives the absent case one answer instead of two.
-    ///
-    /// **The write is defined as the read, inverted**, so the round trip cannot drift:
-    /// ``OrganizeScopeDefaults/scope(fromStored:providerRoot:)`` is what a launch resolves the
-    /// stored string back through, and storing anything it would not hand back is how a chip and a
-    /// filter come to disagree about one string.
+    /// The write is the read inverted, so the round trip can't drift:
+    /// ``OrganizeScopeDefaults/scope(fromStored:providerRoot:)`` resolves the stored string at
+    /// launch, and storing anything it would not hand back makes the chip and the filter disagree.
     public static func normalizedPath(_ path: String?, providerRoot: String?) -> String {
         OrganizeScopeDefaults.scope(fromStored: path, providerRoot: providerRoot)?.path ?? ""
     }
@@ -111,16 +77,13 @@ public struct OrganizeScope: Equatable, Sendable, Hashable {
 
 /// The scope's persistence: one key, one stamp, and the migration between them.
 ///
-/// **Scope is persisted, so it is a user-arrangeable value and gets the treatment one.** The
-/// hazard this guards is not the one a collection has (a new case in a persisted enum taking the
-/// whole blob down with it) — a scope is a single string. It is the quieter one: **a stored value
-/// is not the in-memory default**, and a test that only ever starts from `""` never exercises what
-/// a real launch reads off disk. ``OrganizeScopeStorageTests`` builds every fixture from a stored
-/// string for exactly that reason.
+/// A stored value is not the in-memory default, and a test that only starts from `""` never
+/// sees what a real launch reads off disk, so ``OrganizeScopeStorageTests`` builds every fixture
+/// from a stored string.
 public enum OrganizeScopeDefaults {
 
-    /// The scope's absolute path. **Empty (or absent) is the global view**, which is the default —
-    /// there is no separate "everything" value to migrate to or from.
+    /// The scope's absolute path. Empty (or absent) is the global view, the default; there is no
+    /// separate "everything" value to migrate to or from.
     public static let pathKey = "organizeScopePath"
 
     /// The format stamp. Absent means "never migrated".
@@ -131,14 +94,10 @@ public enum OrganizeScopeDefaults {
 
     /// Brings stored scope state up to ``currentStamp``, once.
     ///
-    /// At stamp 0 — the state every existing install is in — **nothing has ever written
-    /// `pathKey`**, so anything sitting there came from somewhere this code does not know about
-    /// and is cleared rather than trusted. That is the cheap, safe direction: the cost of clearing
-    /// is one re-scope, and the cost of trusting a foreign value is a lens list filtered by a path
-    /// nobody chose.
-    ///
-    /// Idempotent, and safe to call on every launch: once the stamp is current this returns having
-    /// touched nothing.
+    /// At stamp 0 this code has never written `pathKey`, so anything there is foreign and is
+    /// cleared rather than trusted: clearing costs one re-scope, trusting filters the lenses by a
+    /// path nobody chose. Idempotent and safe on every launch: once the stamp is current this
+    /// touches nothing.
     @discardableResult
     public static func migrate(defaults: UserDefaults = .standard) -> Bool {
         let stamp = defaults.integer(forKey: stampKey)   // absent → 0
@@ -148,12 +107,10 @@ public enum OrganizeScopeDefaults {
         return true
     }
 
-    /// The scope a stored path resolves to under a given provider root — the read half of the
-    /// round trip, kept beside the write so the two cannot drift.
-    ///
-    /// Returns nil for an empty path (the global view), for the provider root, and for a path that
-    /// belongs to some other provider — a stale scope degrades to global rather than filtering
-    /// every lens to nothing.
+    /// The scope a stored path resolves to under a given provider root: the read half of the round
+    /// trip, kept beside the write so the two can't drift. Nil for an empty path (the global view),
+    /// for the provider root, and for another provider's path, so a stale scope degrades to global
+    /// rather than filtering every lens to nothing.
     public static func scope(fromStored path: String?, providerRoot: String?) -> OrganizeScope? {
         guard let path, !path.isEmpty, let providerRoot, !providerRoot.isEmpty else { return nil }
         return OrganizeScope(path: path, providerRoot: providerRoot)
@@ -169,11 +126,9 @@ extension OrganizeScope {
         PathBoundary.contains(absolutePath, under: path)
     }
 
-    /// Whether an absolute path is a strict *ancestor* of the scope — the folder above this one.
-    ///
-    /// Restructure needs this and nothing else does: its findings are about a family of siblings,
-    /// and the family that a scoped-to leaf sits inside is a genuine answer about that leaf's
-    /// surroundings rather than a finding to be dropped.
+    /// Whether an absolute path is a strict ancestor of the scope. Only Restructure needs it: its
+    /// findings are about a family of siblings, and the family a scoped leaf sits in is an answer
+    /// about that leaf, not a finding to drop.
     public func isAncestor(_ absolutePath: String) -> Bool {
         absolutePath != path && PathBoundary.contains(path, under: absolutePath)
     }
@@ -183,15 +138,13 @@ extension OrganizeScope {
 
 /// Where one finding sits relative to the scope.
 ///
-/// Three cases and not a Bool, because Restructure genuinely has three answers and collapsing the
-/// middle one loses the honest half of them: at a leaf folder almost every structure finding is
-/// about the family *above*, and dropping those would leave Restructure looking permanently broken
-/// under any narrow scope — which is one of the three reasons live-binding scope to the pane was
-/// rejected in the first place.
+/// Three cases, not a Bool, because Restructure has three answers: at a leaf folder almost every
+/// structure finding is about the family above, and dropping those would leave Restructure looking
+/// broken under any narrow scope.
 public enum ScopeRelation: Equatable, Sendable {
     /// The finding is the scope or sits under it.
     case inside
-    /// The finding is about a folder the scope sits inside — surfaced, labelled, never dropped.
+    /// The finding is about a folder the scope sits inside: shown, labelled, never dropped.
     case aboutAncestor
     /// Elsewhere in the tree. Filtered out.
     case outside
@@ -211,23 +164,19 @@ extension OrganizeScope {
 
 /// What Organize is answering about right now, and whether the pane has wandered off it.
 ///
-/// Split out of `LensWorkspaceView.targetMoved(from:)` because the rule has a **precedence** in it, and a
-/// precedence buried in a `??` chain inside a private view method is a rule no test can reach. The
-/// three-deep chain is the whole content of the answer, so it is stated here and asserted directly.
+/// Kept out of `LensWorkspaceView.targetMoved(from:)` because the rule is a precedence, and one
+/// buried in a `??` chain inside a private view method is one no test can reach.
 public enum OrganizeAim {
 
-    /// The folder Organize's current answers are *about*, in falling order of authority.
+    /// The folder Organize's current answers are about, in falling order of authority:
     ///
-    /// 1. **The scope**, when one is set — the subject the user chose. With a scope the scanned
-    ///    root is an implementation detail of how the answer was computed.
-    /// 2. **The scanned root**, when a lens has run — what its list actually covers.
-    /// 3. **The provider root.** With neither of the above, Organize is answering about *everything*,
-    ///    and everything is the tree's top. This rung is the one that was missing: the old chain
-    ///    stopped at 2 and returned nil, so before any scan Organize had no opinion about its own
-    ///    subject and could not notice the pane leaving it. The user browsed to a folder, got no
-    ///    "Organize this" offer anywhere, and nothing on screen said why.
+    /// 1. The scope, when one is set: the subject the user chose.
+    /// 2. The scanned root, when a lens has run: what its list covers.
+    /// 3. The provider root: with neither, Organize answers about everything. Without this rung
+    ///    Organize has no subject before any scan, so it can't notice the pane leaving it and never
+    ///    offers "Organize this".
     ///
-    /// nil only when all three are absent or empty — no provider, nothing to be aimed at.
+    /// Nil only when all three are absent or empty.
     public static func subject(scope: OrganizeScope?, scannedRoot: String?,
                                providerRoot: String?) -> String? {
         for candidate in [scope?.path, scannedRoot, providerRoot] {
@@ -236,12 +185,9 @@ public enum OrganizeAim {
         return nil
     }
 
-    /// Whether `paneFolder` is somewhere other than ``subject(scope:scannedRoot:providerRoot:)`` —
-    /// the cue to *offer* re-aiming.
-    ///
-    /// An offer and never an act: browsing does not move the scope, which is the rule
-    /// ``OrganizeScope`` exists to keep. False when the pane is nowhere (no folder focused) or when
-    /// there is no subject to have moved away from.
+    /// Whether `paneFolder` is somewhere other than ``subject(scope:scannedRoot:providerRoot:)``:
+    /// the cue to offer re-aiming, never to re-aim, since browsing doesn't move the scope. False
+    /// when no folder is focused or there is no subject to have moved away from.
     public static func paneMovedAway(paneFolder: String?, scope: OrganizeScope?,
                                      scannedRoot: String?, providerRoot: String?) -> Bool {
         guard let paneFolder, !paneFolder.isEmpty,
@@ -254,9 +200,9 @@ public enum OrganizeAim {
     /// scanned root and the scope, so all three act on the groups the list on screen can show.
     ///
     /// The list is the scan's groups narrowed by the scope, so its folder is whichever of the two
-    /// sits inside the other. Counting under the scan root alone forgot groups the scope hides
-    /// from view, and the rescan then walked the scope, so those keys came back nowhere. Unrelated
-    /// folders answer the scope — the subject the user chose; nil only when both are absent.
+    /// sits inside the other. Counting under the scan root alone would forget groups the scope
+    /// hides, and the rescan of the scope would never bring them back. Unrelated folders answer the
+    /// scope, the subject the user chose; nil only when both are absent.
     public static func keptSeparateFolder(scannedRoot: String?, scope: OrganizeScope?) -> String? {
         let root = scannedRoot.flatMap { $0.isEmpty ? nil : $0 }
         guard let scope else { return root }
@@ -264,39 +210,33 @@ public enum OrganizeAim {
         return root
     }
 
-    /// Tilde-expanded, `.`/`..` resolved, trailing slash dropped — so `~/Documents`,
-    /// `/Users/you/Documents/` and `/Users/you/Documents` are one folder. The comparison is between
-    /// paths from three different sources — a persisted scope, a lens's scanned root, a settings
-    /// value — and only one of them was ever guaranteed expanded.
-    ///
-    /// **Symlinks are deliberately not resolved.** `standardizedFileURL` is a pure string
-    /// operation; `resolvingSymlinksInPath` touches the disk, and this runs inside a view body on
-    /// every render of the header. A symlinked pane path would read as moved, which is the safe
-    /// direction: it offers a re-aim that is a no-op rather than withholding one that is needed.
     /// Whether a Storage report built at `reportRoot` may stay on screen under `scope`.
     ///
-    /// **Storage is the one lens whose scope is a re-analysis rather than a filter**, and this is
-    /// the predicate that keeps that promise honest. Every other lens narrows a list it already
-    /// holds, so a scope change is free and the rows on screen stay true. A treemap is a
-    /// part-of-whole picture: subsetting one misstates every proportion in it, so Storage answers a
-    /// scope change by describing the *new* root instead — and until it does, the report in hand is
-    /// about somewhere else.
+    /// Storage is the one lens whose scope is a re-analysis rather than a filter. Every other lens
+    /// narrows a list it holds, so its rows stay true; a treemap is part-of-whole, and a subset
+    /// would misstate every proportion, so Storage re-analyses the new root, and until it does the
+    /// report in hand is about somewhere else.
     ///
-    /// **`nil` scope answers `true`, deliberately.** With no declared subject the pane's own rules
-    /// apply, which are the ones Storage has always had: the report persists while you browse, the
-    /// header chip names the root it describes, and ``paneMovedAway(paneFolder:scope:scannedRoot:providerRoot:)``
-    /// offers to re-aim. Wandering is not the same as re-declaring, and clearing on every pane move
-    /// would throw away a report the user never asked to lose.
+    /// A nil scope answers true: the pane's own rules apply (the report persists while you browse,
+    /// the chip names its root, and ``paneMovedAway(paneFolder:scope:scannedRoot:providerRoot:)``
+    /// offers to re-aim). Clearing on every pane move would throw away a report the user never
+    /// asked to lose.
     ///
-    /// Compared through ``standardized(_:)`` rather than with `==`: the scope is stored normalized
-    /// while `storageLensRoot` is whatever `URL` the analysis was handed, so `~/Documents` and
-    /// `/Users/x/Documents/` are the same root and a raw string compare would clear a report that
-    /// was already correct — re-analysing the tree for nothing.
+    /// Compared through ``standardized(_:)``, not `==`: the scope is stored normalized but
+    /// `storageLensRoot` is whatever `URL` the analysis was handed, and a raw compare would clear a
+    /// correct report and re-analyse for nothing.
     public static func storageReportStandsUnder(scope: OrganizeScope?, reportRoot: String?) -> Bool {
         guard let scope, let reportRoot, !reportRoot.isEmpty else { return true }
         return standardized(reportRoot) == standardized(scope.path)
     }
 
+    /// Tilde-expanded, `.`/`..` resolved, trailing slash dropped, so `~/Documents`,
+    /// `/Users/you/Documents/` and `/Users/you/Documents` are one folder: the paths compared come
+    /// from a persisted scope, a lens's scanned root and a settings value, not all expanded.
+    ///
+    /// Symlinks are deliberately not resolved: that touches the disk, and this runs in a view body
+    /// on every render of the header. A symlinked pane path reads as moved, the safe direction: it
+    /// offers a no-op re-aim rather than withholding a needed one.
     private static func standardized(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
     }
@@ -304,68 +244,55 @@ public enum OrganizeAim {
 
 // MARK: - Per-lens predicates
 
-/// The scope rules, one per lens — pure functions over a scope and a row.
+/// The scope rules, one per lens: pure functions over a scope and a row.
 ///
-/// **Kept out of the view deliberately.** A rule that lives in a `filter` closure inside a body
-/// cannot be asserted without mounting a header, and the per-lens semantics here are the deliverable
-/// rather than an implementation detail: "a duplicate group is in scope if *any* member is" is a
-/// safety property, not a filtering convenience.
+/// Kept out of the view so they can be tested without mounting a header. They are the point, not
+/// a detail: "a duplicate group is in scope if any member is" is a safety property.
 ///
-/// Every function is total and takes an **optional** scope, so the global view is the same code path
-/// with `nil` rather than a second branch at each call site. `nil` always answers "in scope" — the
-/// absence of a scope filters nothing.
+/// Every function takes an optional scope, so the global view is the same code path with `nil`,
+/// and `nil` always answers "in scope".
 public enum OrganizeScopeFilter {
 
     // MARK: Whether an answer about the scope can be given at all
 
-    /// Whether a **recursive** pass rooted at `scannedRoot` looked inside `subject`.
+    /// Whether a recursive pass rooted at `scannedRoot` looked inside `subject`.
     ///
-    /// **`subject` is what the surface CLAIMS to describe — the scope when one is set, otherwise the
-    /// provider root.** It is deliberately NOT ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``,
-    /// whose second rung is the scanned root: that rung is right for "where should the re-aim offer
-    /// point", and circular here. Feeding the scanned root in as the subject asks whether the scan
-    /// covered itself, which is always yes, and that is exactly the hole this pair exists to close —
-    /// with no scope set, browsing into `Photos/2024` and pressing Rescan made the overview report
-    /// *"Nothing to do here. Every check that has run came back clean."* about the whole tree.
+    /// `subject` is what the surface claims to describe: the scope when one is set, otherwise the
+    /// provider root. Not ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``, whose second
+    /// rung is the scanned root: that asks whether the scan covered itself, always yes, so a rescan
+    /// of one browsed folder would be reported as the whole tree coming back clean.
     ///
-    /// **Filtering to zero and finding nothing are different answers, and only one of them is
-    /// "clean".** Every filter below narrows a list the scan produced; none of them can say whether
-    /// the scan covered the subtree being narrowed to. Often it did not, and the overview read that
-    /// zero as a verdict — "Nothing to do in Legal. Every check that has run came back clean."
-    /// about a subtree nothing had opened, reachable through three ordinary doors that move the
-    /// scope without scanning (the inbox shortcut, Open on a single-source row, ⌘K).
+    /// Filtering to zero and finding nothing are different answers, and only the second is
+    /// "clean". The filters below narrow what a scan found but can't say whether it covered the
+    /// subtree, and the scope moves without a scan (the inbox shortcut, Open on a single-source
+    /// row, ⌘K), so a zero alone is no verdict.
     ///
-    /// A scan of an ANCESTOR covers the subject; a sibling or a descendant does not. With no
-    /// subject at all — no scope and no provider — the question falls back to whether a pass has a
-    /// root, because there is nothing to have covered.
+    /// A scan of an ancestor covers the subject; a sibling or a descendant does not. With no
+    /// subject (no scope, no provider) this answers whether a pass has a root at all.
     ///
-    /// **Only for passes that walk the whole subtree** — the duplicate scan (`maxDepth: nil`), and
-    /// the provider-wide taxonomy walk that produces risky names and rename plans. A pass that
-    /// enumerates ONE level needs ``looseFileScanCovers(subject:scannedFolder:)`` instead; using
-    /// this one for it re-opens the same bug, because a root-level scan would claim to cover every
-    /// subfolder while having enumerated none of them.
+    /// Only for passes that walk the whole subtree: the duplicate scan (`maxDepth: nil`) and the
+    /// provider-wide taxonomy walk behind risky names and rename plans. A one-level pass needs
+    /// ``looseFileScanCovers(subject:scannedFolder:)``; here a root-level scan would claim every
+    /// subfolder it never listed.
     public static func scanCovers(subject: String?, scannedRoot: String?) -> Bool {
         guard let subject, !subject.isEmpty else { return scannedRoot != nil }
         guard let scannedRoot else { return false }
         return PathBoundary.contains(subject, under: scannedRoot)
     }
 
-    /// Whether a **one-level** pass over `scannedFolder` can answer about `subject`.
+    /// Whether a one-level pass over `scannedFolder` can answer about `subject`.
     ///
-    /// The filing pass enumerates the direct files of one folder (`maxDepth: 1`), so the set it
-    /// could possibly report is exactly "the loose files in `scannedFolder`". That set intersects a
-    /// subject only when the subject *is* that folder:
+    /// The filing pass lists the direct files of one folder (`maxDepth: 1`), so it can report only
+    /// the loose files in `scannedFolder`, which answers about the subject only when the subject is
+    /// that folder:
     ///
-    /// - a **descendant** subject holds none of them (a direct child of the folder that is itself
-    ///   inside the subject would have to be a folder, not a loose file);
-    /// - an **ancestor** subject — including the provider root — contains them, but also contains
-    ///   everything else the pass never enumerated, so a zero there is not a clean bill either.
-    ///   This is the case ancestry gets wrong in both directions: scan the provider root and scope
-    ///   to `Legal`, or scan one browsed folder with no scope at all, and the count is zero by
-    ///   construction while ancestry would call it covered.
+    /// - a descendant subject holds none of them (a direct child inside the subject would be a
+    ///   folder, not a loose file);
+    /// - an ancestor subject, the provider root included, holds them but also everything the pass
+    ///   never listed, so a zero there is no clean bill either.
     ///
-    /// Hence equality, decided through ``PathBoundary`` rather than `==` so that a trailing slash
-    /// or a `.` segment cannot make the same folder read as two.
+    /// Hence equality, decided through ``PathBoundary`` rather than `==` so a trailing slash on
+    /// `scannedFolder` can't make the same folder read as two.
     public static func looseFileScanCovers(subject: String?, scannedFolder: String?) -> Bool {
         guard let subject, !subject.isEmpty else { return scannedFolder != nil }
         guard let scannedFolder else { return false }
@@ -395,23 +322,20 @@ public enum OrganizeScopeFilter {
 
     // MARK: Duplicates — ANY member, and the out-of-scope copies stay visible
 
-    /// A duplicate group is in scope when **any** copy is.
+    /// A duplicate group is in scope when any copy is.
     ///
-    /// **Any, not all, and this is the safety rule of the whole feature.** A group is a claim about
-    /// several paths at once, and the user acts on it by choosing which copy survives. Showing only
-    /// the in-scope half of a group would present a two-copy decision as a one-copy one — which is
-    /// precisely how the wrong copy gets trashed. So the group is admitted whole, and
-    /// ``isCopyInScope(_:scope:)`` lets the row *label* the copies that live outside rather than
-    /// hide them.
+    /// Any, not all: this is the feature's safety rule. The user acts on a group by choosing which
+    /// copy survives, and showing only its in-scope half would present a two-copy decision as a
+    /// one-copy one, which is how the wrong copy gets trashed. So the group is admitted whole, and
+    /// ``isCopyInScope(_:scope:)`` lets the row label the copies outside rather than hide them.
     public static func matches(_ group: DuplicateGroup, scope: OrganizeScope?) -> Bool {
         guard let scope else { return true }
         return group.copies.contains { scope.contains($0.path) }
     }
 
-    /// Whether one copy of an in-scope group is itself inside the scope.
-    ///
-    /// Drives the "outside this folder" label on the row. Answers `true` for every copy when there
-    /// is no scope, so the label never renders in the global view.
+    /// Whether one copy of an in-scope group is itself inside the scope: the row's "outside this
+    /// folder" label. True for every copy with no scope, so the label never shows in the global
+    /// view.
     public static func isCopyInScope(_ copy: DuplicateCopy, scope: OrganizeScope?) -> Bool {
         guard let scope else { return true }
         return scope.contains(copy.path)
@@ -421,17 +345,13 @@ public enum OrganizeScopeFilter {
 
     /// How a structure finding relates to the scope.
     ///
-    /// `family` is **profile-relative**, so this needs the profile root to say anything at all —
-    /// which is also why the restructure rule could not just be dropped into `filteredRows` beside
-    /// the other four without threading that root through.
+    /// A finding's paths are profile-relative, so this needs the profile root. A finding whose
+    /// subject is `.` (the profile root itself) is an ancestor of any scope: `aboutAncestor`, not
+    /// dropped.
     ///
-    /// A finding whose subject is `.` (the profile root itself) relativizes to the root path and
-    /// is therefore an ancestor of any scope — reported as `aboutAncestor`, not dropped.
-    ///
-    /// **The subject, not the family** (ROADMAP v5 §5.0): for shape they are the same folder, but
-    /// a backlog finding about `Health/Dental/2025` under a scope pointed at exactly that folder
-    /// is work *inside* the scope — reading the family would demote the one finding the user
-    /// scoped to into an ancestor note about `Health/Dental`.
+    /// Reads the subject, not the family: for shape they are the same folder, but a backlog
+    /// finding about `Health/Dental/2025` under a scope on exactly that folder is work inside the
+    /// scope, and reading the family would demote it to an ancestor note about `Health/Dental`.
     public static func relation(of finding: StructureFinding, profileRoot: String,
                                 scope: OrganizeScope?) -> ScopeRelation {
         guard let scope else { return .inside }
@@ -447,22 +367,13 @@ public enum OrganizeScopeFilter {
 
     // MARK: Handoffs — when a pointed question must clear the scope
 
-    /// Whether revealing `revealedPath` has to **clear** the scope first.
+    /// Whether revealing `revealedPath` has to clear the scope first.
     ///
-    /// A "Find duplicates of this" handoff names one file, and the answer is resolved against the
-    /// *whole* group list while the rows on screen come through the scope. Point at a file outside
-    /// the scope and the two disagree: the resolver says *revealed*, writes a query naming the file
-    /// and marks its group — and then the group is filtered away before it can be drawn. The user
-    /// asked "are there other copies of this?" and got a silent no.
-    ///
-    /// Three answers were available and only one is honest. *Leave the scope alone* keeps the wrong
-    /// answer. *Narrow to the file's folder* answers a question nobody asked. **Clear** matches the
-    /// rule the rest of the feature already follows — pointing at something re-aims Organize — and
-    /// it is the only one that can show what was asked about.
-    ///
-    /// Deliberately conditional: a reveal for a file already inside the scope leaves it exactly
-    /// where the user put it, so browsing a scoped list and asking about one of its own rows does
-    /// not throw the scope away.
+    /// A "Find duplicates of this" handoff is resolved against the whole group list, but the rows
+    /// on screen come through the scope: for a file outside it, the group would be marked revealed
+    /// and then filtered away, a silent "no other copies". Clearing follows the feature's rule that
+    /// pointing at something re-aims Organize; narrowing to the file's folder would answer a
+    /// question nobody asked. A file already inside the scope leaves the scope as the user set it.
     public static func revealClearsScope(revealedPath: String, scope: OrganizeScope?) -> Bool {
         guard let scope else { return false }
         return !scope.contains(revealedPath)
@@ -470,15 +381,8 @@ public enum OrganizeScopeFilter {
 
     // MARK: Rules — no predicate, because the scope does not reach them
 
-    // There is deliberately **no `matches(_ rule: AutomationRule, …)` here.** One existed, and it
-    // was a careful thing: it dropped a destination template at its first `{token}` and admitted a
-    // rule whose literal prefix was inside the scope *or an ancestor of it*, on the argument that
-    // hiding a rule about to write into the folder you are looking at is the expensive direction.
-    //
-    // It answered the wrong question. Scoped to the loose-files inbox — the sticky one-click scope
-    // Organize's own overview offers — every rule's destination is `Finance/…`, `Medical/…`,
-    // `Legal/…`, none of which is comparable with `TODO`, so the generous predicate hid all eight
-    // rules and the one rail item that cannot say "nothing here" said it. The scope narrows
-    // *findings*, and rules are configuration; that distinction now lives on the lens itself, as
-    // `OrganizeLens.isScoped`, beside the `carriesBadge` rule it is the twin of. See ROADMAP 15.
+    // There is deliberately no `matches(_ rule: AutomationRule, …)` here: the scope narrows
+    // findings, and rules are configuration. Filtering rules by destination would hide them all
+    // under a scope like the `TODO` inbox, whose rules all write elsewhere. The distinction lives
+    // on the lens, as `OrganizeLens.isScoped`, beside its twin `carriesBadge`.
 }

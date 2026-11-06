@@ -4,15 +4,10 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// **A document survey reads the profile's own folder, whatever it was asked about.**
-///
-/// What it learns is keyed by paths relative to the folder it walks, and To File reads that memory
-/// by the profile's folder paths — so a survey of any other folder writes a memory that lines up
-/// with nothing, under the profile's name. It was asked with Organize's scope, or failing that the
-/// focused pane's current folder: a first reading started from setup while the pane sat on another
-/// source spent hours on the wrong tree, and the next Refresh — which has walked the profile's own
-/// folder since P70 — then read nearly all of it as gone. Started inside a subfolder, it keyed
-/// every document a level off until a Refresh re-keyed what it could match by size and date.
+/// A document survey reads the profile's own folder, whatever it was asked about. What it learns
+/// is keyed by paths relative to the folder it walks, and To File reads that memory by the
+/// profile's paths, so surveying any other folder (another source, or a subfolder) writes a
+/// memory that lines up with nothing, and the next Refresh reads nearly all of it as gone.
 ///
 /// The sibling of `FilingResurveyTests`' "the profile's own folder" cases, on the same fixture.
 @Suite @MainActor struct DocumentSurveyFolderTests {
@@ -32,10 +27,9 @@ import EventsTestSupport
         return elsewhere
     }
 
-    /// **Asked about another folder, it plans, reads and records the profile's.** Every artifact
-    /// is checked, because each one was wrong: the plan listed the other folder's documents, the
-    /// run opened them, the corpus was keyed by them, and the memory and the receipt both named
-    /// that folder.
+    /// Asked about another folder, it plans, reads and records the profile's. Every artifact is
+    /// checked, since each can go wrong on its own: the plan, the documents opened, the corpus
+    /// keys, and the root the memory and the receipt name.
     @Test func aSurveyAskedAboutAnotherFolderReadsTheProfilesOwn() async throws {
         let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -60,11 +54,10 @@ import EventsTestSupport
         #expect(report.rootPath == docs.path, "the receipt describes another folder")
     }
 
-    /// **The spelling real profiles use.** Every profile on disk records `~/Documents` and every
-    /// fixture here an absolute path, so a survey that took the recorded root without expanding the
-    /// tilde would resolve it against the working directory and refuse every real reading with all
-    /// of the above green. Spelled through `~` and back down to the temp folder, and asked about
-    /// another folder, so only the expansion makes the plan come out right.
+    /// Real profiles record `~/Documents`, while the fixtures use absolute paths, so a survey that
+    /// skipped expanding the tilde would resolve it against the working directory and refuse every
+    /// real reading with the test above green. Spelled through `~` back down to the temp folder,
+    /// and asked about another folder, so only the expansion makes the plan come out right.
     @Test func aRootRecordedThroughTheTildeIsExpandedAndSurveyed() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -83,16 +76,14 @@ import EventsTestSupport
                 && reads.paths.allSatisfy { $0.contains("/Documents/") }, "\(reads.paths)")
     }
 
-    /// **A profile that does not say which folder it describes is not surveyed.** Its file has no
-    /// `root`, which decodes as `~` — a placeholder, not a record — and a first reading of the
-    /// whole home folder under that guess is hours spent writing a memory keyed to the wrong tree.
-    /// A root that is not absolute once `~` is expanded is refused the same way: it would resolve
-    /// against the working directory. Refresh refuses both, since P70.
+    /// A profile that doesn't say which folder it describes is not surveyed. No `root` decodes as
+    /// `~`, a placeholder, and reading the whole home folder on that guess spends hours on a
+    /// memory keyed to the wrong tree. A root that isn't absolute once `~` is expanded is refused
+    /// too: it would resolve against the working directory. Refresh refuses both.
     ///
-    /// The probe is tiny and the confirmer declines, so a regression that does walk a guessed
-    /// folder asks about it here and stops before it opens a document — which is also what marks
-    /// the old behaviour, that walked the folder it was asked about. The refusal is read off the
-    /// log by the sentence only this pass writes; Refresh's names the same two failures.
+    /// The probe is tiny and the confirmer declines, so a walk of a guessed folder asks here and
+    /// stops before opening a document. The refusal is read from the log by the sentence only this
+    /// pass writes; Refresh's names the same two failures.
     @Test(arguments: [(#"{"profileId": "t", "folders": []}"#,
                        "does not record which folder it describes"),
                       (#"{"profileId": "t", "root": "Documents", "folders": []}"#,

@@ -15,9 +15,8 @@ import Foundation
         #expect(MaterializationStatus.isDataless(flags: 0x2000_0000) == false)
     }
 
-    /// Exhaustive single-bit sweep: of all 32 st_flags bits, ONLY bit 30 (SF_DATALESS,
-    /// 0x4000_0000) may read as dataless — a mask typo (0x2000_0000, a >>/<< slip, a signed
-    /// shift artifact on bit 31) flips exactly one cell of this table.
+    /// Of all 32 `st_flags` bits, only bit 30 (`SF_DATALESS`, 0x4000_0000) may read as dataless. A
+    /// mask typo, a shift slip or a signed-shift artifact on bit 31 flips one cell of this table.
     @Test func onlyTheDatalessBitReadsAsDataless() {
         for bit in 0..<32 {
             let flag = UInt32(1) << UInt32(bit)
@@ -40,19 +39,17 @@ import Foundation
         #expect(MaterializationStatus.isCloudOnly(atPath: "/no/such/file-\(UUID().uuidString)") == false)
     }
 
-    /// A path that cannot be statted has no answer, and that is different from "not a placeholder".
-    ///
-    /// The two used to be the same `false`, which made a file deleted mid-download read as
-    /// materialized to `CloudDownloadPoll`. Every other caller is deciding whether to READ a file
-    /// and wants the two-way form, so `isCloudOnly` keeps its contract and folds nil to false.
+    /// A path that can't be statted has no answer, which differs from "not a placeholder":
+    /// otherwise a file deleted mid-download reads as materialized to `CloudDownloadPoll`. Every
+    /// other caller is deciding whether to read a file, so `isCloudOnly` folds nil to false.
     @Test func anUnstattablePathHasNoAnswer() {
         let gone = "/never-existed-\(UUID().uuidString)/file.bin"
         #expect(MaterializationStatus.isCloudOnlyIfKnown(atPath: gone) == nil)
         #expect(MaterializationStatus.isCloudOnly(atPath: gone) == false)
     }
 
-    /// And a file that IS there answers definitely — false, since nothing a test can create carries
-    /// `SF_DATALESS` (an `SF_` flag `chflags` refuses to anyone but root).
+    /// A file that is there answers definitely: false, since nothing a test can create carries
+    /// `SF_DATALESS` (`chflags` refuses it to anyone but root).
     @Test func aLocalFileAnswersDefinitely() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("MaterializationStatus-\(UUID().uuidString)")
@@ -66,15 +63,15 @@ import Foundation
 
     // MARK: linkTarget — the file a door asks about (TE206)
 
-    /// The inode `lstat` reports for `path` — the link's own for a link, so "is this the file"
-    /// cannot be satisfied by a link to it, whichever way either is spelled.
+    /// The inode `lstat` reports for `path`: the link's own for a link, so "is this the file" can't
+    /// be satisfied by a link to it, however either is spelled.
     private static func inode(_ path: String) -> UInt64? {
         var info = stat()
         return lstat(path, &info) == 0 ? UInt64(info.st_ino) : nil
     }
 
-    /// **A link answers the file it points to** — directly, relatively, and through a chain — and
-    /// that file's `lstat` is the one that sees its flags, where the link's never can.
+    /// A link answers the file it points to (directly, relatively, and through a chain), and that
+    /// file's `lstat` is the one that sees its flags; the link's never can.
     @Test func aLinkAnswersTheFileItPointsTo() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LinkTarget-\(UUID().uuidString)")
@@ -98,9 +95,9 @@ import Foundation
         }
     }
 
-    /// **Every other path comes back exactly as spelled** — an ordinary file, one reached through
-    /// a folder link higher up (which `lstat` already follows), `realpath`'s spelling, and a
-    /// path with nothing there. A door's own comparisons and keys depend on that.
+    /// Every other path comes back exactly as spelled: an ordinary file, one reached through a
+    /// folder link higher up (which `lstat` already follows), `realpath`'s spelling, and a path with
+    /// nothing there. A door's own comparisons and keys depend on that.
     @Test func everyOtherPathComesBackAsSpelled() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LinkTarget-\(UUID().uuidString)")
@@ -112,7 +109,7 @@ import Foundation
         try FileManager.default.createSymbolicLink(atPath: dir.appendingPathComponent("folder").path,
                                                    withDestinationPath: dir.appendingPathComponent("real").path)
         let throughFolderLink = dir.appendingPathComponent("folder/file.md").path
-        // `realpath`'s spelling — `/private/var/…` where the temporary folder is `/var/…`.
+        // `realpath`'s spelling: `/private/var/…` where the temporary folder is `/var/…`.
         let raw = try #require(realpath(file, nil))
         defer { free(raw) }
         let privateSpelling = String(cString: raw)
@@ -125,8 +122,8 @@ import Foundation
         }
     }
 
-    /// **A dangling link answers no file** — nothing a door can stat as present, so it goes on to
-    /// fail its read rather than to read anything.
+    /// A dangling link answers no file, so a door goes on to fail its read rather than read
+    /// anything.
     @Test func aDanglingLinkAnswersNoFile() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("LinkTarget-\(UUID().uuidString)")

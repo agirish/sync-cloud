@@ -2,13 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Restructure's own listings ask a cloud-only folder through the bounded reads (FR21).**
-///
-/// The plan view (`RestructureTreeView.fromDisk`, `contentsOfDirectory` on the main actor) and the
-/// landing's two listings (`visibleFileCount`, `directoryNames`, inside the file queue) read the
-/// disk with APIs of their own, so none of them went through `DatalessFolderReads`: a folder whose
-/// app has stopped hung the plan sheet, or wedged a landing and every operation queued behind it.
-/// Each must come back within the reads' deadline and call the folder UNREADABLE — never empty.
+/// Restructure's own listings ask a cloud-only folder through the bounded reads. The plan view
+/// (`RestructureTreeView.fromDisk`, `contentsOfDirectory` on the main actor) and the landing's two
+/// listings (`visibleFileCount`, `directoryNames`, inside the file queue) read the disk with APIs
+/// of their own, so each must go through `DatalessFolderReads`, or a folder whose app has stopped
+/// hangs the plan sheet or wedges a landing and everything queued behind it. Each must come back
+/// within the reads' deadline and call the folder unreadable, never empty.
 @Suite struct RestructureUnansweredFolderTests {
 
     /// Runs `body` on a thread of its own and waits at most `bound` for its answer — so a listing
@@ -100,9 +99,9 @@ import Testing
         return (root, RestructureTreeView.fromDisk(root: root, fileManager: .default, contentsFrom: disk))
     }
 
-    /// **A pair's destination that does not answer is refused, not moved onto as absent.** The
-    /// whole-move branch read "no listing" as "nothing of that name stands there" and planned the
-    /// source onto a folder that is there — whose apply then skips as drift, or nests.
+    /// A pair's destination that does not answer is refused, not moved onto as absent. Reading "no
+    /// listing" as "nothing of that name stands there" would plan the source onto a folder that is
+    /// there, whose apply then skips as drift, or nests.
     @Test(.parksAThread) func aPairMergeOntoADestinationThatDoesNotAnswerIsRefused() async throws {
         let gate = ParkGate()
         defer { gate.release.signal() }
@@ -117,9 +116,9 @@ import Testing
         #expect(result == .failure(.unknownFiles(source: "Work/Acme/Badge")), "\(result)")
     }
 
-    /// **A mapped merge into a standing target that does not answer is refused, not merged into
-    /// as empty.** The target's files were read as `[]`, so a source file of a name the target
-    /// already holds was planned as no collision.
+    /// A mapped merge into a standing target that does not answer is refused, not merged into as
+    /// empty: read as `[]`, a source file of a name the target already holds would be planned as no
+    /// collision.
     @Test(.parksAThread) func aMappedMergeIntoATargetThatDoesNotAnswerIsRefused() async throws {
         let gate = ParkGate()
         defer { gate.release.signal() }
@@ -136,8 +135,8 @@ import Testing
     }
 
     /// One level down, the same: a subfolder the target already holds, merged into because the
-    /// source has one of that name, is read before files are planned into it — not taken as empty,
-    /// which planned `claim.pdf` in as no collision onto a `claim.pdf` already there.
+    /// source has one of that name, is read before files are planned into it. Taken as empty, it
+    /// would plan `claim.pdf` in as no collision onto a `claim.pdf` already there.
     @Test(.parksAThread) func aMergeIntoASubfolderThatDoesNotAnswerIsRefused() async throws {
         let gate = ParkGate()
         defer { gate.release.signal() }

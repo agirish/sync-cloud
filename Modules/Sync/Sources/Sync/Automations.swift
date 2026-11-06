@@ -1,20 +1,18 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// N2 Automations — the rule model. An automation is a small, readable sentence a user authors
-/// once (or teaches by example): *when a loose file matches these on-device conditions, it belongs
-/// in this folder.* A rule acts in two places: it steers the Organize scan's suggestions, and the
-/// Automations lens dry-runs it over a folder and then files the matches you confirm — nothing
-/// ever moves without that confirmation. Every condition is answered by a local signal (path,
-/// filename glob, UTType, file size, modification date, or on-device text) so a rule is
-/// deterministic, private, and free — no Claude Cloud classifier is ever consulted on the
-/// automation path.
+/// The Automations rule model. An automation is a readable sentence a user writes once (or teaches
+/// by example): *when a loose file matches these on-device conditions, it belongs in this folder.*
+/// It steers the Organize scan's suggestions, and the Automations lens dry-runs it and files only
+/// the matches the user confirms. Every condition is answered locally (path, filename glob, UTType,
+/// size, modification date, on-device text), so a rule is deterministic, private and free: no
+/// Claude Cloud classifier is ever consulted here.
 
 // MARK: - File kind
 
-/// A coarse file family a rule can match, derived purely from the file's extension via `UTType`
-/// (offline, deterministic). Deliberately coarse — the palette offers "kind is an image", not a
-/// long UTI list — because that is what a person reasons about.
+/// A coarse file family a rule can match, derived from the file's extension via `UTType`.
+/// Deliberately coarse ("kind is an image", not a UTI list), because that is what a person
+/// reasons about.
 public enum FileKind: String, Codable, Sendable, CaseIterable, Hashable, Identifiable {
     case image, pdf, video, audio, archive, document
 
@@ -38,8 +36,8 @@ public enum FileKind: String, Codable, Sendable, CaseIterable, Hashable, Identif
         switch self {
         case .image: return [.image]
         case .pdf: return [.pdf]
-        // `.movie` only — deliberately NOT `.audiovisualContent`, which `public.audio` also conforms
-        // to, so an mp3/m4a would otherwise classify as video (and `.of` checks video before audio).
+        // `.movie` only, not `.audiovisualContent`, which `public.audio` also conforms to: an mp3
+        // would classify as video, since `.of` checks video before audio.
         case .video: return [.movie]
         case .audio: return [.audio]
         case .archive: return [.archive, .gzip, .zip]
@@ -51,8 +49,8 @@ public enum FileKind: String, Codable, Sendable, CaseIterable, Hashable, Identif
         }
     }
 
-    /// Whether a file with the given extension is of this kind. Extension-driven so it stays pure
-    /// (no disk access) and works even for evicted cloud files whose bytes aren't local.
+    /// Whether a file with the given extension is of this kind. By extension, so it needs no disk
+    /// access and works for evicted cloud files.
     public func matches(fileExtension ext: String) -> Bool {
         guard let type = UTType(filenameExtension: ext.lowercased()) else { return false }
         return matchingTypes.contains { type.conforms(to: $0) }
@@ -72,10 +70,9 @@ public enum FileKind: String, Codable, Sendable, CaseIterable, Hashable, Identif
 
 // MARK: - Condition
 
-/// One on-device test a rule can apply to a file. Combined with ``AutomationRule/MatchMode``
-/// (all/any). Every case is answerable locally; ``requiresContent`` marks the one case that needs
-/// the file's text read (PDFKit / Vision OCR / plain text), so the evaluator only pays that cost
-/// when a rule actually asks for it.
+/// One on-device test a rule can apply to a file, combined by ``AutomationRule/MatchMode``.
+/// ``requiresContent`` marks the cases that may need the file's text read (PDFKit, Vision OCR,
+/// plain text), so the evaluator pays that cost only when a rule asks for it.
 public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// The file's immediate parent folder is named this (case-insensitive). "Location".
     case folderNamed(String)
@@ -90,52 +87,36 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// The file's on-device text contains this term (case-insensitive substring of the extracted
     /// excerpt).
     case contentContains(String)
-    /// The file *mentions* every one of these canonical tokens — in its name or its on-device text.
-    /// This is the learned-by-example condition remembered filing rules (F3) migrated into: tokens
-    /// are produced by ``FilingEngine/nameTokens(_:)`` (lowercased, stopwords dropped) and matching
-    /// is a subset test against the file's name ∪ content tokens, exactly as F3 matched.
+    /// The file *mentions* every one of these canonical tokens, in its name or its on-device text.
+    /// The learned-by-example condition: tokens come from ``FilingEngine/nameTokens(_:)``
+    /// (lowercased, stopwords dropped), matched as a subset of the file's name ∪ content tokens.
     case mentionsAll([String])
-    /// The file mentions **any one of these phrases** — each phrase being canonical tokens joined by
-    /// a space ("japan airlines"), matched as ``mentionsAll`` matches its tokens. A rule taught from
-    /// a chat correction (TE286, decision HF) keys on this: JAL is one airline, and the rule is for
-    /// every airline's ticket.
+    /// The file mentions any one of these phrases, each canonical tokens joined by a space ("japan
+    /// airlines") and matched as ``mentionsAll`` matches. A rule taught from a chat correction keys
+    /// on this: JAL is one airline, and the rule is for every airline's ticket.
     case mentionsAny([String])
-    /// The document is **about this person** — the household member whose registry id this is.
-    ///
-    /// Keyed on the id rather than on a name, deliberately: `Person.id` survives a rename and the
-    /// addition of a name variant, so a rule taught today keeps working when "Mother Inlaw Maiden"
-    /// is added to her record tomorrow. A word-based rule cannot — and could not be written safely
-    /// in the first place, since `father` is one person's given name and three others' surname.
+    /// The document is about this person: the household member with this registry id. Keyed on
+    /// the id, which survives a rename or a new name variant; a name word can't be keyed safely,
+    /// since it can be one person's given name and others' surname.
     case personIs(String)
-    /// A condition written by a **newer build** of the app, preserved verbatim.
-    ///
-    /// **Not a real condition — a survival mechanism.** Rules are persisted as one JSON blob, and
-    /// the synthesized enum decoder throws on an unknown case name, which took the *whole array*
-    /// with it: every rule vanished from the UI and the next edit wrote the empty set back over
-    /// them. Keeping the raw payload means an unknown condition round-trips through this build
-    /// untouched, and `isComplete` being false means it never silently matches anything.
+    /// A condition written by a newer build, preserved verbatim. Rules are persisted as one JSON
+    /// blob, and failing on an unknown case would take the whole array with it, so the next edit
+    /// would write the empty set over every rule. This round-trips untouched, and since it is never
+    /// `isComplete` it never matches anything.
     case unrecognized(name: String, payload: Data)
 
-    /// True for conditions that may need the file's text extracted. Used to defer the expensive
-    /// read. `mentionsAll` counts: a token can be satisfied by content when the name alone misses.
+    /// True for conditions that may need the file's text extracted, so the expensive read can be
+    /// deferred. `mentionsAll` counts: content can supply a token the name lacks.
     ///
-    /// **Written out case by case, with no `default:`, deliberately.** This value is what gates
-    /// building the snippet extractor at all, so a content-reading condition that answers `false`
-    /// here is never given any text to read: the rule shows a green "runnable" pill and then
-    /// matches no file, ever — no error, no log line. A `default:` makes that the automatic fate of
-    /// the next case anyone adds. Its sibling ``AutomationEvaluator/matches(_:_:now:)`` is
-    /// exhaustive for the same reason, and that is exactly why a new case gets *answered* there and
-    /// silently mis-answered here. Adding a case must break the build; leave this switch total.
+    /// **Keep this switch total, with no `default:`.** It gates whether a snippet is extracted at
+    /// all, so a content condition answering `false` here gets no text and matches nothing, with
+    /// no error or log line, while its rule shows as runnable. Adding a case must break the build.
     ///
-    /// **`personIs` deliberately does NOT**, and that is a judgement rather than an oversight: a
-    /// document that is about someone almost always says so in its name, and making every person
-    /// rule force a text extraction over a whole inbox would spend seconds per scan to catch the
-    /// minority case. Content still counts where it has already been read — see
-    /// ``PersonRegistry/attribute(fileName:pageSample:)``.
-    ///
-    /// **`unrecognized` answers `false`, and cannot be wrong either way**: it is never
-    /// ``isComplete``, and ``AutomationRule/requiresContent`` only asks complete conditions, so a
-    /// condition from a newer build never reaches this question in production.
+    /// `personIs` is `false` on purpose: a document about someone almost always says so in its
+    /// name, and forcing text extraction for every person rule costs seconds per scan. Content
+    /// already read still counts (``PersonRegistry/attribute(fileName:pageSample:)``).
+    /// `unrecognized` is never ``isComplete``, and ``AutomationRule/requiresContent`` asks only
+    /// complete conditions, so its answer never matters.
     public var requiresContent: Bool {
         switch self {
         case .contentContains, .mentionsAll, .mentionsAny: return true
@@ -168,18 +149,17 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             guard !cleaned.isEmpty else { return "mentions any of …" }
             return "mentions any of " + cleaned.map { "“\($0)”" }.joined(separator: ", ")
         case .personIs(let id):
-            // The id, not a display name: this type has no roster to look one up in, and a
-            // summary that guessed would go stale the moment a person was renamed. The editor and
-            // the rule list substitute the name they know — see `summary(resolvingPeople:)`.
+            // The id, not a display name: this type has no roster. The editor and rule list
+            // substitute the name (`summary(resolvingPeople:)`).
             return "is \(id.isEmpty ? "…" : id)’s document"
         case .unrecognized(let name, _):
             return "\(name) (from a newer version)"
         }
     }
 
-    /// The same sentence with person ids replaced by the names on the roster — "is Daughter's
-    /// document". Falls back to the id when the roster does not know them, which is what a rule
-    /// pointing at a deleted person should look like: visible, not silently blank.
+    /// The same sentence with person ids replaced by the roster's names: "is Daughter's document".
+    /// Falls back to the id for an unknown person, so a rule pointing at a deleted person stays
+    /// visible rather than blank.
     public func summary(resolvingPeople registry: PersonRegistry?) -> String {
         guard case .personIs(let id) = self, let registry else { return summary }
         guard let person = registry.people.first(where: { $0.id == id }) else {
@@ -208,8 +188,8 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         }
     }
 
-    /// A stable key for the condition's *type* (not its value) — lets the editor offer a type
-    /// picker and swap the associated value while keeping the row.
+    /// A stable key for the condition's *type* (not its value), so the editor can offer a type
+    /// picker and swap the value while keeping the row.
     public var kindKey: String {
         switch self {
         case .folderNamed: return "folderNamed"
@@ -229,10 +209,9 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
 // MARK: - Persistence that survives a version it does not know
 
 extension AutomationCondition {
-    /// The wire shape is **exactly what Swift synthesized before this existed** — a single-key
-    /// object whose key is the case name and whose value is `{"_0": <payload>}`. Written by hand
-    /// only so that decoding an unknown key can be survivable; every byte an older build wrote
-    /// still decodes here, and every byte this writes still decodes there.
+    /// The wire shape is exactly Swift's synthesized one: a single-key object, the case name, whose
+    /// value is `{"_0": <payload>}`. Hand-written only so an unknown key survives decoding; older
+    /// and newer builds read each other's bytes.
     private struct AnyKey: CodingKey {
         let stringValue: String
         var intValue: Int? { nil }
@@ -247,36 +226,24 @@ extension AutomationCondition {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                 debugDescription: "Expected exactly one condition key, found \(c.allKeys.count)"))
         }
-        // A condition name this build knows but whose PAYLOAD it cannot read takes the same route as
-        // a name it does not know at all. The gap this closes is `kindIs`: `FileKind` is a raw-value
-        // enum decoded strictly here, so a kind added by a newer build threw out of this
-        // initializer, and `AutomationRule` then had to carry the whole `conditions` array as
-        // unreadable — costing the rule every OTHER condition's meaning too. Degrading one condition
-        // is the narrower answer, and the mechanism for it already existed one branch below; only
-        // unknown NAMES were being routed into it.
-        //
-        // **The container itself is asked for with `try?`, and that is the second half of the same
-        // gap.** A payload that is not an object at all — `{"kindIs":"pdf"}`, the shape a newer
-        // build gets by flattening the wire format — makes `nestedContainer` throw, and it threw
-        // from OUTSIDE the recovery, so the narrowing above did not apply to it and the whole array
-        // was carried as unreadable again. `RawPayload` holds any JSON value, so the recovery could
-        // always represent this; it was only being reached too late.
+        // A known name whose payload can't be read (say a `FileKind` a newer build added) degrades
+        // to `.unrecognized` like an unknown name, so only this condition is lost, not the whole
+        // `conditions` array. The container is asked for with `try?` too: a payload that isn't an
+        // object (`{"kindIs":"pdf"}`) makes `nestedContainer` throw, and must reach the same
+        // recovery.
         if let payload = try? c.nestedContainer(keyedBy: PayloadKey.self, forKey: key),
            let recognized = try? Self.recognized(name: key.stringValue, payload: payload) {
             self = recognized
         } else {
-            // Kept as bytes so it can be written back untouched — but not because bytes are
-            // inherently safer: `RawPayload` produces them by round-tripping a `JSONFragment`, so
-            // whatever that type can express is exactly what survives here. The claim this comment
-            // used to make ("the raw data cannot drift") was therefore about a property the code
-            // did not have; it holds now because `JSONFragment` keeps integers as integers.
+            // Kept as bytes to be written back untouched. `RawPayload` makes them by round-tripping
+            // a `JSONFragment`, so it survives exactly what that type can express.
             let raw = try c.decode(RawPayload.self, forKey: key)
             self = .unrecognized(name: key.stringValue, payload: raw.data)
         }
     }
 
-    /// The case for a name this build knows, or nil for one it does not. THROWING means "this is my
-    /// case but I cannot read its payload", which the caller treats exactly like an unknown name.
+    /// The case for a name this build knows, or nil for one it doesn't. Throwing means "my case, but
+    /// an unreadable payload", which the caller treats like an unknown name.
     private static func recognized(name: String,
                                    payload: KeyedDecodingContainer<PayloadKey>) throws -> AutomationCondition? {
         switch name {
@@ -316,9 +283,8 @@ extension AutomationCondition {
 
     /// Carries an arbitrary JSON value through decode and encode without interpreting it.
     ///
-    /// "Without interpreting" is true of the SHAPE and, since `JSONFragment` gained its integer
-    /// case, of the values too: this stores the bytes that fragment re-encodes to, so a payload is
-    /// only as faithful as that type is.
+    /// It stores the bytes a `JSONFragment` re-encodes to, so a payload is only as faithful as that
+    /// type.
     private struct RawPayload: Codable {
         let data: Data
         init(data: Data) { self.data = data }
@@ -336,10 +302,9 @@ extension AutomationCondition {
 
 // MARK: - Rule
 
-/// A single automation. `destinationTemplate` is **provider-relative** (e.g.
-/// `Documents/Invoices/{year}`) — resolved against whichever provider root the preview runs over —
-/// so a rule is portable across providers rather than pinned to one absolute path (unlike
-/// ``FilingRule``, which stores an absolute, provider-scoped destination).
+/// A single automation. `destinationTemplate` is provider-relative (`Documents/Invoices/{year}`),
+/// resolved against whichever provider root the preview runs over, so a rule is portable across
+/// providers (unlike ``FilingRule``, which stores an absolute destination).
 public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashable {
     public var id: UUID
     /// A short human name, e.g. "Invoices". Labels the rule everywhere it appears.
@@ -352,23 +317,18 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
     /// Provider-relative destination folder, may contain tokens (see ``AutomationEvaluator``).
     public var destinationTemplate: String
     /// The folder survey's root the destination is relative to, for a rule taught by a correction
-    /// in Ask Claude (TE286): such a rule acts only in that tree, and is inert in every other
-    /// source's scan, as an absolute rule is outside its own. Nil — every rule written before this,
-    /// and every rule made by hand — resolves against whichever tree is scanned.
+    /// in Ask Claude: such a rule acts only in that tree and is inert elsewhere, as an absolute rule
+    /// is outside its own. Nil (older and hand-made rules) resolves against whichever tree is
+    /// scanned.
     public var surveyRoot: String?
 
-    /// Top-level keys this build has **no case for**, kept verbatim so a round-trip through it is
-    /// not a silent downgrade of the user's data. Harmless: a rule carrying one still runs, because
-    /// everything this build needs in order to evaluate it is present and understood.
+    /// Top-level keys this build has no case for, kept verbatim so a round-trip doesn't silently drop
+    /// the user's data. A rule carrying one still runs: everything this build needs is understood.
     private var unknownFields: [String: JSONFragment]
-    /// Keys this build **does** know but whose value it could not read — a `matchMode` a newer build
-    /// added, a `conditions` array holding something this build has no case for.
-    ///
-    /// Two things follow, and both matter. The value is kept exactly as it arrived and written back
-    /// in place of the default that was substituted, so opening the file here does not destroy what
-    /// a newer build wrote. And the rule is never ``isRunnable``: a rule whose meaning is only
-    /// partly known must not act, because the part that is missing is precisely the part that says
-    /// which files it claims.
+    /// Keys this build knows but whose value it couldn't read, such as a newer build's `matchMode`.
+    /// The value is written back in place of the substituted default, so opening the file here
+    /// doesn't destroy what a newer build wrote. And the rule is never ``isRunnable``: the missing
+    /// part is what says which files it claims.
     private var unreadableFields: [String: JSONFragment]
 
     public enum MatchMode: String, Codable, Sendable, CaseIterable, Identifiable {
@@ -398,11 +358,9 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         self.unreadableFields = [:]
     }
 
-    /// A rule is runnable only when it has a name, a destination, and conditions the
-    /// evaluator can actually satisfy: ANY-OF needs at least one complete condition; ALL-OF
-    /// needs EVERY condition complete — matches() proves "all" over nothing less, so an
-    /// all-of rule with a half-built row is inert and must read as incomplete everywhere
-    /// (card pill, preview gating, runnable count) rather than promising its complete half.
+    /// A rule is runnable only with a name, a destination, and conditions the evaluator can satisfy:
+    /// ANY-OF needs one complete condition, ALL-OF needs every one. An all-of rule with a half-built
+    /// row matches nothing, so it must read as incomplete everywhere (pill, preview, count).
     ///
     /// A rule carrying a value this build could not read is never runnable — see
     /// ``unreadableFields``.
@@ -416,16 +374,13 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         }
     }
 
-    /// True when the rule carries a value written by a build that knows more than this one.
-    ///
-    /// Such a rule is deliberately never ``isRunnable``, and this is how a surface tells that apart
-    /// from an ordinary half-built rule — which reads completely differently to a person. "Give the
-    /// rule a condition and destination" is the wrong advice for a rule that already has both, and
-    /// sends the user hunting for something that is not missing.
+    /// True when the rule carries a value written by a build that knows more than this one. Such a
+    /// rule is never ``isRunnable``, and this tells it apart from a half-built rule, so the user
+    /// isn't told to add a condition and destination it already has.
     public var hasUnreadableValues: Bool { !unreadableFields.isEmpty }
 
-    /// True when any (complete) condition reads file text — the preview then fetches a snippet —
-    /// or the destination is named from page 1 (`{travel-month}`, TE286).
+    /// True when any complete condition reads file text (the preview then fetches a snippet), or the
+    /// destination is named from page 1 (`{travel-month}`).
     public var requiresContent: Bool {
         conditions.contains { $0.requiresContent && $0.isComplete } || destinationReadsContent
     }
@@ -458,29 +413,20 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
 
 // MARK: - Persistence that survives a version it does not know
 
-/// The rules are persisted as **one JSON blob under one key**, which is what makes every question
-/// here all-or-nothing: a single value this build cannot read throws out of the array decode, every
-/// rule disappears from the UI, and the next rule the user creates writes the empty set back over
-/// them. `FileSyncManager.readPersistedStore` keeps the undecodable bytes under a sibling key, but
-/// that is a floor — nothing in the app offers them back.
+/// The rules are persisted as one JSON blob under one key, so a single value this build can't
+/// read would fail the whole array decode, and the next save would write the empty set over every
+/// rule. (`FileSyncManager.readPersistedStore` keeps undecodable bytes under a sibling key, but
+/// nothing offers them back.) So this decoder loses at most the one value it can't read:
 ///
-/// So this decoder is written to lose at most the one value it cannot read:
+/// - A key this build doesn't know is kept verbatim and written back on the next save.
+/// - A key it expects but doesn't find falls back to the initializer's default, as ``FilingRule``
+///   and ``PaneTabsStore/Entry`` do.
+/// - A `matchMode` it can't evaluate is preserved and the rule made inert: guessing `all` or `any`
+///   would file by a rule the user never wrote.
 ///
-/// - **A key this build does not know is kept verbatim** and written back on the next save. Editing
-///   a rule in an older build is then not a silent downgrade of data a newer one wrote.
-/// - **A key this build expects but does not find falls back** to the initializer's own default,
-///   rather than taking the array with it — the shape ``FilingRule`` and ``PaneTabsStore/Entry``
-///   already use, and for the same reason.
-/// - **A `matchMode` this build cannot evaluate is preserved and the rule made inert.** Guessing
-///   `all` or `any` would file the user's files by a rule they never wrote.
-///
-/// **There is deliberately no `schemaVersion`,** which is the one thing this store is missing that
-/// its seven siblings have. A version number is only worth what the code does with it, and the two
-/// useful jobs are already covered: telling a shape apart is what the tolerance above does per
-/// field, and refusing to act on a shape this build does not understand is what
-/// ``AutomationRule/isRunnable`` does per rule. Stamping a number that nothing reads is the pattern
-/// `PersonTag` was faulted for. Should a future build want one, it can add the key and this build
-/// will carry it through untouched — which is precisely the point of the unknown-field bag.
+/// There is deliberately no `schemaVersion`: the per-field tolerance and
+/// ``AutomationRule/isRunnable`` already do what one would, and a future build can add the key and
+/// this one will carry it through untouched.
 extension AutomationRule {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -501,12 +447,9 @@ extension AutomationRule {
         let c = try decoder.container(keyedBy: AnyKey.self)
         var unreadable: [String: JSONFragment] = [:]
 
-        /// One known field. Absent is not the same as unreadable, and the difference is the whole
-        /// design: an absent key takes the initializer's own default and costs nothing, while a key
-        /// that is THERE and cannot be read is carried verbatim — otherwise this build substitutes
-        /// a default, the next save writes that default over the real value, and the user's rule is
-        /// quietly destroyed by a build that only opened it. Nothing here throws, which is the
-        /// property that matters: the array decode can no longer fail on one rule's one bad field.
+        /// One known field. Absent takes the initializer's default; present but unreadable is
+        /// carried verbatim, or the next save would write the default over the real value. Nothing
+        /// here throws, so the array decode can't fail on one rule's bad field.
         func value<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
             let anyKey = AnyKey(key)
             guard c.contains(anyKey) else { return nil }
@@ -550,40 +493,33 @@ extension AutomationRule {
         try c.encode(destinationTemplate, forKey: AnyKey(.destinationTemplate))
         // Only when set, so a rule without one writes the bytes it always did.
         if let surveyRoot { try c.encode(surveyRoot, forKey: AnyKey(.surveyRoot)) }
-        // LAST, deliberately: these overwrite the defaults substituted above, so what goes back to
-        // disk for a field this build could not read is what came off it.
+        // Last, so these overwrite the defaults substituted above: a field this build couldn't read
+        // goes back to disk as it came off it.
         for (name, fragment) in unreadableFields.sorted(by: { $0.key < $1.key }) {
             try c.encode(fragment, forKey: AnyKey(name))
         }
     }
 }
 
-/// The smallest JSON value model that can hold anything this build does not recognise — a future
+/// The smallest JSON value model that can hold anything this build doesn't recognise: a future
 /// condition's payload (``AutomationCondition/unrecognized``) or a rule field it has no case for.
-/// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
-/// struct and be written back through whatever encoder the caller is using.
+/// A value, not raw `Data`, because it sits inside a `Codable`, `Hashable` struct and is written
+/// back through the caller's encoder.
 public indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
     case null, bool(Bool), integer(Int), unsignedInteger(UInt64), number(Double), string(String)
     case array([JSONFragment]), object([String: JSONFragment])
 
-    /// **`integer` is tried before `number`, and it is not tidiness.** Holding every JSON number as
-    /// `Double` silently rewrites any integer past 2^53 — measured, `9007199254740993` came back
-    /// out as `9007199254740992` — and a nanosecond timestamp is nineteen digits, so the range is
-    /// reachable rather than theoretical. A type whose entire contract is "carry this back
-    /// untouched" must not be the thing that alters it. Everything else round-trips as it arrived,
-    /// also measured: `7` stays `7` (not `7.0`) and is still `Int`-decodable, `true` decodes as a
-    /// Bool rather than as 1, and nesting survives.
+    /// `integer` is tried before `number`: as `Double`, any integer past 2^53 is silently rewritten
+    /// (`9007199254740993` becomes `…992`), and a nanosecond timestamp reaches that range. `7` stays
+    /// `7`, not `7.0`, and `true` decodes as a Bool, not 1.
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
         else if let v = try? c.decode(Int.self) { self = .integer(v) }
-        // Above `Int64.max` and still integral — a 20-digit id, a `UInt64` hash. `Int` refuses it
-        // and `Double` accepts it lossily, which is the same rewrite the `integer`-before-`number`
-        // ordering exists to prevent, one range further out: 18446744073709551615 came back as
-        // 18446744073709552000. Beyond `UInt64.max` it degrades to `Double` as before, which is a
-        // real residual and is stated rather than papered over — carrying arbitrary-precision
-        // integers would mean keeping the source token, which `Codable` does not hand us.
+        // Above `Int64.max` and still integral (a 20-digit id, a `UInt64` hash): `Double` would
+        // rewrite it. Beyond `UInt64.max` it still degrades to `Double`; keeping it exact would
+        // need the source token, which `Codable` doesn't provide.
         else if let v = try? c.decode(UInt64.self) { self = .unsignedInteger(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }

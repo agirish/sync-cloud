@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// RD67's state table, row by row: each side diffed against the record, under each DA setting.
+/// One-way sync's state table, row by row: each side diffed against the record, under each
+/// setting for deletions and edits.
 /// Every row starts from Finance/a.pdf and Finance/b.pdf synced as recorded; only a.pdf changes.
 @Suite struct OneWaySyncStateTableTests {
 

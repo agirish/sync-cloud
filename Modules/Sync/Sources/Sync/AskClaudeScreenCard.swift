@@ -1,12 +1,12 @@
 import Foundation
 
-/// What Ask Claude is told about the screen (RD69, deep dive 1): a short text card, in the user’s
-/// message, never the instructions.
+/// What Ask Claude is told about the screen: a short text card, in the user’s message, never the
+/// instructions.
 ///
-/// **Rows go as pipe-separated lines**, not JSON: the same row as JSON is about twice the tokens,
-/// because every row repeats the field names. **Names are escaped** so a file name holding a pipe,
-/// a newline or `</screen>` cannot pass itself off as another row or end the block. **Paths are
-/// relative to their source**, so the home folder’s name never leaves the Mac.
+/// Rows go as pipe-separated lines, not JSON: the same row as JSON is about twice the tokens,
+/// because every row repeats the field names. Names are escaped so a file name holding a pipe, a
+/// newline or `</screen>` cannot pass itself off as another row or end the block. Paths are
+/// relative to their source, so the home folder’s name never leaves the Mac.
 public struct AskClaudeScreen: Equatable, Sendable {
 
     public struct Row: Equatable, Sendable {
@@ -46,24 +46,24 @@ public struct AskClaudeScreen: Equatable, Sendable {
     public let toolsAvailable: Bool
     /// Every source the Browse pane can switch to, by name.
     public let sources: [String]
-    /// The pane's tabs, the one on screen first (TE242). A tab at a hidden folder comes as
+    /// The pane's tabs, the one on screen first. A tab at a hidden folder comes as
     /// "(hidden)": a tab is titled with its folder's name.
     public var tabs: [String] = []
     /// Compare's two sides, "left: Dropbox › Documents/Work", when Compare is on screen.
     public var panes: [String] = []
-    /// Compare's differences in one line (TE261), when Compare is on screen.
+    /// Compare's differences in one line, when Compare is on screen.
     public var differences: String?
-    /// "Columns · hidden files off" (TE244).
+    /// "Columns · hidden files off".
     public var view: String = ""
-    /// The parent columns on screen in Columns view, outermost first (TE241).
+    /// The parent columns on screen in Columns view, outermost first.
     public var columns: [Column] = []
-    /// Rows left out because they're on the Never show Claude list (TE246).
+    /// Rows left out because they're on the Never show Claude list.
     public var hiddenCount = 0
     /// The folder on screen is itself hidden from Claude.
     public var folderHidden = false
     /// The file open in Edit, when Edit is on screen.
     public var openFile: Row?
-    /// What they attached from a row's menu (TE263), wherever it lives: their question is about
+    /// What they attached from a row's menu, wherever it lives: their question is about
     /// these. Never anything on the Never show Claude list.
     public var attached: [Attached] = []
 

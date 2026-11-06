@@ -33,8 +33,8 @@ import Foundation
         #expect(names == ["Health", "School"])
     }
 
-    /// Dot-directories are dropped by name as well as by the enumerator's hidden flag — a folder
-    /// can be one without the other.
+    /// Dot-directories are dropped by name as well as by the enumerator's hidden flag: a folder can
+    /// be one without the other.
     @Test func testHiddenFoldersAreDroppedUnlessAsked() throws {
         let fm = try fixture()
         #expect(DestinationBrowser.listSubfolders(of: "/p", fileManager: fm).folders.map(\.name) == ["Health", "School"])
@@ -42,7 +42,7 @@ import Foundation
         #expect(shown.contains(".hidden"))
     }
 
-    /// A path with nothing under it is empty, not an error — the picker renders "Empty" for it.
+    /// A path with nothing under it is empty, not an error: the picker shows "Empty" for it.
     @Test func testLeafFolderListsNothing() throws {
         let fm = try fixture()
         #expect(DestinationBrowser.listSubfolders(of: "/p/School/Son", fileManager: fm).folders.isEmpty)
@@ -56,9 +56,9 @@ import Foundation
 
     // MARK: - Listing a folder that cannot be read
 
-    /// The column under a folder nobody could open used to read "Empty" — a statement about
-    /// contents nobody saw, and the same defect as the folder-replace warning's "0 items". The
-    /// three cases are asserted together because what makes this a fix is that they differ.
+    /// The column under a folder that couldn't be opened says so, not "Empty", which would be a
+    /// claim about contents nobody saw. The three cases are asserted together because they must
+    /// differ.
     @Test func testAnUnreadableFolderIsNotOfferedAsAnEmptyOne() throws {
         let fm = try fixture()
         fm.unlistableDirectories = ["/p/Health/Prescriptions"]
@@ -78,16 +78,12 @@ import Foundation
         #expect(populated.emptyMessage == nil)
     }
 
-    /// The third case, which a `!=` comparison silently folded into the first.
+    /// A partial listing with no subfolders (the folder opened, something below it didn't) is not
+    /// "Empty", and not "Can't be read" either: `DirectoryListingOutcome`'s three cases each get
+    /// their own words, which a two-way check would fold together.
     ///
-    /// `emptyMessage` asked `outcome == .unreadable ? "Can't be read" : "Empty"`, so a PARTIAL
-    /// listing with no subfolders — the folder opened, something below it did not — announced
-    /// itself as **"Empty"**: a claim about contents nobody saw, which is the exact conflation
-    /// `DirectoryListingOutcome`'s three cases exist to stop, reintroduced one case along.
-    ///
-    /// `listSubfolders` always lists shallowly and so cannot produce this value today. The type is
-    /// public and the wording is part of it, so the rule is asserted on the value rather than on
-    /// the route to it — an unreachable branch that is wrong is still wrong the day it is reached.
+    /// `listSubfolders` lists shallowly and can't produce this value today, but the type is public
+    /// and the wording is part of it, so the rule is asserted on the value itself.
     @Test func testAPartialListingIsNotAnnouncedAsEmpty() throws {
         let partial = DestinationFolderListing(folders: [], outcome: .listedWithUnreadableDescendants)
         let empty = DestinationFolderListing(folders: [], outcome: .listed)
@@ -102,10 +98,9 @@ import Foundation
         #expect(unreadable.emptyMessage == "Can’t be read")
     }
 
-    /// A directory the walk could not read means the walk did not establish "no folders match" —
-    /// the same reasoning the three caps already carry, applied to the fourth way of missing a
-    /// match. The pair is the test: the identical query over the identical tree answers
-    /// "complete" when everything was readable.
+    /// A directory the walk couldn't read means it hasn't established "no folders match", as with
+    /// the three caps. The pair is the test: the same query over the same tree answers "complete"
+    /// when everything is readable.
     @Test func testSearchThatCouldNotReadADirectorySaysItStoppedShort() throws {
         let readable = try fixture()
         let complete = DestinationBrowser.search("Kaiser", under: "/p", fileManager: readable)
@@ -121,13 +116,10 @@ import Foundation
         #expect(!partial.stoppedEarly, "…and it is not the CAPS that stopped it — nothing was cut short")
     }
 
-    /// The two reasons a result list can be short of the truth are DIFFERENT reasons, and the
-    /// advice under the list is opposite for each — so they cannot travel as one boolean.
-    ///
-    /// A cap stops the walk EARLY: the rows are "the first N" and a tighter query reaches further.
-    /// An unreadable directory lets the walk FINISH and withholds a subtree from it: the rows are
-    /// every match there was, and no query will ever open that folder. Rolled together, the second
-    /// case rendered the first case's sentence, which was false on both halves.
+    /// The two reasons a result list can be short are different, with opposite advice, so they
+    /// can't share one boolean. A cap stops the walk early: the rows are "the first N" and a
+    /// tighter query reaches further. An unreadable directory lets the walk finish without a
+    /// subtree: the rows are every match found, and no query will open that folder.
     @Test func testAWithheldDirectoryIsNotTheSameFactAsHittingACap() throws {
         let blocked = try fixture()
         blocked.unlistableDirectories = ["/p/Health/Medical"]
@@ -144,11 +136,10 @@ import Foundation
         #expect(capped.stoppedEarly)
         #expect(!capped.skippedUnreadableDirectory, "every directory here was read")
 
-        // …and both at once, which neither of the above can stand in for. The blocked folder has
-        // to sit where the walk MEETS it before the cap trips: breadth-first with `limit: 1`,
-        // `/p/Health` is listed (and refused) in the same pass that finds `/p/School/Son`.
-        // Blocking `/p/Health/Medical` instead would leave the walk returning a level too early
-        // to have noticed, which is how this arm first passed with only one of the two facts set.
+        // …and both at once. The blocked folder must sit where the walk meets it before the cap
+        // trips: breadth-first with `limit: 1`, `/p/Health` is refused in the same pass that finds
+        // `/p/School/Son`. Blocking `/p/Health/Medical` would end the walk a level too early to
+        // notice, leaving only one of the two facts set.
         let blockedHigh = try fixture()
         blockedHigh.unlistableDirectories = ["/p/Health"]
         let both = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: blockedHigh)
@@ -156,9 +147,8 @@ import Foundation
         #expect(both.skippedUnreadableDirectory)
     }
 
-    /// The sentence a person actually reads under a NON-empty list. The commit that introduced the
-    /// fourth cause reasoned only about the empty-results wording; this is the branch it missed,
-    /// and both halves of the old sentence were false there.
+    /// The sentence under a non-empty list matches why it might be short: the cap's advice is
+    /// false for a walk that finished with a folder unread.
     @Test func testTheFootnoteUnderResultsMatchesWhyTheyMightBeShort() throws {
         let complete = DestinationSearchOutcome(matches: [], stoppedEarly: false,
                                                 skippedUnreadableDirectory: false)
@@ -172,8 +162,8 @@ import Foundation
                                                 skippedUnreadableDirectory: true)
         let text = try #require(withheld.footnote(showing: 3))
         #expect(text == "Some folders couldn’t be read — a match may be inside one of them.")
-        // The two specific claims that were false. Stated in the negative as well as by equality,
-        // because a reworded sentence could reintroduce either one on its own.
+        // The two claims that would be false here, checked in the negative as well as by equality,
+        // because a reworded sentence could bring either one back on its own.
         #expect(!text.contains("the first"), "this walk completed — these are not “the first 3”")
         #expect(!text.contains("narrow"), "narrowing cannot reach behind a permission-denied folder")
 
@@ -183,8 +173,8 @@ import Foundation
                 == "Showing the first 3, and some folders couldn’t be read — there may be more either way.")
     }
 
-    /// The empty-results wording, which does survive the fourth cause but must not flatten it back
-    /// into the caps' advice either. Four inputs, four different sentences.
+    /// The empty-results wording keeps the unreadable-folder case apart from the caps' advice too.
+    /// Four inputs, four different sentences.
     @Test func testTheEmptyMessageNamesWhichKindOfNothingItIs() throws {
         func message(stoppedEarly: Bool, skipped: Bool) -> String {
             DestinationSearchOutcome(matches: [], stoppedEarly: stoppedEarly,
@@ -208,15 +198,13 @@ import Foundation
 
     // MARK: - A folder reached through a symlink, on a real disk
 
-    /// The picker announced **"Can't be read"** about a folder Finder lists fine, and `search`
-    /// flagged a walk that had completed and returned every match as truncated — because
-    /// `FileManager.enumerator(at:)` refuses to traverse a symlinked directory, yielding zero
-    /// entries and firing its error handler, which is byte for byte the signature of a locked one.
+    /// A symlinked folder is browsable and searchable, not "Can't be read" or truncated.
+    /// `FileManager.enumerator(at:)` won't traverse a symlinked directory: it yields nothing and
+    /// fires its error handler, exactly as for a locked one.
     ///
-    /// Against the REAL filesystem, because the behaviour is the real `FileManager`'s; the mock
-    /// disk has no symlinks and could only be evidence about itself. The control is the point: the
-    /// same two questions asked of the link's own target must give the same two answers, or this
-    /// test would pass for a `listSubfolders` that had simply stopped finding anything.
+    /// On the real filesystem, because the behaviour is the real `FileManager`'s; the mock has no
+    /// symlinks. The control asks the link's target the same questions, so a `listSubfolders` that
+    /// found nothing at all can't pass.
     @Test func testAFolderReachedThroughASymlinkIsBrowsableAndSearchable() throws {
         let base = try makeCanonicalTempRoot(prefix: "DestSymlink")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -250,27 +238,12 @@ import Foundation
         #expect(!direct.stoppedEarly && !direct.skippedUnreadableDirectory)
     }
 
-    /// **Drilling one level INTO a symlinked folder must keep the caller's spelling too.**
-    ///
-    /// The re-spelling that makes the test above pass fires only on the RETRY, and the retry fires
-    /// only when the FINAL path component is the link. One level in, the direct walk succeeds and
-    /// the enumerator hands back the canonicalised TARGET path, which nothing re-spells. Measured
-    /// on a real disk before the fix:
-    ///
-    ///     listSubfolders(of: <base>/link)        → ["<base>/link/Health"]            ✓
-    ///     listSubfolders(of: <base>/link/Health) → ["<base>/real/Health/Medical"]    ✗
-    ///
-    /// The second line is not under the root the picker is browsing, so `trail` takes its
-    /// "outside the root" escape and hands back every component — the footer read
-    /// `Dropbox › private › var › folders › c6 › … › real › Health › Medical`, which is the exact
-    /// failure `trail`'s own docstring cites as the bug it exists to stop. `highlighted` (what Move
-    /// commits to) and the recents key diverge from the browsed path the same way.
-    ///
-    /// Newly reachable: before the symlink fallback landed, `listSubfolders(of: link)` answered
-    /// `.unreadable`, so there was no level two to reach.
-    ///
-    /// Asserted at BOTH levels over the same tree, because level one alone is what shipped: the
-    /// existing fixture's leaves sit at depth 1, exactly the depth where re-spelling does fire.
+    /// Drilling one level into a symlinked folder keeps the caller's spelling too. Re-spelling on
+    /// the retry covers only a link as the final component; one level in, the direct walk succeeds
+    /// and the enumerator hands back the canonical target path. That path is outside the browsed
+    /// root, so `trail` would list every component of it in the footer, and `highlighted` (what
+    /// Move commits to) and the recents key would drift from the browsed path. Asserted at both
+    /// levels, because depth 1 alone passes either way.
     @Test func testDrillingIntoASymlinkedFolderKeepsTheCallersSpelling() throws {
         let base = try makeCanonicalTempRoot(prefix: "DestSymlinkDeep")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -292,9 +265,8 @@ import Foundation
         #expect(level2.folders.map(\.path) == [link.appendingPathComponent("Health/Medical").path],
                 "level 2 answered in the target's spelling: \(level2.folders.map(\.path))")
 
-        // The user-visible consequence, stated as the footer renders it. `#require` rather than a
-        // subscript after `#expect`: `#expect` records and continues, so indexing an empty array on
-        // the next line would trap the test host and lose the run.
+        // What the footer shows. `#require`, not a subscript after `#expect`: `#expect` continues,
+        // so indexing an empty array would trap the test host and lose the run.
         let medical = try #require(level2.folders.first).path
         #expect(DestinationBrowser.trail(of: medical, under: link.path) == ["link", "Health"],
                 "trail took its outside-the-root escape: \(DestinationBrowser.trail(of: medical, under: link.path))")
@@ -302,28 +274,18 @@ import Foundation
                 == ["Dropbox", "Health", "Medical"],
                 "footer read: \(DestinationBrowser.crumbs(for: medical, under: link.path, providerName: "Dropbox"))")
 
-        // Control: the same folder asked about by its real spelling still answers in that spelling.
-        // Without this the assertions above would pass for a `listSubfolders` that had simply
-        // started prefixing everything with whatever it was handed.
+        // Control: asked by its real spelling, the folder answers in that spelling, so a
+        // `listSubfolders` that prefixed everything with whatever it was handed can't pass.
         let realHealth = DestinationBrowser.listSubfolders(
             of: real.appendingPathComponent("Health").path, fileManager: FileManager.default)
         #expect(realHealth.folders.map(\.path) == [real.appendingPathComponent("Health/Medical").path])
     }
 
-    /// **A link pointing back at the root must not multiply the results.**
-    ///
-    /// `listSubfolders`' filter keeps symlinked directories — `fileExists(atPath:isDirectory:)`
-    /// follows links — and once a `listSubfolders` of one succeeds, the breadth-first walk descends
-    /// through them. Before these commits a symlinked directory was a dead end for the walk, so
-    /// this is newly reachable. Measured on a real disk before the fix, with
-    /// `root/Shortcuts/Home -> root`:
-    ///
-    ///     search("Medical") → 3 matches, ALL WITH THE SAME `path`
-    ///
-    /// `DestinationFolder: Identifiable` has `id { path }`, so `ForEach(ranked)` in the picker got
-    /// three rows carrying one id — undefined behaviour by SwiftUI's own documentation. The
-    /// footnote rendered "Showing the first 3 — narrow the search, or browse to it", which is false
-    /// twice over: the walk found ONE folder three times, and it was not cut short.
+    /// A link pointing back at the root must not multiply the results. `listSubfolders` keeps
+    /// symlinked directories (`fileExists(atPath:isDirectory:)` follows links), so the walk
+    /// descends through them and, unguarded, finds one folder once per route. `DestinationFolder`'s
+    /// `id` is its `path`, so the picker's `ForEach` would get rows sharing an id, which SwiftUI
+    /// leaves undefined, and the footnote would claim a truncation that never happened.
     @Test func testASymlinkBackToTheRootDoesNotMultiplyOrTruncateTheResults() throws {
         let root = try makeCanonicalTempRoot(prefix: "DestSymlinkLoop")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -338,34 +300,29 @@ import Foundation
 
         #expect(found.matches.map(\.path) == [root.appendingPathComponent("Health/Medical").path],
                 "one real folder, found once: \(found.matches.map(\.path))")
-        // The non-negotiable one, stated separately from the count so it cannot be satisfied by a
-        // walk that simply found nothing: no two rows may carry the same `ForEach` id.
+        // No two rows may share a `ForEach` id. Separate from the count, which a walk that found
+        // nothing could satisfy.
         #expect(Set(found.matches.map(\.id)).count == found.matches.count,
                 "two rows share an id: \(found.matches.map(\.id))")
         #expect(!found.stoppedEarly, "the walk exhausted its frontier — nothing was cut short")
         #expect(found.footnote(showing: found.matches.count) == nil,
                 "footnote claimed a truncation that did not happen: \(found.footnote(showing: found.matches.count) ?? "nil")")
-        // Not "couldn't be read" either: the link IS readable, the walk simply declines to arrive
-        // at the same directory twice. Nothing was withheld from it.
+        // Not "couldn't be read" either: the link is readable; the walk just won't visit the same
+        // directory twice.
         #expect(!found.skippedUnreadableDirectory)
 
-        // The link is still a destination in its own right — declining to walk THROUGH it must not
-        // hide it from a query that names it, nor from the column that browses to it.
+        // The link is still a destination: not walking through it must not hide it from a query
+        // that names it, or from the column that browses to it.
         let byName = DestinationBrowser.search("Home", under: root.path, fileManager: FileManager.default)
         #expect(byName.matches.map(\.path) == [root.appendingPathComponent("Shortcuts/Home").path])
         #expect(DestinationBrowser.listSubfolders(of: root.appendingPathComponent("Shortcuts").path,
                                                   fileManager: FileManager.default).folders.map(\.name) == ["Home"])
     }
 
-    /// The same loop, made expensive. Eight sibling links back to the root turned a one-folder
-    /// answer into the whole limit, and turned a query that matches NOTHING into a walk that spent
-    /// its entire listing budget and then reported itself truncated. Measured before the fix:
-    ///
-    ///     search("d3")  → 60 matches (the limit) for 1 real folder
-    ///     search("zzz") → stoppedEarly = true, having found nothing anywhere
-    ///
-    /// The second is the one that reaches the user as a lie: "narrow the search" about a tree the
-    /// walk never actually ran out of.
+    /// The same loop, made expensive: eight sibling links back to the root. Unguarded, one real
+    /// folder would fill the match limit, and a query matching nothing would spend the listing
+    /// budget and then report itself truncated, telling the user to narrow a search that had
+    /// nothing left to find.
     @Test func testManyLinksBackToTheRootDoNotConsumeTheSearchBudget() throws {
         let root = try makeCanonicalTempRoot(prefix: "DestSymlinkFan")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -390,18 +347,12 @@ import Foundation
                 "got: \(miss.emptyMessage(query: "zzz"))")
     }
 
-    /// The cycle guard must survive a root spelled the way the OS hands it out.
-    ///
-    /// Every other fixture here is rooted at a CANONICAL path, via `makeCanonicalTempRoot`, which
-    /// hides the one gap that has broken path comparison in this repo before: a link's stored target
-    /// is absolute and canonical, while the root being browsed is not, so an identity function that
-    /// merely resolved *components* would leave the two comparing unequal and walk the cycle anyway.
-    /// This is the same tree as the loop test above, browsed through the `/var` spelling a caller
-    /// gets straight from `FileManager.temporaryDirectory`.
-    ///
-    /// The premise is asserted, not assumed: measured, `resolvingSymlinksInPath` closes the gap by
-    /// STRIPPING `/private` rather than adding it, which is why both spellings land on one form.
-    /// The day that stops being true this fixture is what notices.
+    /// The cycle guard holds for a root spelled the way the OS hands it out. The other fixtures
+    /// use canonical roots (`makeCanonicalTempRoot`), which hides this gap: a link's stored target
+    /// is canonical while the browsed root may not be, so an identity that only resolved components
+    /// would see two paths and walk the cycle. Same tree as the loop test, browsed through the
+    /// `/var` spelling of `FileManager.temporaryDirectory`. `resolvingSymlinksInPath` joins the two
+    /// by stripping `/private`, not adding it; the premise is asserted, so a change there shows.
     @Test func testTheCycleGuardHoldsWhenTheRootIsSpelledUncanonically() throws {
         let canonical = try makeCanonicalTempRoot(prefix: "DestSymlinkVar")
         defer { try? FileManager.default.removeItem(at: canonical) }
@@ -415,10 +366,9 @@ import Foundation
         // The same directory, spelled the way `temporaryDirectory` hands it out.
         let uncanonical = URL(fileURLWithPath: FileManager.default.temporaryDirectory.path, isDirectory: true)
             .appendingPathComponent(canonical.lastPathComponent)
-        // The premise, measured rather than assumed: two genuinely different strings for one
-        // directory, which the identity function is expected to bring together. If the temp dir
-        // ever stops being behind /var these are the same string and the fixture proves nothing —
-        // so that is required, not merely expected.
+        // The premise: two different strings for one directory, which the identity must join. If
+        // the temp dir stops being behind /var they are one string and the fixture proves nothing,
+        // so this is required, not expected.
         try #require(uncanonical.path != canonical.path,
                      "this machine's temp dir is already canonical — nothing here is being tested")
         #expect(DirectoryListingSupport.identity(of: uncanonical)
@@ -463,8 +413,8 @@ import Foundation
         #expect(shallow.matches.map(\.path) == ["/p/School/Son"])
     }
 
-    /// An empty or whitespace query matches nothing rather than everything — the picker shows the
-    /// browse columns in that state, and a full-tree dump behind them would be noise.
+    /// An empty or whitespace query matches nothing rather than everything: the picker shows the
+    /// browse columns then, and a full-tree dump behind them would be noise.
     @Test func testBlankQueryMatchesNothing() throws {
         let fm = try fixture()
         #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).matches.isEmpty)
@@ -532,11 +482,9 @@ import Foundation
         #expect(DestinationBrowser.trail(of: "/p/Health", under: "/p") == ["p"])
     }
 
-    /// The root trails NOTHING — there is no level between a folder and itself.
-    ///
-    /// The `/p` fixture hid this: `"/p".deletingLastPathComponent` is `"/"`, which splits to the
-    /// empty array by luck. A realistic root fell through to the outside-the-root branch and
-    /// answered with the root's own ancestors.
+    /// The root trails nothing: there is no level between a folder and itself. Checked on a
+    /// realistic root too, because `/p`'s parent is `/`, which splits to an empty array by luck and
+    /// would hide a fall-through to the outside-the-root branch (the root's own ancestors).
     @Test func testTheRootItselfTrailsNothing() {
         #expect(DestinationBrowser.trail(of: "/p", under: "/p").isEmpty)
         #expect(DestinationBrowser.trail(of: "/Users/me/Dropbox", under: "/Users/me/Dropbox").isEmpty)
@@ -569,14 +517,10 @@ import Foundation
                 == ["Dropbox", "Health"])
     }
 
-    /// The root is ONE crumb, and it is the PROVIDER'S name. This is the rail's "Places" row — one
-    /// click, the most reachable control on the card — and it used to render the root's own
-    /// ancestors between the two: "Dropbox › me › Dropbox".
-    ///
-    /// The provider name deliberately differs from the folder name here, because that is the real
-    /// case and the only one that can tell the two failure modes apart: iCloud Drive's root folder
-    /// is literally `com~apple~CloudDocs`. With the names equal, falling through to the
-    /// outside-the-root branch produces the right answer for the wrong reason.
+    /// The root is one crumb, the provider's name, not its ancestors ("Dropbox › me › Dropbox").
+    /// It is the rail's "Places" row, the card's most reachable control. The provider name differs
+    /// from the folder name, as for iCloud Drive's `com~apple~CloudDocs`: with the two equal, a
+    /// fall-through to the outside-the-root branch would give the right answer by accident.
     @Test func testCrumbsForTheRootAreJustTheProviderName() {
         let root = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"
         #expect(DestinationBrowser.crumbs(for: root, under: root, providerName: "iCloud Drive")
@@ -592,8 +536,8 @@ import Foundation
                 == ["iCloud Drive", "Receipts"])
     }
 
-    /// A folder reached through `Other…` is outside the provider, so the provider's name would be a
-    /// lie. It reads as its own path instead.
+    /// A folder reached through `Other…` is outside the provider, so it reads as its own path, not
+    /// under the provider's name.
     @Test func testCrumbsOutsideTheRootDoNotClaimTheProvider() {
         let crumbs = DestinationBrowser.crumbs(for: "/Volumes/Archive/2025",
                                                under: "/Users/me/Dropbox", providerName: "Dropbox")
@@ -627,19 +571,19 @@ import Foundation
         #expect(!DestinationBrowser.destinationIsInsideSelection("/p/HealthRecords", sources: ["/p/Health"]))
     }
 
-    /// Every item already sitting in the destination — the case that used to move nothing and say
-    /// nothing.
+    /// Every item already sitting in the destination is detected, so the picker can say so rather
+    /// than move nothing silently.
     @Test func testAllSourcesAlreadyInIsDetected() {
         #expect(DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/a.pdf", "/p/Health/b.pdf"]))
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/a.pdf", "/p/School/b.pdf"]))
     }
 
-    /// An empty selection is not "already there" — there is simply nothing to say.
+    /// An empty selection is not "already there": there is nothing to say.
     @Test func testEmptySelectionIsNotAlreadyThere() {
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: []))
     }
 
-    /// A file nested DEEPER than the destination has not arrived: only its immediate parent counts,
+    /// A file nested deeper than the destination has not arrived: only its immediate parent counts,
     /// or moving `/p/Health/Medical/x.pdf` into `/p/Health` would be reported as a no-op.
     @Test func testOnlyTheImmediateParentCountsAsAlreadyThere() {
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/Medical/x.pdf"]))
@@ -660,9 +604,8 @@ import Foundation
         #expect(colliding == ["report.pdf"])
     }
 
-    /// An item ALREADY in the destination is not colliding with itself. Without this, opening the
-    /// picker on a folder the file already sits in would report a collision AND the already-there
-    /// refusal — two contradictory statements about one file.
+    /// An item already in the destination doesn't collide with itself, or the picker would report
+    /// a collision and the already-there refusal for one file.
     @Test func testAnItemAlreadyInTheDestinationIsNotACollision() throws {
         let fm = try fixture()
         fm.virtualDisk["/p/School/settled.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -673,8 +616,8 @@ import Foundation
         #expect(colliding.isEmpty)
     }
 
-    /// A folder whose name is taken collides exactly as a file does — replacing a folder replaces
-    /// its whole contents, so this is the case most worth seeing before confirming.
+    /// A folder whose name is taken collides as a file does. Replacing a folder replaces its whole
+    /// contents, so this is the case most worth seeing before confirming.
     @Test func testAFolderNameCollidesToo() throws {
         let fm = try fixture()
         let colliding = DestinationBrowser.collidingNames(
@@ -698,9 +641,9 @@ import Foundation
         #expect(DestinationBrowser.collidingNames(movingFrom: ["/p/Health/a.pdf"], into: "", fileManager: fm).isEmpty)
     }
 
-    /// Two selected items sharing a name collide with EACH OTHER: the move is flat, so both derive
-    /// the same target, the first arrives and the second prompts. Nothing has to be on disk for
-    /// this, which is why an existence check alone reported a clean move and then asked anyway.
+    /// Two selected items sharing a name collide with each other: the move is flat, so both derive
+    /// the same target and the second prompts. Nothing need be on disk, so an existence check alone
+    /// would report a clean move and then ask anyway.
     @Test func testTwoSelectedItemsSharingANameCollide() throws {
         let fm = try fixture()
         let colliding = DestinationBrowser.collidingNames(
@@ -723,9 +666,8 @@ import Foundation
         #expect(colliding == ["x.pdf"])
     }
 
-    /// A name that collides for BOTH reasons at once — taken in the destination and repeated within
-    /// the selection — is still one name. Without de-duplication the footer would say "2 of 2
-    /// names" for what is one file's worth of question.
+    /// A name that collides for both reasons (taken in the destination and repeated in the
+    /// selection) is still one name, or the footer would count it twice.
     @Test func testANameCollidingForBothReasonsIsReportedOnce() throws {
         let fm = try fixture()
         fm.virtualDisk["/p/School/dup.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -737,7 +679,7 @@ import Foundation
         #expect(colliding == ["dup.pdf"])
     }
 
-    /// Distinct names from distinct folders are still clean — the within-selection rule must not
+    /// Distinct names from distinct folders are still clean: the within-selection rule must not
     /// turn every multi-item move into a warning.
     @Test func testDistinctNamesFromDifferentFoldersStayClean() throws {
         let fm = try fixture()
@@ -764,9 +706,9 @@ import Foundation
 
     // MARK: - Search cost
 
-    /// The listing cap bounds the walk by directories READ, not by matches found — the expensive
-    /// query is the one that matches nothing, where `limit` never bites and the walk would
-    /// otherwise read every directory within `maxDepth` before it could answer.
+    /// The listing cap bounds the walk by directories read, not matches found. The expensive query
+    /// matches nothing: `limit` never bites, and the walk would read every directory within
+    /// `maxDepth` before answering.
     @Test func testSearchStopsAfterItsListingBudget() throws {
         // Zero-padded so every sibling name is the same length: the mock's enumerator matches
         // children by string prefix, and "/p/d1" would otherwise claim "/p/d10" as its own child.
@@ -786,16 +728,15 @@ import Foundation
         _ = DestinationBrowser.search("nothingmatchesthis", under: "/p", maxListings: 5, fileManager: fm)
         #expect(listings <= 5, "read \(listings) directories against a budget of 5")
 
-        // …and the budget is a real ceiling, not a value the walk would have respected anyway:
-        // unbudgeted, the same fruitless query reads the entire tree.
+        // …and the budget is a real ceiling: unbudgeted, the same query reads the whole tree.
         listings = 0
         _ = DestinationBrowser.search("nothingmatchesthis", under: "/p", fileManager: fm)
         #expect(listings == 61, "/p plus its 12 children plus their 48 — every directory there is")
     }
 
-    /// Cancellation is polled per directory, so a superseded keystroke's walk stops instead of
-    /// running to completion behind the one the user is waiting on. `Task.detached` does not
-    /// inherit cancellation, which is why this is an explicit hook rather than `Task.isCancelled`.
+    /// Cancellation is polled per directory, so a superseded keystroke's walk stops rather than run
+    /// on behind the one the user is waiting for. An explicit hook, not `Task.isCancelled`, because
+    /// `Task.detached` doesn't inherit cancellation.
     @Test func testSearchStopsWhenCancelled() throws {
         let fm = try fixture()
         var listings = 0
@@ -808,8 +749,8 @@ import Foundation
 
     // MARK: - Truncation is reported, not silent
 
-    /// A walk that exhausts the tree is COMPLETE — the flag must not simply always be true, or the
-    /// picker would permanently caveat results it fully searched.
+    /// A walk that exhausts the tree is complete. The flag must not always be true, or the picker
+    /// would caveat results it fully searched.
     @Test func testAnExhaustiveSearchIsNotTruncated() throws {
         let fm = try fixture()
         let outcome = DestinationBrowser.search("son", under: "/p", fileManager: fm)
@@ -817,8 +758,8 @@ import Foundation
         #expect(!outcome.stoppedEarly && !outcome.skippedUnreadableDirectory)
     }
 
-    /// Each of the three caps stops the walk early, and each must say so — a partial list that
-    /// reads as the complete one is how "the folder isn't there" becomes a wrong conclusion.
+    /// Each of the three caps stops the walk early and must say so: a partial list read as the
+    /// complete one leads to "the folder isn't there".
     @Test func testEveryCapReportsTruncation() throws {
         let fm = try fixture()
         #expect(DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm).stoppedEarly,
@@ -829,8 +770,8 @@ import Foundation
                 "listing budget")
     }
 
-    /// A blank query is not a truncated search — it is no search. Otherwise the picker would show
-    /// its "showing the first N" caveat over the browse columns, which ran no walk at all.
+    /// A blank query is no search, not a truncated one, or the picker would show its "showing the
+    /// first N" caveat over the browse columns.
     @Test func testABlankQueryIsNotTruncated() throws {
         let fm = try fixture()
         let blank = DestinationBrowser.search("", under: "/p", fileManager: fm)
@@ -860,8 +801,8 @@ import Foundation
         return (fm, ["/icloud": ["Documents": "/home/Documents", "Desktop": "/home/Desktop"]])
     }
 
-    /// The root column lists Documents, at its real path, under the link's name. Before this the
-    /// iCloud root read only Downloads and Word, and nothing in Documents could be reached.
+    /// The root column lists Documents, at its real path, under the link's name, so everything in
+    /// Documents can be reached from the iCloud root.
     @Test func testARootListsTheFoldersItLinksTo() throws {
         let (fm, links) = try linkedFixture()
         let folders = DestinationBrowser.listSubfolders(of: "/icloud", fileManager: fm, links: links).folders
@@ -893,10 +834,10 @@ import Foundation
                 == ["home", "Documents", "Travel", "Trips"])
     }
 
-    /// **The linked folder itself, under a real home path.** Its parent is the home folder, which no
-    /// root holds, so a trail built from the parent read "iCloud › Users › me › Documents" (the
-    /// footer showed "iCloud › me › Documents"). A one-component home hid it: `dropFirst` removed
-    /// the only wrong crumb. Found in review, 2026-11-01.
+    /// The linked folder itself, under a real home path, reads from the provider. Its parent is the
+    /// home folder, which no root holds, so a trail built from the parent would read "iCloud › me ›
+    /// Documents". A multi-component home is used because a one-component one hides that:
+    /// `dropFirst` removes the only wrong crumb.
     @Test func testTheLinkedFolderItselfReadsFromTheProvider() {
         let links: PathBoundary.LinkedFolders = ["/icloud": ["Documents": "/Users/me/Documents"]]
         #expect(DestinationBrowser.trail(of: "/Users/me/Documents", under: "/icloud", links: links) == ["icloud"])

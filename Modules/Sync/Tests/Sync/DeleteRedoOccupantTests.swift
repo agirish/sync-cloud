@@ -2,16 +2,13 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the delete → refused undo → redo chain: when an undo's restore is REFUSED because a
-/// different item now occupies the deleted item's path, that path must not be in the redo's
-/// re-trash list — the delete was never actually undone there, so redoing it would trash the
-/// unrelated occupant. Mirrors `registerMoveUndo`'s rule ("a refused item must never be in
-/// redoParams"): the redo URL list is resolved AFTER the restore loop from only the items that
-/// actually came back out of the Trash.
+/// Pins delete, refused undo, redo: when an undo's restore is refused because a different item now
+/// occupies the path, that path stays off the redo's re-trash list, since the delete was never
+/// undone there and redoing it would trash the occupant. As in `registerMoveUndo`, the redo list is
+/// built after the restore loop from only the items that came back out of the Trash.
 ///
-/// Both tests delete TWO items so the action name is "Move 2 Items to Trash" — `UndoRedoLogLabelTests`
-/// pins the "Move to Trash" labels against the shared Logger, and a parallel suite redoing a
-/// one-item delete would trip its "no Redo logged yet" assertion.
+/// Each test deletes two items so the action is "Move 2 Items to Trash": `UndoRedoLogLabelTests`
+/// pins the one-item label against the shared Logger, and a parallel one-item redo would trip it.
 @Suite struct DeleteRedoOccupantTests {
 
     @MainActor
@@ -60,26 +57,23 @@ import Foundation
         // Let the undo's enqueued file operation fully drain before redoing.
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // The real macOS Trash uniquifies names ("report.pdf" → "report 12.34.56.pdf"), so a
-        // second trash of the same name always succeeds. The mock's flat Trash dir would
-        // spuriously collide with the original's stub — rename it aside to model reality.
+        // The real Trash uniquifies names ("report.pdf" → "report 12.34.56.pdf"), so a second
+        // trash of one name succeeds. The mock's flat Trash would collide, so move the stub aside.
         let stub = mockFM.virtualDisk.removeValue(forKey: reportTrashPath)
         #expect(stub != nil)
         mockFM.virtualDisk["/mock-trash-uniquified/report.pdf"] = stub!
         let trashCountBeforeRedo = mockFM.trashedPaths.count
 
-        // 4. Redo — report.pdf's delete was never actually undone (the original is still in the
-        //    Trash), so the redo must re-trash ONLY notes.txt and leave the unrelated 555-byte
-        //    occupant in place.
+        // 4. Redo: report.pdf's delete was never undone (the original is still in the Trash), so
+        //    the redo re-trashes only notes.txt and leaves the 555-byte occupant in place.
         manager.undoManager?.redo()
         await waitUntil("redo re-trashes the restored item") {
             mockFM.virtualDisk["/docs/notes.txt"] == nil
         }
-        // Draining IS "the loop finished", so no beat is needed after it: `registerTrashItems`'
-        // handler runs synchronously inside `redo()` and pre-counts the operation before spawning
-        // its Task, and `enqueueFileOperation` decrements only once its body has returned. A flat
-        // 300ms used to follow this line — a guessed window guarding an absence assertion
-        // (mechanism 2), which is the shape that goes vacuous rather than merely slow.
+        // Draining means the loop finished, so no sleep follows: `registerTrashItems`' handler
+        // pre-counts the operation inside `redo()`, and `enqueueFileOperation` decrements only
+        // after its body returns. A fixed sleep guarding an absence assertion would go vacuous
+        // (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
         #expect(mockFM.virtualDisk["/docs/report.pdf"] != nil,
@@ -88,16 +82,10 @@ import Foundation
         #expect(mockFM.trashedPaths.count == trashCountBeforeRedo + 1) // notes.txt only
     }
 
-    /// **A redo trashes by identity, not by path.** The restore succeeded, so the path IS on the
-    /// redo's list — and being on that list means "the undo put OUR item back here", which stops
-    /// being true the moment anything replaces it.
-    ///
-    /// The move-redo path has refused exactly this shape since `ItemIdentity` landed; this one
-    /// stat-ed the path for existence and trashed whatever answered. Measured before the guard:
-    /// the replacement went to the Trash, with no log line and no banner.
-    ///
-    /// Two items, per the suite note above, and they carry the two halves: `notes.txt` is
-    /// untouched and must still be re-trashed, so the guard cannot become "never redo".
+    /// A redo trashes by identity, not by path. The restore succeeded, so the path is on the redo's
+    /// list, which means "the undo put our item back here" until anything replaces it. The
+    /// move-redo refuses the same shape. `notes.txt` is untouched and must still be re-trashed, so
+    /// the guard can't become "never redo".
     @MainActor
     @Test func redoDoesNotTrashAnItemThatReplacedTheRestoredOne() async throws {
         let manager = makeManager()
@@ -109,7 +97,7 @@ import Foundation
         let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM).removed
         #expect(removed == 2)
 
-        // Undo restores BOTH — nothing occupies either path, so both are on the redo's list.
+        // Undo restores both: nothing occupies either path, so both are on the redo's list.
         manager.undoManager?.undo()
         await waitUntil("undo restores both") {
             mockFM.virtualDisk["/docs/report.pdf"] != nil && mockFM.virtualDisk["/docs/notes.txt"] != nil
@@ -117,7 +105,7 @@ import Foundation
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.virtualDisk["/docs/report.pdf"]?.attributes?[FileAttributeKey.size] as? Int == 100)
 
-        // Now a DIFFERENT file takes report.pdf's path — same name, not the restored item.
+        // A different file takes report.pdf's path: same name, not the restored item.
         mockFM.virtualDisk["/docs/report.pdf"] = file(555)
         manager.banner = nil
         let trashCountBeforeRedo = mockFM.trashedPaths.count
@@ -136,8 +124,7 @@ import Foundation
                 "a refused redo that leaves a file on disk has to say so")
     }
 
-    /// And the refusal is reported, not merely performed — the defect it replaces was silent in
-    /// both channels, which is what made it survive.
+    /// The refusal is logged, not just performed: a silent one leaves a file on disk with no reason.
     @MainActor
     @Test func aRefusedRedoTrashSaysSoInTheLog() async throws {
         let manager = makeManager()
@@ -154,8 +141,8 @@ import Foundation
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         mockFM.virtualDisk["/docs/report.pdf"] = file(555)
 
-        // Bounded strictly between this test's own markers, and matched on a path only this
-        // fixture uses — `Logger.shared` is process-wide and a window bounds time, not authorship.
+        // Bounded by this test's own markers and matched on a path only this fixture uses:
+        // `Logger.shared` is process-wide, and a window bounds time, not authorship.
         let tag = "redo-refusal-\(UUID().uuidString)"
         let lines = try await logLines(tag: tag) {
             manager.undoManager?.redo()
@@ -165,8 +152,8 @@ import Foundation
                 "the redo left a file on disk and the log did not say why")
     }
 
-    /// The control case: when the undo DID restore the items, redo re-trashes them as before,
-    /// and the chain keeps working for a second undo.
+    /// The control: when the undo restored the items, redo re-trashes them, and the chain keeps
+    /// working for a second undo.
     @MainActor
     @Test func deleteUndoRestoredThenRedoReTrashes() async throws {
         let manager = makeManager()
@@ -193,7 +180,7 @@ import Foundation
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.trashedPaths.count == trashCountBeforeRedo + 2)
 
-        // And the chain keeps working: a second undo restores them again from the NEW trash locations.
+        // A second undo restores them again from the new Trash locations.
         manager.undoManager?.undo()
         await waitUntil("second undo restores both items again") {
             mockFM.virtualDisk["/docs/a.txt"] != nil && mockFM.virtualDisk["/docs/b.txt"] != nil

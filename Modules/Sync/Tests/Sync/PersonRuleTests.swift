@@ -3,7 +3,7 @@ import Testing
 @testable import Sync
 
 /// The `personIs` condition, the `{person}` destination token, and the persistence tolerance that
-/// had to come with them.
+/// comes with them.
 @Suite struct PersonRuleTests {
 
     static let now = Date(timeIntervalSince1970: 1_786_000_000)
@@ -26,8 +26,8 @@ import Testing
 
     // MARK: - Matching
 
-    /// The rule keys on the id, and the id is reached through the registry — so a document naming
-    /// her by her **full name** matches a rule that says "is Daughter's document".
+    /// The rule keys on the id, reached through the registry, so a document naming her by her full
+    /// name matches a rule that says "is Daughter's document".
     @Test func aPersonRuleMatchesEveryNameFormThatPersonHas() {
         let rule = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
                                   destinationTemplate: "School/Daughter")
@@ -36,17 +36,17 @@ import Testing
         #expect(!AutomationEvaluator.matches(rule, Self.facts("Son Father - Report.pdf"), now: Self.now))
     }
 
-    /// An alias is the same person, so `Mom - passport.pdf` matches a rule about Granny — the thing
-    /// a word-keyed rule could only do by listing every spelling and would still get wrong.
+    /// An alias is the same person, so `Mom - passport.pdf` matches a rule about Granny, which a
+    /// word-keyed rule could only do by listing every spelling.
     @Test func anAliasMatchesThePersonItNames() {
         let rule = AutomationRule(name: "Mum", conditions: [.personIs("granny")],
                                   destinationTemplate: "Family/Granny")
         #expect(AutomationEvaluator.matches(rule, Self.facts("Mom - passport.pdf"), now: Self.now))
     }
 
-    /// **The filename outranks the page, here as everywhere.** `attribute` is the one precedence
-    /// rule, shared with the cross-person veto: a file the user labelled Son is Son's, whatever
-    /// a sibling's name on the page says.
+    /// The filename outranks the page, here as everywhere: `attribute` is the one precedence rule,
+    /// shared with the cross-person veto, so a file the user labelled Son is Son's whatever the
+    /// page says.
     @Test func theFilenameOutranksThePageForRulesToo() {
         let daughter = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
                                    destinationTemplate: "School/Daughter")
@@ -55,13 +55,13 @@ import Testing
         #expect(!AutomationEvaluator.matches(daughter, facts, now: Self.now),
                 "a mention of Daughter on the page pulled Son's report card into her rule")
 
-        // And a file whose NAME names nobody falls through to the page — the nameless-scan case.
+        // A file whose name names nobody falls through to the page: the nameless-scan case.
         let scan = Self.facts("Scan 2026-08-02.pdf", snippet: "Report card for Daughter Father")
         #expect(AutomationEvaluator.matches(daughter, scan, now: Self.now))
     }
 
-    /// With no roster loaded a person rule matches nothing — it must not match *everything*, which
-    /// is what an empty-set containment test would do if it were inverted.
+    /// With no roster loaded a person rule matches nothing, not everything, as an inverted
+    /// empty-set containment test would.
     @Test func withNoRosterAPersonRuleIsInert() {
         let rule = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
                                   destinationTemplate: "School/Daughter")
@@ -69,8 +69,7 @@ import Testing
                                              now: Self.now))
     }
 
-    /// A rule pointing at a person who has since been removed is incomplete-by-value, not a crash
-    /// and not a match-all.
+    /// A rule pointing at a removed person is incomplete by value, not a crash and not a match-all.
     @Test func aRuleNamingNobodyMatchesNothing() {
         let rule = AutomationRule(name: "Ghost", conditions: [.personIs("ravi")],
                                   destinationTemplate: "Family/Ravi")
@@ -81,8 +80,8 @@ import Testing
 
     // MARK: - {person}
 
-    /// **One rule, everyone.** The token resolves to the folder name of whoever the document names,
-    /// so a single rule files each person's card into their own folder.
+    /// One rule, everyone: the token resolves to the folder name of whoever the document names, so
+    /// a single rule files each person's card into their own folder.
     @Test func thePersonTokenResolvesToTheirFolder() {
         for (file, folder) in [("Daughter Father - OCI.pdf", "Daughter"),
                                ("Son Father - OCI.pdf", "Son"),
@@ -94,9 +93,8 @@ import Testing
         }
     }
 
-    /// **Unresolved, never guessed** — the same contract every other token has. A document naming
-    /// nobody, or naming two people, has no single folder to go to, and the dry run reports that
-    /// rather than filing it somewhere plausible.
+    /// Unresolved, never guessed, like every other token: a document naming nobody, or two people,
+    /// has no single folder, and the dry run says so rather than filing it somewhere plausible.
     @Test func thePersonTokenRefusesToGuess() {
         let nobody = AutomationEvaluator.resolveDestination("Immigration/OCI/{person}",
                                                             for: Self.facts("Scan 2026-08-02.pdf"),
@@ -113,9 +111,8 @@ import Testing
 
     // MARK: - Persistence that survives a version it does not know
 
-    /// The wire shape is **exactly** what the synthesized Codable wrote, so a rule saved by an
-    /// older build still decodes. Pinned as literal JSON rather than a round-trip, because a
-    /// round-trip cannot notice that both sides changed together.
+    /// The wire shape is exactly the synthesized Codable's, so a rule saved by an older build still
+    /// decodes. Pinned as literal JSON: a round-trip can't notice both sides changing together.
     @Test func theWireShapeIsUnchanged() throws {
         let json = #"[{"kindIs":{"_0":"pdf"}},{"mentionsAll":{"_0":["invoice","acme"]}},"#
             + #"{"personIs":{"_0":"daughter"}}]"#
@@ -127,10 +124,9 @@ import Testing
         #expect(again == decoded)
     }
 
-    /// **The failure this whole tolerance exists to stop.** Rules persist as ONE blob, so an
-    /// unknown case name used to throw for the entire array: every rule vanished from the UI, and
-    /// the next edit wrote the empty set back over them. Now the unknown condition survives as
-    /// itself and its neighbours are untouched.
+    /// Rules persist as one blob, so an unknown case name must not throw for the whole array: every
+    /// rule would vanish from the UI and the next edit would write the empty set over them. The
+    /// unknown condition survives as itself and its neighbours are untouched.
     @Test func aConditionFromANewerBuildDoesNotDestroyTheOthers() throws {
         let json = #"[{"kindIs":{"_0":"pdf"}},{"vibeIs":{"_0":{"mood":"calm","level":3}}},"#
             + #"{"personIs":{"_0":"daughter"}}]"#
@@ -148,8 +144,7 @@ import Testing
         #expect(!AutomationEvaluator.matches(decoded[1], Self.facts("anything.pdf"), now: Self.now))
     }
 
-    /// And it round-trips **verbatim**, so passing a newer build's rule through this one does not
-    /// quietly rewrite it.
+    /// It round-trips verbatim, so passing a newer build's rule through this one doesn't rewrite it.
     @Test func anUnknownConditionRoundTripsUnchanged() throws {
         let json = #"[{"vibeIs":{"_0":{"level":3,"mood":"calm"}}}]"#
         let decoded = try JSONDecoder().decode([AutomationCondition].self, from: Data(json.utf8))

@@ -10,9 +10,9 @@ extension FileSyncManager {
         case nestingViolation
         /// Parent of destination exists as a file (e.g. cloud placeholder); sync the parent folder first.
         case parentExistsAsFile(parentName: String)
-        /// The source pane's root path is empty — its provider vanished from settings while the
-        /// pane still showed a stale tree. An empty root prefix-matches every node, so proceeding
-        /// would resolve destinations against the process working directory.
+        /// The source pane's root path is empty: its provider vanished from settings while the pane
+        /// still showed a stale tree. An empty root prefix-matches every node, so destinations
+        /// would resolve against the process working directory.
         case sourceRootUnavailable
         /// The node's path is not inside the source pane's root (a stale tree after a pane swap
         /// or root edit). Grafting its absolute path under the destination would misdirect it.
@@ -20,42 +20,40 @@ extension FileSyncManager {
         /// The destination root is empty or no longer on disk (provider unmounted or removed).
         /// Recreating it would land files in a dead local tree the provider never syncs.
         case destinationRootUnavailable
-        /// The file at the source path is no longer the one a preview matched — an automation
-        /// apply refusing to move a stranger. Distinct from a failure: nothing went wrong with the
-        /// filesystem, and the item is deliberately left where it is.
+        /// The file at the source path is no longer the one a preview matched, so an automation
+        /// apply won't move it. Not a failure: nothing is wrong with the disk, and the item is
+        /// deliberately left where it is.
         case sourceChangedSincePreview
-        /// The file at a To File card's path is no longer the one the scan found there (FR45) —
-        /// replaced, edited or re-downloaded since. Left where it is; a rescan answers for it anew.
+        /// The file at a To File card's path is no longer the one the scan found (replaced, edited
+        /// or re-downloaded since). Left where it is; a rescan answers for it anew.
         case sourceChangedSinceScan
-        /// A folder whose contents are not on this Mac, and whose cloud app did not hand them over
-        /// in time (`DatalessFolderReads`). Not a permission problem, and worded so it does not
-        /// send anyone to look at the folder's permissions.
+        /// A folder whose contents aren't on this Mac, and whose cloud app didn't hand them over in
+        /// time (`DatalessFolderReads`). Worded so it doesn't send anyone to check permissions.
         case folderNotAnswered(folderName: String)
-        /// The destination is a folder the source sits inside — replacing it would throw away the
+        /// The destination is a folder the source sits inside: replacing it would throw away the
         /// folder the item came from, and everything else in it.
         case destinationContainsSource
-        /// The destination is a package — a `.numbers`, `.pages` or `.app` — or inside one.
+        /// The destination is a package (a `.numbers`, `.pages` or `.app`) or inside one.
         case destinationIsADocument(name: String)
-        /// The item is locked in Finder (Get Info ▸ Locked) — `uchg` or `uappnd` — so it cannot be
-        /// renamed or put in the Trash, which a move must do to the original (FR31).
+        /// The item is locked in Finder (`uchg` or `uappnd`), so it can't be renamed or put in the
+        /// Trash, which a move must do to the original.
         case itemIsLocked(name: String)
         /// A pane transfer's row sits above the folder its source opens at, at a level the other
         /// source has no place for (`PathBoundary.transferTarget`).
         case itemAboveOpeningFolder(itemName: String)
-        /// The folder a pane opens at, carried onto the folder the other pane opens at, answered
-        /// with something other than Merge (B5) — or onto one that cannot be merged with.
+        /// The folder a pane opens at, carried onto the folder the other pane opens at, was answered
+        /// with something other than Merge, or the target can't be merged with.
         case landingFolderMergesOnly(name: String)
-        /// A move-by-copy landed its copy, could not put the original folder in the Trash, and its
-        /// permanent removal stopped part-way (P2). Both are kept: the copy is the only whole one.
-        /// `replacedItemKeptAt` says where a Replace put the item it replaced (B2) — nil for a move
-        /// that replaced nothing.
+        /// A move-by-copy landed its copy, couldn't put the original folder in the Trash, and its
+        /// permanent removal stopped part-way. Both are kept: the copy is the only whole one.
+        /// `replacedItemKeptAt` says where a Replace put the item it replaced; nil if none.
         case originalPartlyRemoved(name: String, replacedItemKeptAt: ReplacedItemPlace? = nil)
 
         /// Where a Replace kept the item it replaced.
         enum ReplacedItemPlace: Equatable, Sendable {
             case trash
             /// A volume with no Trash: the hidden backup beside the destination, by its name.
-            /// Nothing sweeps it — `OrphanSweeper` takes only staging names, never `.rollback_`.
+            /// Nothing sweeps it: `OrphanSweeper` takes only staging names, never `.rollback_`.
             case hiddenBesideDestination(name: String)
         }
 
@@ -76,9 +74,8 @@ extension FileSyncManager {
             case .sourceChangedSincePreview:
                 return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
             case .sourceChangedSinceScan:
-                // Worded for both ways a folder reaches the move — the card's suggestion and one the
-                // user picked with "Choose a folder…" — so it names what changed, the file, and not
-                // who chose the folder.
+                // Worded for both the card's suggestion and a folder from "Choose a folder…", so it
+                // names what changed (the file), not who chose the folder.
                 return "This file changed since the scan, so it is no longer the file that was being filed. It was left where it is; scan again to see where it goes now."
             case .folderNotAnswered(let folderName):
                 return "“\(folderName)” couldn’t be read: its contents aren’t on this Mac, and the app that syncs it didn’t answer. Open that app and try again."
@@ -104,9 +101,9 @@ extension FileSyncManager {
         }
     }
     
-    /// - Parameter merging: true for a Merge, which moves the source's CHILDREN into the
-    ///   destination and so may target the folder the source sits in — flattening `Photos/Photos`
-    ///   is exactly that, and it is safe. Only a whole-item install over that folder is refused.
+    /// - Parameter merging: true for a Merge, which moves the source's children into the
+    ///   destination and so may target the folder the source sits in (flattening `Photos/Photos`).
+    ///   Only a whole-item install over that folder is refused.
     nonisolated static func validateFileOperation(source: URL, destination: URL, merging: Bool = false) throws {
         try validateFileOperation(
             source: source,
@@ -123,23 +120,12 @@ extension FileSyncManager {
         let src = symlinkResolvedPath(for: source)
         let dst = symlinkResolvedPath(for: destination)
 
-        // A case-only rename ("foo" -> "Foo") is a legitimate operation on a case-insensitive
-        // volume and must not be rejected as identical. Comparing `src` and `dst` case-sensitively
-        // is NOT enough to keep that promise, which is what this used to rely on: the two strings
-        // being compared have been through `symlinkResolvedPath`, and `resolvingSymlinksInPath` is
-        // realpath — it hands every component back the way the DIRECTORY spells it. Measured on
-        // APFS: `/t/07. jul 2016.pdf` and `/t/07. Jul 2016.pdf` both resolve to the lowercase one,
-        // so every case-only rename on the default macOS volume threw
-        // `identicalSourceAndDestination` before it reached the mover.
-        //
-        // It read as covered because the only tests that exercise it drive a case-SENSITIVE test
-        // double, where the destination does not exist, `symlinkResolvedPath` walks up past it, and
-        // realpath never folds anything.
-        //
-        // The exemption is deliberately narrow — the same directory, and a last component that
-        // differs ONLY by case (so a genuinely identical path, where nothing differs, still
-        // throws). A case-variant PARENT is not exempted: `/a/dir/f` and `/a/DIR/f` are one file
-        // and no rename at all.
+        // A case-only rename ("foo" -> "Foo") is legitimate on a case-insensitive volume and must
+        // not be rejected as identical. Comparing `src` and `dst` case-sensitively isn't enough:
+        // `resolvingSymlinksInPath` is realpath, which spells each component the way the directory
+        // does, so both names resolve to the existing one. Hence the explicit exemption, kept
+        // narrow: same directory, last component differing only by case. A case-variant parent
+        // (`/a/dir/f` vs `/a/DIR/f`) is one file and no rename.
         let isCaseOnlyRename = source.lastPathComponent != destination.lastPathComponent
             && isCaseOnlyRenaming(source: source, destination: destination,
                                   caseSensitiveVolume: caseSensitiveVolume)
@@ -147,21 +133,14 @@ extension FileSyncManager {
             throw FileOperationError.identicalSourceAndDestination
         }
 
-        // **The nesting check asks a different question from the identity check above, and needs a
-        // different source path.** Identity asks "are these the same item?", where following the
-        // link is right: an alias and its target ARE one item, and moving the alias onto it would
-        // replace the real directory with a link to itself. Nesting asks "would this put a
-        // container inside itself?", and **a symlink is not a container** — moving `/a/alias` to
-        // `/b/dir/sub`, inside the very directory it points at, relocates one directory entry and
-        // creates no cycle. With the leaf resolved the source read as `/b/dir`, the destination sat
-        // under it, and an ordinary move was refused as `nestingViolation`.
-        //
-        // Only the LAST component is treated differently; `entryResolvedPath` still resolves the
-        // parent, so every aliased-parent case this guard was written for is untouched. For a
-        // source that is not a link the two paths are identical, because realpath hands the same
-        // name back.
+        // Nesting needs a different source path from the identity check. Identity follows the
+        // link: an alias and its target are one item, and moving one onto the other would replace
+        // the directory with a link to itself. Nesting asks "would a container go inside itself?",
+        // and a symlink is not a container: moving `/a/alias` into the directory it points at
+        // creates no cycle. So only the leaf is left unresolved (`entryResolvedPath`); an aliased
+        // parent is still caught. For a non-link the two paths are the same.
         let nestingSrc = entryResolvedPath(for: source)
-        // Ensure trailing slash for prefix check to avoid /a matching /abc
+        // Trailing slash, so /a doesn't prefix-match /abc.
         let srcWithSlash = nestingSrc.hasSuffix("/") ? nestingSrc : nestingSrc + "/"
         let isNested: Bool
         if caseSensitiveVolume {
@@ -175,16 +154,13 @@ extension FileSyncManager {
             throw FileOperationError.nestingViolation
         }
 
-        // **The mirror question: does the destination HOLD the source?** Paste `/T/Photos/Photos`
-        // into `/T` and the target is `/T/Photos`, the source's own parent. A Replace then swapped
-        // the inner folder in and sent the outer one to the Trash with every other item it held,
-        // and ⌘Z could not move it back (FR30); Finder refuses the same drop. Keep Both picks a new
-        // name, and a Merge (`merging`) moves only the children — flattening is what it is for.
+        // The mirror question: does the destination hold the source? Pasting `/T/Photos/Photos`
+        // into `/T` targets `/T/Photos`, the source's own parent; a Replace would trash the outer
+        // folder with everything else in it, beyond ⌘Z's reach. Finder refuses the same drop. Keep
+        // Both picks a new name, and a Merge (`merging`) moves only the children.
         //
-        // **The destination ENTRY, not where it leads (P5).** A Replace swaps out the entry at the
-        // destination; when that is a link to the source's ancestor, the link goes and the folder
-        // it points at is untouched. Resolved through the link, it read as "the destination holds
-        // the source" and refused. Its parent is still resolved, like the nesting check's source.
+        // The destination entry is checked, not where it leads: replacing a link to the source's
+        // ancestor removes only the link. Its parent is still resolved, as for the nesting check.
         let holding = entryResolvedPath(for: destination)
         let dstWithSlash = holding.hasSuffix("/") ? holding : holding + "/"
         let holdsSource = caseSensitiveVolume
@@ -195,10 +171,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Symlink-free path for `url`. `resolvingSymlinksInPath()` alone returns the path
-    /// unresolved whenever a trailing component does not exist (realpath fails), and a
-    /// destination usually does not exist yet - so resolve the deepest existing ancestor and
-    /// re-append the missing components.
+    /// Symlink-free path for `url`. `resolvingSymlinksInPath()` leaves the path unresolved when a
+    /// trailing component doesn't exist, as a destination usually doesn't, so this resolves the
+    /// deepest existing ancestor and re-appends the missing components.
     private nonisolated static func symlinkResolvedPath(for url: URL) -> String {
         var existing = url.standardizedFileURL
         var missing: [String] = []
@@ -213,65 +188,37 @@ extension FileSyncManager {
         return resolved.path
     }
 
-    /// Symlink-free path for `url`'s PARENT, with the last component left exactly as spelled.
+    /// Symlink-free path for `url`'s parent, with the last component left exactly as spelled.
     ///
-    /// **An operation acts on the directory entry, not on what it points at.** Moving or copying
-    /// `/a/link` moves the link; `copyItem` duplicates the link rather than the tree behind it, and
-    /// `moveItem` relocates the entry. Resolving the leaf therefore validates the wrong thing:
-    /// ``symlinkResolvedPath(for:)`` hands back the TARGET, so `/a/link` → `/b/dir` is checked as
-    /// though the user had asked to move `/b/dir` itself.
-    ///
-    /// What that costs is a refusal of a legal operation. `isNested` asks whether the destination
-    /// sits under the source, and a link is not a container — dropping `/a/link` inside `/b/dir`,
-    /// the very directory it points at, is ordinary and creates no cycle, but with the leaf
-    /// resolved the source reads as `/b/dir` and the destination is inside it, so it throws
-    /// `nestingViolation`. The `src == dst` comparison folds the same way: the link and its target
-    /// compare equal and the move reads as `identicalSourceAndDestination`.
-    ///
-    /// The parent is still resolved, which is what the guard is actually for: an *aliased* parent
-    /// can still smuggle a directory into itself, and that check is untouched. Only the last
-    /// component is left alone — and for anything that is not a link, leaving it alone changes
-    /// nothing, because realpath would have handed the same name back.
-    ///
-    /// Same principle as the delete path's `attributesOfItem` probe: the link is a thing in its own
-    /// right, and asking about its target answers a different question.
+    /// An operation acts on the directory entry, not what it points at: `copyItem` and `moveItem`
+    /// on `/a/link` copy or move the link. ``symlinkResolvedPath(for:)`` would hand back the
+    /// target, so dropping a link inside the folder it points at would be refused as a
+    /// `nestingViolation`. The parent is still resolved, so an aliased parent can't smuggle a
+    /// directory into itself. For a non-link, leaving the leaf alone changes nothing.
     private nonisolated static func entryResolvedPath(for url: URL) -> String {
         let standardized = url.standardizedFileURL
         let parent = standardized.deletingLastPathComponent()
         let leaf = standardized.lastPathComponent
         guard !leaf.isEmpty, leaf != "/" else { return symlinkResolvedPath(for: url) }
         let parentPath = symlinkResolvedPath(for: parent)
-        // **Join without doubling the separator.** A source directly under the volume root has
-        // `/` as its parent, and a bare `parent + "/" + leaf` spelled it `//Users` — which the
-        // caller then turns into the prefix `//Users/`, and no resolved destination path ever
-        // starts with that. So `isNested` came back false for exactly the operations it exists to
-        // refuse: moving `/Users` into `/Users/anything` would have been allowed through, a
-        // directory into itself. Only the root has a trailing slash to collide with, which is why
-        // one `hasSuffix` covers it.
+        // Join without doubling the separator. Under the root, `parent + "/" + leaf` would be
+        // `//Users`, a prefix no resolved destination starts with, so `isNested` would let
+        // `/Users` move into `/Users/anything`. Only `/` ends in a slash, so one `hasSuffix` does.
         return parentPath.hasSuffix("/") ? parentPath + leaf : parentPath + "/" + leaf
     }
 
-    /// True when the volume containing `url` distinguishes names by case. Falls back to false
-    /// (the macOS default is case-insensitive) when the volume cannot be queried, e.g. for a
-    /// destination that does not exist yet - the stricter comparison is the safe default.
+    /// True when the volume containing `url` distinguishes names by case. False (the macOS
+    /// default) when it can't be queried, as for a destination that doesn't exist yet; folding
+    /// case is the safe default.
     public nonisolated static func volumeSupportsCaseSensitiveNames(for url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames ?? false
     }
 
-    /// ``volumeSupportsCaseSensitiveNames(for:)`` for a destination that does not exist YET.
-    ///
-    /// `resourceValues` throws for a path with nothing on disk, so asking about a file about to be
-    /// created always produced the fallback — never the volume's real answer. That is the exact
-    /// shape a bulk sync asks about: every "missing on the other side" target is by definition
-    /// absent, so a genuinely case-sensitive destination was still told to fold case, and two items
-    /// differing only by case had one of them needlessly renamed to "name 2".
-    ///
-    /// Volume semantics do not change within a subtree, so walking up to the nearest EXISTING
-    /// ancestor answers for the volume the path will land on. This mirrors the same walk the undo
-    /// path already performs for vanished restore targets. When nothing up to "/" can answer, the
-    /// result stays `false` (fold), which is the safe direction here: folding at worst uniquifies a
-    /// name unnecessarily, while wrongly claiming case sensitivity lets two parallel writers target
-    /// one file.
+    /// ``volumeSupportsCaseSensitiveNames(for:)`` for a destination that doesn't exist yet, such
+    /// as every "missing on the other side" target of a bulk sync. `resourceValues` throws for a
+    /// missing path, so this walks up to the nearest existing ancestor, which is on the same
+    /// volume. If nothing up to "/" answers it returns `false` (fold): folding at worst renames
+    /// needlessly, while wrongly claiming case sensitivity lets two parallel writers hit one file.
     public nonisolated static func volumeSupportsCaseSensitiveNamesForNewItem(at url: URL) -> Bool {
         caseSensitivityWalkingUp(from: url) { probe in
             (try? probe.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames
@@ -279,10 +226,8 @@ extension FileSyncManager {
     }
 
     /// The pure walk behind ``volumeSupportsCaseSensitiveNamesForNewItem(at:)``: asks `probe` about
-    /// each ancestor in turn until one answers, and reports `false` if none does. Split out so the
-    /// walk is testable without a case-sensitive volume to run on — on the ordinary case-INsensitive
-    /// developer machine, "walked up and got the real answer" and "gave up and returned the
-    /// fallback" are the same `false`, and a test could not tell the fix from the bug.
+    /// each ancestor until one answers, or reports `false`. Split out so it can be tested without a
+    /// case-sensitive volume, where a real answer and the fallback would both be `false`.
     nonisolated static func caseSensitivityWalkingUp(from url: URL, probe: (URL) -> Bool?) -> Bool {
         var current = url
         while true {
@@ -294,20 +239,17 @@ extension FileSyncManager {
     }
     
     
-    /// Finds a free name near `url` by appending " 2", " 3", … A name counts as taken when it
-    /// exists on disk OR is in `reserved` — the latter lets a bulk run that resolves every
-    /// destination up front (before its parallel copy phase) avoid handing two items the same
-    /// path when a keep-both suffix would otherwise collide with another item's real target.
+    /// Finds a free name near `url` by appending " 2", " 3", … A name is taken when it exists on
+    /// disk or is in `reserved`, which lets a bulk run that resolves every destination before its
+    /// parallel copies avoid giving two items the same path.
     public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default, reserved: Set<String> = [], caseSensitiveVolume: Bool = true) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension
 
-        // On a case-insensitive destination, two reserved targets differing only by case name the
-        // same file, so match the reserved set case-insensitively — `fileExists` already collapses
-        // case on disk, but the in-memory reserved set would otherwise hand two case-variant items
-        // the same path and let the second overwrite the first. (Default is exact, so a
-        // case-sensitive volume keeps distinct case variants distinct.)
+        // On a case-insensitive destination, match the reserved set case-insensitively, as
+        // `fileExists` already does on disk, or two case-variant items get one path and the second
+        // overwrites the first. The default is exact, for case-sensitive volumes.
         let reservedForMatch = caseSensitiveVolume ? reserved : Set(reserved.map { $0.lowercased() })
         func isReserved(_ path: String) -> Bool {
             caseSensitiveVolume ? reserved.contains(path) : reservedForMatch.contains(path.lowercased())
@@ -329,11 +271,10 @@ extension FileSyncManager {
         return newURL
     }
 
-    /// True when `destinationURL` holds a distinct item that a copy/move must replace. A case-only
-    /// rename ("foo" -> "Foo") on a case-insensitive volume reports its own source as the
-    /// destination, so it is excluded: it is not a replacement, and backing it up would move the
-    /// only copy of the data aside. On a case-sensitive volume there is no such aliasing —
-    /// case-variant names are ordinary distinct items and the exclusion must not apply.
+    /// True when `destinationURL` holds a distinct item that a copy or move must replace. A
+    /// case-only rename on a case-insensitive volume finds its own source there, so it is excluded:
+    /// backing it up would move the only copy aside. On a case-sensitive volume case variants are
+    /// distinct items, so the exclusion doesn't apply.
     private nonisolated static func destinationExistsForReplacement(
         source: URL,
         destination: URL,
@@ -344,13 +285,11 @@ extension FileSyncManager {
             && fileManager.fileExists(atPath: destination.path)
     }
 
-    /// Finalizes the in-place `.rollback_<UUID>` backup that the atomic replace left beside the
-    /// destination, returning a restorable URL for the overwritten item. Prefers the Trash so the
-    /// backup shows up where users expect. When the volume has no Trash (network shares), KEEP the
-    /// backup where it is: deleting it here would make Replace permanently destroy the old file the
-    /// instant the operation succeeds. The dot-prefixed name hides it from the panes; undo restores
-    /// it to its original location, and an unused backup is simply left behind once the undo stack
-    /// drops — recoverable by hand beats silently destroyed. Returns nil when nothing was replaced.
+    /// Finalizes the `.rollback_<UUID>` backup the atomic replace left beside the destination and
+    /// returns a restorable URL for the overwritten item, or nil when nothing was replaced. Prefers
+    /// the Trash. **With no Trash (network shares), the backup stays where it is**: deleting it
+    /// would make Replace destroy the old file outright. The dot name hides it from the panes; undo
+    /// restores it, and an unused one is left behind, recoverable by hand.
     private nonisolated static func finalizeBackup(
         _ backupURL: URL?,
         replacing destinationURL: URL,
@@ -365,22 +304,19 @@ extension FileSyncManager {
             recovered = backupURL
         }
         if let recovered {
-            // Recovery breadcrumb: the single line that lets a replaced file be found again after
-            // an overwrite (or a bad sync). Logged at .info so it survives a normal-level trace.
+            // The one line that lets a replaced file be found again. At .info so a normal trace
+            // keeps it.
             Logger.shared.info("Replaced \(destinationURL.path) — previous version recoverable at \(recovered.path)")
         }
         return recovered
     }
 
-    /// The name `url`'s item has on disk, byte for byte — nil when nothing is there to ask.
+    /// The name `url`'s item has on disk, byte for byte, or nil when nothing is there.
     ///
-    /// **Why the bytes, and not `lastPathComponent`.** APFS keeps a name in the Unicode form it was
-    /// created in — a precomposed `é` (NFC: what iPhone apps and the keyboard make) or `e` plus a
-    /// combining accent (NFD) — and finds it by either. A `URL` built from a string decomposes it,
-    /// and every Foundation create, move and copy writes the name decomposed, even given a `String`
-    /// path or a URL that still holds the NFC bytes (measured 2026-10-31, scratch folders). Only
-    /// the system calls write a name as given. `getattrlist` reports the name as stored, however
-    /// the path asking was spelled.
+    /// Not `lastPathComponent`: APFS keeps a name in the Unicode form it was created in (NFC `é`,
+    /// as iPhone apps and the keyboard make, or NFD `e` plus a combining accent) and finds it by
+    /// either. Foundation's create, move and copy write the name decomposed, whatever form they
+    /// are given; only the system calls write it as given. `getattrlist` reports it as stored.
     nonisolated static func nameOnDisk(of url: URL) -> String? {
         var request = attrlist(bitmapcount: u_short(ATTR_BIT_MAP_COUNT), reserved: 0,
                                commonattr: attrgroup_t(ATTR_CMN_NAME), volattr: 0, dirattr: 0,
@@ -403,22 +339,19 @@ extension FileSyncManager {
     }
 
     /// Puts `itemURL` at `destinationURL` with the name `originalURL`'s item has on disk, when the
-    /// destination's name is that same name in another Unicode form — the case of every copy and
-    /// move, which carry a name over unchanged. Any other name lands as `moveItem` writes it.
+    /// destination's name is the same name in another Unicode form, as for every copy and move.
+    /// Any other name lands as `moveItem` writes it.
     ///
-    /// **A copy keeps its original's name**, as Finder's does (measured: Finder's Duplicate keeps
-    /// either form). Through `moveItem` it did not: an NFC "Café.pdf" copied, synced, filed or
-    /// moved landed as NFD bytes, and Dropbox and iCloud upload a name as the bytes they find.
-    /// And APFS's 255-unit name limit counts the form written: a name that fits precomposed can
-    /// overflow decomposed (a Korean syllable is one unit NFC, up to three NFD), so a long name
-    /// Finder copies failed here outright. A name the user types still lands as Foundation writes
-    /// it, which is what Finder does with a typed name too.
+    /// A copy keeps its original's name bytes, as Finder's does. Through `moveItem` an NFC
+    /// "Café.pdf" would land as NFD, and Dropbox and iCloud upload the bytes they find. APFS's
+    /// 255-unit limit also counts the form written, so a long name that fits NFC can overflow NFD
+    /// (a Korean syllable is one unit NFC, up to three NFD). A typed name lands as Foundation
+    /// writes it, as in Finder.
     ///
-    /// Through `rename(2)` with `RENAME_EXCL`, which writes the name as given and refuses an
-    /// occupied destination as `moveItem` does. A rename that fails for any reason falls through
-    /// to `moveItem` unchanged, so another volume, a raced destination and every error message are
-    /// what they always were. Only for a `FileManager`: another `FileManaging` keeps its own
-    /// `moveItem`, but a `FileManager` subclass that overrides it is passed by for such a name.
+    /// Uses `rename(2)` with `RENAME_EXCL`, which writes the name as given and refuses an occupied
+    /// destination. Any failure falls through to `moveItem`, so other volumes, races and error
+    /// messages behave as before. Only for a `FileManager`: other `FileManaging` types keep their
+    /// own `moveItem`, though a `FileManager` subclass overriding it is bypassed for such a name.
     nonisolated static func land(_ itemURL: URL, at destinationURL: URL, keepingNameOf originalURL: URL,
                                  fileManager: FileManaging) throws {
         if fileManager is FileManager,
@@ -438,9 +371,9 @@ extension FileSyncManager {
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
     ///
-    /// With an `observer`, the staging copy can be abandoned part-way (RD24): it throws
-    /// `CocoaError(.userCancelled)` before anything reaches the destination, and the `defer` below
-    /// sweeps whatever the staging file held.
+    /// With an `observer`, the staging copy can be abandoned part-way: it throws
+    /// `CocoaError(.userCancelled)` before anything reaches the destination, and the staging file
+    /// is swept.
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
         try safeCopyItem(
@@ -453,8 +386,8 @@ extension FileSyncManager {
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume. Every copy
-    /// comes through here — renames and the filing pass call it directly — so this is where the
-    /// file is noted for the cloud app status to watch its upload (RD68).
+    /// comes through here (renames and filing call it directly), so this is where the file is
+    /// noted for the cloud app status to watch its upload.
     @discardableResult
     nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil) throws -> URL? {
         let restorable = try copyItemCore(at: sourceURL, to: destinationURL, fileManager: fileManager,
@@ -474,12 +407,10 @@ extension FileSyncManager {
         let lock = try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
 
         if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
-            // Atomically swap the staged copy into place, preserving the old destination as a
-            // sibling backup. The destination is never momentarily absent, so a crash or forced
-            // quit mid-replace cannot strand the old file in Trash with nothing at the destination.
-            // A throw here leaves the destination untouched (the primitive is atomic); the staged
-            // temp is cleaned up by `defer`. `installReplacement`, not `replaceItem`: the result is
-            // the source's copy with the source's permissions and dates (FR32), not the old file's.
+            // Swap the staged copy in atomically, keeping the old destination as a sibling backup.
+            // The destination is never absent, so a crash mid-replace can't leave nothing there; a
+            // throw leaves it untouched. `installReplacement`, not `replaceItem`: the result keeps
+            // the source's permissions and dates, not the old file's.
             let backupURL = try fileManager.installReplacement(
                 at: destinationURL,
                 withItemAt: tempURL,
@@ -489,8 +420,8 @@ extension FileSyncManager {
             return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
         }
 
-        // Brand-new destination (or a case-only rename whose "destination" is the source itself on
-        // a case-insensitive volume): a single rename into place, no backup, no replacement window.
+        // A new destination (or a case-only rename onto the source itself): one rename into
+        // place, no backup, no replacement window.
         try land(tempURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
         restoreLock(lock, on: destinationURL, fileManager: fileManager)
         return nil
@@ -499,9 +430,9 @@ extension FileSyncManager {
     /// Safely moves a file, atomically replacing the destination if it exists.
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
-    /// With an `observer`, only a cross-volume move's staging copy is abandonable — a same-volume
-    /// move is a rename, and a cancel that arrives after the copy has landed lets the move finish,
-    /// because the source cleanup that follows is not something to stop half-way.
+    /// With an `observer`, only a cross-volume move's staging copy can be abandoned: a same-volume
+    /// move is a rename, and once the copy has landed the move finishes, since the source cleanup
+    /// must not stop half-way.
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default, observer: CopyObserver? = nil) throws -> URL? {
         try safeMoveItem(
@@ -514,8 +445,8 @@ extension FileSyncManager {
     }
 
     /// Testable core; production resolves `caseSensitiveVolume` from the source volume, and
-    /// `crossVolume` — when it is not given — from the two volumes on disk (FR33). Every move and
-    /// rename comes through here, and is noted as the copy core notes (RD68).
+    /// `crossVolume`, when not given, from the two volumes on disk. Every move and rename comes
+    /// through here and is noted as the copy core notes.
     @discardableResult
     nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver? = nil, crossVolume: Bool? = nil) throws -> URL? {
         let restorable = try moveItemCore(at: sourceURL, to: destinationURL, fileManager: fileManager,
@@ -528,29 +459,21 @@ extension FileSyncManager {
     private nonisolated static func moveItemCore(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool, observer: CopyObserver?, crossVolume: Bool?) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
-        // **Another volume is decided here, before `moveItem` is asked** (FR33). The staged path
-        // below — a copy into `.tmp_` that watches Cancel, a rename into place, the original to the
-        // Trash — used to run only when `moveItem` THREW, on the belief that a cross-volume move
-        // throws EXDEV. Foundation's does not: measured, `moveItem` from the Data volume onto a
-        // disk image succeeded, copying the item and unlinking the original itself. So every move
-        // to an external disk or another volume skipped all three: Cancel could not stop it, and
-        // the original was deleted outright rather than put in the Trash. The tests never saw it
-        // because their doubles throw EXDEV on cue.
+        // Another volume is decided here, before `moveItem` is asked. Foundation's `moveItem`
+        // across volumes doesn't throw EXDEV: it copies and unlinks the original itself, so Cancel
+        // couldn't stop it and the original would skip the Trash. A cross-volume move takes the
+        // staged path below instead (a copy into `.tmp_` that watches Cancel, a rename into place,
+        // the original to the Trash).
         //
-        // **Only a real disk is asked (P6).** The volumes are read off the real file system, so a
-        // test double's paths were judged by whatever the real disk holds there: a mock source at
-        // `/src` (the system volume, by the nearest existing folder) and a destination under the
-        // temporary directory (the Data volume) read as two volumes. A double is one volume unless
-        // its caller says otherwise.
+        // Only a real disk is asked: a test double's paths would be judged by what the real disk
+        // holds there. A double is one volume unless its caller says otherwise.
         let crossVolume = crossVolume
             ?? (fileManager is FileManager && isCrossVolumeMove(from: sourceURL, to: destinationURL))
 
-        // **A locked original is refused before anything is written** (FR31). A move has to rename
-        // the original or put it in the Trash, and the kernel refuses both for an item locked in
-        // Finder (`uchg`, or `uappnd`) — measured: `rename`, `moveItem`, `trashItem` and `removeItem`
-        // all EPERM. Without this the failed rename took the copy fallback, which landed a copy and
-        // then could not clear the original, so it reverted — or, with the copy locked too, left
-        // both. The lock is the user's, and this app never lifts it from their item.
+        // A locked original is refused before anything is written. A move must rename or trash
+        // the original, and the kernel refuses both (EPERM) for an item locked in Finder (`uchg` or
+        // `uappnd`); the copy fallback would land a copy it then can't clean up. The lock is the
+        // user's, and this app never lifts it from their item.
         if isLocked(sourceURL, fileManager: fileManager) {
             throw FileOperationError.itemIsLocked(name: sourceURL.lastPathComponent)
         }
@@ -559,56 +482,51 @@ extension FileSyncManager {
             return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager, observer: observer, crossVolume: crossVolume)
         }
 
-        // No existing destination (or a case-only rename whose "destination" is the source itself):
-        // a plain single rename. Nothing is backed up, so there is no replacement window.
+        // No existing destination (or a case-only rename onto the source itself): one plain
+        // rename, nothing backed up.
         do {
             if crossVolume { throw POSIXError(.EXDEV) }
             try land(sourceURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
         } catch {
-            // Fallback for cross-volume moves (EXDEV) or other similar access issues. Stage into a
-            // temp mathematically guaranteed to be on the destination's volume, then rename into
-            // place — an atomic install that avoids corrupted half-files.
+            // Cross-volume (EXDEV) or a failed rename: stage into a temp beside the destination, so
+            // on its volume, then rename into place, so no half-written file ever lands.
             let targetDirectory = destinationURL.deletingLastPathComponent()
             let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
 
             defer { removeStaging(tempURL, fileManager: fileManager) }
 
-            // No lock to restore (P7): a locked original is refused above, so a move's staged copy
-            // never carries one on its top item. Entries inside keep their own locks, as copied.
+            // No lock to restore: a locked original is refused above. Entries inside keep their own
+            // locks, as copied.
             try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             try land(tempURL, at: destinationURL, keepingNameOf: sourceURL, fileManager: fileManager)
 
-            // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
+            // Clean up the source: Trash first, a direct remove if the volume has no Trash.
             do {
                 try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
             } catch {
-                // **Spend the re-registration retry before destroying anything.** The transient
-                // provider refusal measured on 2026-08-30 blocks this trash exactly as it blocks
-                // a delete — and unlike a delete, the fallback below is unrecoverable, so under
-                // that refusal a move would quietly become a permanent deletion of the original.
+                // **Spend the re-registration retry before destroying anything.** A transient
+                // provider refusal blocks this trash as it blocks a delete, and the fallback below
+                // is unrecoverable: the move would become a permanent deletion of the original.
                 if !FileSyncManager.retriedSourceCleanupTrash(
                     sourceURL, after: error, fileManager: fileManager,
                     context: "Cross-volume move") {
-                    // Read before the removal: a folder's can stop part-way (P2).
+                    // Read before the removal: a folder's can stop part-way.
                     let sourceIsFolder = entryKind(at: sourceURL, fileManager: fileManager) == .typeDirectory
                     do {
                         try fileManager.removeItem(at: sourceURL)
-                        // The one branch of a move that removes something unrecoverably. The data
-                        // survives at the destination, but the original is gone without a Trash stop,
-                        // so the log must say so — the delete path's equivalent already does.
+                        // The one branch of a move that removes something unrecoverably: the data
+                        // is at the destination, but the original skipped the Trash, so log it.
                         Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
-                        // **A folder's removal can stop part-way, so its copy is never removed then**
-                        // (P2). `removeItem` deletes what it can before it throws — a locked file
-                        // inside is enough — and removing the copy after that deleted the only
-                        // complete one. Both stay, and the error says so.
+                        // **A folder's removal can stop part-way, so its copy is never removed
+                        // then.** `removeItem` deletes what it can before throwing (a locked file
+                        // inside is enough), so the copy is the only whole one. Both stay.
                         if sourceIsFolder {
                             Logger.shared.warning("Cross-volume move of \(sourceURL.path) failed at source cleanup, and the original may have been partly removed — the complete copy stays at \(destinationURL.path): \(cleanupError.localizedDescription)")
                             throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent)
                         }
                         // A file's removal is one unlink: it failed whole, the original is intact,
-                        // and the item at the destination is this operation's own copy - removing it
-                        // is a clean revert.
+                        // and removing this operation's own copy is a clean revert.
                         let reverted = (try? fileManager.removeItem(at: destinationURL)) != nil
                         Logger.shared.warning(reverted
                             ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
@@ -621,12 +539,11 @@ extension FileSyncManager {
         return nil
     }
 
-    /// Replaces an existing destination with `sourceURL`'s contents atomically. Stages the source
-    /// onto the destination's volume (a same-volume rename consumes it; a cross-volume move copies
-    /// it), then swaps it into place via `replaceItem`, preserving the old destination as a
-    /// recoverable backup. Because the swap is atomic the destination is never momentarily absent —
-    /// the crash window Finding 1 flagged. A failed swap leaves the destination untouched; if the
-    /// same-volume staging had already consumed the source, it is restored so no data is lost.
+    /// Replaces an existing destination with `sourceURL`'s contents atomically. Stages the source on
+    /// the destination's volume (a same-volume rename consumes it; a cross-volume move copies it),
+    /// then swaps it in with `installReplacement`, keeping the old destination as a recoverable
+    /// backup. The destination is never absent, so a crash can't leave nothing there. A failed swap
+    /// leaves the destination untouched, and a source already consumed by staging is put back.
     private nonisolated static func replaceDestinationByMoving(
         sourceURL: URL,
         destinationURL: URL,
@@ -636,24 +553,21 @@ extension FileSyncManager {
     ) throws -> URL? {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
-        // The staged temp is normally transient and swept on every exit. The ONE exception is
-        // the double failure below (replace failed AND the restoring move-back failed with the
-        // source already consumed): the temp then holds the only copy of the source's content
-        // and must survive this scope — sweeping it would permanently destroy the source, not
-        // even via the Trash.
+        // The staged temp is swept on every exit except one: when the replace and the move-back
+        // both fail after the source was consumed, the temp holds the only copy of the source and
+        // must survive. Sweeping it would destroy the source outright, bypassing the Trash.
         var tempHoldsOnlyCopyOfSource = false
         defer { if !tempHoldsOnlyCopyOfSource { removeStaging(tempURL, fileManager: fileManager) } }
 
-        // Stage the source onto the destination's volume. Same-volume: a rename consumes the
-        // source. Cross-volume — decided up front (FR33), because `moveItem` onto another volume
-        // copies and unlinks by itself rather than throwing — or a rename that failed: copy, and
-        // remember the original still needs cleanup.
+        // Stage the source on the destination's volume. Same volume: a rename consumes it. Cross
+        // volume (decided up front, since `moveItem` there copies and unlinks rather than throwing)
+        // or a failed rename: copy, and remember the original still needs cleaning up.
         var sourceConsumed = true
         do {
             if crossVolume { throw POSIXError(.EXDEV) }
             try fileManager.moveItem(at: sourceURL, to: tempURL)
         } catch {
-            // Unlocked, like the plain move's: no lock comes back to restore (P7).
+            // Unlocked, like the plain move's: no lock to restore.
             try stage(sourceURL, to: tempURL, fileManager: fileManager, observer: observer)
             sourceConsumed = false
         }
@@ -666,44 +580,33 @@ extension FileSyncManager {
                 backupItemName: ".rollback_\(UUID().uuidString)"
             )
         } catch {
-            // The atomic replace failed with the destination intact. But a same-volume rename has
-            // already moved the source into the staged temp (which `defer` will delete), so restore
-            // it — a failed replace must never destroy the source.
-            // Named binding: the inner catch below shadows `error` with the move-back failure,
-            // and both the rethrow and the enrichment must carry the REPLACE failure.
+            // The replace failed with the destination intact, but a same-volume rename already put
+            // the source in the temp, which `defer` deletes, so move it back: a failed replace must
+            // never destroy the source. Named so the inner catch can't shadow the replace error.
             let replaceError = error
             if sourceConsumed {
                 do {
                     try fileManager.moveItem(at: tempURL, to: sourceURL)
                 } catch {
-                    // The move-back failed too (something re-took the source path — a cloud
-                    // daemon re-materializing a placeholder does exactly this — or the temp is
-                    // busy). The temp is now the only copy of the source's content: keep it,
-                    // and say exactly where it is — in the ALERT the caller shows, not only the
-                    // log, because a bare "Move Failed" reads as "nothing changed" while the
-                    // source is in fact gone from its path. OrphanSweeper's later sweep only
-                    // Trashes (recoverable); nothing may unlink it outright.
+                    // The move-back failed too (a cloud daemon re-took the source path, or the temp
+                    // is busy). The temp is now the only copy of the source: keep it, and say where
+                    // it is in the alert, not only the log, since a bare "Move Failed" reads as
+                    // "nothing changed". OrphanSweeper only Trashes it; nothing may unlink it.
                     tempHoldsOnlyCopyOfSource = true
                     let detail: String
                     if fileManager.fileExists(atPath: tempURL.path) {
-                        // Reset the sweeper's age clock: minimumAge reads the file's mtime, and
-                        // the staging RENAME preserved the original's — a temp staged from any
-                        // hour-old file was sweep-eligible on the very next refresh, making the
-                        // "preserved at" pointer stale within minutes. Touching grants the full
-                        // grace hour at the logged path (after which the sweep Trashes it,
-                        // still recoverable). A FAILED touch (busy temp — one of the very
-                        // causes of this branch) forfeits that grace, so the message must not
-                        // promise it.
+                        // Reset the sweeper's age clock: `minimumAge` reads the mtime, which the
+                        // staging rename kept from the original, so an old file's temp would be
+                        // swept at once. Touching grants the full grace hour at the logged path. A
+                        // failed touch (a busy temp) forfeits it, so the message mustn't promise it.
                         let touched = (try? fileManager.setAttributes(
                             [.modificationDate: Date()], ofItemAtPath: tempURL.path)) != nil
                         detail = touched
                             ? "The original could not be put back at its path; its content is preserved in the hidden file “\(tempURL.lastPathComponent)” next to the destination."
                             : "The original could not be put back at its path; its content is currently in the hidden file “\(tempURL.lastPathComponent)” next to the destination, which the periodic cleanup may soon move to the Trash — recover it from either place."
                     } else {
-                        // replaceItem may consume the staged item into the system's
-                        // item-replacement directory before failing — then the temp is gone
-                        // from its staging path through no act of ours. Say so honestly
-                        // instead of pointing at a path that holds nothing.
+                        // replaceItem may move the staged item into the system's item-replacement
+                        // directory before failing. Say so rather than point at an empty path.
                         detail = "The original could not be put back at its path, and the staged copy is no longer at its staging location — macOS may have moved it to a temporary item-replacement folder."
                     }
                     Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path). \(detail)")
@@ -717,42 +620,40 @@ extension FileSyncManager {
             throw replaceError
         }
 
-        // Cross-volume: the source was copied, not consumed, so remove the original now that the
-        // destination holds its data. Trash first; fall back to a permanent remove.
+        // Cross-volume: the source was copied, not consumed, so remove the original now the
+        // destination holds its data. Trash first, then a permanent remove.
         if !sourceConsumed {
             do {
                 try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
             } catch {
-                // Same retry, same reason, as the cross-volume move above: the fallback below is
-                // the unrecoverable one, so the re-registration attempt is spent first.
+                // The same retry as the cross-volume move above, spent before the unrecoverable
+                // fallback.
                 if !FileSyncManager.retriedSourceCleanupTrash(
                     sourceURL, after: error, fileManager: fileManager,
                     context: "Cross-volume replace") {
                     let sourceIsFolder = entryKind(at: sourceURL, fileManager: fileManager) == .typeDirectory
                     do {
                         try fileManager.removeItem(at: sourceURL)
-                        // Same unrecoverable removal as the plain cross-volume move above, and the
-                        // same obligation to say so.
+                        // Unrecoverable, as in the plain cross-volume move, so it is logged too.
                         Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
                     } catch let cleanupError {
-                        // A folder may be partly gone (P2): reverting would put the old destination
-                        // back over the only complete copy, and drop that copy with the fresh
-                        // backup. The new content stays, the old destination goes to the Trash
-                        // like any replaced item, and the error says what happened.
+                        // A folder may be partly gone: reverting would put the old destination back
+                        // over the only complete copy. The new content stays, the old destination
+                        // goes to the Trash like any replaced item, and the error says so.
                         if sourceIsFolder {
                             let previous = finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
                             Logger.shared.warning("Cross-volume replace of \(destinationURL.path) failed at source cleanup, and the original at \(sourceURL.path) may have been partly removed — the complete copy stays at the destination\(previous.map { "; the item it replaced is at \($0.path)" } ?? ""): \(cleanupError.localizedDescription)")
-                            // The alert says where the replaced item went (B2): the Trash, or —
-                            // with no Trash — the hidden backup `finalizeBackup` left in place.
+                            // The alert says where the replaced item went: the Trash, or with no
+                            // Trash, the hidden backup `finalizeBackup` left in place.
                             let kept: FileOperationError.ReplacedItemPlace? = previous.map {
                                 $0 == backupURL ? .hiddenBesideDestination(name: $0.lastPathComponent) : .trash
                             }
                             throw FileOperationError.originalPartlyRemoved(name: sourceURL.lastPathComponent,
                                                                            replacedItemKeptAt: kept)
                         }
-                        // Neither Trash nor remove worked, so this cross-volume move can't complete.
-                        // Undo the replace and fail — matching the dest-absent cross-volume path, and
-                        // avoiding a "moved" undo entry for a source still on disk.
+                        // Neither Trash nor remove worked, so the move can't complete. Revert the
+                        // replace and fail, as the plain cross-volume path does, so no "moved" undo
+                        // entry exists for a source still on disk.
                         if let backupURL {
                             revertReplace(destinationURL: destinationURL, from: backupURL, fileManager: fileManager)
                         }
@@ -765,11 +666,10 @@ extension FileSyncManager {
         return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
     }
 
-    /// Atomically restores a just-replaced `destinationURL` to `backupURL`'s (pre-replace) content,
-    /// then discards the redundant fresh backup the restore takes. Used to undo a replace whose
-    /// cross-volume source-cleanup failed: the restore goes back through `replaceItem`, so the
-    /// destination is never momentarily absent, and the fresh backup is a copy of that
-    /// still-present source, so it can be dropped.
+    /// Atomically restores a just-replaced `destinationURL` to `backupURL`'s pre-replace content,
+    /// then drops the fresh backup the restore makes, a copy of the source still on disk. For a
+    /// replace whose cross-volume source cleanup failed; `installReplacement` keeps the
+    /// destination present throughout.
     private nonisolated static func revertReplace(
         destinationURL: URL,
         from backupURL: URL,
@@ -780,21 +680,19 @@ extension FileSyncManager {
             withItemAt: backupURL,
             backupItemName: ".rollback_\(UUID().uuidString)"
         ) else {
-            // The revert itself failed: the destination may hold the new content while the source
-            // is still on disk. Log loudly — this is the one spot where a replace can leave the
-            // two panes inconsistent without surfacing an error to the caller.
+            // The revert failed: the destination may hold the new content while the source is still
+            // on disk. Log loudly; this is the one place a replace can leave the panes inconsistent
+            // without an error reaching the caller.
             Logger.shared.error("Could not revert a partial replace at \(destinationURL.path) from backup \(backupURL.path); the destination may hold new content while the original source is still present")
             return
         }
         try? fileManager.removeItem(at: staleBackup)
     }
     
-    /// True when `source` and `destination` sit on different volumes, so a move between them is a
-    /// copy and a delete rather than a rename (FR33). Asked of each entry's PARENT — a move
-    /// relocates a directory entry, and a symbolic link lives where its parent is, not where it
-    /// points — walking up to the nearest folder that exists, as the destination's may not yet.
-    /// When either side cannot be asked it answers false: `moveItem` is then tried first, as it
-    /// always was, and a rename that fails still takes the staged path.
+    /// True when `source` and `destination` sit on different volumes, so a move is a copy and a
+    /// delete rather than a rename. Asked of each entry's parent (a link lives where its parent
+    /// is, not where it points), walking up to the nearest existing folder. False when either side
+    /// can't be asked: `moveItem` is tried first, and a failed rename still takes the staged path.
     nonisolated static func isCrossVolumeMove(from source: URL, to destination: URL) -> Bool {
         guard let from = volumeIdentifier(near: source.deletingLastPathComponent()),
               let to = volumeIdentifier(near: destination.deletingLastPathComponent()) else { return false }
@@ -813,21 +711,18 @@ extension FileSyncManager {
         }
     }
 
-    /// The Finder lock a staged copy was carrying, lifted so it can be installed — `.immutable`
-    /// and/or `.appendOnly` set to `true`; empty when the source was not locked.
+    /// The Finder lock a staged copy carried, lifted so it can be installed: `.immutable` and/or
+    /// `.appendOnly` set to `true`; empty when the source wasn't locked.
     typealias StagedLock = [FileAttributeKey: Any]
 
     /// The one staging copy every primitive above makes: observed when there is an observer,
-    /// `copyItem` exactly as before when there is not.
+    /// plain `copyItem` when there isn't.
     ///
-    /// **A locked source's copy is unlocked in staging, and locked again once installed** (FR31).
-    /// `copyItem` and `copyfile` both carry the source's `uchg`/`uappnd` onto the copy, and a locked
-    /// `.tmp_` can be neither renamed into place nor replaced over the destination nor removed —
-    /// measured: `moveItem`, `removeItem` and `trashItem` EPERM, `replaceItemAt` EACCES. So a locked
-    /// file could never be copied, and every attempt left a hidden full-size copy that nothing could
-    /// clear. Only the STAGED copy's own flags are touched — never the source's — and the lock goes
-    /// back on the installed item (``restoreLock(_:on:fileManager:)``), so the copy is locked like
-    /// its original.
+    /// A locked source's copy is unlocked in staging and locked again once installed. The copy
+    /// carries the source's `uchg`/`uappnd`, and a locked `.tmp_` can't be renamed, replaced over
+    /// the destination or removed, leaving a hidden full-size copy behind. Only the staged copy's
+    /// flags are touched, never the source's; ``restoreLock(_:on:fileManager:)`` re-locks the
+    /// installed item.
     @discardableResult
     private nonisolated static func stage(_ sourceURL: URL, to tempURL: URL, fileManager: FileManaging, observer: CopyObserver?) throws -> StagedLock {
         try requireContentsOnThisMac(sourceURL, fileManager: fileManager, observer: observer)
@@ -843,21 +738,18 @@ extension FileSyncManager {
         return lock
     }
 
-    /// **A folder is copied only once every folder in it is on this Mac** (FR34) — asked of its
-    /// cloud app through `DatalessFolderReads`, off the cooperative pool and for at most their
-    /// deadline, and refused as `folderNotAnswered` at the first folder that does not answer.
+    /// A folder is copied only once every folder in it is on this Mac. Each dataless folder is
+    /// asked of its cloud app through `DatalessFolderReads` (off the cooperative pool, within its
+    /// deadline), and the first that doesn't answer is refused as `folderNotAnswered`.
     ///
-    /// The copy's recursive walk (`copyfile`, or `copyItem`) lists every folder it reaches, and
-    /// listing a dataless folder whose provider is not running blocks for good — measured on the
-    /// OneDrive `.Trash` folders `DatalessFolderReads` describes. It has no deadline, and Cancel is
-    /// only heard in the copy's callbacks, which never fire while a listing blocks; the copy runs on
-    /// the serial operation queue, so every later copy, move and Trash in the app queued behind it.
+    /// The copy's own walk lists every folder, and listing a dataless folder whose provider isn't
+    /// running blocks forever, with no deadline and no Cancel. The copy runs on the serial
+    /// operation queue, so every later copy, move and Trash in the app would queue behind it.
     ///
-    /// Walked the way `listing(of:)` walks: one recursive enumeration that is not let into a
-    /// dataless folder — `hasDirectoryPath` is the enumerator's own word, so a file costs no `stat`
-    /// and a folder one — with each dataless folder asked for first, which materializes it, and
-    /// then walked in turn. A folder that answers is on disk for the copy that follows. A link is
-    /// not followed (the copy copies the link); a file needs nothing. Cancel is heard per entry.
+    /// Walked as `listing(of:)` walks: one enumeration kept out of dataless folders
+    /// (`hasDirectoryPath` costs a file no `stat`), each dataless folder materialized by asking
+    /// and then walked in turn. Links aren't followed (the copy copies the link). Cancel is heard
+    /// per entry.
     nonisolated static func requireContentsOnThisMac(_ source: URL, fileManager: FileManaging, observer: CopyObserver?) throws {
         guard entryKind(at: source, fileManager: fileManager) == .typeDirectory else { return }
         func walk(_ folder: URL) throws {
@@ -879,8 +771,8 @@ extension FileSyncManager {
         try walk(source)
     }
 
-    /// Puts a staged copy's lock back on the item it became. A failure is logged and not thrown:
-    /// the copy has landed, and an unlocked copy of a locked file is not a reason to call it failed.
+    /// Puts a staged copy's lock back on the item it became. A failure is logged, not thrown: the
+    /// copy has landed, and being unlocked doesn't make it a failed copy.
     private nonisolated static func restoreLock(_ lock: StagedLock, on url: URL, fileManager: FileManaging) {
         guard !lock.isEmpty else { return }
         do {
@@ -890,8 +782,8 @@ extension FileSyncManager {
         }
     }
 
-    /// The Finder lock on the item at `url` itself — not a link's target, as `attributesOfItem`
-    /// reads the entry. Empty when it is not locked or cannot be read.
+    /// The Finder lock on the item at `url` itself, not a link's target (`attributesOfItem` reads
+    /// the entry). Empty when it isn't locked or can't be read.
     private nonisolated static func lockAttributes(of url: URL, fileManager: FileManaging) -> StagedLock {
         guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else { return [:] }
         var lock: StagedLock = [:]
@@ -904,18 +796,13 @@ extension FileSyncManager {
         !lockAttributes(of: url, fileManager: fileManager).isEmpty
     }
 
-    /// Removes a `.tmp_` staging item on every exit, locked entries and all (FR31). A folder's copy
-    /// keeps the locks of the files inside it — they install locked, as their originals are — so a
-    /// staged folder abandoned at Cancel or by a failed install could not be removed, and stayed
-    /// beside the destination at full size. When the plain removal leaves anything behind, the
-    /// locks INSIDE the staging item are lifted and it is removed again. Only an exact `.tmp_<UUID>`
-    /// name is ever unlocked, and a symbolic link inside it is skipped, never followed: its target
-    /// is somebody else's item.
+    /// Removes a `.tmp_` staging item on every exit, locked entries and all. A staged folder keeps
+    /// the locks of the files inside it, so if the plain removal leaves anything, those locks are
+    /// lifted and it is removed again. Only an exact `.tmp_<UUID>` name is ever unlocked, and a
+    /// symbolic link inside is skipped, never followed: its target is somebody else's item.
     ///
-    /// **A staging item that still will not go is said in the log (P8)**, with its path: it is a
-    /// hidden full-size copy beside the destination. The line says it is left in place, not that a
-    /// cleanup will come (B7): `OrphanSweeper` only Trashes, so on a volume with no Trash nothing
-    /// ever takes it, and it never looks at a name that is not a `.tmp_` one.
+    /// A staging item that still won't go is logged with its path, as left in place: it is a
+    /// hidden full-size copy, and `OrphanSweeper` only Trashes, so with no Trash nothing takes it.
     nonisolated static func removeStaging(_ url: URL, fileManager: FileManaging) {
         guard (try? fileManager.removeItem(at: url)) == nil,
               fileManager.fileExists(atPath: url.path) else { return }
@@ -941,12 +828,11 @@ extension FileSyncManager {
         }
     }
 
-    /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
-    /// Call before copying into a path like `.../Package.pages-tef/Previews` so we don't fail with "file already exists".
+    /// Ensures the parent of `destinationURL` is a usable directory: creates it, or throws if it
+    /// exists as a file. Call before copying into a path like `.../Package.pages-tef/Previews`.
     ///
-    /// With `sourceURL`, each folder it makes takes the name its counterpart above `sourceURL` has
-    /// on disk, when the two are the same name — a sync or cross-pane copy rebuilds the source's
-    /// folders, and a copied folder keeps its original's name as a copied file does
+    /// With `sourceURL`, each folder made takes its counterpart's on-disk name bytes when the names
+    /// match, so a rebuilt folder keeps its original's name as a copied file does
     /// (``land(_:at:keepingNameOf:fileManager:)``).
     public nonisolated static func ensureParentDirectoryExists(
         for destinationURL: URL,
@@ -968,10 +854,9 @@ extension FileSyncManager {
         try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
     }
 
-    /// Makes `folderURL`'s missing folders top-down with `mkdir(2)`, each named as the folder at
-    /// the same depth above `sourceURL` is on disk when the names match. False — leaving the rest
-    /// to `createDirectory`, whose errors are the familiar ones — when no folder's name would
-    /// differ from `createDirectory`'s, or any `mkdir` fails.
+    /// Makes `folderURL`'s missing folders top-down with `mkdir(2)`, each named as the folder at the
+    /// same depth above `sourceURL` is on disk when the names match. False, leaving the rest to
+    /// `createDirectory` and its familiar errors, when no name would differ or any `mkdir` fails.
     private nonisolated static func createFolders(_ folderURL: URL, keepingNamesAbove sourceURL: URL,
                                                   fileManager: FileManaging) -> Bool {
         var missing: [(name: String, keptName: String?)] = []
@@ -995,9 +880,10 @@ extension FileSyncManager {
         return true
     }
 
-    /// Performs only the file I/O for a single sync (create directory + copy or move).
-    /// Used by bulk sync to run multiple operations in parallel without going through the serial queue per file.
-    /// - Returns: On success, (nil, trashed, from, to). On failure, (error, nil, nil, nil).
+    /// Performs only the file I/O for a single sync (create the parent folder, then copy or move).
+    /// Bulk sync uses it to run operations in parallel without the serial queue per file.
+    /// - Returns: The restorable URL of any replaced item, and the source and destination.
+    ///   Throws on failure.
     public nonisolated static func performFileSyncIO(
         from sourceURL: URL,
         to destinationURL: URL,
@@ -1015,13 +901,10 @@ extension FileSyncManager {
         return (trashed, sourceURL, destinationURL)
     }
     
-    /// Only meaningful on case-insensitive volumes, where the case-variant destination IS the
-    /// source. On a case-sensitive volume "foo" and "Foo" are distinct files, so no name change
-    /// qualifies as case-only there.
-    /// Internal rather than private since round 6: the rename pass's own never-overwrite guard sits
-    /// ABOVE `safeMoveItem` and pre-empts it, so the two must ask this one question rather than each
-    /// spell an answer. A second copy is how they came to disagree — see
-    /// `applyRenamePlans(_:)`.
+    /// Only meaningful on case-insensitive volumes, where the case-variant destination is the
+    /// source. On a case-sensitive volume "foo" and "Foo" are distinct files, so nothing is
+    /// case-only there. Internal because the rename pass's never-overwrite guard
+    /// (`applyRenamePlans(_:)`) runs before `safeMoveItem`, and both must ask this one question.
     nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL, caseSensitiveVolume: Bool) -> Bool {
         return !caseSensitiveVolume &&
                source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&

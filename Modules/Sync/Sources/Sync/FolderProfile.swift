@@ -1,111 +1,79 @@
 import Foundation
 
-/// What a folder **is** — role, axes, naming convention, and whether it may receive files at all.
+/// What a folder is: role, axes, naming convention, and whether it may receive files. Records once
+/// the stable facts a classifier would otherwise re-derive per file: `TODO/` is an inbox, Indian tax
+/// years span two calendar years, a folder's files are named `NN. Mon YYYY`.
 ///
-/// `FilingClassifier` has only ever been handed bare folder paths, so it re-derives per file facts
-/// that are stable properties of the tree: that `TODO/` is an inbox rather than a destination, that
-/// Indian tax years span two calendar years while US ones do not, that a folder's files are named
-/// `NN. Mon YYYY`. A profile records those once.
-///
-/// **A profile is learned state about one person's tree, and nothing here generalises.** The
-/// conventions were mined from one `~/Documents`; another tree would yield a different and possibly
-/// contradictory set. There is no default profile to ship — a missing profile simply restores the
-/// behaviour the app had before this existed. The store is keyed by profile id so a second tree is
-/// additive rather than destructive.
+/// Learned state about one person's tree; nothing here generalises, and no default profile ships.
+/// Without one, filing works from folder paths alone. Keyed by profile id, so a second tree is
+/// additive.
 public struct FolderProfile: Sendable, Equatable {
     public let profileId: String
-    /// The tree this profile describes, as written in the file (e.g. `~/Documents`) — or `~` when
-    /// the file names none, the default every reader of this has always had.
+    /// The tree this profile describes, as written in the file (e.g. `~/Documents`), or `~` when
+    /// the file names none.
     public var root: String { recordedRoot ?? "~" }
-    /// The tree as the file records it, and nil when it records none.
-    ///
-    /// **`~` is the decoder's guess, not the profile's record**, and nothing that writes under the
-    /// profile may act on it: the corpus, the memory and the reorganisation ledger are all keyed by
-    /// paths relative to the profile's own folder, so acting on the whole home folder instead reads
-    /// every learned document as gone, or lands a reorganisation in the wrong tree. Those passes read
-    /// ``recordedFolderPath`` and refuse when it is nil.
+    /// The tree as the file records it; nil when it records none. **Nothing that writes under the
+    /// profile may act on ``root``'s `~` fallback**: the corpus, memory and reorganisation ledger are
+    /// relative to the profile's own folder, so using the home folder would read every learned
+    /// document as gone or reorganise the wrong tree. Those passes use ``recordedFolderPath``.
     public let recordedRoot: String?
 
-    /// The folder the file records, with `~` expanded — or nil when it records none, or records one
-    /// that is still relative once expanded and would resolve against the working directory.
-    ///
-    /// **The one folder a pass that writes under this profile may act on, spelled once.** Refresh,
-    /// the document survey and every Restructure landing ask it, and refuse when it is nil rather
-    /// than falling back to ``root``'s `~`.
+    /// The folder the file records, `~` expanded; nil when it records none, or one still relative
+    /// after expanding. The only folder a pass that writes under this profile may act on: Refresh,
+    /// the document survey and Restructure landings refuse when it is nil.
     public var recordedFolderPath: String? {
         guard let recordedRoot else { return nil }
         let expanded = (recordedRoot as NSString).expandingTildeInPath
         return expanded.hasPrefix("/") ? expanded : nil
     }
     public let folders: [String: FolderProfileEntry]
-    /// Values of the person axis, lowercased — `father`, `mother`, … plus the aliases the tree
+    /// Values of the person axis, lowercased (`father`, `mother`, …), plus the aliases the tree
     /// uses for the same people (`Family/Mom` is Immigration's `Granny`).
     public let personTokens: Set<String>
-    /// Which of those tokens are the *same person*, lowercased alias → canonical (`mom` →
-    /// `granny`). This used to be flattened into ``personTokens`` and discarded, after which
-    /// nothing could answer "is `mom` the same person as `granny`?" — only "is this token some
-    /// person?". ``PersonRegistry/seeded(from:)`` is what reads it.
+    /// Which of those tokens are the same person, lowercased alias → canonical (`mom` → `granny`),
+    /// so "is `mom` the same person as `granny`?" can be answered. Read by
+    /// ``PersonRegistry/seeded(from:)``.
     public let personAliases: [String: String]
 
-    /// What wrote this profile, verbatim from the file's `builtBy` header — nil when the header is
-    /// absent, which is how every hand-built profile written before it existed reads.
-    ///
-    /// **Written since the first in-app write and decoded only now, which is the point.** The field
-    /// was stamped into every profile `writeProfile` produced and read by nothing, so the app could
-    /// not tell a profile it had derived from one somebody built by hand — and the store's guard had
-    /// to key on *existence* instead, refusing to replace either. That is right for a hand-built
-    /// file and needlessly strict for the app's own: a derived profile is re-derivable in seconds,
-    /// and refusing to replace it is what left a fresh survey on disk with nothing reading it.
-    ///
-    /// See ``provenance``, which is the question callers actually ask.
+    /// What wrote this profile, verbatim from the file's `builtBy` header; nil when absent. Lets the
+    /// store replace the app's own derived profile (re-derivable in seconds) while never replacing a
+    /// hand-built one. Callers ask ``provenance``.
     public let builtBy: String?
 
-    /// The profile id this one was re-derived from after a Restructure apply (§5.5 step 6) — nil
-    /// for a hand-built profile and for a plain walk. The old file is never deleted: this field
-    /// is what *Undo this reorganisation* re-points `profiles.json` back to, and it is the last
-    /// hand-built copy's name when the chain started from one.
+    /// The profile id this one was re-derived from after a Restructure apply; nil for a hand-built
+    /// profile and a plain walk. The old file is never deleted: *Undo this reorganisation* re-points
+    /// `profiles.json` back to it, and it names the last hand-built copy when the chain began at one.
     public let derivedFrom: String?
 
-    /// `role` strings this build has no case for, and how many folders carried each.
-    ///
-    /// **The profile is written by a generator that is not this app**, so a role added there
-    /// arrives here before any code knows it. Empty is the ordinary state; anything else is
-    /// reported once when the file is opened (see ``FilingProfileStore/profile(id:in:)``), because
-    /// a folder silently demoted to "no role" files differently and nothing else would say so.
+    /// `role` strings this build has no case for, and how many folders carried each. A generator
+    /// outside this app can add roles first. Usually empty; otherwise reported once on open
+    /// (``FilingProfileStore/profile(id:in:)``), since a folder demoted to "no role" files
+    /// differently.
     public let unknownRoles: [String: Int]
     /// Folder entries that could not be decoded at all, even leniently. Also reported once.
     public let undecodableFolders: Int
 
-    /// Who produced a profile, and therefore what the app may do with it.
-    ///
-    /// **The distinction is provenance, not age or content.** A profile the app derived from a walk
-    /// records what a walk can see; a hand-built one also records judgements a walk cannot —
-    /// `naming`, `folderSemantics`, the `outbound-pack` refusals — so replacing it with a derived
-    /// one silently degrades To File and the rename pass with nothing failing. Replacing the app's
-    /// own previous derivation costs nothing at all.
+    /// Who produced a profile, and so what the app may do with it. A hand-built profile records
+    /// judgements a walk can't (`naming`, `folderSemantics`, `outbound-pack` refusals), so replacing
+    /// it with a derived one would silently degrade To File and renaming. Replacing the app's own
+    /// derivation costs nothing.
     public enum Provenance: Equatable, Sendable {
         /// Written by this app's folder survey. The app may supersede it with a fresh one.
         case derived
-        /// Written by anything else — the out-of-repo builder, or a hand edit — including every
-        /// profile that predates the `builtBy` header. **Never replaced.**
+        /// Written by anything else (the out-of-repo builder, a hand edit), including any profile
+        /// without a `builtBy` header. **Never replaced.**
         case handBuilt
     }
 
-    /// Whether this profile is the app's own work.
-    ///
-    /// **Absent `builtBy` means hand-built, and that default is the safe one by construction**: the
-    /// only profiles without the header are the ones written before the app could write any, which
-    /// are exactly the hand-built ones. A new marker string would read as hand-built too, which errs
-    /// toward refusing to replace something rather than toward replacing something it should not.
+    /// Whether this profile is the app's own work. An absent or unrecognised `builtBy` reads as
+    /// hand-built, which errs toward refusing a replacement rather than making a wrong one.
     public var provenance: Provenance {
         builtBy?.hasPrefix(FolderProfile.derivedBuiltByPrefix) == true ? .derived : .handBuilt
     }
 
-    /// The prefix `writeProfile` stamps into every profile the app derives.
-    ///
-    /// Matched on a prefix rather than in full so the rest of the string stays free for a version or
-    /// a date without turning every older derived profile hand-built — which would strand it,
-    /// unreplaceable, for the reason this type exists.
+    /// The prefix `writeProfile` stamps into every profile the app derives. A prefix, so the rest
+    /// can carry a version or date without turning older derived profiles hand-built, and so
+    /// unreplaceable.
     public static let derivedBuiltByPrefix = "SyncCloud"
 
     public init(profileId: String, root: String, folders: [String: FolderProfileEntry],
@@ -125,12 +93,8 @@ public struct FolderProfile: Sendable, Equatable {
 
     public var isEmpty: Bool { folders.isEmpty }
 
-    /// Whether a folder may be proposed as a destination.
-    ///
-    /// Three ways to fail, and the last two are why this is not simply `acceptsNewFiles`: the
-    /// profile marks the inboxes it found, but a tree grows new ones, and a first cut of a
-    /// destination list leaked 105 inbox folders while the prose above it said never to file there.
-    /// Matching `TODO` as a whole path **component** rather than as a suffix is what closes that.
+    /// Whether a folder may be proposed as a destination. Not just `acceptsNewFiles`: the role and
+    /// the path's own words are checked too, because a tree grows inboxes the profile never saw.
     public func acceptsNewFiles(_ relativePath: String) -> Bool {
         if let e = folders[relativePath] {
             if e.acceptsNewFiles == false { return false }
@@ -139,16 +103,10 @@ public struct FolderProfile: Sendable, Equatable {
         return !FolderProfile.isInboxPath(relativePath)
     }
 
-    /// Whether any component of a path names an inbox, on the name alone.
-    ///
-    /// **The one implementation of this rule.** It is asked in three places — here, when the router
-    /// builds its destination list, and when a context is handed to a backend — and three copies
-    /// would be three chances for one of them to start filing into `TODO`.
-    ///
-    /// Matching is on whole *words* inside a component, not on a substring: `EDD - TODO` and
-    /// `New (TODO)` are inboxes, but a folder called `Mastodon` is not, and a `contains("todo")`
-    /// test refuses it. That folder does not exist in the surveyed tree, which is precisely why the
-    /// bug would have gone unnoticed until it hit someone else's.
+    /// Whether any component of a path names an inbox, on the name alone. The one implementation,
+    /// used here, by the router's destination list, and for a backend's context, so no copy drifts
+    /// into filing into `TODO`. Whole words, not substrings: `EDD - TODO` and `New (TODO)` are
+    /// inboxes, `Mastodon` is not.
     public static func isInboxPath(_ relativePath: String) -> Bool {
         for component in relativePath.split(separator: "/") {
             for word in component.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
@@ -170,15 +128,13 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     public let anchors: [String]
     /// nil when the survey said nothing; only an explicit `false` forbids filing here.
     public let acceptsNewFiles: Bool?
-    /// WHY filing here is refused, when `acceptsNewFiles` is `false` and the author said — the
-    /// hand-built profile carries 45 of these (`outbound-pack`, `todo-inbox`, …), and §5.5's
-    /// re-derivation carries the pair forward together: a refusal that loses its reason is one
-    /// nobody can audit or revisit. Decoded only since the re-derivation existed; every read
-    /// before that ignored it on disk.
+    /// Why filing here is refused, when `acceptsNewFiles` is `false` and the author said
+    /// (`outbound-pack`, `todo-inbox`, …). Re-derivation carries the pair forward together: a
+    /// refusal without its reason can't be audited or revisited.
     public let noIntakeReason: String?
     public let fileCount: Int
     public let subfolderCount: Int
-    /// The axis values in play for this folder — `year`, `fiscalYear`, `jurisdiction`, `person`,
+    /// The axis values in play for this folder: `year`, `fiscalYear`, `jurisdiction`, `person`,
     /// `lifecycle`.
     public let axes: [String: String]
 
@@ -196,41 +152,19 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
         self.axes = axes
     }
 
-    /// The year or fiscal-year this folder is keyed by, from the axes or from its own name.
+    /// The year or fiscal year this folder is keyed by, from the axes or its own name. The name
+    /// fallback matters: a folder like `IRS Docs - 2023` with no `year` axis would otherwise never be
+    /// compared with the bare-year folders beside it. US tax years are one calendar year, Indian
+    /// ones span two.
     ///
-    /// **The name fallback is not a convenience.** `IRS Docs - 2023` sits beside the bare-year
-    /// folders `2012`–`2025` and the survey recorded no `year` axis for it, so without a fallback it
-    /// lands in a different family and is never compared with the years it belongs to. A jurisdiction
-    /// also changes the shape: US tax years are one calendar year, Indian ones span two.
-    /// **When a folder carries both a `year` and a `fiscalYear`, the deeper one wins**, and the
-    /// path is what settles which that is.
+    /// When a folder has both `year` and `fiscalYear` and both are components of its path, the
+    /// deeper one wins: in `2015/2014-2015` the span describes the folder, and
+    /// `FilingRouter.foldersByYear` and `RenamePlanner`'s wrong-year flag both read this. Otherwise
+    /// `year ?? fiscalYear`.
     ///
-    /// The two are separate keys and a path can set both — `…/H-1B/2016-2019/…/2016` does, on the
-    /// reference tree, four times — so a fixed `year ?? fiscalYear` precedence answers with whichever
-    /// key happens to be named first rather than with the folder the value describes. On those four
-    /// it is right by luck: the bare year is the deeper component there, so the first arm already
-    /// returns it, and **nothing on the reference tree changes answer here**. The case it gets wrong
-    /// is the reverse nesting — a fiscal span under a calendar-year parent, `2015/2014-2015` — which
-    /// this tree does not currently contain but the domain produces wherever Indian fiscal folders
-    /// sit under a year. There the ancestor's calendar year came back for a folder about the span,
-    /// and `FilingRouter.foldersByYear` groups on this while `RenamePlanner` compares its wrong-year
-    /// flag against it, so a correctly filed November 2014 statement gets questioned.
-    ///
-    /// **A caveat this inherits rather than introduces:** ``looksLikeYear`` accepts any two 4-digit
-    /// parts, so it cannot tell a fiscal span from any other range. `2016-2019` on the reference
-    /// tree is an H-1B *petition* span, and both `FilingRouter.yearFit` and `RenamePlanner.yearFits`
-    /// read an `A-B` key as an Indian Apr-Mar fiscal year. That mis-reading already applies to every
-    /// folder whose own name is such a range and which carries no bare year — it is not new here —
-    /// but the deeper-wins rule can now hand such a key to a folder that previously answered with an
-    /// ancestor's calendar year. Not on this tree: all four both-axes folders are bare-year-deeper,
-    /// so nothing changes answer. Worth knowing before extending the rule.
-    ///
-    /// The scan runs **only when both values are components of this entry's own path**, which is
-    /// what makes it a depth question at all. That holds for every entry either builder produces
-    /// today — verified across all 3,013 folders of the hand-built profile — but a profile that
-    /// recorded an axis as a fact rather than as a component would otherwise have its answer
-    /// silently changed by a scan that found only one of the two. Falling back to the old precedence
-    /// there keeps this a strict refinement.
+    /// Caveat: ``looksLikeYear`` accepts any two 4-digit parts, so a non-fiscal range (a petition
+    /// span like `2016-2019`) still reads as an Indian Apr–Mar fiscal year in `FilingRouter.yearFit`
+    /// and `RenamePlanner.yearFits`, and deeper-wins can hand such a key to a folder below a year.
     public var yearKey: String? {
         let year = axes["year"], fiscal = axes["fiscalYear"]
         if let year, let fiscal {
@@ -272,9 +206,8 @@ extension FolderProfile: Decodable {
         let aliases: [String: String]?
     }
 
-    /// One folder entry with `role` as a plain string, so a value this build has no case for costs
-    /// the ROLE rather than the file. Every other field is optional here for the same reason: the
-    /// retry exists to salvage an entry, and refusing it over a missing count would defeat that.
+    /// One folder entry with `role` as a plain string, so an unknown value costs the role, not the
+    /// file. Every other field is optional too, so the retry salvages the entry.
     private struct LenientEntry: Decodable {
         let path: String
         let role: String?
@@ -286,8 +219,8 @@ extension FolderProfile: Decodable {
         let subfolderCount: Int?
         let axes: [String: String]?
 
-        /// The entry as this build can use it — an unrecognised role reads as no role, which is
-        /// what `role: nil` already means everywhere: "the survey said nothing".
+        /// The entry as this build can use it: an unrecognised role reads as `nil`, "the survey
+        /// said nothing".
         var entry: FolderProfileEntry {
             FolderProfileEntry(path: path, role: role.flatMap(FolderRole.init(rawValue:)),
                                naming: naming, anchors: anchors ?? [],
@@ -306,29 +239,16 @@ extension FolderProfile: Decodable {
         let c = try decoder.container(keyedBy: Key.self)
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         recordedRoot = try c.decodeIfPresent(String.self, forKey: .root)
-        // Tolerated as absent, and as the wrong type: a hand-edited header should cost the file its
-        // provenance — which reads as hand-built, the cautious answer — not its 3,013 folders.
+        // Tolerated as absent or the wrong type: a hand-edited header costs the file its provenance
+        // (reading as hand-built, the cautious answer), not its folders.
         builtBy = try? c.decodeIfPresent(String.self, forKey: .builtBy)
-        // Same tolerance as `builtBy`, for the same reason: a hand-edited header costs the file
-        // its provenance chain, never its folders.
+        // Same tolerance as `builtBy`: a bad header costs the provenance chain, never the folders.
         derivedFrom = (try? c.decodeIfPresent(String.self, forKey: .derivedFrom)) ?? nil
-        // **One unknown `role` string used to kill the whole filing layer, unrepairably.**
-        //
-        // `FolderRole` is a raw-value enum and `role` is optional, but *optional* only makes an
-        // ABSENT key fine: a present value the enum has no case for throws `dataCorrupted`, and the
-        // throw escapes `decodeIfPresent` and the `?? []` alike — a `??` handles nil, not a throw.
-        // One entry out of 3,013 carrying a role a newer generator wrote therefore took the entire
-        // profile down, and with it `filingFolderProfile`, `filingMemory`, `filingProfilesDirectory`,
-        // `contentIndexDirectory`, the people store and the tag store — all six left unset by one
-        // `if let` in `SyncCloudApp`. Organize reports "not scanned", the roster and every person
-        // verdict are unreachable, and it cannot be repaired from inside the app: `writeProfile`
-        // refuses to overwrite, so the user has to delete the JSON by hand. The schema-version
-        // probe does not catch it either — a new role INSIDE the current schema is not a new schema.
-        //
-        // Decoded entry by entry, each with a lenient retry, on the pattern `PersonTagFile` already
-        // uses: an unknown role costs that folder its role, a truly undecodable entry costs itself,
-        // and neither costs the file. Both are counted and reported at the door rather than
-        // swallowed — a folder demoted to "no role" files differently.
+        // **Decoded entry by entry, so one bad entry can't fail the profile.** An optional
+        // raw-value enum still throws on an unknown present value, and `??` doesn't catch a throw;
+        // a failed profile takes the whole filing layer down with no in-app repair. As in
+        // `PersonTagFile`, an unknown role costs only that folder's role, an undecodable entry only
+        // itself, and both are counted and reported on open.
         var list: [FolderProfileEntry] = []
         var unknown: [String: Int] = [:]
         var undecodable = 0
@@ -342,8 +262,8 @@ extension FolderProfile: Decodable {
                     }
                     list.append(lenient.entry)
                 } else {
-                    // A failed decode does not advance the container, so the element still has to
-                    // be consumed or the loop cannot move past it.
+                    // A failed decode doesn't advance the container, so consume the element or the
+                    // loop never moves past it.
                     _ = try? array.decode(AnyIgnoredEntry.self)
                     undecodable += 1
                 }
@@ -358,9 +278,9 @@ extension FolderProfile: Decodable {
         if let axes = try? c.decodeIfPresent([String: AxisBox].self, forKey: .axes),
            let person = axes["person"] {
             for v in person.values ?? [] { people.insert(v.lowercased()) }
-            // `Family/Mom` and Immigration's `Granny` are the same person; the tree names her both
-            // ways, so both tokens have to route — and the *pairing* has to survive, or a file
-            // named `Mom` reads as a contradiction against a folder whose axis says `granny`.
+            // The tree names one person both `Mom` and `Granny`, so both tokens route, and the
+            // pairing is kept so a file named `Mom` doesn't contradict a folder whose axis says
+            // `granny`.
             for (alias, canonical) in person.aliases ?? [:] {
                 people.insert(alias.lowercased())
                 people.insert(canonical.lowercased())

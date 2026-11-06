@@ -42,11 +42,9 @@ import Testing
     // MARK: Forgetting
 
     @Test func forgettingDropsTheFileAndTheSessionsOwnDigests() async throws {
-        // **Both halves, and the second is the one that makes it stick.** Deleting the file alone
-        // looks like it worked and then quietly undoes itself: the actor still holds this session's
-        // digests, and its next `save()` — which the duplicate scan and Verify each call
-        // unconditionally — writes every one of them straight back out. That is why the erase lives
-        // on the cache rather than on the store, and why this test saves AFTER forgetting.
+        // Both the file and the in-memory digests must go. Deleting only the file undoes itself:
+        // the next `save()`, which the duplicate scan and Verify always call, writes the session's
+        // digests back. So the erase lives on the cache, not the store, and this saves after it.
         let url = try indexURL("forget")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -76,10 +74,9 @@ import Testing
 
     @MainActor
     @Test func planMergePersistsTheDigestsItComputes() async throws {
-        // The third hashing site. The "keep the digests" pass covered the duplicate scan and
-        // Verify; `planMerge` reads BOTH trees in full through the same cache and saved nothing —
-        // quit after a merge and those reads were re-paid. The fixture is two real trees on disk
-        // because planMerge walks them itself.
+        // The third hashing site, after the duplicate scan and Verify: `planMerge` reads both trees
+        // in full through the cache and must save, or a quit after a merge re-pays those reads.
+        // Two real trees, because planMerge walks them itself.
         let root = try makeCanonicalTempRoot(prefix: "HashIndexMerge")
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = root.appendingPathComponent("keeper")
@@ -104,9 +101,8 @@ import Testing
     }
 
     @Test func aSubMillisecondMtimeSurvivesTheRoundTrip() async throws {
-        // The whole index rests on this: the reloaded key must reproduce one built at hashing time
-        // from `attributesOfItem[.modificationDate]`, so any drift in the mtime makes every entry
-        // miss the lookup it exists to serve. Awkward fractional values on purpose.
+        // The reloaded key must equal one built from `attributesOfItem[.modificationDate]` at
+        // hashing time; any mtime drift makes every entry miss. Awkward fractions on purpose.
         let url = try indexURL("mtime")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -166,8 +162,8 @@ import Testing
     }
 
     @Test func reloadingDoesNotResetAnEntrysAge() async throws {
-        // If a save stamped everything with "now", nothing would ever age out — the cap would be
-        // dead code that looked alive. The original timestamp has to survive each round trip.
+        // A save that stamped everything "now" would mean nothing ever ages out, so the original
+        // timestamp must survive each round trip.
         let url = try indexURL("age-preserved")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -209,8 +205,8 @@ import Testing
     }
 
     @Test func aUsedEntrySurvivesPastThirtyDaysFromHashing() async throws {
-        // The batch expiry this exists to end: an entry hashed once and looked up every week was
-        // dropped thirty days after the hashing, however often it had been used since.
+        // An entry ages from its last use, not its hashing: one looked up every week is not dropped
+        // thirty days after it was hashed.
         let url = try indexURL("kept-alive")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let hashed = Date(timeIntervalSince1970: 1_800_000_000)
@@ -233,17 +229,16 @@ import Testing
         let adopted = await reader.enablePersistence(at: url, now: hashed.addingTimeInterval(70 * Self.day))
         #expect(adopted == 1)
         #expect(await reader.hash(for: used) == "u")
-        #expect(await reader.hash(for: unused) == nil)   // never used: gone on day 30, as before
+        #expect(await reader.hash(for: unused) == nil)   // never used: gone on day 30
 
-        // The hashing stamp did not move — readers take the newest DIGEST per path by it.
+        // The hashing stamp did not move: readers take the newest digest per path by it.
         let record = try #require(ContentHashIndexStore.load(from: url).first { $0.path == used.path })
         #expect(record.storedAt == hashed)
         #expect(record.lastUsed == hashed.addingTimeInterval(45 * Self.day))
     }
 
-    /// A key with no disk identity — a FAT or exFAT file, whose "ctime" is its mtime — is not kept
-    /// alive by use: nothing would catch a rewrite under a restored date, so it ages from its
-    /// hashing, as every entry did before keep-while-used.
+    /// A key with no disk identity (a FAT or exFAT file, whose "ctime" is its mtime) is not kept
+    /// alive by use: nothing would catch a rewrite under a restored date, so it ages from hashing.
     @Test func aKeyWithoutDiskIdentityAgesFromItsHashing() async throws {
         let url = try indexURL("weak-identity")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -269,7 +264,7 @@ import Testing
         #expect(await reader.hash(for: weak) == nil, "a used entry without one outlived thirty days from hashing")
     }
 
-    /// A FAT or exFAT volume yields no identity at all, so its files key as the old triple.
+    /// A FAT or exFAT volume yields no identity, so its files key by path, mtime and size alone.
     @Test func aVolumeWithoutRealStatusChangesYieldsNoIdentity() throws {
         // The temporary directory is APFS on every Mac this runs on: the control.
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("identity-\(UUID().uuidString)")
@@ -309,8 +304,8 @@ import Testing
     }
 
     @Test func aScansHitsMarkTheIndexForSavingOnce() async throws {
-        // A moved stamp has to reach the file or it dies with the launch — but one scan is many
-        // hits, and the file must be written once for all of them, by the save the scan makes.
+        // A moved stamp must reach the file or it dies with the launch, but one scan's many hits
+        // are written once, by the scan's own save.
         let url = try indexURL("dirty-once")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let hashed = Date(timeIntervalSince1970: 1_800_000_000)
@@ -338,8 +333,8 @@ import Testing
     }
 
     @Test func anIndexWrittenBeforeLastUsedLoadsAndCountsFromHashing() async throws {
-        // Every index on disk today has `storedAt` and no `lastUsed`. It must load under the same
-        // schema, and each entry's last use is taken to be its hashing.
+        // An index with `storedAt` and no `lastUsed` loads under the same schema, each entry's last
+        // use taken to be its hashing.
         let url = try indexURL("old-format")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -361,9 +356,8 @@ import Testing
     }
 
     @Test func anEntryKeptAliveStillMissesAFileRewrittenUnderItsOldDate() async throws {
-        // Why keeping a used entry is safe (FR59): a write moves the status-change time the key
-        // carries, so a file rewritten with its size kept and its mtime restored never matches the
-        // entry — however long use has kept that entry alive.
+        // Why keeping a used entry is safe: a write moves the status-change time in the key, so a
+        // file rewritten at the same size with its mtime restored never matches the old entry.
         let dir = try makeCanonicalTempRoot(prefix: "HashIndex-rewrite")
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("index.json")
@@ -397,9 +391,9 @@ import Testing
     }
 
     @Test func bumpingTheFingerprintSchemeMeansDeletingTheFingerprintIndex() {
-        // A tripwire. An entry now lives while it is used, so after a scheme bump an unchanged
-        // document keeps its old-scheme digest for good — nothing ages it out any more. If this
-        // fails, ship the deletion of `content-fingerprint-index.json` with the bump.
+        // A tripwire. An entry lives while it is used, so after a scheme bump an unchanged document
+        // keeps its old-scheme digest for good. If this fails, ship the deletion of
+        // `content-fingerprint-index.json` with the bump.
         #expect(ContentFingerprint.scheme == "pdf-text-1")
     }
 
@@ -419,8 +413,8 @@ import Testing
     }
 
     @Test func withoutPersistenceNothingIsWritten() async throws {
-        // The default, and what every existing test that touches `.shared` relies on: no location
-        // configured means no file, and above all no reaching into the real index.
+        // The default, which every test touching `.shared` relies on: no location means no file,
+        // and never the real index.
         let url = try indexURL("nopersist")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -464,8 +458,7 @@ import Testing
             to: url)
         ContentHashIndexStore.waitForPendingWrites()
 
-        // Something hashed THIS session is newer evidence than the file, so it must not be
-        // overwritten by the load.
+        // A digest from this session is newer than the file's, so the load must not overwrite it.
         let cache = ContentHashCache(maxEntries: 2)
         await cache.store("from-memory", for: key("/root/a.bin", mtime: 1000), at: now)
         await cache.enablePersistence(at: url, now: now)
@@ -476,9 +469,8 @@ import Testing
     // MARK: A load landing mid-scan
 
     @Test func aLoadLandingMidScanDoesNotDiscardWhatWasAlreadyHashed() async throws {
-        // The index load is detached at launch, so it can land while a scan is already hashing.
-        // Anything measured before it arrives still has to reach the file — otherwise the scan's
-        // own save finds a clean dirty flag and silently drops work it had just paid for.
+        // The index load is detached at launch, so it can land mid-scan. What was hashed before it
+        // must still reach the file, or the scan's save finds a clean dirty flag and drops it.
         let url = try indexURL("midscan")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -501,9 +493,8 @@ import Testing
     }
 
     @Test func adoptedEntriesAreEvictedBeforeOnesHashedThisSession() async throws {
-        // Eviction drops from the front of the queue. Everything in the file was written by an
-        // earlier run, so it is older than anything this session measured — putting adopted keys
-        // at the back would evict fresh measurements to keep stale ones.
+        // Eviction drops from the front. Adopted entries are older than anything this session
+        // hashed, so adopting them at the back would evict fresh digests to keep stale ones.
         let url = try indexURL("evict-order")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -530,13 +521,9 @@ import Testing
 
     @MainActor
     @Test func aSecondLaunchDoesNotRehashAnUnchangedTree() async throws {
-        // The point of the whole phase: the same tree scanned by a fresh process reads no file
-        // bytes, because every digest it needs is already on disk.
-        //
-        // Asserted on the cache's hit/miss counters, NOT on its entry count. Entry count is the
-        // obvious thing to check and it is vacuous here: re-hashing a file stores it under a key
-        // the cache already holds, so a scan that ignored the index entirely would leave the count
-        // exactly as this test found it and pass anyway.
+        // The same tree scanned by a fresh process reads no file bytes: every digest is on disk.
+        // Asserted on hit/miss counters, not entry count, which is vacuous here: re-hashing stores
+        // under a key the cache already holds, so ignoring the index leaves the count unchanged.
         let root = try makeCanonicalTempRoot(prefix: "HashIndexScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try indexURL("scan")
@@ -557,7 +544,7 @@ import Testing
         let coldCount = await cold.count
         #expect(coldCount > 0)
 
-        // A brand-new cache, as a relaunch would have — loaded from the file the first scan wrote.
+        // A new cache, as a relaunch has, loaded from the file the first scan wrote.
         let warm = ContentHashCache()
         let adopted = await warm.enablePersistence(at: url)
         #expect(adopted == coldCount)
@@ -565,8 +552,7 @@ import Testing
         let second = FileSyncManager()
         await second.findDuplicates(root: root, cache: warm)
         #expect(second.duplicateGroups.count == 1)
-        // Every lookup the second scan made was served from the reloaded index — nothing was read
-        // off disk and re-hashed.
+        // Every lookup was served from the reloaded index; nothing was re-hashed.
         #expect(await warm.lookupMisses == 0)
         #expect(await warm.lookupHits > 0)
         // …and it reached the same answer.
@@ -588,9 +574,9 @@ import Testing
     }
 
     @Test func sizingAndClearingCoverEveryCacheOnTheRoster() async throws {
-        // Local instances, never the singletons: most tests in this package reach `.shared`
-        // implicitly through `findDuplicates`'s default argument, and repointing it at a temp file
-        // this test deletes would follow them for the rest of the process.
+        // Local instances, never the singletons: most tests reach `.shared` through
+        // `findDuplicates`'s default argument, and repointing it at a temp file would follow them
+        // for the rest of the process.
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("IndexRoster-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -608,7 +594,7 @@ import Testing
         var individually = 0
         for cache in caches { individually += await cache.persistedSizeOnDisk() ?? 0 }
         #expect(individually > 0)
-        // The sum covers EVERY cache handed to it — with only the first counted this fails.
+        // The sum covers every cache handed to it; counting only the first fails this.
         #expect(await ContentHashCache.totalPersistedSizeOnDisk(caches) == individually)
 
         await ContentHashCache.forgetAllPersistedIndexes(caches)

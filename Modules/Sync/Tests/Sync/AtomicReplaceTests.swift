@@ -2,16 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Finding 1 (data-corruption review): `safeCopyItem`/`safeMoveItem` used to replace an existing
-/// destination in two non-atomic steps — trash the old destination, THEN rename the staged item
-/// into its place. Between those the destination path was momentarily ABSENT, so a crash or
-/// "Quit Anyway" there left the file only in Trash. These tests pin the fix: the destination-exists
-/// replace now routes through the atomic `replaceItem` primitive, so the destination is never
-/// absent and is never trashed directly (only the post-swap `.rollback_` backup is).
+/// `safeCopyItem`/`safeMoveItem` replace an existing destination through the atomic `replaceItem`
+/// primitive, so the destination is never absent and never trashed directly (only the post-swap
+/// `.rollback_` backup is). Trash-then-rename would leave a window where a crash or "Quit Anyway"
+/// leaves the file only in the Trash.
 @Suite struct AtomicReplaceTests {
 
     /// Wraps MockFileManager at the FileManaging seam, recording which primitive each replacement
-    /// used. The window bug shows up here as a `trashItem` on the destination path itself.
+    /// used. A non-atomic replace shows up as a `trashItem` on the destination path itself.
     private final class ReplaceRecordingFileManager: FileManaging, @unchecked Sendable {
         private let inner: MockFileManager
         private(set) var replaceCalls: [(destination: String, staged: String)] = []
@@ -73,7 +71,7 @@ import Foundation
         #expect(spy.replaceCalls.first?.destination == "/dst/f.txt")
         #expect(spy.replaceCalls.first?.staged.contains(".tmp_") == true)
 
-        // The destination path itself is NEVER trashed — that direct trash was the window.
+        // The destination path itself is never trashed: that would open the absent window.
         #expect(spy.trashedPaths.contains("/dst/f.txt") == false)
 
         // New content landed; the source is intact; the old content is recoverable (Trash here).
@@ -139,8 +137,8 @@ import Foundation
 
     /// Same-volume move replace whose atomic swap fails mid-flight: the staging rename already
     /// consumed the source, so the restore path must put BOTH back — source and destination — with
-    /// no data lost. (The existing rollback pins also set `shouldFailMove`, which routes through the
-    /// cross-volume copy path where the source is never consumed; this isolates the rename path.)
+    /// no data lost. (The other rollback pins set `shouldFailMove`, which takes the cross-volume
+    /// copy path where the source is never consumed; this isolates the rename path.)
     @Test func testSafeMoveSameVolumeReplaceFailureRestoresSourceAndDestination() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -169,10 +167,9 @@ import Foundation
 
     @Test func testSafeMoveDoubleFailurePreservesConsumedSourceInTemp() async throws {
         // Same-volume staging consumed the source; the replace failed; the restoring move-back
-        // ALSO failed (a cloud daemon re-materializing the source path, or holding the temp
-        // busy, does exactly this). The staged `.tmp_` now holds the ONLY copy of the source's
-        // content — cleanup must leave it on disk. Removing it (the old unconditional defer)
-        // permanently destroyed the source, not even via the Trash.
+        // also failed (as when a cloud daemon re-materializes the source path or holds the temp
+        // busy). The staged `.tmp_` now holds the only copy of the source's content, so cleanup
+        // must leave it on disk: removing it would destroy the source, not even via the Trash.
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -195,21 +192,20 @@ import Foundation
         #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 5)
         let tempSurvivor = inner.virtualDisk.first { $0.key.contains(".tmp_") }
         #expect(tempSurvivor?.value.attributes?[FileAttributeKey.size] as? Int == 100)
-        // The preservation reset the sweeper's age clock: the staging RENAME kept the
-        // original's mtime, which would have made an hour-old source sweep-eligible on the
-        // very next refresh — stranding the "preserved at" pointer within minutes.
+        // The preservation resets the sweeper's age clock: the staging rename keeps the original's
+        // mtime, which would make an hour-old source sweep-eligible on the next refresh and strand
+        // the "preserved at" pointer.
         let touchedDate = tempSurvivor?.value.attributes?[FileAttributeKey.modificationDate] as? Date
         #expect(touchedDate != nil && abs(touchedDate!.timeIntervalSinceNow) < 60)
-        // And the failure the user sees names the preservation — a bare "Move Failed" reads
-        // as "nothing changed" while the source is in fact gone from its path.
+        // And the failure the user sees names the preservation: a bare "Move Failed" reads as
+        // "nothing changed" while the source is gone from its path.
         #expect(thrown?.localizedDescription.contains("preserved in the hidden file") == true)
     }
 
-    /// Cross-volume move (EXDEV on the staging rename) that REPLACES an existing destination and
-    /// SUCCEEDS: the source is copied onto the destination's volume, atomically swapped in, then the
-    /// original is cleaned from its own volume. Realistic case — moving a file off an external drive
-    /// over an existing cloud file. Every other dest-exists rollback pin also fails the temp rename,
-    /// so this is the only coverage of the cross-volume replace success path.
+    /// Cross-volume move (EXDEV on the staging rename) that replaces an existing destination and
+    /// succeeds: the source is copied onto the destination's volume, swapped in atomically, then
+    /// cleaned from its own volume, as when moving a file off an external drive over a cloud file.
+    /// The only coverage of the cross-volume replace success path.
     @Test func testSafeMoveCrossVolumeReplaceOverExistingSucceedsAndCleansSource() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -267,9 +263,9 @@ import Foundation
 
     /// Cross-volume replace where BOTH source-cleanup steps fail (no Trash on the source volume and
     /// the permanent remove is denied). The move can't complete, so it reverts the (successful)
-    /// replace and throws — consistent with the dest-absent cross-volume path, and avoiding a
-    /// "moved" undo entry for a source still on disk. The revert goes back through the atomic
-    /// primitive, so the destination is never left absent, and no data is lost on any side.
+    /// replace and throws, like the dest-absent cross-volume path, so no "moved" undo entry exists
+    /// for a source still on disk. The revert goes back through the atomic primitive, so the
+    /// destination is never left absent, and no data is lost on any side.
     @Test func testSafeMoveCrossVolumeReplaceRevertsWhenSourceCleanupFails() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -298,8 +294,7 @@ import Foundation
 
     /// Pins the mock `replaceItem`'s contract as an atomicity oracle: a brand-new destination is a
     /// plain install returning no backup, and a failure while backing up the prior destination
-    /// leaves the destination untouched with NO stray backup artifact. (Without the atomic-on-
-    /// failure cleanup this second case leaks a half-made `.rollback_` copy.)
+    /// leaves the destination untouched with no stray half-made `.rollback_` copy.
     @Test func testMockReplaceItemPrimitiveContract() throws {
         // (1) No prior destination → plain install, nil backup.
         let a = MockFileManager()
@@ -421,10 +416,9 @@ import Foundation
         #expect(fm.fileExists(atPath: backup.appendingPathComponent("old.txt").path))
     }
 
-    /// Type-mismatch replace on real disk (reachable via a manual "Replace" of a folder with a
-    /// same-named file, or vice versa). The old trash-then-move was type-agnostic; this pins that
-    /// `replaceItemAt` is too — the destination takes the source's type and the old item is
-    /// recoverable in the backup — so the atomic swap didn't regress that behavior.
+    /// Type-mismatch replace on real disk (a manual "Replace" of a folder with a same-named file,
+    /// or vice versa): `replaceItemAt` is type-agnostic, so the destination takes the source's type
+    /// and the old item is recoverable in the backup.
     @Test func testRealDiskReplaceAcrossTypesSwapsTypeAndKeepsBackup() throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
@@ -469,9 +463,8 @@ import Foundation
 
     /// Sync convergence guard: after a copy replace, the destination must carry the SOURCE's
     /// modification date, not the old destination's — otherwise a re-scan would still flag the two
-    /// as different and the sync would never "take". `replaceItemAt`'s default combined metadata
-    /// happens to take the modification date from the staged item; this pins that so a future
-    /// `.usingNewMetadataOnly`/options change can't silently break convergence.
+    /// as different and the sync would never "take". `replaceItemAt`'s default metadata merge takes
+    /// the modification date from the staged item; this pins that against an options change.
     @Test func testRealDiskCopyReplacePreservesSourceModificationDate() throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
@@ -496,9 +489,9 @@ import Foundation
         #expect(abs(dstDate.timeIntervalSince(srcDate)) < 1)
     }
 
-    /// **A Replace lands the source's permissions and creation date, not the old file's** (FR32).
-    /// `replaceItemAt`'s default merge kept the destination's: a 0755 script replacing a 0600 one
-    /// stayed 0600, with the old 2001 creation date, after every sync. Copy and move both.
+    /// A Replace lands the source's permissions and creation date, not the old file's, for copy and
+    /// move: `replaceItemAt`'s default merge keeps the destination's, so a 0755 script replacing a
+    /// 0600 one would stay 0600.
     @Test(arguments: [false, true])
     func realDiskReplaceTakesTheSourcesPermissionsAndCreationDate(isMove: Bool) throws {
         let fm = FileManager.default

@@ -2,13 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Opening a folder in Finder is not an edit** — the undo and redo guards that read a FOLDER
-/// read it the deep way, which leaves the `.DS_Store` Finder writes out (final review U2, U3).
-///
-/// A shallow folder identity is the folder's own date and child count, and Finder moves both just
-/// by showing the folder. So each guard below refused an untouched folder once the user had looked
-/// at it. Real folders, and a Trash of the test's own, so the `.DS_Store` really moves the
-/// folder's date and nothing lands in the user's Trash.
+/// Opening a folder in Finder is not an edit. Finder writes a `.DS_Store`, which moves the
+/// folder's date and raw child count, so the undo and redo guards read a folder by identities that
+/// leave it out (deep, or by child names); otherwise each would refuse an untouched folder the user
+/// had only looked at. Real folders, and a Trash of the test's own, so the `.DS_Store` really moves
+/// the folder's date and nothing lands in the user's Trash.
 @Suite struct UndoFolderNoiseTests {
 
     @MainActor
@@ -32,13 +30,13 @@ import Testing
     }
 
     /// What Finder does to a folder it shows: a new `.DS_Store`, so the folder's child count moves
-    /// (and its date, at the file system's resolution) — enough to change a shallow identity.
+    /// (and its date, at the file system's resolution).
     private func openInFinder(_ folder: URL) throws {
         try Data("finder".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
     }
 
-    /// **U2.** Copy or move a folder over `Shared/Photos` with Replace, ⌘Z — the original is back —
-    /// open it in Finder, ⌘⇧Z. The redo replaces it again: it is still the item the undo put back.
+    /// Copy or move a folder over `Shared/Photos` with Replace, ⌘Z (the original is back), open it
+    /// in Finder, ⌘⇧Z. The redo replaces it again: it is still the item the undo put back.
     @MainActor
     @Test(arguments: [false, true])
     func aRedoStillReplacesAFolderOriginalTheUserOnlyOpened(isMove: Bool) async throws {
@@ -71,8 +69,8 @@ import Testing
         #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
     }
 
-    /// **U3.** Move `A/f` and `B/f` into `D` with Replace: B's replaces A's, which FR23's record now
-    /// finds in the Trash. Look at it there, then ⌘Z: both go home.
+    /// Move `A/f` and `B/f` into `D` with Replace: B's replaces A's, which the batch records in the
+    /// Trash. Look at it there, then ⌘Z: both go home.
     @MainActor
     @Test func undoingAMoveThatReplacedItsOwnEarlierItemSurvivesALookInTheTrash() async throws {
         let base = try makeCanonicalTempRoot(prefix: "u3")
@@ -101,9 +99,9 @@ import Testing
         #expect(text(b.appendingPathComponent("x.txt")) == "from B")
     }
 
-    /// **L1.** The same as U2, with a folder inside the original that cannot be read: the redo
-    /// still replaces it. Deep alone, the occupant the undo put back was `.indeterminate`, and the
-    /// redo refused it as "couldn’t be checked" for as long as it lived.
+    /// As the first test, with a folder inside the original that can't be read: the redo still
+    /// replaces it. A deep identity alone would read the occupant as `.indeterminate`, and the redo
+    /// would refuse it as "couldn’t be checked" for as long as it lived.
     @MainActor
     @Test(arguments: [false, true])
     func aRedoStillReplacesAnOriginalWithAnUnreadableFolderInside(isMove: Bool) async throws {
@@ -141,9 +139,9 @@ import Testing
         #expect(manager.banner == nil, "got \(String(describing: manager.banner?.message))")
     }
 
-    /// **M3.** The same batch, ⌘Z, ⌘⇧Z — the redo puts A's folder back in the Trash — a look at it
-    /// there, and ⌘Z again: both go home. The redo used to record that folder shallow, so the
-    /// `.DS_Store` refused the second ⌘Z.
+    /// The same batch, ⌘Z, ⌘⇧Z (the redo puts A's folder back in the Trash), a look at it there,
+    /// and ⌘Z again: both go home. The redo records that folder deep, by file number, as the first
+    /// undo read it, so the `.DS_Store` can't refuse the second ⌘Z.
     @MainActor
     @Test func aRedoneRedirectedMoveStillSurvivesALookInTheTrash() async throws {
         let base = try makeCanonicalTempRoot(prefix: "m3")
@@ -177,9 +175,8 @@ import Testing
         #expect(text(b.appendingPathComponent("x.txt")) == "from B")
     }
 
-    /// **M4.** Move a folder, open it in Finder where it landed, ⌘Z: it goes back. Then open it
-    /// again where it went back to, ⌘⇧Z: it moves again. The shallow identity both guards record
-    /// was the folder's date and raw child count, and the `.DS_Store` moved both.
+    /// Move a folder, open it in Finder where it landed, ⌘Z: it goes back. Open it again there,
+    /// ⌘⇧Z: it moves again. Both guards record a shallow identity that the `.DS_Store` can't move.
     @MainActor
     @Test func aMovedFolderTheUserOnlyOpenedStillMovesBackAndForth() async throws {
         let base = try makeCanonicalTempRoot(prefix: "m4-move")
@@ -209,7 +206,7 @@ import Testing
         #expect(text(moved.appendingPathComponent("a.txt")) == "a", "banner: \(String(describing: manager.banner?.message))")
     }
 
-    /// **M4.** Delete a folder, ⌘Z, open it in Finder, ⌘⇧Z: it goes to the Trash again.
+    /// Delete a folder, ⌘Z, open it in Finder, ⌘⇧Z: it goes to the Trash again.
     @MainActor
     @Test func aRestoredFolderTheUserOnlyOpenedIsTrashedAgainByTheRedo() async throws {
         let base = try makeCanonicalTempRoot(prefix: "m4-delete")
@@ -236,8 +233,8 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: original.path), "banner: \(String(describing: manager.banner?.message))")
     }
 
-    /// **M4.** What the shallow folder identity still tells apart: another folder with the same
-    /// names at the path, and a child renamed — while a `.DS_Store` is not a change.
+    /// What the shallow folder identity still tells apart: another folder with the same names at
+    /// the path, and a renamed child. A `.DS_Store` is not a change.
     @Test func theShallowFolderIdentityIgnoresFinderButNotAnotherFolder() throws {
         let base = try makeCanonicalTempRoot(prefix: "m4-identity")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -259,8 +256,8 @@ import Testing
         #expect(recorded.drift(at: photos, fileManager: fm) == .changed, "a different folder with the same names")
     }
 
-    /// **U8.** The same batch's Sync History names where the user moved the earlier item — not the
-    /// Trash, where the batch's own Replace put it.
+    /// The same batch's Sync History names where the user moved the earlier item, not the Trash,
+    /// where the batch's own Replace put it.
     @MainActor
     @Test func aRedirectedMoveIsRecordedAtItsDestination() async throws {
         let base = try makeCanonicalTempRoot(prefix: "u8")

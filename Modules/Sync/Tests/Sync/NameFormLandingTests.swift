@@ -2,14 +2,13 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// A copy or move keeps its original's name byte for byte — the Unicode form included — and a
-/// long name that fits as the original spells it is never pushed past APFS's limit by the copy.
+/// A copy or move keeps its original's name byte for byte, Unicode form included, and a long name
+/// that fits as the original spells it is never pushed past APFS's limit by the copy.
 ///
 /// Every Foundation create, move and copy writes a name decomposed (NFD), whatever form it was
-/// handed; APFS stores what it is sent and counts its 255-unit limit in that form. These run the
-/// real primitives on a real folder and read the landed names back from `readdir`, as bytes:
-/// Swift's `==` calls the two forms equal, so only the bytes can tell (see
-/// `swift-string-keys-collide-nfc-nfd`). Fixtures are made with `open`/`mkdir`, which keep the
+/// given; APFS stores what it is sent and counts its 255-unit limit in that form. These run the
+/// real primitives on a real folder and read the landed names back from `readdir` as bytes, since
+/// Swift's `==` calls the two forms equal. Fixtures are made with `open`/`mkdir`, which keep the
 /// form given.
 @Suite struct NameFormLandingTests {
 
@@ -38,8 +37,8 @@ import Foundation
         return folder.appendingPathComponent(name)
     }
 
-    /// The bytes of every name in `folder`, as `readdir` reports them, dot entries and staging
-    /// leftovers left out.
+    /// The bytes of every name in `folder`, as `readdir` reports them, without dot entries and
+    /// staging leftovers.
     private func namesOnDisk(_ folder: URL) -> [[UInt8]] {
         guard let dir = opendir(folder.path) else { return [] }
         defer { closedir(dir) }
@@ -99,8 +98,8 @@ import Foundation
         #expect(namesOnDisk(src).isEmpty)
     }
 
-    /// The staged path a move to another volume takes — a copy into `.tmp_`, a rename into place,
-    /// the original to the Trash — forced on one volume.
+    /// The staged path a move to another volume takes (a copy into `.tmp_`, a rename into place,
+    /// the original to the Trash), forced on one volume.
     @Test func aStagedMoveOfAnNFCFileLandsNFC() throws {
         let base = try makeBase()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -113,8 +112,8 @@ import Foundation
         #expect(namesOnDisk(dst) == [bytes(Self.composed + ".txt")])
     }
 
-    /// The source addressed through a decomposed URL — how a path read back from a stored string
-    /// reaches the primitives — still lends its on-disk bytes.
+    /// The source addressed through a decomposed URL (how a path read back from a stored string
+    /// reaches the primitives) still lends its on-disk bytes.
     @Test func theOriginalsBytesAreReadOffTheDiskNotOffItsURL() throws {
         let base = try makeBase()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -138,8 +137,8 @@ import Foundation
 
     // MARK: - APFS's limit counts the form written
 
-    /// 250 precomposed `é` fit APFS's 255 UTF-16 units; decomposed they are 500 and do not.
-    /// Finder copies such a name; `moveItem` could not land it.
+    /// 250 precomposed `é` fit APFS's 255 UTF-16 units; decomposed they are 500 and don't. Finder
+    /// copies such a name, so the copy must land it too.
     @Test func aLongNFCNameStillCopiesAndMoves() throws {
         let base = try makeBase()
         defer { try? FileManager.default.removeItem(at: base) }

@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Unit coverage for the two FileOperations helpers that only had indirect coverage:
-/// `generateUniqueURL` (keep-both numbering) and `ensureParentDirectoryExists` (the cloud
-/// placeholder guard). Both are pure functions over `FileManaging`, so the mock disk suffices.
+/// Direct coverage for two FileOperations helpers: `generateUniqueURL` (keep-both numbering) and
+/// `ensureParentDirectoryExists` (the cloud placeholder guard). Both are pure functions over
+/// `FileManaging`, so the mock disk suffices.
 @Suite struct FileOperationsHelperTests {
 
     // MARK: generateUniqueURL

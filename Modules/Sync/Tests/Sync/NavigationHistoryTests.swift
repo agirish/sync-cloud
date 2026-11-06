@@ -100,9 +100,9 @@ import Combine
         let subscription = manager.refreshSubject.sink { _ in refreshCount += 1 }
         defer { subscription.cancel() }
 
-        // The focused path exists on no disk: focusOn does not validate it, it just re-focuses
-        // the one pane, resets the per-folder ignore list, appends to that pane's history, and
-        // fires the refresh subject (which is what triggers the follow-up tree load and scan).
+        // The focused path exists on no disk: focusOn doesn't validate it. It re-focuses the one
+        // pane, resets the per-folder ignore list, appends to that pane's history, and fires the
+        // refresh subject (which triggers the follow-up tree load and scan).
         manager.focusOn(relativePath: "does/not/exist", isLeft: false)
 
         #expect(manager.rightRelativePath == "does/not/exist")
@@ -201,11 +201,10 @@ import Combine
         #expect(!manager.leftHistory.canGoForward)
     }
 
-    /// A source switch replaces the history of the pane it switched, and **only** that pane's.
-    ///
-    /// The switched pane's Back stack points into a tree that is being taken off screen, so it has
-    /// to go. The sibling's points into a tree that is still there — this used to clear it anyway,
-    /// so picking a source on one pane silently emptied the other pane's Back button.
+    /// A source switch replaces the history of the pane it switched, and only that pane's. The
+    /// switched pane's Back stack points into a tree being taken off screen, so it goes; the
+    /// sibling's points into a tree still there, so clearing it would empty the other pane's Back
+    /// button.
     @MainActor
     @Test func testRetargetPaneClearsOnlyItsOwnHistory() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -223,8 +222,8 @@ import Combine
         #expect(manager.rightHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
     }
 
-    /// The mirror. Polarity in this method is four separate `isLeft` branches — history, selection,
-    /// browse path, reload scope — and a test on one side cannot see a flip in any of them.
+    /// The mirror. Polarity in this method is four separate `isLeft` branches (history, selection,
+    /// browse path, reload scope), and a test on one side can't see a flip in any of them.
     @MainActor
     @Test func testRetargetPaneClearsOnlyItsOwnHistoryOnTheRight() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -242,10 +241,10 @@ import Combine
         #expect(manager.leftHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
     }
 
-    /// **The selection, both ways round.** The app-target test covers the left switch; this is the
-    /// half that would have gone unmeasured, and the fixture deliberately puts a selection in BOTH
-    /// panes — a state the one-pane-selected invariant forbids, and the only fixture that can tell
-    /// "cleared the pane that switched" from "cleared whichever pane it reached first".
+    /// The selection, both ways round. The app-target test covers the left switch; this covers
+    /// both. The fixture puts a selection in both panes, a state the one-pane-selected invariant
+    /// forbids, because only that can tell "cleared the pane that switched" from "cleared whichever
+    /// pane it reached first".
     @MainActor
     @Test func testRetargetPaneClearsOnlyItsOwnSelection() async throws {
         for switchedIsLeft in [true, false] {

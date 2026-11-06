@@ -1,29 +1,26 @@
 import Foundation
 
-/// Finding a name inside a pane's already-loaded tree — the whole of the matching, ordering and
-/// reveal-target arithmetic, with no view and no filesystem anywhere in it.
+/// Finding a name inside a pane's already-loaded tree: the matching, ordering and reveal-target
+/// arithmetic, with no view and no filesystem.
 ///
-/// **A find, not a filter.** Nothing here removes a row. The results say which rows matched, which
-/// folders have matches beneath them, and where the current hit sits; the pane dims, emphasizes and
-/// reveals from that, and its structure is untouched. A filter would rebuild the tree under the
-/// user and destroy the one thing a tree communicates — where a hit *sits*.
+/// A find, not a filter: nothing removes a row. The results say which rows matched, which folders
+/// have matches beneath them, and where the current hit is; the pane dims, emphasizes and reveals
+/// from that. A filter would rebuild the tree and lose where a hit sits.
 ///
-/// **In-memory only.** Every input is a `PaneTree` the pane has already walked, so a search costs
-/// one pass over nodes that are already in RAM. Nothing here stats, opens or enumerates anything;
-/// a query must never be able to make the pane touch a cloud provider.
+/// In-memory only: every input is a `PaneTree` already walked, so a search is one pass over nodes
+/// in RAM. Nothing here stats, opens or enumerates; a query must never make the pane touch a cloud
+/// provider.
 public enum PaneTreeSearch {
 
     // MARK: - Matching
 
-    /// The comparison a name search uses: case folded, diacritics dropped, and — because these are
-    /// Swift strings — normalization-insensitive for free.
+    /// The comparison a name search uses: case folded, diacritics dropped, and (being Swift
+    /// strings) normalization-insensitive.
     ///
-    /// **There is deliberately no `precomposedStringWithCanonicalMapping` here.** macOS really does
-    /// hand back decomposed (NFD) names from some volumes and precomposed ones from others, so the
-    /// requirement is real, but Swift's own string comparison is defined on canonical equivalence
-    /// and already meets it. `IgnoreRules` and `ProviderNameRules` do carry the explicit call, and
-    /// they need it: both drop to `unicodeScalars`, which is exactly where canonical equivalence
-    /// stops applying.
+    /// Deliberately no `precomposedStringWithCanonicalMapping`: volumes hand back both NFD and NFC
+    /// names, but Swift string comparison already uses canonical equivalence. `IgnoreRules` and
+    /// `ProviderNameRules` need the explicit call because they compare `unicodeScalars`, where
+    /// canonical equivalence no longer applies.
     static let matchOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
     /// The query, trimmed. Empty means "not searching" and every caller treats it as such.
@@ -31,23 +28,13 @@ public enum PaneTreeSearch {
         query.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Where `query` matches inside `name`, as a range of the name's CHARACTER offsets, or `nil`
-    /// when it does not. The first match only: the emphasis marks the run you searched for, and a
-    /// name with two of them is not two hits.
+    /// Where `query` matches inside `name`, as a range of the name's character offsets, or `nil`.
+    /// The first match only: a name with two of them is not two hits.
     ///
-    /// **This was hand-rolled and is not any more, and the reason is measured.** The first version
-    /// folded the name grapheme by grapheme into a `[Character]` alongside a parallel `[Int]` of
-    /// source offsets, so that a match found in the folded text could be mapped back onto the
-    /// original — necessary because folding is not length-preserving (“ß” folds to “ss”). It worked,
-    /// and on a 40,000-node tree — the size `PaneTree` documents for a real pane — it cost **262 ms
-    /// in Release, on the main actor, per debounced keystroke.**
-    ///
-    /// `range(of:options:)` does the same job in one ICU call per name instead of one per grapheme,
-    /// and hands back a range **into the original string**, which removes the alignment problem
-    /// rather than solving it. Measured over 40,000 names: 316 ms → 77 ms for a query that matches
-    /// every name, 410 ms → 142 ms for one that matches none. Every case the hand-rolled version was
-    /// written for still passes, including the length-changing ones (`strasse` finds `Straße`,
-    /// `mass` finds `Maß`) and the normalization ones — those tests are unchanged.
+    /// `range(of:options:...)` matches in one ICU call per name and returns a range into the
+    /// original string, so folds that change length (`strasse` finds `Straße`) need no offset
+    /// mapping. It runs on the main actor per debounced keystroke over trees of ~40,000 nodes,
+    /// which a per-grapheme fold is too slow for.
     public static func match(name: String, query: String) -> Range<Int>? {
         guard !query.isEmpty,
               let found = name.range(of: query, options: matchOptions, range: nil, locale: nil)
@@ -60,16 +47,13 @@ public enum PaneTreeSearch {
 
     /// Every row of `tree` whose name contains `query`, in the order the pane lists them.
     ///
-    /// Pre-order depth-first, which is exactly the order an expanded outline draws — so ↩ walks the
-    /// hits down the pane rather than in some order of its own. Folders match on their own names
-    /// like anything else; a folder that merely *contains* matches is reported by
-    /// `containedMatchCounts` instead.
+    /// Pre-order depth-first, the order an expanded outline draws, so ↩ walks the hits down the
+    /// pane. Folders match on their own names; a folder that only contains matches is reported by
+    /// `containedMatchCounts`.
     ///
-    /// No tree root is needed and none is taken: `tree.rows` ARE the root's children, so a hit's
-    /// position relative to the root is the walk's own component stack. Absolute positions come from
-    /// the nodes themselves (`PaneRow.node.id` is the absolute path), so nothing here has to join a
-    /// root onto anything — which also means no copy of `PaneBrowsePath.normalized`'s trailing-slash
-    /// rule can drift in here.
+    /// No root is taken: `tree.rows` are the root's children, so the walk's component stack is the
+    /// relative path, and `PaneRow.node.id` is already absolute. Nothing joins a root, so no copy of
+    /// `PaneBrowsePath.normalized`'s trailing-slash rule is needed.
     public static func hits(in tree: PaneTree, query: String) -> [PaneSearchHit] {
         let needle = normalizedQuery(query)
         guard !needle.isEmpty else { return [] }
@@ -102,15 +86,11 @@ public enum PaneTreeSearch {
         return results
     }
 
-    /// Folder path → how many hits lie strictly BENEATH it.
+    /// Folder path → how many hits lie strictly beneath it.
     ///
-    /// This is what lets a collapsed folder say “2 matches” instead of hiding the fact that the
-    /// answer is inside it, and — because every ancestor of every hit is in here — it is also the
-    /// rule that decides which rows must NOT dim: a folder on the way to an answer is part of the
-    /// answer.
-    ///
-    /// Strictly beneath: a folder that matches on its own name is a hit, and counting itself here
-    /// would make it claim a match inside it that may not exist.
+    /// Lets a collapsed folder say “2 matches”, and, holding every ancestor of every hit, decides
+    /// which rows must not dim: a folder on the way to an answer is part of it. Strictly beneath,
+    /// so a folder matching on its own name doesn't claim a match inside it.
     public static func containedMatchCounts(_ hits: [PaneSearchHit]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for hit in hits {
@@ -121,18 +101,16 @@ public enum PaneTreeSearch {
         return counts
     }
 
-    /// Every relative path in `tree` — the set a hit in this pane is checked against to decide
+    /// Every relative path in `tree`: the set a hit in the other pane is checked against to decide
     /// whether the same item exists on both sides.
     ///
-    /// Case is deliberately significant. The diff engine keys its pairs on exact relative paths and
-    /// only folds case as a fallback on a case-insensitive volume, so a case-insensitive answer here
-    /// would claim “both sides” for two items the Differences table reports separately.
+    /// Case is significant: the diff engine pairs on exact relative paths and folds case only as a
+    /// fallback, so a case-insensitive answer would claim “both sides” for two items the
+    /// Differences table lists separately.
     ///
-    /// Normalization is deliberately NOT significant, and needs no code to make it so: these are
-    /// Swift `String`s in a Swift `Set`, and both equality and hashing there are canonical-
-    /// equivalence-based — so a folder arriving spelled NFD from one provider and NFC from another
-    /// is one key, not two. See `fold` for the measurement, and for where the explicit precompose is
-    /// genuinely load-bearing instead.
+    /// Normalization is not, with no code needed: Swift `Set` equality and hashing use canonical
+    /// equivalence, so NFD and NFC spellings are one key. See `matchOptions` for where an explicit
+    /// precompose is needed instead.
     public static func relativePaths(in tree: PaneTree) -> Set<String> {
         var paths: Set<String> = []
         var components: [String] = []
@@ -154,10 +132,9 @@ public enum PaneTreeSearch {
 
     /// Which side(s) each hit is on, given the other pane's relative paths.
     ///
-    /// Pure set membership over two already-walked trees — no disk access and no new scan, which is
-    /// what makes this affordable on every keystroke. On a surface with no opposite pane (the
-    /// single-source rail) the caller passes `nil` and no annotation is produced at all: “left only”
-    /// is a statement about a comparison the rail is not making.
+    /// Pure set membership over two already-walked trees, so it is cheap on every keystroke. With
+    /// no opposite pane (the single-source rail) the caller passes `nil` and nothing is annotated:
+    /// “this side only” means nothing without a comparison.
     public static func sides(for hits: [PaneSearchHit],
                              otherPaths: Set<String>?) -> [String: PaneSearchSide] {
         guard let otherPaths else { return [:] }
@@ -173,23 +150,20 @@ public enum PaneTreeSearch {
     /// The expansion set after revealing `hit`: what was already open, plus exactly this hit's own
     /// ancestors.
     ///
-    /// **Per hit, on arrival — never all hits up front.** Expanding every ancestor of every hit
-    /// would detonate a large tree for a query the user is still typing, and it would do it on the
-    /// keystroke rather than on the decision to go and look. Walking to a hit opens only the folders
-    /// on the way to it, and folders opened by an earlier hit stay open, exactly as they would if
-    /// the user had clicked their way down.
+    /// Per hit, on arrival, never all hits up front: expanding every hit's ancestors would blow
+    /// open a large tree while the user is still typing. Folders opened by an earlier hit stay
+    /// open, as if the user had clicked down to it.
     public static func expansion(_ expanded: Set<String>, revealing hit: PaneSearchHit) -> Set<String> {
         expanded.union(hit.ancestorPaths)
     }
 }
 
-/// Which side(s) of a comparison a hit exists on. Only ever produced where there IS a second tree —
-/// see `PaneTreeSearch.sides(for:otherPaths:)`.
+/// Which side(s) of a comparison a hit exists on. Only produced where there is a second tree
+/// (`PaneTreeSearch.sides(for:otherPaths:)`).
 public enum PaneSearchSide: String, Sendable, Equatable {
     /// The same relative path exists in the opposite pane's tree.
     case bothSides
-    /// It does not — which is usually the reason for searching at all, so this is the one that
-    /// carries the risk tint.
+    /// It doesn't. Usually the reason for searching, so this one carries the risk tint.
     case thisSideOnly
 }
 
@@ -197,15 +171,15 @@ public enum PaneSearchSide: String, Sendable, Equatable {
 public struct PaneSearchHit: Equatable, Sendable, Identifiable {
     /// The node's absolute path, which is also its outline identity and its selection tag.
     public let path: String
-    /// The name as stored, unfolded — the emphasis is drawn on this.
+    /// The name as stored, unfolded: the emphasis is drawn on this.
     public let name: String
     public let isDirectory: Bool
     /// Path relative to the pane's tree root. Used to ask the opposite pane whether it has this
     /// item, and (as components) to open the Columns stack down to it.
     public let relativePath: String
-    /// The folder names from the tree root down to this hit's PARENT — i.e. `relativePath` minus the
-    /// hit itself. This is a `PaneBrowsePath`'s components: the columns that must be open for the
-    /// hit's own row to be listed in the deepest one.
+    /// The folder names from the tree root down to this hit's parent (`relativePath` minus the
+    /// hit): a `PaneBrowsePath`'s components, the columns that must be open for the hit's row to be
+    /// listed in the deepest one.
     public let parentComponents: [String]
     /// Absolute paths of the folders containing this hit, outermost first. The tree presentation
     /// expands exactly these to reveal it.
@@ -228,33 +202,27 @@ public struct PaneSearchHit: Equatable, Sendable, Identifiable {
 
     /// The column stack that lists this hit's own row in its deepest column.
     ///
-    /// The hit itself is never a component, even when it is a folder: opening a matched folder's own
-    /// column would show its CONTENTS and leave the row that matched behind in the column to its
-    /// left, where the selection highlight the reveal is about to set could not be seen.
+    /// The hit itself is never a component, even as a folder: opening its own column would show
+    /// its contents and leave the matched row, and its selection highlight, out of view.
     public var browsePath: PaneBrowsePath { PaneBrowsePath(components: parentComponents) }
 }
 
 /// One pane's search results, stamped so a SwiftUI comparison never walks them.
 ///
-/// **Why the stamp.** This is handed to `FileTreeView`, whose `==` is the pane's re-render gate, and
-/// the payload is three dictionaries plus an array that a broad query can fill with thousands of
-/// entries. Comparing those by value on every render is the same mistake `PaneTree` exists to
-/// prevent, one type over. So equality is `(side, generation, query)` and nothing else.
+/// `FileTreeView`'s `==` gates the pane's re-render, and a broad query fills these maps with
+/// thousands of entries, so equality is `(side, generation, query)` only, as with `PaneTree`.
 ///
-/// **Why that is exact rather than approximate.** `generation` is the host's own counter, bumped on
-/// every recomputation — the same construction as `PaneTree.version`, and exact for the same reason:
-/// two values carrying the same side and generation came from the same computation, so there is no
-/// way to reach different contents without the counter having moved. `query` rides along because it
-/// is what the pane draws its emphasis from and is cheap to compare; it cannot disagree with the
-/// generation, and comparing it makes the common “the user typed a character” case obvious.
+/// That is exact: `generation` is the host's counter, bumped on every recomputation, so the same
+/// side and generation means the same computation. `query` rides along because it is cheap and is
+/// what the emphasis is drawn from.
 public struct PaneSearchResults: Equatable, Sendable {
-    /// Which pane these are for. See `PaneTree.Side` — the two panes keep independent counters, so a
-    /// bare generation is only meaningful alongside the side that minted it.
+    /// Which pane these are for. The two panes keep independent counters, so a generation means
+    /// something only with the side that minted it.
     public let side: PaneTree.Side
     /// The host's recomputation counter at the moment these were built.
     public let generation: Int
-    /// The live query. Empty means the search is not running and every accessor below answers as if
-    /// there were no results at all.
+    /// The live query, trimmed. Empty means no search is running, and every accessor below
+    /// answers as if there were no results.
     public let query: String
     /// The hits, in the order the pane lists them.
     public let hits: [PaneSearchHit]
@@ -270,11 +238,9 @@ public struct PaneSearchResults: Equatable, Sendable {
         let hits = PaneTreeSearch.hits(in: tree, query: query)
         self.side = side
         self.generation = generation
-        // The EFFECTIVE query, not the raw text. `hits` trims before matching, so without this a
-        // query of one space was `isActive` with no hits — every row off a path to an answer dimmed,
-        // and the field reported "No matches" — for a keystroke that asked nothing. Storing the
-        // normalized form makes the three answers (is it running, what matched, what does the
-        // counter say) come from one value instead of two that disagree.
+        // The trimmed query, not the raw text: `hits` trims before matching, so a single space
+        // must not count as `isActive` (dimming every row and saying "No matches"). One value then
+        // answers whether it runs, what matched, and what the counter says.
         self.query = PaneTreeSearch.normalizedQuery(query)
         self.hits = hits
         self.matchByPath = Dictionary(hits.map { ($0.path, $0.match) }, uniquingKeysWith: { first, _ in first })
@@ -289,8 +255,8 @@ public struct PaneSearchResults: Equatable, Sendable {
                           otherPaths: nil)
     }
 
-    /// Whether a search is running at all. Every presentation decision is gated on this, so a
-    /// collapsed field or an empty query leaves the pane rendering exactly as it always did.
+    /// Whether a search is running. Every presentation decision is gated on this, so a collapsed
+    /// field or empty query leaves the pane rendering as normal.
     public var isActive: Bool { !query.isEmpty }
 
     /// The matched run of this row's name, or `nil` when it is not a hit.
@@ -305,10 +271,9 @@ public struct PaneSearchResults: Equatable, Sendable {
     /// Whether this row should dim: a search is running, this row did not match, and there is
     /// nothing matching underneath it either.
     ///
-    /// Stated positively, what stays bright is every row on the way to an answer. That is what makes
-    /// the dimming readable as “not this branch” rather than as an arbitrary wash — and it is why
-    /// the rule reads the contained count rather than a list of ancestors: the count is already
-    /// keyed by path for the “N matches” pill, and one map cannot disagree with itself.
+    /// Every row on the way to an answer stays bright, so dimming reads as “not this branch”. Reads
+    /// the contained count, already keyed by path for the “N matches” pill, so the pill and the
+    /// dimming come from one map.
     public func isDimmed(path: String) -> Bool {
         isActive && matchByPath[path] == nil && (containedCounts[path] ?? 0) == 0
     }
@@ -322,19 +287,13 @@ public struct PaneSearchResults: Equatable, Sendable {
     /// Where the walk should stand once these results replace `previous`, which was standing at
     /// `index`.
     ///
-    /// **Two different events both land here and they want opposite things.** Typing rebuilds the
-    /// hits into a different list, where index 4 names an unrelated file — that walk has to restart.
-    /// A REPUBLISH does not: the query is the same, the hits are usually the same files, and the
-    /// user is somewhere in the middle of walking them. Restarting there yanks them back to the
-    /// first hit and — because the reveal fires on the index — scrolls them away from the row they
-    /// were reading, for a background rescan they did not ask for. The pane republishes on every
-    /// scan, copy and hidden-files toggle, and the OTHER pane's republish counts too (its tree is
-    /// where the side annotation comes from), so this is not rare.
+    /// Two events land here and want opposite things. Typing builds a different list, where index
+    /// 4 names an unrelated file, so the walk restarts. A republish (every scan, copy and
+    /// hidden-files toggle, in either pane) keeps the query, and restarting would yank the user to
+    /// the first hit and scroll them away from the row they were reading.
     ///
-    /// So: same query, follow the PATH. The index is meaningless across two result sets; the path
-    /// is the file the user was looking at. Falls back to the top when the query changed, or when
-    /// the file they were on is no longer a hit — which is the honest answer for a file that has
-    /// been deleted or renamed out of the query.
+    /// So with the same query, follow the path, since the index means nothing across result sets.
+    /// Falls back to the top when the query changed or the file is no longer a hit.
     public func walkIndex(after previous: PaneSearchResults, standingAt index: Int) -> Int {
         guard previous.query == query, let path = previous.hit(at: index)?.path,
               let moved = hits.firstIndex(where: { $0.path == path })
@@ -342,9 +301,8 @@ public struct PaneSearchResults: Equatable, Sendable {
         return moved
     }
 
-    /// The “N of M” a field shows, or `nil` when there is nothing to count. `nil` for an inactive
-    /// search; “No matches” when the query found none, which is a real answer and must not be
-    /// silence.
+    /// The “N of M” a field shows; `nil` for an inactive search. “No matches” when the query found
+    /// none: a real answer, not silence.
     public func summary(at index: Int) -> String? {
         guard isActive else { return nil }
         guard !hits.isEmpty else { return "No matches" }
@@ -359,10 +317,9 @@ public struct PaneSearchResults: Equatable, Sendable {
 
 /// Where ↩ and ⇧↩ leave the current-hit index.
 ///
-/// Wrapping, in both directions, because a find bar that stops at the end makes the user work out
-/// where they are in a list they cannot see; and clamped rather than trusted, because the index
-/// outlives the results it was an index into — every keystroke rebuilds them, and a walk to hit 6
-/// of 7 followed by one more typed character routinely leaves an index past the end.
+/// Wraps in both directions, so the user never has to work out where they are in a list they
+/// can't see. Clamped rather than trusted: the index outlives its results, and one more typed
+/// character can leave it past the end.
 public enum PaneSearchWalk {
     /// The index after ↩ (`reverse: false`) or ⇧↩ (`reverse: true`) over `count` hits.
     /// Answers 0 when there is nothing to walk.
@@ -374,9 +331,7 @@ public enum PaneSearchWalk {
 
     /// The index a freshly recomputed result set starts at: the top of the list.
     ///
-    /// Deliberately not “keep where you were”. The hits are rebuilt from scratch on every keystroke
-    /// and are a different list each time — index 4 of the old list names an unrelated file in the
-    /// new one, so preserving it would walk the user somewhere they never asked to go. Typing
-    /// restarts the walk; ↩ continues it.
+    /// Not “keep where you were”: each keystroke builds a different list, where the old index
+    /// names an unrelated file. Typing restarts the walk; ↩ continues it.
     public static let restart = 0
 }

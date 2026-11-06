@@ -2,13 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Who wrote a profile, and what the app is therefore allowed to do with it.
-///
-/// **The asymmetry is the whole subject.** A profile the app derived from a walk is re-derivable in
-/// seconds, so replacing it costs nothing. A hand-built one also records judgements a walk cannot
-/// see — `naming`, `folderSemantics`, the `outbound-pack` refusals — so replacing *that* with a
-/// derived profile degrades To File and the rename pass while every suite stays green. Every test
-/// here is about keeping those two cases apart.
+/// Who wrote a profile, and what the app may therefore do with it. A profile the app derived from
+/// a walk is re-derivable in seconds, so replacing it costs nothing. A hand-built one also records
+/// judgements a walk can't see (`naming`, `folderSemantics`, the `outbound-pack` refusals), so
+/// replacing it with a derived profile degrades To File and the rename pass while every suite stays
+/// green. Every test here keeps those two cases apart.
 @Suite struct FolderProfileProvenanceTests {
 
     private static func directory() throws -> URL {
@@ -53,9 +51,8 @@ import Testing
                 "the header the store stamps must be the one provenance recognises")
     }
 
-    /// **A profile with no `builtBy` at all is hand-built**, and that is the safe default by
-    /// construction: the only profiles without the header are the ones written before the app could
-    /// write any, which are exactly the hand-built ones.
+    /// A profile with no `builtBy` at all is hand-built, the safe default: the only profiles
+    /// without the header predate the app writing any, and those are the hand-built ones.
     @Test func aProfileWithNoHeaderReadsAsHandBuilt() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -78,10 +75,8 @@ import Testing
         #expect(read.provenance == .handBuilt)
     }
 
-    /// A hand-edited header costs the file its provenance, never its contents.
-    ///
-    /// Reading it as hand-built is the cautious answer — the file simply stops being replaceable —
-    /// and it must not take the 3,013 folders with it.
+    /// A hand-edited header costs the file its provenance, never its contents. Reading it as
+    /// hand-built is the cautious answer (it stops being replaceable), and it keeps its folders.
     @Test func aMistypedHeaderCostsProvenanceAndNothingElse() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -102,11 +97,9 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: dir) == "first")
     }
 
-    /// The app may supersede its own previous derivation.
-    ///
-    /// **This is the case the old rule got wrong**, and it did not fail loudly: a survey ran to
-    /// completion, wrote a correct profile under a fresh id, and then nothing read it — because
-    /// `profiles.json` still named the old one and no message said so.
+    /// The app may supersede its own previous derivation. Otherwise a survey writes a correct
+    /// profile under a fresh id and nothing reads it, because `profiles.json` still names the old
+    /// one, and no message says so.
     @Test func aDerivedProfileMayBeSuperseded() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -137,11 +130,9 @@ import Testing
                 "the derived profile should still be written — it is refused the pointer, not the disk")
     }
 
-    /// An active profile this build cannot read is not one it may decide it owns.
-    ///
-    /// The same principle as an absent header: refusing leaves the user where they were, and the
-    /// alternative is deciding that an unparseable file is the app's own and aiming everything away
-    /// from it.
+    /// An active profile this build can't read is not one it may decide it owns. Refusing leaves
+    /// the user where they were; the alternative treats an unparseable file as the app's own and
+    /// points everything away from it.
     @Test func anUnreadableActiveProfileIsNotSuperseded() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -152,18 +143,11 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: dir) == "broken")
     }
 
-    /// An active id naming a profile that is not on disk at all **is** superseded.
-    ///
-    /// **The opposite of what I first asserted here, and the existing rule is the better one.**
-    /// `indexForAmending` already normalises a dangling id to "nothing active", with its reason
-    /// written down: re-pointing away from a name that resolves to no file cannot lose anything,
-    /// while re-pointing away from one that resolves is exactly what must never happen. A hand-edit
-    /// as small as a trailing space would otherwise leave the bootstrap permanently dead while
-    /// reporting success.
-    ///
-    /// So provenance never sees this case — it is settled one layer down. What provenance decides
-    /// is the case where the file *is* there: readable and hand-built (refuse), readable and derived
-    /// (replace), or present and unreadable (refuse, above).
+    /// An active id naming a profile that isn't on disk at all is superseded. `indexForAmending`
+    /// normalises a dangling id to "nothing active": re-pointing away from a name that resolves to
+    /// no file can't lose anything, and otherwise a hand-edit as small as a trailing space would
+    /// leave the bootstrap dead while reporting success. So provenance only decides the case where
+    /// the file is there: hand-built (refuse), derived (replace), or unreadable (refuse, above).
     @Test func anActiveIdWithNoProfileBehindItIsSuperseded() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -174,10 +158,9 @@ import Testing
                 "a dangling pointer left the app with no profile it could reach")
     }
 
-    /// The path guard is unchanged: an id already on disk is refused outright.
-    ///
-    /// Provenance decides what may be *re-pointed*, never what may be *overwritten* — a profile is
-    /// always written under a fresh id, so this refusal is what stops one being clobbered in place.
+    /// The path guard still holds: an id already on disk is refused outright. Provenance decides
+    /// what may be re-pointed, never what may be overwritten; a profile is always written under a
+    /// fresh id, so this refusal is what stops one being clobbered in place.
     @Test func writingOverAnExistingIdIsStillRefused() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }

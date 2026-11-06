@@ -103,10 +103,10 @@ import Testing
         ]
 
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        // The folders are NOT reported as identical (A carries an extra symlink) — the bug was that
-        // dropping the symlink made A's signature equal B's and grouped them.
+        // The folders are NOT reported as identical (A carries an extra symlink); dropping the
+        // symlink from the signature would make A's equal B's and group them.
         #expect(!groups.contains { $0.isDirectory })
-        // The genuinely-identical real.txt still surfaces as a file duplicate (unchanged behavior).
+        // The genuinely identical real.txt still surfaces as a file duplicate.
         #expect(groups.contains { !$0.isDirectory && $0.name == "real.txt" })
     }
 
@@ -164,12 +164,10 @@ import Testing
 
     @Test func aThirdCopyElsewhereNeverRecommendsGuttingTheKeptFolder() {
         // Docs/F1 and Archive/F1 are byte-identical folders, so Docs/F1 is kept and Archive/F1 is
-        // recommended for removal. a.txt ALSO has a third copy at a SHALLOWER path, which is what
-        // makes this the failing shape: the file pass saw {Docs/F1/a.txt, X/a.txt} — Archive's copy
-        // is covered by the folder group, the keeper's copy was not — and the keeper heuristic
-        // prefers the shallower X/a.txt, putting Docs/F1/a.txt on the removal list. One "Apply
-        // recommended" then trashed Archive/F1 *and* removed a file from inside Docs/F1, the folder
-        // the same batch had just called an intact copy.
+        // recommended for removal. a.txt also has a third copy at a shallower path, so the file
+        // pass sees {Docs/F1/a.txt, Alpha/a.txt} and the keeper heuristic prefers Alpha's. Unless the
+        // kept folder's file is protected, one "Apply recommended" would trash Archive/F1 and also
+        // remove a file from Docs/F1, the folder the same batch called an intact copy.
         let f1 = dir("/root/Docs/Sub/F1", [
             file("/root/Docs/Sub/F1/a.txt", size: 8192),
             file("/root/Docs/Sub/F1/b.txt", size: 9000),
@@ -218,18 +216,15 @@ import Testing
 
         let allRemovals = groups.flatMap { $0.recommendedRemovalPaths }
         #expect(!allRemovals.contains { $0.hasPrefix("/root/F1/") })
-        // The redundant folder copy is still recommended, as before.
+        // The redundant folder copy is still recommended.
         #expect(allRemovals.contains("/root/Archive/F1"))
     }
 
     // MARK: Name-only folders
 
-    /// **Same name and nothing in common is not a finding.** It used to be the bulk of this case
-    /// and it is the tree's own vocabulary showing through: measured against his hash index, 115
-    /// same-name folder sets across ~/Documents share not one file, and they are names like `2020`
-    /// (36 folders), `2021` (25), `2023` (23), `Archive`, `Approval`, `Payslips` — a year level and
-    /// a category level repeated under every subject. Reporting them put 39 cards at the top of his
-    /// Duplicates lens, every one reading "nothing to reclaim" and offering only "keep separate".
+    /// Same name and nothing in common is not a finding. Names like `2020`, `Archive` or `Payslips`
+    /// repeat under every subject in a real tree, sharing no file; reporting them would fill the
+    /// Duplicates lens with cards that have nothing to reclaim.
     @Test func sameNameAloneNeverMakesAFolderGroup() {
         let a = dir("/root/Screenshots", [
             file("/root/Screenshots/game1.png"), file("/root/Screenshots/game2.png"),
@@ -278,15 +273,10 @@ import Testing
         #expect(folded?.uniqueItemCount == 1)               // w1 is unique to the Work copy
     }
 
-    /// **His case, exactly.** A one-item `Visa` folder buried in an H-1B petition's supporting
-    /// documents, holding a single file that also lives in the 361-item top-level `Visa`. Measured
-    /// one-sidedly that folder is "100% shared" and the card offered to merge it; measured over the
-    /// larger side it is 1/6 here, and it is not a folder finding at all.
-    ///
-    /// It is not a copy of that folder. It is a different subject that happens to contain one of
-    /// the same documents — the same coincidence-of-vocabulary the name-only kind was removed for,
-    /// one level along. His reading: "that explains why it doesn't actually need to be merged in
-    /// the first place."
+    /// A one-item `Visa` folder buried in a petition's supporting documents, holding one file that
+    /// also lives in a large top-level `Visa`. Measured one-sidedly it is "100% shared"; over the
+    /// larger side it is 1/6 here, and not a folder finding at all. It is a different subject that
+    /// happens to hold one of the same documents, not a copy to merge.
     @Test func aTinyFolderWhollyInsideABigOneIsNotAMerge() {
         let big = dir("/root/Visa", (1...6).map { file("/root/Visa/d\($0).pdf") })
         let small = dir("/root/Petition/Supporting/Visa", [
@@ -301,8 +291,8 @@ import Testing
         #expect(!groups.contains { $0.isDirectory },
                 "a folder holding one of another folder's six files is not that folder")
 
-        // **And the document itself is still found.** This is what makes the drop safe: the folder
-        // pass marked nothing covered, so the shared file surfaces as the file duplicate it is.
+        // The document itself is still found, which makes the drop safe: the folder pass marked
+        // nothing covered, so the shared file surfaces as the file duplicate it is.
         let files = groups.filter { !$0.isDirectory }
         #expect(files.count == 1)
         #expect(files[0].matchType.kind == .identical)
@@ -332,11 +322,10 @@ import Testing
                 "the reported fraction is the mutual one, which is what makes it a claim about BOTH")
     }
 
-    /// **A real twin must not be lost to the company it keeps.** His `Form W-2` set: a genuine
-    /// six-against-six pair, plus three folders of one or two files that merely share the name.
-    /// Averaging the four gives 37.5% and the whole set falls under the threshold — taking the
-    /// twin with it. The gate is per copy, so the group is the folders that really are versions of
-    /// each other and the subsets simply do not join.
+    /// A real twin must not be lost to the company it keeps: a genuine six-against-six `Form W-2`
+    /// pair, plus folders of one file that merely share the name. Averaging them would drop the
+    /// whole set under the threshold, twin included. The gate is per copy, so the group is the
+    /// real versions of each other and the subsets don't join.
     @Test func aGenuineTwinSurvivesTheSubsetsThatShareItsName() {
         let names = (1...6).map { "f\($0).pdf" }
         // The keeper carries one document the twin does not, so the pair is an OVERLAP rather than
@@ -367,8 +356,8 @@ import Testing
         #expect(abs(fraction - 6.0 / 7.0) < 0.001,
                 "the figure is the twin's own, not an average dragged down by the subsets")
 
-        // **The subsets are not lost, they find each other.** C and D hold the same single
-        // document, so they are byte-identical trees and get a group of their own.
+        // The subsets are not lost; they find each other. C and D hold the same single document,
+        // so they are byte-identical trees and get a group of their own.
         let subsetGroup = try! #require(groups.first {
             $0.copies.contains { $0.path.hasPrefix("/root/C") }
         })
@@ -376,12 +365,9 @@ import Testing
         #expect(Set(subsetGroup.copies.map(\.path)) == ["/root/C/Form W-2", "/root/D/Form W-2"])
         #expect(groups.count == 2, "and nothing else is reported")
 
-        // **What is NOT reported, stated rather than discovered later:** C's copy of `f1.pdf` is
-        // also in the keeper, and no group says so. `coveredRoots` suppresses the inner files of a
-        // grouped folder pair so they are not double-reported, and that suppression is blind to
-        // copies OUTSIDE the pair. Pre-existing — before the per-copy gate, C was inside the
-        // overlapping group and equally unreported as a file — but the gate makes it visible, and
-        // it is the shape a future "why isn't this listed?" will take.
+        // Known gap: C's copy of `f1.pdf` is also in the keeper, and no group says so.
+        // `coveredRoots` suppresses the inner files of a grouped folder pair so they aren't
+        // reported twice, and that suppression is blind to copies outside the pair.
     }
 
     // MARK: Versions
@@ -389,8 +375,8 @@ import Testing
     @Test func driftedVersionsGroupKeepsNewest() {
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
-        // A "-v2" rather than the " (1)" this used: a download counter alone no longer stands a
-        // versions group up (FR14, `aDownloadCounterAloneIsNotVersions` below).
+        // A "-v2", not a " (1)": a download counter alone stands up no versions group
+        // (`aDownloadCounterAloneIsNotVersions` below).
         let tree = [
             dir("/root/Docs", [
                 file("/root/Docs/Q3 Report.docx", size: 5000, modified: old),
@@ -410,12 +396,11 @@ import Testing
         #expect(g.reclaimableBytes == 5000)
     }
 
-    /// **A counter never joins a versions group by name (FR14, owner's call).** Five months of
-    /// downloaded `invoice (n).pdf` beside one `invoice copy.pdf` stood as ONE versions group off
-    /// the copy's marker, and "Keep newest" trashed the bills. The counter-only members leave the
-    /// cluster: the copy groups with its unmarked original alone, and with no original left
-    /// there is nothing to group. Their contents still group them when they match (FR14's own
-    /// test: the identical pass).
+    /// A counter never joins a versions group by name (his call). Months of downloaded
+    /// `invoice (n).pdf` beside one `invoice copy.pdf` must not form one versions group off the
+    /// copy's marker, or "Keep newest" trashes the bills. Counter-only members leave the cluster:
+    /// the copy groups with its unmarked original alone, and with none left there is no group.
+    /// Matching contents still group them, through the identical pass.
     @Test func counterOnlyMembersNeverJoinAVersionsGroup() {
         let day = 86_400.0
         var files = [file("/root/Downloads/invoice.pdf", size: 40_000,
@@ -445,13 +430,11 @@ import Testing
                     .contains { $0.matchType == .versions })
     }
 
-    /// **A download counter alone is not evidence of versions (FR14).** A browser appends " (1)",
-    /// " (2)" when the name it is saving already exists, and a site names every bill the same:
-    /// three months of `invoice.pdf` became a "Keep newest, Trash older" group that trashed two
-    /// bills. Different bytes behind a counter are distinct documents as often as revisions, and
-    /// the name cannot say which, so no group — in one folder or pooled across folders. A real
-    /// marker beside the counter still stands one up, and a counter re-download with the SAME
-    /// bytes is still an identical group.
+    /// A download counter alone is not evidence of versions. A browser appends " (1)", " (2)" when
+    /// the name exists, and a site names every bill the same, so "Keep newest, Trash older" would
+    /// trash bills. Different bytes behind a counter are distinct documents as often as revisions,
+    /// so no group, in one folder or pooled. A real marker beside the counter still stands one up,
+    /// and a re-download with the same bytes is still an identical group.
     @Test func aDownloadCounterAloneIsNotVersions() {
         let jan = Date(timeIntervalSince1970: 1_000_000)
         let feb = Date(timeIntervalSince1970: 3_600_000)
@@ -480,8 +463,8 @@ import Testing
         #expect(!DuplicateFinder.findGroups(tree: pooled, fileHashes: pooledHashes)
                     .contains { $0.matchType == .versions })
 
-        // A deliberate marker in the cluster still makes it versions — of the members a person
-        // marked and the unmarked original. The counter-suffixed member stays out (X4 below).
+        // A deliberate marker in the cluster still makes it versions, of the marked members and
+        // the unmarked original. The counter-suffixed member stays out.
         let marked = [
             dir("/root/Docs", [
                 file("/root/Docs/plan.pdf", size: 9_000, modified: jan),
@@ -507,11 +490,10 @@ import Testing
         }
     }
 
-    /// **A counter under another marker is still a counter (D2).** `statement (1) copy.xlsx` is a
-    /// copy of the second downloaded bill, not a version of the first — but its " copy" let it join
-    /// `statement.xlsx` as a versions group, and "Keep newest" would trash a bill. Any name whose
-    /// stem needed a counter stripped stays out. The control: the same folder with a plain
-    /// `statement copy.xlsx` still groups, so the rule is not refusing every marker.
+    /// A counter under another marker is still a counter. `statement (1) copy.xlsx` is a copy of the
+    /// second downloaded bill, not a version of the first; if its " copy" let it join
+    /// `statement.xlsx`, "Keep newest" would trash a bill. Any name whose stem needed a counter
+    /// stripped stays out. The control: a plain `statement copy.xlsx` still groups.
     @Test func aCounterBesideAnotherMarkerIsStillACounter() {
         let jan = Date(timeIntervalSince1970: 1_000_000)
         let feb = Date(timeIntervalSince1970: 3_600_000)
@@ -540,12 +522,11 @@ import Testing
                 == ["/root/Downloads/statement.xlsx", "/root/Downloads/statement copy.xlsx"])
     }
 
-    /// **A counter name is dropped before the bucket is clustered, not after (D4).** Left in, it
-    /// was a marker bearer and drift evidence: here its hash is the one that "proved" folder A's
-    /// drift (`report.pdf` itself could not be hashed), so A stood as a cluster — and once the
-    /// counter was filtered out of it, the cluster was too small and `report copy.pdf` vanished
-    /// with it. Without the counter, A cannot prove drift, so its marked copy falls through to the
-    /// cross-folder pool beside B's lone `report final.pdf`, as a marked name does.
+    /// A counter name is dropped before the bucket is clustered, not after. Left in, its hash would
+    /// "prove" folder A's drift (`report.pdf` has no hash), so A would stand as a cluster, then be
+    /// too small once the counter was filtered, and `report copy.pdf` would vanish with it. Without
+    /// the counter, A can't prove drift, so its marked copy falls through to the cross-folder pool
+    /// beside B's lone `report final.pdf`.
     @Test func aCounterNameDoesNotDecideHowTheBucketClusters() {
         let tree = [
             dir("/root/A", [
@@ -621,11 +602,11 @@ import Testing
     }
 
     @Test func crossFolderMarkerDoesNotLicenseUnmarkedMembersInOtherFolders() {
-        // The round-5 MAJOR: one marker in a cross-folder stem bucket must not vouch for the
-        // whole bucket. "/2023/IMG_0001 copy.jpg" is evidence someone duplicated the IMG_0001.jpg
-        // NEXT TO IT — not that /2019/IMG_0001.jpg (an unrelated shot that shares the name only
-        // because cameras count from IMG_0001) is a version of either. Grouping all three would
-        // recommend trashing the unique 2019 photo.
+        // One marker in a cross-folder stem bucket must not vouch for the whole bucket.
+        // "/2023/IMG_0001 copy.jpg" is evidence someone duplicated the IMG_0001.jpg NEXT TO IT, not
+        // that /2019/IMG_0001.jpg (an unrelated shot sharing the name because cameras count from
+        // IMG_0001) is a version of either. Grouping all three would recommend trashing the unique
+        // 2019 photo.
         let tree = [
             dir("/root/2023", [
                 file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
@@ -648,16 +629,14 @@ import Testing
     }
 
     @Test func hardLinkedEntriesLeaveDuplicateCandidacyEntirely() {
-        // A directory entry is not the bytes: with the single-path copy model, EVERY offer
-        // about a hard-linked file is a lie — trashing one link frees nothing (a sibling
-        // entry, in or out of the scan, keeps the blocks), and a "resolved" group leaves the
-        // duplicate content on disk. Multi-link files are dropped before ANY pass; a per-pass
-        // collapse protected `identical` but un-claimed the links for `versions`.
+        // A directory entry is not the bytes: with the single-path copy model, every offer about a
+        // hard-linked file is false. Trashing one link frees nothing (a sibling entry keeps the
+        // blocks), and a "resolved" group leaves the content on disk. Multi-link files are dropped
+        // before any pass, so no pass (`versions` included) can claim them.
         let multiLink: Set<String> = ["/root/Docs/a.bin", "/root/Docs/b.bin"]
 
-        // Links beside a real independent copy: no truthful offer exists → no group. (The old
-        // collapse grouped keeper + one link and claimed the link's bytes reclaimable — a
-        // Time-Machine-shaped no-op trash.)
+        // Links beside a real independent copy: no truthful offer exists → no group. Grouping the
+        // keeper with one link would claim the link's bytes reclaimable when trashing frees none.
         let withRealCopy = DuplicateFinder.findGroups(
             tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
                                       file("/root/Docs/b.bin", size: 50_000),
@@ -680,7 +659,7 @@ import Testing
             g.copies.contains { $0.path.contains("report.pdf") || $0.path.contains("report copy.pdf") }
         })
 
-        // No link-count metadata → prior behavior exactly (distinct files, both group).
+        // No link-count metadata → ordinary behaviour (distinct files, both group).
         let unknown = DuplicateFinder.findGroups(
             tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
                                       file("/root/Docs/b.bin", size: 50_000)])],
@@ -691,10 +670,10 @@ import Testing
     @Test func independentMarkerClustersInDifferentFoldersNeverPoolUnmarkedOriginals() {
         // Markers in TWO different folders are two independent duplication events (ClientA
         // duplicated its report; ClientB duplicated its own), not one document's history.
-        // Pooling both folders' plain files into one group made the newest file anywhere the
-        // keeper and recommended trashing the OTHER folder's unmarked original — an unrelated
-        // document. Only the marker-bearers may group cross-folder (their names carry their
-        // own evidence); each folder's unmarked report.pdf must never ride along.
+        // Pooling both folders' plain files would make the newest file anywhere the keeper and
+        // recommend trashing the OTHER folder's unmarked original, an unrelated document. Only
+        // the marker-bearers may group cross-folder (their names carry their own evidence);
+        // each folder's unmarked report.pdf must never ride along.
         let tree = [
             dir("/root/ClientA", [
                 file("/root/ClientA/report.pdf", size: 9_000, modified: Date(timeIntervalSince1970: 1_500_000)),
@@ -757,11 +736,10 @@ import Testing
     }
 
     @Test func multiParentBucketKeepsEachBearersOwnOriginalInItsGroup() {
-        // The refinement's other half: when one folder holds a true original + marked copy and
-        // ANOTHER folder holds a lone marked copy, the same-parent pair must still group
-        // (round-5 semantics per folder) — dropping the original there would let "keep newest"
-        // adjudicate among stale marked copies with the real newest revision invisible. The
-        // lone bearer has no same-stem company and pools with no one → stays ungrouped.
+        // The other half: when one folder holds a true original + marked copy and ANOTHER folder
+        // holds a lone marked copy, the same-parent pair must still group. Dropping the original
+        // would let "keep newest" choose among stale marked copies with the real newest revision
+        // invisible. The lone bearer has no same-stem company and pools with no one → ungrouped.
         let tree = [
             dir("/root/Docs", [
                 file("/root/Docs/report.pdf", size: 9_000, modified: Date(timeIntervalSince1970: 3_000_000)),
@@ -894,10 +872,10 @@ import Testing
 
     @Test func versionsKeeperDoesNotPenalizeTransientDownloadLocations() {
         // The newest revision of a drifted document routinely sits in Downloads (just saved from
-        // mail/browser) — penalizing "downloads" like an archive recommended keeping the STALE
-        // Documents copy and trashing the only copy of the new content. Only true archive/backup/
-        // trash segments may demote a versions keeper. Exercises newestIndex directly with the
-        // round-5 scenario: Documents/report.pdf (old) vs Downloads/report-v2.pdf (new, differs).
+        // mail/browser); penalizing "downloads" like an archive would keep the STALE Documents
+        // copy and trash the only copy of the new content. Only true archive/backup/trash
+        // segments may demote a versions keeper. Exercises newestIndex directly:
+        // Documents/report.pdf (old) vs Downloads/report-v2.pdf (new, differs).
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
         func info(_ path: String, modified: Date, hash: String) -> DuplicateFinder.NodeInfo {
@@ -912,7 +890,7 @@ import Testing
         ]
         #expect(DuplicateFinder.newestIndex(members) == 1)   // the Downloads copy IS the newest
 
-        // A true backup location still loses even when newest — the trimmed set keeps that pin.
+        // A true backup location still loses even when newest.
         let backup = [
             info("/root/Documents/report.pdf", modified: old, hash: "R-OLD"),
             info("/root/Backups/report-v2.pdf", modified: new, hash: "R-NEW"),
@@ -1002,14 +980,12 @@ import Testing
         #expect(groups.allSatisfy { !$0.copies.contains { $0.path.contains("node_modules") } })
     }
 
-    /// FR11. A repository and a ZIP of its working tree hold the same files; only the repository
-    /// holds `.git`. The archive penalty makes the repository the copy a folder group would trash.
+    /// A repository and a ZIP of its working tree hold the same files; only the repository holds
+    /// `.git`. The archive penalty makes the repository the copy a folder group would trash.
     ///
-    /// What this pins is the FOLDER: no folder group forms, so the repository is never offered for
-    /// removal whole. It does not protect the files inside it — the identical-file groups are
-    /// ordinary file groups, and the archive penalty still recommends removing the repository's
-    /// tracked `a.txt` and `b.txt`. The last assertion says so, so a change to either behaviour is
-    /// a deliberate one.
+    /// This pins the folder: no folder group forms, so the repository is never offered for removal
+    /// whole. The files inside are not protected: the archive penalty still recommends removing its
+    /// tracked `a.txt` and `b.txt`. The last assertion says so, so changing either is deliberate.
     @Test func aRepositoryFolderIsNeverOfferedAsAFolderCopyOfItsWorkingTree() {
         let tree = [
             dir("/root/Archive/proj", [
@@ -1070,7 +1046,7 @@ import Testing
         #expect(groups.first?.isDirectory == true)
     }
 
-    /// FR10. One Apply recommended acts on every group at once, so no group may recommend
+    /// One Apply recommended acts on every group at once, so no group may recommend
     /// removing the folder that holds another group's keeper. `Pics`, `P/Sub` and `Q/Sub` are
     /// identical, and `P` and `Q` hold nothing but `Sub` — so `P` and `Q` are identical too. The
     /// dates make the first group keep `P/Sub` and, left alone, the second keep `Q`.
@@ -1199,8 +1175,8 @@ import Testing
         #expect(groups.allSatisfy { !$0.recommendedRemovalPaths.contains("/root/Archive/Talks") })
     }
 
-    /// FR12, at the finder: a same-named copy holding a folder the walk did not read is never
-    /// folded away — the merge would trash the unread folder as though it were empty.
+    /// A same-named copy holding a folder the walk did not read is never folded away: the merge
+    /// would trash the unread folder as though it were empty.
     @Test func aCopyWithAnUnreadFolderIsNeverFoldedAway() {
         let shared = ["a", "b", "c", "d", "e", "f", "g"]
         var locked = dir("/root/Archive/Talks/Locked", [])
@@ -1279,9 +1255,8 @@ import Testing
         d.set(102_400, forKey: DuplicateFinderOptions.DefaultsKey.minFileSize)
         d.set(0.9, forKey: DuplicateFinderOptions.DefaultsKey.overlapThreshold)
         d.set(false, forKey: DuplicateFinderOptions.DefaultsKey.detectVersions)
-        // The Settings toggle writes this key and nothing else reads it. Left out of this test,
-        // the switch would have been inert with every other test still green — a new option is
-        // invisible to a fixture that only ever starts from the defaults.
+        // The Settings toggle writes this key. Left out here, the switch could go inert with every
+        // other test green, since fixtures start from the defaults.
         d.set(false, forKey: DuplicateFinderOptions.DefaultsKey.detectSameText)
         let overridden = DuplicateFinderOptions.fromDefaults(d)
         #expect(overridden.minFileSize == 102_400)
@@ -1316,17 +1291,11 @@ import Testing
                       isRecommendedKeeper: keeper)
     }
 
-    /// **A group with nothing flagged used to report its own keeper as redundant.**
-    ///
-    /// `keeper` falls back to `copies[0]` when no copy carries the flag — a fallback that exists
-    /// because `init` is public — while `redundantCopies` filtered on the flag alone and so
-    /// returned every copy, that one included. The consumers of that list drive "Move to Trash",
-    /// which makes the disagreement every copy of a file going to the Trash together with the one
-    /// meant to survive.
-    ///
-    /// No production route builds such a group today (the finder flags `idx == 0`,
-    /// `choosingKeeper` refuses an unknown id, `removingRedundantCopy` re-promotes). This pins the
-    /// two accessors to each other so a route that ever does cannot make them disagree.
+    /// A group with nothing flagged must not list its own keeper as redundant. `keeper` falls back
+    /// to `copies[0]` when no copy carries the flag (`init` is public); filtering
+    /// `redundantCopies` on the flag alone would include it, and that list drives "Move to Trash",
+    /// so every copy would go, the survivor included. No production route builds such a group
+    /// today; this keeps the two accessors in step for one that ever does.
     @Test func aGroupWithNoFlaggedKeeperDoesNotListItsKeeperAsRedundant() {
         let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
                                copies: [Self.copy("/a/x", keeper: false),
@@ -1338,7 +1307,7 @@ import Testing
         #expect(g.redundantCopies.map(\.id) == ["/b/x"])
     }
 
-    /// The ordinary case is untouched — the fix must not change what a well-formed group removes.
+    /// The ordinary case: a well-formed group removes exactly its unflagged copies.
     @Test func aNormalGroupsRedundantListIsUnchanged() {
         let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
                                copies: [Self.copy("/a/x", keeper: true),
@@ -1418,9 +1387,9 @@ import Testing
 
     // MARK: Reclaimable bytes must match what removal will actually take
 
-    /// `recommendedRemovalPaths` filters protected copies; the reclaim figure did not. Re-aiming
-    /// the keeper is precisely the move that puts a protected copy on the redundant side, so the
-    /// card promised bytes back from a file its own "Move to Trash" would never touch.
+    /// The reclaim figure skips protected copies, as `recommendedRemovalPaths` does. Re-aiming the
+    /// keeper is what puts a protected copy on the redundant side, and the card must not promise
+    /// bytes back from a file its own "Move to Trash" never touches.
     @Test func choosingAKeeperDoesNotCountProtectedBytesAsReclaimable() {
         let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
                                copies: [copy("/kept/F1/x", size: 100, depth: 1, keeper: true, protected: true),
@@ -1448,8 +1417,8 @@ import Testing
         #expect(g2.reclaimableBytes == 0)
     }
 
-    /// Mutation guard for both of the above: an unprotected copy in the same position must still
-    /// count, or the fix would read as "reclaim is always zero".
+    /// The control for both of the above: an unprotected copy in the same position still counts,
+    /// so a reclaim that is always zero fails.
     @Test func anUnprotectedRedundantCopyStillCountsAsReclaimable() {
         let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
                                copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
@@ -1517,12 +1486,10 @@ import Testing
     // MARK: Folder-keeper protection must not distort the groups it protects
 
     @Test func versionsStillKeepTheNewestWhenAProtectedFileIsInTheCluster() {
-        // Protection originally chose the keeper from the PROTECTED subset using the pass's own
-        // rule. For versions that rule is "newest", and the card says so out loud ("Keep newest,
-        // Trash older") — so picking the newest of a subset silently inverted the promise: the
-        // keeper became an older file inside the kept folder and the genuinely newest copy was
-        // recommended for the Trash. The keeper is now the real newest; protection only removes
-        // protected files from the removable side.
+        // The keeper is the real newest; protection only takes protected files off the removable
+        // side. Choosing the newest of the protected subset would break the card's "Keep newest,
+        // Trash older": an older file in the kept folder would win and the real newest go to the
+        // Trash.
         //
         // Three marker bearers in three folders, which is what pools them into ONE cluster.
         let oldest = Date(timeIntervalSince1970: 100_000_000)
@@ -1556,10 +1523,9 @@ import Testing
     }
 
     @Test func aFileDroppedByProtectionDoesNotReappearAsAVersion() {
-        // The identical pass marks what it has accounted for so the versions pass skips it. It was
-        // marking only the copies that SURVIVED protection, so a protected file dropped from an
-        // identical group became eligible again and resurfaced in a versions group the identical
-        // pass had always suppressed.
+        // The identical pass marks everything it accounted for, protected copies included, so the
+        // versions pass skips it. Marking only the copies that survive protection would let a
+        // dropped protected file resurface in a versions group.
         //
         // Dates make the NON-marker file the identical group's keeper, so the marker bearer is the
         // one protection drops — the member that can go on to form a version cluster.
@@ -1590,9 +1556,9 @@ import Testing
     }
 
     @Test func reAimingTheKeeperCannotPutAProtectedFileBackOnTheRemovalList() {
-        // The invariant used to last exactly as long as the DEFAULT keeper: `choosingKeeper`
-        // relabels copies by id alone, so one click on the other copy put the kept folder's own
-        // file straight back onto the removal list.
+        // The invariant must outlive the default keeper: `choosingKeeper` relabels copies by id, so
+        // without the protected flag one click on the other copy would put the kept folder's own
+        // file back on the removal list.
         let f1 = dir("/root/Docs/Sub/F1", [
             file("/root/Docs/Sub/F1/a.txt", size: 8192),
             file("/root/Docs/Sub/F1/b.txt", size: 9000),

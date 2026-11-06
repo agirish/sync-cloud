@@ -4,18 +4,12 @@ import Events
 @testable import Sync
 
 /// The breadcrumb's both-panes route: ⌥-click, and every plain crumb click while the seam link is
-/// on (which is the shipped default for anyone who has ever switched the link on — it is sticky).
+/// on (the link is sticky once switched on). `PaneCombinedPathTests` covers the single-pane route.
 ///
-/// This is the route that regressed when a pane's location was split into scope + browse position.
-/// `PaneCombinedPathTests` pinned the single-pane routing; the linked route still went through
-/// `focusBoth`, which knows only about the scope. With both panes scoped at their root — the normal
-/// state, because walking into columns never re-roots — a click on the root crumb asked to focus
-/// `""` while both panes already were focused on `""`, and `focusBoth`'s "nothing to do" guard
-/// returned. Three columns deep, the crumb that should be the fastest way out did nothing at all.
-///
-/// So these tests are about *escape*: every crumb must be reachable from wherever the columns have
-/// wandered, on both panes, and without a rescan when the folder is one the panes are already
-/// showing.
+/// A pane's location is scope plus browse position, and routing by scope alone (`focusBoth`)
+/// would see "already there" when both panes are scoped at the root and do nothing. So these tests
+/// are about escape: every crumb must be reachable from wherever the columns have wandered, on both
+/// panes, without a rescan when the folder is one the panes already show.
 @MainActor
 @Suite struct PaneLinkedCrumbTests {
 
@@ -37,8 +31,8 @@ import Events
 
     // MARK: - The regression
 
-    /// The reported bug: linked panes, both scoped at their root, browsing three columns deep. The
-    /// root crumb is the only one-click way home and it must take it.
+    /// Linked panes, both scoped at their root, browsing three columns deep: the root crumb is the
+    /// only one-click way home, and it must work.
     @Test func testTheRootCrumbLeavesTheColumnsOnBothPanes() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices", "2025"])
@@ -107,8 +101,7 @@ import Events
         #expect(m.rightHistory.entries == ["", "Work"])
     }
 
-    /// Above the scope there is nothing to browse to, so both panes genuinely re-root — the escape
-    /// hatch `focusBoth` used to provide, kept intact.
+    /// Above the scope there is nothing to browse to, so both panes re-root.
     @Test func testACrumbAboveTheScopeRerootsBothPanes() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Work/Invoices", isLeft: true)
@@ -163,9 +156,8 @@ import Events
     /// because they differ, so a folder this pane has may be missing over there.
     @Test func testTheSiblingStopsWhereItsOwnTreeStops() {
         let m = FileSyncManager()
-        // The sibling's tree is loaded — which is the only state its stack may be pruned in, and
-        // what the call site means by "if the sibling re-rooted, its tree is being reloaded and the
-        // prune that runs on the next republish is the one that applies".
+        // The sibling's tree is loaded, the only state its stack may be pruned in. A sibling that
+        // re-roots is pruned on its next republish instead.
         m.lastLoadedRightFocusPath = ""
         m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices"])
 
@@ -177,8 +169,8 @@ import Events
                 "the sibling stops at the deepest folder it genuinely has")
     }
 
-    /// Building the sibling's index is a full walk of its tree (~40k nodes in the app), and the
-    /// commonest linked crumb click — home to the root — needs no index at all.
+    /// Building the sibling's index walks its whole tree, and the commonest linked crumb click,
+    /// home to the root, needs no index at all.
     @Test func testTheSiblingsIndexIsBuiltOnlyWhenThereIsAStackToPrune() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices"])

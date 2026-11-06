@@ -1,16 +1,16 @@
 import Foundation
 
-/// The models Ask Claude offers (RD69, decision DR), what each costs, and how a response’s `usage`
-/// turns into a cost estimate.
+/// The models Ask Claude offers, what each costs, and how a response’s `usage` turns into a cost
+/// estimate.
 ///
-/// **Its own table, not `CloudFilingProtocol`’s.** Filing prices by family prefix and forces one
+/// Its own table, not `CloudFilingProtocol`’s: Filing prices by family prefix and forces one
 /// tool, which the 5.5 models refuse (a forced `tool_choice` is a 400 on Opus 5.5 and Sonnet 5.5).
 /// Ask Claude lets the model choose its tools, so it can offer the current models; the two pickers
 /// stay separate rows in Settings ▸ Intelligence and share only the key.
 public enum AskClaudeModels {
 
     /// List prices in US dollars per million tokens. The Console is authoritative; these only feed
-    /// the per-reply estimate and the monthly limit (decision DZ).
+    /// the per-reply estimate and the monthly limit.
     public struct Price: Equatable, Sendable {
         public let input: Double
         public let output: Double
@@ -113,7 +113,7 @@ public enum AskClaudeModels {
     /// Tokens a question adds on top of the chat: a full screen card and the question, generously.
     static let nextQuestionAllowance = 10_000
 
-    /// What the first answer on `target` costs to catch up on a chat of `contextTokens` (TE292):
+    /// What the first answer on `target` costs to catch up on a chat of `contextTokens`:
     /// each model keeps its own cache, so the whole chat is written into `target`'s at the 1-hour
     /// rate. "Up to": a cache `target` wrote in the last hour, or thinking it can't read (dropped
     /// unbilled), makes it less. The long-prompt tier is judged with room for the next screen and

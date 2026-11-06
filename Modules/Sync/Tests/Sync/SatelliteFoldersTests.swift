@@ -4,8 +4,8 @@ import Testing
 
 /// Folders that hold copies of another folder's documents, and the demotion that follows.
 ///
-/// The fixtures are the real relation measured on the surveyed tree: 14 satellite folders out of
-/// 3,013, found by pairing the persisted byte-hash and PDF-fingerprint indexes.
+/// The fixtures are the real relation on the surveyed tree, found by pairing the persisted
+/// byte-hash and PDF-fingerprint indexes.
 @Suite struct SatelliteFoldersTests {
 
     private let root = "/P"
@@ -54,13 +54,10 @@ import Testing
     func supersededRecordsLoseToTheNewest() {
         // An index is an append-only log keyed by (path, mtime, size): editing a file adds a second
         // record and the old one survives for 30 days. They reach `build` in the order
-        // `ContentHashCache.save` happened to enumerate its dictionary — arbitrary, and reseeded
-        // every launch — so reading them straight into a map made the file's identity depend on the
-        // hash seed. Measured on the real index: 13 paths under the provider root carry two records
-        // with different digests.
-        //
-        // Both orderings are run because ONE ordering is what a fixture would accidentally pin: the
-        // buggy "last wins" agrees with the fix on whichever order puts the newest last.
+        // `ContentHashCache.save` enumerated its dictionary, which changes every launch, so reading
+        // them straight into a map would make the file's identity depend on the hash seed. Both
+        // orderings run, because "last wins" agrees with the newest-wins rule on whichever order
+        // puts the newest last.
         func index(_ recs: [ContentHashRecord]) -> DocumentIdentityIndex {
             DocumentIdentityIndex.build(hashes: recs, fingerprints: [],
                                         providerRoot: root, existsOnDisk: { _ in true })
@@ -73,8 +70,8 @@ import Testing
             let built = index(recs)
             #expect(built.foldersByIdentity["b:new"] == ["A"], "\(label): the newest digest is the file's identity")
             #expect(built.foldersByIdentity["b:old"] == nil, "\(label): the superseded digest identifies nothing")
-            // Counted once, not once per record. This half always held — the map is keyed by path
-            // — and is pinned here so the de-duplication cannot be lost while fixing the ordering.
+            // Counted once, not once per record: the map is keyed by path, and this keeps that
+            // de-duplication pinned alongside the ordering.
             #expect(built.documentCounts["A"] == 1, "\(label)")
         }
     }
@@ -107,7 +104,7 @@ import Testing
 
     /// Where the markers really are: their own store, `content-textless-index.json`, which the
     /// fingerprint index never holds. A text PDF overwritten by a scan of nothing leaves its old
-    /// digest as the newest FINGERPRINT record; only the textless store says it is gone.
+    /// digest as the newest fingerprint record; only the textless store says it is gone.
     @Test("A marker in the textless store outdates an older digest, and not a newer one")
     func aTextlessMarkerOutdatesAnOlderDigest() {
         let marker = ContentFingerprint.tooLittleTextMarker
@@ -159,17 +156,17 @@ import Testing
         let home = "Work/EMP/Compensation/Salary Statements/2026"
         let found = homes(payslipTree())
         #expect(found[stash] == [home])
-        // **Directional.** The home is not also a satellite of the stash, which is the entire point
-        // — a relation that fired both ways would be a statement that they are duplicates of each
-        // other and would give the ranking no reason to prefer either.
+        // Directional: the home is not also a satellite of the stash. A relation that fired both
+        // ways would say they are duplicates of each other and give the ranking no reason to prefer
+        // either.
         #expect(found[home] == nil)
     }
 
     @Test("An inbox is never a home")
     func inboxesAreNotHomes() {
         // Without this the relation reads backwards on the real tree: the biggest folder in a family
-        // is routinely the pile everything was filed OUT of. `Credit 2809/2024` came out a satellite
-        // of `Chase/TODO` (47 documents) — a real home demoted in favour of its own inbox.
+        // is often the pile everything was filed out of, and a real home (`Credit 2809/2024`) would
+        // be demoted in favour of its own inbox (`Chase/TODO`).
         var fps = (1...12).map { record("Finance/Chase/TODO/s\($0).pdf", "st\($0)") }
         fps += (1...4).map { record("Finance/Chase/Credit 2809/2024/s\($0).pdf", "st\($0)") }
         let index = DocumentIdentityIndex.build(hashes: [], fingerprints: fps,
@@ -183,15 +180,14 @@ import Testing
 
     @Test("Two folders that merely overlap are not a satellite pair")
     func nearTiesAreRefused() {
-        // At a 1.01x size rule the tree produced `Papers/SQL` (3 docs) inside `Papers/Data
-        // Analytics` (4) and `Checking 5670/2016` (6) inside `Savings 3931/2016` (7) — pairs where
-        // "bigger" carries no information and the direction is arbitrary.
+        // A size rule near 1x would pair folders like `Papers/SQL` (3 docs) inside `Papers/Data
+        // Analytics` (4), where "bigger" carries no information and the direction is arbitrary.
         var fps = (1...4).map { record("Papers/Data Analytics/p\($0).pdf", "p\($0)") }
         fps += (1...3).map { record("Papers/SQL/p\($0).pdf", "p\($0)") }
         let index = DocumentIdentityIndex.build(hashes: [], fingerprints: fps,
                                                 providerRoot: root, existsOnDisk: { _ in true })
         #expect(homes(index).isEmpty)
-        // Non-vacuity: the same shape with the home twice the size IS a satellite pair, so the
+        // Non-vacuity: the same shape with the home twice the size is a satellite pair, so the
         // emptiness above is the ratio rule and not the fixture failing to overlap at all.
         var bigger = (1...6).map { record("Papers/Data Analytics/p\($0).pdf", "p\($0)") }
         bigger += (1...3).map { record("Papers/SQL/p\($0).pdf", "p\($0)") }
@@ -215,8 +211,8 @@ import Testing
     func demotesTheSatellite() {
         let stash = "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/pay_statements"
         let home = "Work/EMP/Compensation/Salary Statements/2026"
-        // A memory in which the stash genuinely scores higher — which is what the real one does,
-        // because it learned the anchor `payslip` from the filenames the copies were saved under.
+        // A memory in which the stash scores higher, as the real one does: it learned the anchor
+        // `payslip` from the filenames the copies were saved under.
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
             stash: FilingMemoryEntry(docs: 4, anchors: [FilingMemoryToken(token: "payslip", weight: 6),
                                                          FilingMemoryToken(token: "salary", weight: 4)],
@@ -230,7 +226,7 @@ import Testing
             return FilingRouter.rank(fileName: "Payslip_2026-06-15.pdf",
                                      contentSnippet: "payslip salary", index: index)
         }
-        // Without the relation the stash leads — the defect, reproduced.
+        // Without the relation the stash leads.
         #expect(rank(satellites: [:]).best?.relativePath == stash)
         // With it the home leads …
         let demoted = rank(satellites: [stash: [home]])
@@ -258,9 +254,8 @@ import Testing
     @Test("A verdict naming a satellite is refused when the home is on the card")
     func verdictCannotUndoTheDemotion() {
         // The router demotes, but the model re-ranks the shortlist afterwards and the satellite is
-        // *in* that shortlist — so without this the refine pass hands the wrong answer straight
-        // back. Measured: asked where `Payslip_2026-06-15.pdf` belonged, the backend answered the
-        // petition stash at High confidence.
+        // in that shortlist, so without this the refine pass can hand the wrong answer straight
+        // back (the petition stash, at High confidence, for `Payslip_2026-06-15.pdf`).
         let stash = "Immigration/Petition/pay_statements"
         let home = "Work/EMP/Salary Statements/2026"
         let suggestion = FilingSuggestion(
@@ -271,7 +266,7 @@ import Testing
             providerRoot: "/P")
         let verdict = FilingVerdict(relativePath: stash, confidence: .high, reason: "looks like a payslip")
         // Every ancestor, not just the two leaves: `destination(from:)` walks the path and calls
-        // any segment missing from this set a folder to CREATE — which, for a verdict that does not
+        // any segment missing from this set a folder to create — which, for a verdict that does not
         // declare a new folder, trims the answer back to its existing prefix. A set of two leaves
         // makes the control leg pass for the wrong reason.
         let existing: Set<String> = [
@@ -283,7 +278,7 @@ import Testing
                                        existingRelative: existing, providerRoot: "/P",
                                        satelliteHomes: satellites).first?.best?.path
         }
-        // Without the rule the verdict wins — the defect, reproduced through the real entry point.
+        // Without the rule the verdict wins, through the real entry point.
         #expect(applied(satellites: [:]) == "/P/" + stash)
         // With it the card keeps the home it already had.
         #expect(applied(satellites: [stash: [home]]) == "/P/" + home)

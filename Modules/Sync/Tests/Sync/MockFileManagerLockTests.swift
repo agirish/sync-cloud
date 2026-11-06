@@ -2,26 +2,24 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The mock is shared between a test and the operation the test starts, so a test's own reads and
-/// writes of its collections must wait for an operation holding the lock, exactly as the
-/// operation's own accesses do. An unlocked read crashed `testUndoRegisterTrashItems` on
-/// 2026-10-02 — "An unlocked read of the mock's disk lands inside the write the test is waiting
-/// for" in `docs/flaky-tests.md`.
+/// The mock is shared between a test and the operation it starts, so the test's own reads and
+/// writes of its collections must wait for an operation holding the lock, as the operation's do.
+/// See "An unlocked read of the mock's disk lands inside the write the test is waiting for" in
+/// `docs/flaky-tests.md`.
 @Suite struct MockFileManagerLockTests {
 
-    /// A real `moveItem` is held inside the lock — parked at its child's copy, with the destination
-    /// folder written and the source not yet removed, the half-done state an unlocked read could
-    /// see. Meanwhile every locked collection is read and written from threads of its own, and the
+    /// A real `moveItem` is held inside the lock, parked at its child's copy with the destination
+    /// folder written and the source not yet removed: the half-done state an unlocked read could
+    /// see. Every locked collection is read and written from threads of its own meanwhile, and the
     /// disk is snapshotted once. Each access must wait out the whole move, and the snapshot must
     /// show it finished.
     ///
-    /// One park for all of them, because a test that builds a `ParkGate` holds one of the few park
-    /// reservations a process gets (`parkThreadBudget`; `ParkBudgetTests` requires the trait), and
-    /// every other gated test queues behind it. This park is on a dedicated `Thread`, not the pool.
+    /// One park for all of them, because a test that builds a `ParkGate` holds one of the process's
+    /// few park reservations (`parkThreadBudget`; `ParkBudgetTests` requires the trait), and every
+    /// other gated test queues behind it. The park is on a dedicated `Thread`, not the pool.
     ///
-    /// What this does NOT pin: that `moveItem` holds the lock across its copy and its remove. A
-    /// mutant that drops that hold survives, because the move re-takes the lock for the remove
-    /// before a waiting reader is woken.
+    /// Not pinned: that `moveItem` holds the lock across its copy and its remove. Dropping that hold
+    /// survives, because the move re-takes the lock for the remove before a waiting reader wakes.
     @Test(.parksAThread) func everyAccessWaitsOutAMoveHeldInsideTheLock() async throws {
         let fm = MockFileManager()
         fm.virtualDisk["/src/project"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["notes.txt"])
@@ -57,7 +55,7 @@ import Foundation
             onItsOwnThread(access.rawValue) { access.perform(on: fm) }
         }
         onItsOwnThread("snapshot") {
-            // One read, so one snapshot — of the move's paths only: `writeVirtualDisk` may have
+            // One read, so one snapshot, of the move's paths only: `writeVirtualDisk` may have
             // added `/elsewhere` by then.
             let keys = Set(fm.virtualDisk.keys.filter { $0.hasPrefix("/src/") || $0.hasPrefix("/dst/") })
             snapshot.withLock { $0 = keys }
@@ -65,9 +63,9 @@ import Foundation
         let accesses = SharedAccess.allCases.count + 1
         for _ in 0..<accesses { await awaitSignal(started, "an access never started") }
 
-        // Gives an UNLOCKED access — the regression this exists for — the time it would need,
-        // which is microseconds once its thread is running. A locked access cannot finish here
-        // however long this waits, so for a correct mock its length decides nothing.
+        // Gives an unlocked access the time it would need (microseconds once its thread runs). A
+        // locked access can't finish here however long this waits, so for a correct mock the
+        // length decides nothing.
         for _ in 0..<10 where done.withLock({ $0 }) < accesses {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }

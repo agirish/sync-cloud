@@ -1,16 +1,10 @@
 import Foundation
 
-/// A restructure plan as an ordered list of typed path operations — the 6 Aug log's schema,
-/// extended and versioned (ROADMAP v5 §5.4).
+/// A restructure plan as an ordered, versioned list of typed path operations.
 ///
-/// **Replayable is the whole design**: §5.5 runs it forwards on the disk, replays it onto the
-/// corpus, memory and store keys, and derives its inverse mechanically — so every action carries
-/// `src`/`dst` as profile-relative paths, and the list is ordered as it runs.
-///
-/// In this milestone only the **scaffold** builder exists (`create-dir` actions, §5.2's backlog
-/// fix — the one Apply that creates and never moves). The mapping-derived builder, `keep` rows
-/// and the removal step arrive with §5.4/§5.5; the schema is theirs already, so landing the
-/// scaffold first proves the manifest, the ledger and ⌘Z before anything destructive exists.
+/// Built to be replayed: the apply runs it forwards on the disk, replays it onto the corpus, memory
+/// and store keys, and derives its inverse mechanically. So every action carries `src`/`dst` as
+/// profile-relative paths, and the list is ordered as it runs.
 public struct RestructureManifest: Codable, Equatable, Sendable {
 
     public enum ActionKind: String, Codable, Equatable, Sendable, CaseIterable {
@@ -28,60 +22,47 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         public var src: String?
         /// Absent for `keep`, which deliberately does nothing.
         public var dst: String?
-        /// The written justification — every operation in the 6 Aug log carried one, and a
-        /// manifest is reviewed in a text editor before it is applied.
+        /// The written justification: a manifest is reviewed in a text editor before it is applied.
         public var evidence: String?
         /// Renames only: how many files the directory carried.
         public var filesCarried: Int?
-        /// File moves only — **filled in at apply time, never at plan time** (invariant 5).
+        /// File moves only. Filled in at apply time, never at plan time.
         public var bytes: Int?
-        /// **No longer written**, and kept only so ledgers recorded before 2026-09-02 decode.
-        ///
-        /// It held an MD5 of every moved file, up to a 64 MB cap, computed inside the landing —
-        /// which turned a 500-file merge into reading a gigabyte, while the landing flag refuses
-        /// every other scan and file operation. Nothing read it: it was audit-only, and the
-        /// verifier reconciles counts from a different code path rather than comparing digests.
+        /// No longer written; kept so older ledgers decode. It held an MD5 of every moved file,
+        /// which made a large merge read every byte while the landing blocked all other scans and
+        /// file operations, and nothing read it.
         public var md5: String?
-        /// Plan time saw a same-named file already at `dst` — the ledger's *collisions kept*
-        /// line before anything runs. Predicted, not final: the tree can change between plan
-        /// and apply, which is why the field below exists separately.
+        /// Plan time saw a same-named file already at `dst`: the ledger's "collisions kept" line
+        /// before anything runs. A prediction, since the tree can change before apply; hence the
+        /// field below.
         public var collisionExpected: Bool?
-        /// Where the file actually landed when `dst` was taken — `generateUniqueURL`'s pick,
-        /// **filled at apply time**. Its own fact rather than folded into `dst`, because the
-        /// inverse must restore the file's *original* name: it reads `collidedInto ?? dst` as
-        /// its source (ROADMAP v5 §5.4).
+        /// Where the file landed when `dst` was taken (`generateUniqueURL`'s pick), filled at apply
+        /// time. Kept apart from `dst` because the inverse must restore the file's original name:
+        /// it reads `collidedInto ?? dst` as its source.
         public var collidedInto: String?
-        /// `move-dir` only: this action relocates its source directory **intact, to a different
-        /// parent** — it does not drain the folder the source sits in.
+        /// `move-dir` only: this action relocates its source directory intact to a different
+        /// parent, rather than draining the folder the source sits in.
         ///
-        /// Two rules read a `move-dir`'s source *parent* and both assume the plan is emptying it,
-        /// which held for every manifest until the cross-parent pair merge existed: the apply's
-        /// unlisted-source-folder veto (a parent holding anything the plan never listed is left
-        /// untouched) and ``RestructureLedger/emptiedFolders(of:)`` (the removal step's scope).
-        /// For a relocation both are wrong — the parent keeps everything else, and nothing was
-        /// emptied — so the intent is recorded rather than inferred from the path.
-        ///
-        /// nil means the old, draining shape, so every manifest already on disk keeps its
-        /// behaviour exactly.
+        /// Two rules read a `move-dir`'s source parent and assume the plan is emptying it: the
+        /// apply's unlisted-source-folder veto (a parent holding anything the plan never listed is
+        /// left alone) and ``RestructureLedger/emptiedFolders(of:)`` (the removal step's scope).
+        /// For a relocation both are wrong, so the intent is recorded rather than inferred from the
+        /// path. nil means the draining shape, so manifests already on disk keep their behaviour.
         public var movesWholeFolder: Bool?
-        /// The moved item's file number (inode) — **filled in at apply time, never at plan
-        /// time**, like `bytes`, and for folders as well as files.
+        /// The moved item's file number (inode), filled in at apply time like `bytes`, for folders
+        /// as well as files. A move keeps the number, so the undo can tell the item the landing put
+        /// at `dst` from one put there later under the same name, and won't move a newcomer back as
+        /// though it were the original. nil on older records, which fall back to `bytes`.
         ///
-        /// A move keeps the number, so it is how the undo tells the item the landing put at
-        /// `dst` from one put there LATER under the same name: a W-2 replaced by a newer W-2, a
-        /// renamed folder swapped for a fresh one. The undo used to check only that something
-        /// stood at the path, and moved the newcomer back as though it were the original.
-        /// nil on records made before it existed; those fall back to `bytes`.
-        ///
-        /// **Not on its own, because a save is not a move.** Most apps save a document by
-        /// writing a new file and swapping it in (`replaceItemAt`), and that new file has a new
-        /// number — measured 2026-10-27. Read alone, every merged file edited after a landing
-        /// read as replaced and was left out of the undo. See `created`.
+        /// Not enough on its own, because a save is not a move: most apps save by writing a new
+        /// file and swapping it in (`replaceItemAt`), which gets a new number. Alone, every merged
+        /// file edited after a landing would read as replaced and be left out of the undo. See
+        /// `created`.
         public var fileNumber: Int?
-        /// The moved item's creation date, as seconds since 1970 — filled in at apply time with
-        /// `fileNumber`. A safe save keeps the replaced file's creation date where it changes its
-        /// number, and a file that is really new has its own (measured 2026-10-27), so a match on
-        /// either one is the item the landing moved.
+        /// The moved item's creation date, as seconds since 1970, filled in at apply time with
+        /// `fileNumber`. A safe save keeps the replaced file's creation date though it changes its
+        /// number, and a really new file has its own, so a match on either one is the item the
+        /// landing moved.
         public var created: Double?
 
         public init(action: ActionKind, src: String? = nil, dst: String? = nil,
@@ -108,23 +89,21 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let profileId: String
     public let manifestId: String
-    /// A stamp string, injected by the caller — the manifest is a pure value and reads no clock.
+    /// A stamp string, injected by the caller: the manifest is a pure value and reads no clock.
     public let createdAt: String
     public let family: String
-    /// §5.0's kind — which detector's finding this plan answers.
+    /// Which detector's finding this plan answers.
     public let kind: FindingKind
     public var note: String?
-    /// The mapping the actions were derived from, as edited (§5.4's header field) — so the
-    /// exported file is auditable against its own rows, not just its consequences. Absent on
-    /// manifests that were never mapped (the scaffold's, the removal step's).
+    /// The mapping the actions were derived from, as edited, so the exported file is auditable
+    /// against its own rows, not just their consequences. Absent on manifests that were never
+    /// mapped (the scaffold's, the removal step's).
     public var mapping: [RestructureMapping.Row]?
     /// Ordered as they run.
     public var actions: [Action]
 
-    /// How many actions actually DO something — `keep` rows are the plan's signature block, not
-    /// operations, so a red "Apply N operations" button (and the card's "Review N operations")
-    /// counting them overstated the destructive scope: one rename plus 13 keeps read as
-    /// "Apply 14 operations" over a landing whose ledger then said "1 rename · 0 moved".
+    /// How many actions do something. `keep` rows are the plan's signature block, not operations,
+    /// so counting them in "Apply N operations" would overstate the destructive scope.
     public var operationCount: Int {
         actions.count { $0.action != .keep }
     }
@@ -159,23 +138,20 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         self.actions = actions
     }
 
-    /// The mechanical inverse (ROADMAP v5 §5.4): reverse the list, swap `src`/`dst`, and turn
-    /// `create-dir` into `remove-empty-dir` and back. `keep` inverts to itself — doing nothing
-    /// twice. Derived, never authored, which is what makes `inverse.inverse == self` a testable
-    /// law rather than a hope.
+    /// The mechanical inverse: reverse the list, swap `src`/`dst`, and turn `create-dir` into
+    /// `remove-empty-dir` and back. `keep` inverts to itself. Derived, never authored, so
+    /// `inverse.inverse == self` is a testable law.
     ///
-    /// **The involution law holds for collision-free manifests** — the shape the tests pin.
-    /// Both collision facts are deliberately stripped by inversion: `collidedInto` (apply-time —
-    /// the unique name a file actually landed under; its inverse moves the file back from
-    /// *there*) and `collisionExpected` (plan-time — a prediction about a landing the inverse
-    /// does not make). So `inverse.inverse` restores the tree's round trip exactly, and the
-    /// bookkeeping only up to those two fields.
+    /// The law holds for collision-free manifests. Inversion strips both collision facts:
+    /// `collidedInto` (where a file landed; its inverse moves it back from there) and
+    /// `collisionExpected` (a prediction about a landing the inverse doesn't make). So the round
+    /// trip restores the tree exactly, and the bookkeeping only up to those two fields.
     public var inverse: RestructureManifest {
         RestructureManifest(
             schemaVersion: schemaVersion,
             profileId: profileId,
-            // Toggled, not appended: inverting an inverse strips the suffix, which is half of
-            // what makes `inverse.inverse == self` hold exactly.
+            // Toggled, not appended: inverting an inverse strips the suffix, so
+            // `inverse.inverse == self` holds exactly.
             manifestId: manifestId.hasSuffix("-inverse")
                 ? String(manifestId.dropLast("-inverse".count))
                 : manifestId + "-inverse",
@@ -194,7 +170,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
                     inverted = Action(action: .createDir, dst: action.src,
                                       evidence: action.evidence)
                 case .renameDir, .moveDir, .moveFile:
-                    // Where the item actually IS: the collision-renamed name when there was one.
+                    // Where the item is now: the collision-renamed name when there was one.
                     inverted.src = action.collidedInto ?? action.dst
                     inverted.dst = action.src
                     inverted.collisionExpected = nil
@@ -208,31 +184,28 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
 
 }
 
-/// The removal step's manifest builder — §5.5's opt-in Trash pass.
+/// The removal step's manifest builder: the opt-in Trash pass.
 ///
-/// **Two origins, one builder.** A landing drains folders and offers them on its own card; §5.2's
-/// third crowding filter lists the folders that were *already* empty when the survey looked, and
-/// the roadmap's decided behaviour is that they get the same sheet, the same date-bucket /
-/// category split, and the same ledgered, undoable landing. The only things that differ are the
-/// manifest's id and the sentences that justify it, so those are what the origin carries — a
-/// second copy of this construction is how the two routes would drift apart.
+/// Two origins, one builder. A landing drains folders and offers them on its own card; the survey
+/// lists folders that were already empty. Both get the same sheet, split and ledgered, undoable
+/// landing. Only the manifest id and the justifying sentences differ, so the origin carries those,
+/// and one construction keeps the two routes from drifting apart.
 public enum RestructureRemoval {
 
-    /// Where the ticked folders came from — the only axis on which the two removals differ.
+    /// Where the ticked folders came from: the only way the two removals differ.
     public enum Origin: Equatable, Sendable {
         /// Folders one landing itself emptied, scoped to that landing's manifest.
         case landing(manifestId: String)
-        /// Folders that were already empty when the survey looked (ROADMAP v5 §5.2).
+        /// Folders that were already empty when the survey looked.
         case standing
     }
 
-    /// One `remove-empty-dir` per ticked path, in the order given. nil for an empty list: a
-    /// landing with no actions is a junk ledger record, not a no-op.
+    /// One `remove-empty-dir` per ticked path, in the order given. nil for an empty list: a landing
+    /// with no actions is a junk ledger record, not a no-op.
     ///
-    /// Emptiness is **not** re-checked here and must not be — the engine re-probes every path at
-    /// the moment it acts (a folder that gained a file is skipped, and a folder the walk cannot
-    /// fully read is never treated as empty). A plan-time check would only add a second, staler
-    /// opinion.
+    /// Emptiness is not re-checked here and must not be: the engine re-probes every path as it acts
+    /// (a folder that gained a file is skipped, and one the walk can't fully read is never treated
+    /// as empty). A plan-time check would only add a staler opinion.
     public static func manifest(paths: [String], family: String, origin: Origin,
                                 profileId: String, createdAt: String) -> RestructureManifest? {
         guard !paths.isEmpty else { return nil }
@@ -264,26 +237,23 @@ public enum RestructureRemoval {
             })
     }
 
-    /// The deepest folder that CONTAINS every one of these paths — the family a scattered removal
-    /// belongs to. `"."` when they share no ancestor but the root, which is the profile's own
-    /// spelling for the tree (`FolderProfile` keys the root that way), and the common answer for
-    /// the standing empties: they are wherever the tree left them.
-    ///
-    /// The parents are compared, not the paths themselves: one ticked `Travel/2019` belongs to
-    /// `Travel`, and calling the folder its own family would name the thing being removed.
+    /// The deepest folder containing every one of these paths: the family a scattered removal
+    /// belongs to. `"."` when they share only the root, which is common for standing empties. The
+    /// parents are compared, not the paths: one ticked `Travel/2019` belongs to `Travel`, and
+    /// calling the folder its own family would name the thing being removed.
     public static func commonAncestor(of paths: [String]) -> String {
         RestructurePaths.commonAncestor(
             of: paths.map { ($0 as NSString).deletingLastPathComponent })
     }
 }
 
-/// The scaffold's manifest builder — §5.2's backlog fix as §5.4's schema.
+/// The scaffold's manifest builder: the backlog fix as a manifest.
 public enum RestructureScaffold {
 
-    /// `create-dir` actions for everything the family's vouched vocabulary expects that the
-    /// newest member does not have — which is all of it, since the member fired for having no
-    /// folders at all. nil when the finding is not a backlog or vouches for nothing: an empty
-    /// scaffold is a card sentence, not an empty landing.
+    /// `create-dir` actions for everything the family's vouched vocabulary expects of the newest
+    /// member, which has none of it, since it fired for having no folders. nil when the finding is
+    /// not a backlog or vouches for nothing: an empty scaffold is a card sentence, not an empty
+    /// landing.
     public static func manifest(for finding: StructureFinding, profileId: String,
                                 manifestId: String, createdAt: String) -> RestructureManifest? {
         guard case .backlog(let scaffold, _)? = finding.detail, !scaffold.isEmpty else {

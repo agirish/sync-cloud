@@ -15,24 +15,21 @@ extension FileSyncManager {
     }
 
     /// Fetches the cloud-only files among `scope`, reads page 1 of each, and routes them again.
+    /// Asked for, never part of a scan: the scan places a cloud-only file by name because reading
+    /// it would download it, and this click says "download them".
     ///
-    /// **Asked for, never part of a scan** (GJ). The scan places a cloud-only file by its name
-    /// because reading it would download it; this is the click that says "download them".
-    ///
-    /// `scope` is the rows on screen, as with ``applyRecommendedFiling(_:)``: the count on the
-    /// button and the files fetched are one value. Waits up to ``filingDownloadWait`` for the
-    /// downloads to land; a file still on its way is left marked and named in the banner, so a
-    /// second click picks it up. Routing is ``routeWithPage(_:text:providerRoot:index:)``, the
-    /// same pass Read Scan uses, so it needs the folder survey's index and the scan's root.
-    ///
-    /// Returns how many cards got a new home.
+    /// `scope` is the rows on screen, as with ``applyRecommendedFiling(_:)``, so the button's count
+    /// and the files fetched agree. Waits up to ``filingDownloadWait``; a file still on its way stays
+    /// marked and is named in the banner, so a second click picks it up. Routes with
+    /// ``routeWithPage(_:text:providerRoot:index:)``, Read Scan's pass, so it needs the survey's
+    /// index and the scan's root. Returns how many cards got a new home.
     @discardableResult
     public func downloadAndReadFiling(_ scope: [FilingSuggestion]) async -> Int {
         guard !isDownloadingFilingFiles else { return 0 }
         let targets = scope.filter { filingNotDownloaded.contains($0.filePath) }
         guard !targets.isEmpty, let extractor = filingSnippetExtractor else { return 0 }
-        // Read Scan's FR44 guard: the index and root must be the ones these cards were scanned
-        // against, or a page routed here lands the file in another account's tree.
+        // As in Read Scan: the index and root must be the ones these cards were scanned against,
+        // or a page routed here lands the file in another account's tree.
         guard filingRouterIndex != nil, let root = filingLastProviderRoot,
               targets.allSatisfy({ $0.providerRoot == root }) else {
             Logger.shared.info("Filing: Download and Read refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
@@ -107,8 +104,8 @@ extension FileSyncManager {
     }
 
     /// Asks the provider for each of `targets` and waits up to ``filingDownloadWait`` for them to
-    /// land — the download half of ``downloadAndReadFiling(_:)``, shared with Refine with Claude,
-    /// which fetches its scope's cloud-only files before reading them (GZ). Reads nothing.
+    /// land. The download half of ``downloadAndReadFiling(_:)``, shared with Refine with Claude,
+    /// which fetches its scope's cloud-only files before reading them. Reads nothing.
     func fetchCloudOnlyFiles(_ targets: [FilingSuggestion]) async -> (landed: [String], pending: Set<String>, refused: Int) {
         let downloader = filingDownloader
         var pending: Set<String> = []

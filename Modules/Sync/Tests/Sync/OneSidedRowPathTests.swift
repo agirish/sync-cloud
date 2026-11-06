@@ -2,42 +2,40 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A one-sided row's path is composed with the item's own type, and is byte-identical to the
-/// path the engine composed before.**
+/// A one-sided row's path is composed with the item's own type, and is byte-identical to the
+/// unhinted composition.
 ///
 /// `computeDifferences` builds the other side's expected path for each one-sided row it keeps.
 /// `appendingPathComponent(_:)` without `isDirectory:` asks the file system whether the result is a
-/// directory — a probe per row, and per one-sided ENTRY while rows were built before the collapse:
-/// about 200,000 a scan of his Home pair. The hint answers that from what the entry already knows.
+/// directory, a probe per row (hundreds of thousands on a large Home scan). The hint answers that
+/// from what the entry already knows.
 ///
-/// **Composition stays URL composition.** It decomposes precomposed names such as `é` where plain
-/// concatenation keeps them, so swapping it for `root + "/" + key` would change the bytes of
-/// thousands of row paths on a non-ASCII tree. The hint only decides a trailing slash, which `.path`
-/// drops — `theHintNeverChangesThePath` pins that across names, spellings of the root and what is
-/// really on disk, and `rowPathsAreTheOnesTheProbeComposed` pins it through the engine, the re-aimed
-/// rows under a name-conflicted folder included.
+/// Composition stays URL composition: it decomposes precomposed names such as `é` where
+/// concatenation keeps them, so `root + "/" + key` would change the bytes of row paths on a
+/// non-ASCII tree. The hint only decides a trailing slash, which `.path` drops.
+/// `theHintNeverChangesThePath` pins that across names, root spellings and what is on disk, and
+/// `rowPathsAreTheOnesTheProbeComposed` pins it through the engine, re-aimed rows included.
 ///
-/// **Neither of those can see the probe come back**: the hinted and unhinted forms give the same
-/// bytes, which is the point, so reverting the hint keeps both green.
-/// `everyCompositionInTheEngineIsHinted` is what holds the hint itself. Two of the premises below
-/// are facts about Foundation, not about this code — the unhinted form's trailing slash on a
-/// directory, and composition decomposing `é` — so a red premise after an OS update is the
-/// framework moving, and the suite's argument needs re-reading, not its expectations re-pinning.
+/// Neither can see the probe come back, since both forms give the same bytes, so
+/// `everyCompositionInTheEngineIsHinted` holds the hint itself. Two premises below are facts about
+/// Foundation (the unhinted form's trailing slash on a directory, and composition decomposing
+/// `é`), so a red premise after an OS update means the framework moved and the argument needs
+/// re-reading.
 @Suite struct OneSidedRowPathTests {
 
-    /// Names that have each broken some path or key in this app before: precomposed and decomposed
-    /// accents, a name opening with a combining mark, Hangul, a trailing space, characters URL
-    /// encoding treats specially — at the top and deep down.
+    /// Names that are hard on paths and keys: precomposed and decomposed accents, a name opening
+    /// with a combining mark, Hangul, a trailing space, characters URL encoding treats specially, at
+    /// the top and deep down.
     private static let names = [
         "plain.txt", "caf\u{00E9}.txt", "cafe\u{0301}.txt", "\u{0301}lead", "한국어/문서.txt", "Ω≈ç√/x",
         "trailing /x.txt", "a%20b.txt", "a:b.txt", "#hash", "q?x", "semi;colon", ".hidden",
         "deep/er/still/caf\u{00E9}/x",
     ]
 
-    /// Two roots holding something real at a few of the paths composed under them, so the unhinted
-    /// form's probe finds each: under the right a directory, a package, a link to a directory and a
-    /// file; under the left a directory where a right-only FILE's path lands. Each root has a link to
-    /// it beside it. Removed again if building it fails, since no caller's `defer` exists yet.
+    /// Two roots with something real at a few of the composed paths, so the unhinted form's probe
+    /// finds each: under the right a directory, a package, a link to a directory and a file; under
+    /// the left a directory where a right-only file's path lands. Each root has a link to it beside
+    /// it. Removed again if building fails, since no caller's `defer` exists yet.
     private static func roots() throws -> (base: URL, right: URL, left: URL, onDisk: [String]) {
         let fm = FileManager.default
         let base = try makeCanonicalTempRoot(prefix: "OneSidedRowPathTests")
@@ -73,8 +71,8 @@ import Testing
     @Test func theHintNeverChangesThePath() throws {
         let fixture = try Self.roots()
         defer { try? FileManager.default.removeItem(at: fixture.base) }
-        // Premise: the unhinted form really does consult the disk — a directory comes back with a
-        // trailing slash, a missing path does not. Without this the hint would save nothing.
+        // Premise: the unhinted form consults the disk (a directory gets a trailing slash, a
+        // missing path doesn't). Otherwise the hint would save nothing.
         #expect(fixture.right.appendingPathComponent("existingDir").hasDirectoryPath)
         #expect(!fixture.right.appendingPathComponent("plain.txt").hasDirectoryPath)
 
@@ -92,18 +90,16 @@ import Testing
             }
         }
         #expect(checked == 6 * (Self.names.count + fixture.onDisk.count) * 2)
-        // And the reason composition stays URL composition: concatenation is not the same bytes.
+        // Why composition stays URL composition: concatenation isn't the same bytes.
         let precomposed = fixture.right.appendingPathComponent("caf\u{00E9}.txt", isDirectory: false).path
         #expect(Array(precomposed.utf8) != Array((fixture.right.path + "/caf\u{00E9}.txt").utf8),
                 "premise: URL composition decomposes a precomposed name, so concatenation would change row paths")
     }
 
-    /// **The engine composes every URL with its entry's type** — the hint, which no output can show,
-    /// read off the source instead. A composition without `isDirectory:` asks the file system
-    /// whether the path is a directory: a probe per one-sided row, ~200,000 a Home scan when rows
-    /// were built before the collapse, and per node for the warm scan's maps. Code only, so a
-    /// comment naming the unhinted form is not a call; the floor keeps the scan from passing on a
-    /// file it failed to read.
+    /// The engine composes every URL with its entry's type: the hint, which no output can show,
+    /// read off the source. A composition without `isDirectory:` probes the disk per one-sided row,
+    /// and per node for the warm scan's maps. Code lines only, so a comment naming the unhinted
+    /// form isn't a call; the floor keeps the scan from passing on a file it failed to read.
     @Test func everyCompositionInTheEngineIsHinted() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/Sync/FileDiffEngine.swift")
@@ -115,7 +111,7 @@ import Testing
         for opener in ["appendingPathComponent(", "URL(fileURLWithPath:"] {
             var rest = code[...]
             while let start = rest.range(of: opener) {
-                // The call's own parentheses, balanced, so a nested call cannot end it early.
+                // The call's own parentheses, balanced, so a nested call can't end it early.
                 var depth = 0
                 var end = start.lowerBound
                 for index in code[start.lowerBound...].indices {
@@ -132,9 +128,9 @@ import Testing
     }
 
     /// Through the engine: every one-sided row's expected path, and the re-aimed ones under a folder
-    /// whose two spellings differ invisibly, compared byte for byte with the unhinted composition the
-    /// engine used before. Run on each spelling of both roots, with real things on disk at some of
-    /// the composed paths — the case where the old probe found a directory and the hint now says file.
+    /// whose two spellings differ invisibly, compared byte for byte with the unhinted composition.
+    /// Run on each spelling of both roots, with real things on disk at some of the composed paths,
+    /// where the probe would find a directory and the hint says file.
     @Test func rowPathsAreTheOnesTheProbeComposed() throws {
         let fixture = try Self.roots()
         defer { try? FileManager.default.removeItem(at: fixture.base) }
@@ -149,12 +145,12 @@ import Testing
         let rightRoots = try Self.spellings(of: fixture.right, link: "linkedRoot", base: fixture.base)
         let leftRoots = try Self.spellings(of: fixture.left, link: "linkedLeft", base: fixture.base)
         for (rightRoot, leftRoot) in zip(rightRoots, leftRoots) {
-            // Left-only: files and folders, some of whose expected paths EXIST under the right root
-            // — `existingDir` and `Thing.app` as directories, `existingFile.txt` as a file — but are
+            // Left-only: files and folders, some of whose expected paths exist under the right root
+            // (`existingDir` and `Thing.app` as directories, `existingFile.txt` as a file) but are
             // absent from the right map, as a filtered or near-name-ambiguous entry would be.
             var leftInfo: [String: FileDiffEngine.FileInfo] = [:]
             // One spelling of an accented name per map: Swift compares strings by canonical
-            // equivalence, so a precomposed and a decomposed `café` are ONE dictionary key — the
+            // equivalence, so precomposed and decomposed `café` are one dictionary key. The
             // precomposed one is here, a decomposed name is on the right.
             for key in ["plain.txt", "caf\u{00E9}.txt", "한국어", "한국어/문서.txt",
                         "existingFile.txt", "trailing /x.txt"] {
@@ -172,7 +168,7 @@ import Testing
             rightInfo["Ω≈ç√"] = info(rightRoot, "Ω≈ç√", dir: true)
             rightInfo["Ω≈ç√/x"] = info(rightRoot, "Ω≈ç√/x", dir: false)
             rightInfo["\u{0301}lead.txt"] = info(rightRoot, "\u{0301}lead.txt", dir: false)
-            // A FILE whose path under the left root is a directory on disk (`roots()`).
+            // A file whose path under the left root is a directory on disk (`roots()`).
             rightInfo["re\u{0301}sume\u{0301}.pdf"] = info(rightRoot, "re\u{0301}sume\u{0301}.pdf", dir: false)
 
             let rows = FileDiffEngine.computeDifferences(
@@ -203,7 +199,7 @@ import Testing
             }
             // Every row but the name conflict is one-sided, so all but one had its path checked.
             #expect(pathsChecked == 12, "\(pathsChecked) one-sided paths checked under \(rightRoot.path)")
-            // Premise: every shape above produced its row — a missing row would make the loop vacuous.
+            // Premise: every shape above produced its row, or the loop would be vacuous.
             // `한국어/문서.txt` and `trailing /x.txt` collapse into their folders' rows.
             #expect(seen.sorted() == ["plain.txt", "caf\u{00E9}.txt", "한국어", "existingFile.txt", "trailing ",
                                       "existingDir", "Thing.app", "Docs ", "Docs /left-only.txt",

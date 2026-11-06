@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins the `FilingRule` value type — in particular the `enabled` flag added for G1, whose
-/// persistence must stay backward-compatible with rules written before the key existed.
+/// Pins the `FilingRule` value type, in particular the `enabled` flag, whose persistence must stay
+/// compatible with rules written before the key existed.
 @Suite struct FilingRuleTests {
 
     @Test func newRuleDefaultsToEnabled() {
@@ -21,9 +21,8 @@ import Testing
         #expect(decoded.destinationPath == "/p/Docs/Invoices")
     }
 
-    // A rule persisted before `enabled` existed has no such key. It must still decode (defaulting to
-    // enabled) — otherwise one legacy rule would fail the whole `[FilingRule]` decode and silently
-    // drop every rule the user taught.
+    // A rule persisted without `enabled` must still decode, as enabled, or one legacy rule would
+    // fail the whole `[FilingRule]` decode and silently drop every rule the user taught.
     @Test func decodesLegacyJSONWithoutEnabledAsEnabled() throws {
         let legacy = #"{"tokens":["tesla"],"destinationPath":"/p/Vehicles/Tesla"}"#
         let rule = try JSONDecoder().decode(FilingRule.self, from: Data(legacy.utf8))
@@ -41,7 +40,7 @@ import Testing
         #expect(rules.allSatisfy { $0.enabled })
     }
 
-    // The stable id must not shift when a rule is disabled — forget/replace match on id.
+    // The stable id must not shift when a rule is disabled: forget and replace match on id.
     @Test func idIsIndependentOfEnabled() {
         let on = FilingRule(tokens: ["tesla"], destinationPath: "/p/T", enabled: true)
         let off = FilingRule(tokens: ["tesla"], destinationPath: "/p/T", enabled: false)

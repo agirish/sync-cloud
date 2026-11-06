@@ -15,7 +15,7 @@ public struct RiskyName: Sendable, Identifiable, Equatable {
     public let sanitizedName: String
     /// Human-readable reason the current name is risky, suitable for a row subtitle.
     public let reason: String
-    /// True when the node is a directory — X8 flags risky FOLDER names too, not just files.
+    /// True when the node is a directory: risky folder names are flagged too, not just files.
     public let isDirectory: Bool
 
     public init(
@@ -35,29 +35,25 @@ public struct RiskyName: Sendable, Identifiable, Equatable {
     }
 }
 
-/// Pure, deterministic detector for cloud-hostile file & folder names, combining the shared
-/// ``ProviderNameRules`` (per-provider forbidden characters, affix whitespace, trailing dots,
-/// reserved device names) with a light *invisible-Unicode* check that catches hazards no provider
-/// rule spells out but every cloud handles inconsistently: zero-width / BOM characters, non-standard
-/// whitespace (no-break space, tab, other Unicode spaces), and names not in canonical (NFC) form —
-/// the same class of name that mints phantom "missing" rows in the diff engine.
+/// Pure, deterministic detector for cloud-hostile file and folder names. Combines the shared
+/// ``ProviderNameRules`` (forbidden characters, affix whitespace, trailing dots, reserved device
+/// names) with an invisible-Unicode check for hazards every cloud handles inconsistently:
+/// zero-width and BOM characters, non-standard whitespace, and names not in NFC, the kind that
+/// mints phantom "missing" rows in the diff engine.
 ///
-/// The invisible check lives here, not in ``ProviderNameRules``, so that heavily-tested shared file
-/// stays untouched. Everything is a pure function of its inputs — no disk, no clock — so the whole
-/// detector is exercised against in-memory ``FileNode`` trees in the unit tests.
+/// The invisible check lives here so ``ProviderNameRules`` stays as it is. No disk, no clock, so
+/// tests run it on in-memory ``FileNode`` trees.
 public enum NameNormalizer {
 
-    /// Zero-width / byte-order-mark scalars: genuinely invisible, and NOT classified as whitespace by
-    /// Unicode (they're format characters), so they need an explicit strip rather than a whitespace
-    /// pass. U+200B ZERO WIDTH SPACE, U+200C ZWNJ, U+200D ZWJ, U+FEFF ZERO WIDTH NO-BREAK SPACE/BOM.
+    /// Zero-width and byte-order-mark scalars (U+200B, U+200C, U+200D, U+FEFF). Unicode calls them
+    /// format characters, not whitespace, so they need an explicit strip.
     static let zeroWidthScalars: Set<Unicode.Scalar> = ["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}"]
 
     // MARK: Scan
 
-    /// Every provider-risky name in a walked tree (files AND directories), for `provider`. Walks the
-    /// tree dir-inclusively (see ``FileSyncManager/flattenNodesWithRelativePaths(_:prefix:)``) so a
-    /// risky folder name is reported alongside the risky files inside it. Already-clean names — and
-    /// any name whose only "fix" would be a no-op — are skipped.
+    /// Every provider-risky name in a walked tree, files and folders, for `provider`
+    /// (``FileSyncManager/flattenNodesWithRelativePaths(_:prefix:)`` includes directories). Clean
+    /// names, and names whose only fix would be a no-op, are skipped.
     public static func scan(nodes: [FileNode], provider: CloudProvider.ProviderType) -> [RiskyName] {
         var results: [RiskyName] = []
         for item in FileSyncManager.flattenNodesWithRelativePaths(nodes) {
@@ -74,11 +70,8 @@ public enum NameNormalizer {
         return results
     }
 
-    /// The ``RiskyName`` for a single already-walked node, or nil when its name is cloud-safe.
-    ///
-    /// The public one-node door, for the places that ask about the file in front of you rather
-    /// than a whole tree: the pane row's context menu offers "Fix name" only when this answers.
-    /// Same rules, same fix, no scan.
+    /// The ``RiskyName`` for a single already-walked node, or nil when its name is cloud-safe. The
+    /// public one-node door: the pane row's menu offers "Fix name" only when this answers.
     public static func risky(
         name: String, relativePath: String, absolutePath: String,
         isDirectory: Bool, provider: CloudProvider.ProviderType
@@ -87,8 +80,8 @@ public enum NameNormalizer {
                  isDirectory: isDirectory, provider: provider)
     }
 
-    /// The ``RiskyName`` for one node, or nil when the name is already cloud-safe. Pure — takes the
-    /// name and its coordinates rather than a live node, so it's trivially unit-testable.
+    /// The ``RiskyName`` for one node, or nil when the name is already cloud-safe. Takes the name
+    /// and its coordinates rather than a live node.
     static func evaluate(
         name: String,
         relativePath: String,
@@ -97,21 +90,14 @@ public enum NameNormalizer {
         provider: CloudProvider.ProviderType
     ) -> RiskyName? {
         let sanitized = sanitize(name, for: provider)
-        // The single gate, and deliberately Swift's canonical `!=` (NOT a scalar comparison): if the
-        // safe name is *canonically equal* to the current name there is nothing worth fixing.
-        //
-        // This is exactly what makes the detector safe on macOS. Swift's `String` equality — and the
-        // local filesystem — treat NFC and NFD as the same name. APFS stores a name in the form it is
-        // sent and finds it by either, and a rename through Foundation sends it decomposed, so a
-        // purely-normalization "fix" (café decomposed → café composed) could not land as written AND
-        // would fire on virtually every accented filename on disk. Keying on
-        // canonical equality means such names pass through untouched, while genuinely distinct
-        // hazards — a zero-width joiner, a no-break space, a forbidden character, a trailing space —
-        // are canonically DIFFERENT from their fix and so are still flagged.
+        // The single gate, deliberately Swift's canonical `!=`, not a scalar compare. NFC and NFD
+        // are the same name to Swift and to APFS, and a Foundation rename sends it decomposed, so a
+        // normalization-only "fix" couldn't land as written and would flag nearly every accented
+        // name. Real hazards (zero-width joiner, no-break space, forbidden character, trailing
+        // space) differ canonically from their fix and are still flagged.
         guard sanitized != name else { return nil }
 
-        // Prefer the provider rule's specific phrasing ("… doesn't allow \":\" in names"); fall back
-        // to the invisible-hazard phrasing when the only problem is hidden characters / Unicode form.
+        // Prefer the provider rule's phrasing; fall back to the invisible-hazard one.
         let reason = ProviderNameRules.violation(name: name, provider: provider)?.reason
             ?? invisibleReason(name)
 
@@ -127,40 +113,23 @@ public enum NameNormalizer {
 
     // MARK: Sanitize
 
-    /// A cloud-safe replacement for `name` under `provider`.
-    ///
-    /// Two layers, applied in the order that keeps them from fighting:
-    /// 1. **Invisible cleanup** (always, for every provider): drop zero-width/BOM scalars, fold any
-    ///    non-standard whitespace (no-break space, tab, Unicode spaces) to a plain ASCII space, then
-    ///    precompose to NFC. This is a cross-cloud hazard, independent of the target provider.
-    /// 2. **Provider cleanup** (only when the provider actually rejects the name): run
-    ///    ``ProviderNameRules/sanitized(name:for:)`` to replace forbidden characters, strip affix
-    ///    whitespace / trailing dots, and de-reserve device names. It's applied *conditionally*
-    ///    because that helper trims trailing dots/spaces unconditionally — running it on an iCloud
-    ///    or Google Drive name (which have no such rule) would "fix" names those providers happily
-    ///    accept and flag them as risky when they aren't.
+    /// A cloud-safe replacement for `name` under `provider`, in two layers:
+    /// 1. Invisible cleanup, for every provider: drop zero-width and BOM scalars, fold non-standard
+    ///    whitespace to an ASCII space, precompose to NFC.
+    /// 2. Provider cleanup, only when the provider rejects the name:
+    ///    ``ProviderNameRules/sanitized(name:for:)``. Conditional because that helper always trims
+    ///    trailing dots and spaces, which would flag names iCloud and Google Drive accept.
     static func sanitize(_ name: String, for provider: CloudProvider.ProviderType) -> String {
         var result = cleanInvisible(name)
-        // The fold turns every exotic space into a plain ASCII one, INCLUDING at the ends — so on a
-        // provider with no affix rule of its own (iCloud, Google Drive) the proposed "fix" for
-        // "report\u{00A0}" was "report ", which is still invisibly different from "report" and is
-        // exactly what Dropbox and OneDrive refuse. A name made only of exotic spaces became " ",
-        // dodging the `untitled` fallback below because it is not empty.
-        //
-        // Gated on `cleanInvisible` having changed ANYTHING — a folded space, a dropped zero-width,
-        // a normalization — not on the affix specifically. So a name carrying any invisible hazard
-        // also gets its plain affix whitespace trimmed: "a\u{200B}b " sanitizes to "ab", not "ab ".
-        // That is deliberate (the promise is a name EVERY provider can store, and a trailing space
-        // is not), but it is wider than "the fold touched the ends".
-        //
-        // What the gate protects is the other direction: a name with NO invisible hazard is left
-        // exactly as it is, so a plain trailing space on a provider that permits one is not newly
-        // reported as risky — `evaluate`'s `sanitized != name` check never fires for it.
+        // The fold makes exotic spaces at the ends plain ones, so "report\u{00A0}" would become
+        // "report ", which Dropbox and OneDrive refuse, and an all-space name would dodge the
+        // `untitled` fallback. Trimmed whenever `cleanInvisible` changed anything, so
+        // "a\u{200B}b " becomes "ab": the promise is a name every provider can store. A name with
+        // no invisible hazard is left as is, so a trailing space a provider permits isn't flagged.
         if result != name {
             result = result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        // Only let the provider ruleset rewrite the name when it (or its invisible-cleaned form)
-        // genuinely violates that provider's rules — otherwise leave dots/spaces the provider allows.
+        // Only let the provider rules rewrite a name (or its cleaned form) that violates them.
         if ProviderNameRules.violation(name: name, provider: provider) != nil
             || ProviderNameRules.violation(name: result, provider: provider) != nil {
             result = ProviderNameRules.sanitized(name: result, for: provider)
@@ -168,10 +137,9 @@ public enum NameNormalizer {
         return result.isEmpty ? "untitled" : result
     }
 
-    /// `name` with invisible hazards removed: zero-width/BOM scalars dropped, non-standard whitespace
-    /// folded to a plain ASCII space, and the whole thing precomposed to NFC. A name with no hazard
-    /// comes back byte-identical (already NFC, no hidden characters), which is what lets the caller
-    /// detect "was there anything invisible?" by comparing against the input.
+    /// `name` with invisible hazards removed: zero-width and BOM scalars dropped, non-standard
+    /// whitespace folded to an ASCII space, precomposed to NFC. A clean name comes back unchanged,
+    /// so comparing with the input tells whether anything was invisible.
     static func cleanInvisible(_ name: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in name.unicodeScalars {
@@ -188,11 +156,10 @@ public enum NameNormalizer {
         return String(scalars).precomposedStringWithCanonicalMapping
     }
 
-    /// True when `name` carries a *fixable* invisible hazard the provider rules don't name — a hidden
-    /// zero-width character or a non-standard space. Uses canonical `!=` for the same reason
-    /// ``evaluate(name:relativePath:absolutePath:isDirectory:provider:)`` does: a pure NFC/NFD
-    /// difference is not a fixable hazard on macOS (the same name to APFS), so it returns false
-    /// for a merely-decomposed name — only genuinely distinct invisibles count.
+    /// True when `name` carries a fixable invisible hazard the provider rules don't name: a hidden
+    /// zero-width character or a non-standard space. Canonical `!=`, as in
+    /// ``evaluate(name:relativePath:absolutePath:isDirectory:provider:)``, so a merely decomposed
+    /// name answers false.
     public static func hasInvisibleHazard(_ name: String) -> Bool {
         cleanInvisible(name) != name
     }

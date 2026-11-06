@@ -30,63 +30,42 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     /// For a folder missing on one side: how many items it contains, all of which sync with the
     /// folder itself (folder copies are recursive, so they are not listed as separate differences).
     public let enclosedItemCount: Int?
-    /// Whether the item on the LEFT is a folder, as the scan found it — `false` where the left has
-    /// no item at all (a row missing on the left).
-    ///
-    /// **The folder fact, per side, and not `enclosedItemCount`.** That count is recorded only for
-    /// a folder whose contents were collapsed into its row, so it is `nil` for an EMPTY folder
-    /// missing on one side, for a pair of folders whose names differ only invisibly
-    /// (`.nameConflict`), and for a folder-versus-file mismatch whose folder is empty; and where it
-    /// is set it cannot say WHICH side is the folder — a folder-versus-file row has a real file on
-    /// the other side. The engine knows both answers when it builds the row, so it records them.
+    /// Whether the item on the left is a folder, as the scan found it; `false` where the left has
+    /// no item. Ask this, not `enclosedItemCount`: that count is nil for an empty folder and for a
+    /// `.nameConflict` folder pair, and can't say which side of a folder-versus-file row is which.
     public let leftIsDirectory: Bool
-    /// Whether the item on the RIGHT is a folder — see `leftIsDirectory`.
+    /// Whether the item on the right is a folder; see `leftIsDirectory`.
     public let rightIsDirectory: Bool
     /// Why no run may take this row's suggested `action` on the user's behalf, or nil when one may.
     ///
-    /// **Every row carries a direction, and for some of them the direction is a guess.** The
-    /// engine has to fill `action` in, and for most rows it has a reason — one side is missing, or
-    /// one date is clearly later. For the rows below it has none it can stand behind, and a bulk
-    /// run ("Copy N to →", `synccloud sync`) used to take the guess along with everything else:
-    /// the user approved a count, and a guess inside it overwrote whichever side lost.
-    ///
-    /// A held row stays on the list with its note in `description`, is left out of every bulk run
-    /// (`FileSyncManager.syncAll`, the CLI's `sync`), and is reported there as left out. A single
-    /// row the user picks and copies on its own is their choice and goes ahead — except
-    /// `.sourceIsSymbolicLink`, which no copy does right (`syncFile` refuses it). In the app that
-    /// choice is the row's right-click menu, which copies any row either way its sides allow
-    /// (`redirected(to:)`); the CLI has none, and leaves held rows to the app.
-    ///
-    /// Not a `DifferenceType`: a held row is still a missing, differing or name-conflict row, and
-    /// every filter, badge and sort keyed on that type should keep reading it as one.
+    /// Every row carries an `action`, but for these rows it is a guess, and a bulk run that took it
+    /// would overwrite whichever side lost. A held row stays listed with its note in `description`,
+    /// is left out of every bulk run (`FileSyncManager.syncAll`, the CLI's `sync`) and reported as
+    /// left out. A row the user copies on its own goes ahead (the right-click menu, via
+    /// `redirected(to:)`), except `.sourceIsSymbolicLink`, which `syncFile` refuses. The CLI leaves
+    /// held rows to the app. Not a `DifferenceType`, so filters, badges and sorts still read the row
+    /// by its type.
     public let heldBack: HeldBack?
 
-    /// The reasons a row's suggested direction cannot be taken unattended — see `heldBack`.
+    /// The reasons a row's suggested direction cannot be taken unattended; see `heldBack`.
     public enum HeldBack: Equatable, Sendable {
-        /// (FR39) Two files whose sizes differ while their dates match within the tolerance, or
-        /// where a side has no date at all: nothing says which is newer, and the old default
-        /// ("left as truth") overwrote the right on every bulk run — at the 5 s and 60 s
-        /// tolerances, for any pair edited within that window of each other. A `.nameConflict`
-        /// pair of two files is held for the same reason (its tie default was left → right too).
+        /// Two files whose sizes differ while their dates match within the tolerance, or where a
+        /// side has no date: nothing says which is newer. A `.nameConflict` pair of two files is
+        /// held for the same reason.
         case sizesDifferWithoutANewerSide
-        /// (FR40) A folder against a file. A folder's own date is not when its contents last
-        /// changed — a package edited yesterday inside can carry a 2024 folder date — so the two
-        /// dates do not say which side is newer.
+        /// A folder against a file. A folder's own date is not when its contents last changed (a
+        /// package edited inside keeps an old date), so the dates don't say which side is newer.
         case folderVersusFile
-        /// (FR8) The side the row copies FROM is a symbolic link. The comparison reads a link as
-        /// what it points to, but the copy writes the link itself (`ObservedCopy` stages with
-        /// `COPYFILE_NOFOLLOW_SRC`): a "Folder missing" row of 300 items "copied" in an instant
-        /// into one small link at the original, the next scan read both sides through it as in
-        /// sync, and edits in "the copy" changed the originals.
+        /// The side the row copies from is a symbolic link. The comparison reads a link as its
+        /// target, but the copy writes the link itself (`ObservedCopy` uses
+        /// `COPYFILE_NOFOLLOW_SRC`): a "Folder missing" row would become one link to the original,
+        /// the next scan would call it in sync, and edits in "the copy" would change the original.
         case sourceIsSymbolicLink
-        /// (FR8) A folder missing on one side holds a symbolic link somewhere inside that points
-        /// OUT of it — `path`, the first such link by relative path. The folder is one row (its
-        /// contents collapse into it) and its copy is recursive, so the link inside is written as a
-        /// link, for the reason `sourceIsSymbolicLink` gives. A link whose relative target stays
-        /// inside the folder (a framework's `Versions/Current -> A`) is right copied as a link and
-        /// holds nothing; an absolute or dangling one is out (`FileDiffEngine.linkLeads`). Unlike
-        /// `sourceIsSymbolicLink`, a single deliberate copy goes ahead: everything else in the
-        /// folder copies right.
+        /// A folder missing on one side holds a symbolic link that points out of it; `path` is the
+        /// first such link by relative path. The recursive copy writes it as a link, with the
+        /// problem `sourceIsSymbolicLink` describes. A relative link that stays inside (a
+        /// framework's `Versions/Current -> A`) is fine; an absolute or dangling one counts as out
+        /// (`FileDiffEngine.linkLeads`). A single deliberate copy goes ahead: the rest copies right.
         case enclosesSymbolicLink(path: String)
     }
 
@@ -123,13 +102,11 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         case missingOnLeft
         /// Item exists on both sides but has different modification dates or sizes.
         case differentDates
-        /// Item exists on both sides under names that differ only invisibly (trailing or
-        /// leading whitespace, trailing dots, or Unicode NFC/NFD form) — typically because
-        /// one provider's server normalizes names the other stores verbatim. Copying such a
-        /// pair as "missing" would mint an identical-looking duplicate the stricter provider
-        /// can never upload, so the pair is surfaced as a single conflict instead; its item
-        /// paths point at both REAL items, so a sync targets the existing counterpart (a
-        /// normal collision) rather than a doppelganger.
+        /// Item exists on both sides under names that differ only invisibly (leading or trailing
+        /// whitespace, trailing dots, NFC/NFD form), usually because one provider normalizes
+        /// names. Copied as "missing" it would mint a look-alike duplicate the stricter provider
+        /// can't upload, so it is one conflict whose paths point at both real items, and a sync
+        /// meets the existing counterpart as a normal collision.
         case nameConflict
 
         /// The same discrepancy as seen after the panes trade sides.
@@ -159,10 +136,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// This difference as seen after the panes trade sides: paths, sizes, type, action, and
-    /// the description's side-relative wording all flip. The `id` is preserved — the item on
-    /// disk is the same, so row identity (table selection) and checksum-verification results
-    /// (content equality is symmetric) both survive a pane swap.
+    /// This difference as seen after the panes trade sides: paths, sizes, type, action and the
+    /// description's side wording flip. The `id` stays, so table selection and checksum results
+    /// survive a pane swap.
     public func mirrored() -> FileDifference {
         FileDifference(
             id: id,
@@ -171,11 +147,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             rightItemPath: leftItemPath,
             type: type.mirrored,
             action: action.mirrored,
-            // A .nameConflict description is side-neutral by construction — it quotes both
-            // leaf names PRECISELY (showing exact spellings is its purpose) and provider
-            // names travel with their files through a swap. The side-phrase rewrite must not
-            // touch it: a quoted file name containing "on right" would be rewritten into a
-            // name that doesn't exist, on the one row type built to show exact names.
+            // A .nameConflict description is side-neutral and quotes both names exactly, so the
+            // side-phrase rewrite must not touch it: a name containing "on right" would change.
             description: type == .nameConflict ? description : Self.mirroredDescription(description),
             isSyncing: isSyncing,
             leftFileSize: rightFileSize,
@@ -191,10 +164,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         )
     }
 
-    /// This row with the user's choice of direction in place of the engine's — what the row's own
-    /// Copy to … item hands `syncFile`, where the user has decided which side to keep — against a
-    /// held row's guess, or against any row's suggestion. Paths, type, note and hold are unchanged, and so is
-    /// the `id`, so the row it resolves is this one. Not `mirrored()`, which trades the panes.
+    /// This row with the user's chosen direction in place of the engine's, as the row's Copy to …
+    /// item hands it to `syncFile`. Paths, type, note, hold and `id` are unchanged, so it resolves
+    /// this row. Not `mirrored()`, which trades the panes.
     public func redirected(to direction: SyncAction) -> FileDifference {
         FileDifference(
             id: id, relativePath: relativePath, leftItemPath: leftItemPath, rightItemPath: rightItemPath,
@@ -204,9 +176,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             leftIsDirectory: leftIsDirectory, rightIsDirectory: rightIsDirectory, heldBack: heldBack)
     }
 
-    /// Absolute path of the item on the side this difference's `action` copies FROM
-    /// (left for `.copyToRight`, right for `.copyToLeft`). Single source of truth for the
-    /// side selection duplicated across sync error reporting and URL derivation.
+    /// Absolute path of the item on the side `action` copies from (left for `.copyToRight`, right
+    /// for `.copyToLeft`).
     var sourceItemPath: String {
         action == .copyToRight ? leftItemPath : rightItemPath
     }
@@ -218,11 +189,9 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             : (URL(fileURLWithPath: rightItemPath), URL(fileURLWithPath: leftItemPath))
     }
 
-    /// The two compared folders this difference's transfer runs between, in `action` direction:
-    /// each item path minus the shared root-relative suffix. This names the panes' focused
-    /// folders (what the user is looking at), where the item's immediate parent could be an
-    /// arbitrarily deep subfolder of them. Falls back to the immediate parents if an item path
-    /// doesn't end in `relativePath` (never true for engine-built differences).
+    /// The two compared folders this transfer runs between, in `action` direction: each item path
+    /// minus `relativePath`. These are the panes' folders, not the item's possibly deep parent.
+    /// Falls back to the immediate parents if a path doesn't end in `relativePath`.
     var transferContainers: (from: String, to: String) {
         let urls = transferURLs
         func container(of path: String) -> String {
@@ -230,24 +199,18 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
                 return (path as NSString).deletingLastPathComponent
             }
             let stripped = String(path.dropLast(relativePath.count + 1))
-            // A pane rooted at the filesystem root strips to "": "/a.txt" minus "/a.txt".
-            // Blank From/To lines (and `to ""` in the prompt title) would be worse than "/".
+            // A pane rooted at "/" strips to "", which would leave From/To lines blank.
             return stripped.isEmpty ? "/" : stripped
         }
         return (container(of: urls.from.path), container(of: urls.to.path))
     }
 
-    /// Flips the side-relative wording in a description ("Missing on right (iCloud)" →
-    /// "Missing on left (iCloud)"). Provider display names travel with their files in a swap,
-    /// so they stay correct untouched; only "on left"/"on right" phrases are side-relative,
-    /// and no description generated by `FileDiffEngine` ever mentions both sides, so a single
-    /// one-way replacement is exact.
+    /// Flips the side wording in a description ("Missing on right (iCloud)" → "Missing on left
+    /// (iCloud)"). Provider names travel with their files, and no `FileDiffEngine` description
+    /// names both sides, so one one-way replacement is exact.
     ///
-    /// **Only outside “…”.** A quoted span is a path, spelled exactly — FR8's note on a folder
-    /// missing on one side quotes the link inside it — and a link named `notes on right` was
-    /// rewritten into a name that does not exist; worse, its "on right" chose the direction, so a
-    /// row "Folder missing on left" with that link inside kept its now-wrong side. The rule the
-    /// name-conflict row gets wholesale (its whole note is names), applied to the quoted spans.
+    /// Only outside “…”: a quoted span is an exact path, and a link named `notes on right` must
+    /// neither be renamed nor pick the direction.
     static func mirroredDescription(_ description: String) -> String {
         // Alternating runs: even indices outside quotes, odd ones inside (each with its quotes).
         var runs: [String] = []

@@ -6,123 +6,55 @@ extension FileSyncManager {
     // MARK: - Undo/Redo Native Registration Stack
     
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
-    /// `CopyItemState` enriched with the copied item's identity as read when the undo was
-    /// registered. The undo handler refuses to trash a destination whose identity no longer
-    /// matches — the item was replaced or edited since the copy — and equally refuses when the
-    /// identity cannot be read at all.
-    ///
-    /// This was a `destinationSize: Int?` guarded with `if let expected`, which is two defects in
-    /// one line. `fileSizeSnapshot` answers nil for a DIRECTORY, deliberately, so `if let` skipped
-    /// the guard entirely and undo of a copied folder had no drift check at all — copy a folder,
-    /// let 200 files land in it, press ⌘Z, and on a Trash-less volume they were destroyed under a
-    /// "removed 1 of 1" log line. And for files the comparison was size-only, so any same-length
-    /// rewrite (2025→2026) compared equal and was trashed as though untouched.
-    ///
-    /// For a directory the identity recorded here is the DEEP one (`ItemIdentity.deepSnapshot`,
-    /// `.directoryTree`): this undo trashes, so it must also notice an edit made deep inside the
-    /// copy — which leaves the root's own date and child count identical and so slipped past the
-    /// shallow `.directory` identity that used to be recorded here. See `registerCopyUndo(items:)`
-    /// for the cost, and the move typealiases below for why THEY stay shallow.
-    ///
-    /// `overwrittenIdentity` is what sat at `overwritten` — the Trash backup of the item the copy
-    /// replaced — when the undo was registered, so the undo restores that item and not a stranger
-    /// that has taken its name in the Trash since (FR27, `trashBackupVerdict`). `.absent` when the
-    /// copy replaced nothing.
-    ///
-    /// `copiedLock` is true when the copy carries a Finder lock it took from its source (FR31's
-    /// copy keeps the original's `uchg`/`uappnd`) — read at registration, the moment the copy
-    /// landed. The undo may lift THAT lock to put its own copy in the Trash, and no other.
+    /// `CopyItemState` plus what the undo checks before it destroys anything. The undo trashes the
+    /// copy only while `destinationIdentity` still matches, and refuses when it can't be read. For
+    /// a folder that identity is deep (`.directoryTree`), so an edit anywhere inside counts.
+    /// `overwrittenIdentity` pins the Trash backup of the item the copy replaced, so the undo
+    /// restores that item and not a stranger that took its name (`.absent` if nothing was
+    /// replaced). `copiedLock` marks a Finder lock the copy took from its source: the only lock the
+    /// undo may lift.
     typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity,
                                    overwrittenIdentity: ItemIdentity, copiedLock: Bool)
-    /// A copied item whose identity walk the CALL SITE already started — the moment the item's
-    /// OWN copy landed, inside its batch loop — rather than when the whole batch finished.
-    /// `identity` is that walk's task (`startCopyIdentityWalk`); it resolves to exactly what
-    /// `CopyUndoItemState.destinationIdentity` records. This is what keeps the copy-to-recording
-    /// window per ITEM: a batch blocks mid-run on user prompts (collision and name checks await
-    /// the main actor per item) and on slow-volume I/O, so a post-batch walk would record an edit
-    /// the user made during that tail as the copy's baseline — and a later ⌘Z would trash it as
-    /// `.unchanged`. See `registerCopyUndo(pendingItems:)`.
+    /// A copied item whose identity walk started the moment its own copy landed
+    /// (`startCopyIdentityWalk`); it resolves to `CopyUndoItemState.destinationIdentity`. Per item,
+    /// not per batch: a batch can stall on prompts or slow I/O, and a walk after it would record the
+    /// user's edits as the baseline, so ⌘Z would trash them as `.unchanged`.
     typealias PendingCopyItemState = (source: URL, destination: URL, overwritten: URL?, identity: Task<CopyIdentityReading, Never>)
-    /// What one registration-time identity read yields: the identity itself, plus — when it came
-    /// back `.indeterminate` — the descendant that made it so. The second half exists only to be
-    /// REPORTED: it is what makes an eventual permanent ⌘Z refusal diagnosable. It rides along
-    /// rather than being logged where it is read so that a batch can say it once instead of once
-    /// per item; see `logIndeterminateRegistrations`.
+    /// One registration-time identity read: the identity, plus the descendant that made it
+    /// `.indeterminate`, if one did. That descendant is only reported, so a later ⌘Z refusal can be
+    /// diagnosed; it rides along so a batch logs once (`logIndeterminateRegistrations`).
     typealias CopyIdentityReading = (identity: ItemIdentity, unreadableDescendant: URL?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
-    /// `MoveItemState` enriched with the identity the moved item had once the move completed, so
-    /// the undo can verify that what sits at `to` now is still what it put there.
-    ///
-    /// The move-undo's only guard was that `from` is free. Nothing checked `to`. Drop a newer v2
-    /// at the destination in Finder and press ⌘Z: v2 was moved away to the source path and the
-    /// older version restored over it, reported as a full success. The doc comment claiming the
-    /// move-undo carries a "still the same item?" guard described the occupancy check, which
-    /// answers a different question.
-    ///
-    /// Enriched inside `registerMoveUndo` rather than added to `MoveItemState`, so the nine call
-    /// sites that build a move state keep passing what they already build.
-    ///
-    /// **Nine, and `d650da77`'s commit message says eight.** Eight is the maintenance lines' count:
-    /// `applyRenamePlans` lives in `FileSyncManager+FilingRename.swift`, which exists on `main`
-    /// alone, and the figure travelled here with the cherry-pick. The code was written against
-    /// `main` and is right; only the message is wrong, and a message cannot be corrected without
-    /// rewriting history, so it is corrected here. Counted rather than remembered, and the nine are
-    /// named so a future recount can be checked against them rather than re-derived: `+BulkSync`,
-    /// `+FilingRename`, `FileSyncManager.swift`, `+NameNormalize`, `FileOperations.swift` ×2,
-    /// `+Filing` ×2, `+Automations`. A grep for the count has to exclude this file's own
-    /// declarations and doc mentions, which is exactly the mistake `d650da77` records correcting
-    /// when it found `liveLocation` saying "ten".
-    ///
-    /// `overwrittenIdentity`: the Trash backup's identity at registration, as for the copy (FR27).
-    ///
-    /// `emptiedByMerge`: the item is a source folder a move's merge emptied and put in the Trash
-    /// (FR35), so its redo may trash it again only under the merge's own rule — see
-    /// `MoveRedoParam`.
-    ///
-    /// `redirectedIntoTrash`: the item is one a later move of its batch replaced into the Trash
-    /// (FR23), so wherever it is recorded in the Trash it is held to the Trash rule (U3, M3).
+    /// `MoveItemState` plus the moved item's identity once the move completed, so the undo moves
+    /// back only what it put at `to`, never a newer file dropped there since. Added inside
+    /// `registerMoveUndo` so the call sites that build a `MoveItemState` stay unchanged.
+    /// `overwrittenIdentity` pins the Trash backup, as for the copy. `emptiedByMerge` marks a source
+    /// folder a merge emptied and trashed, whose redo follows the merge's rule (`MoveRedoParam`).
+    /// `redirectedIntoTrash` marks an item a later move in its batch replaced into the Trash, so it
+    /// is held to the Trash rule wherever it is recorded there.
     typealias MoveUndoItemState = (from: URL, to: URL, overwritten: URL?, movedIdentity: ItemIdentity,
                                    overwrittenIdentity: ItemIdentity, emptiedByMerge: Bool,
                                    redirectedIntoTrash: Bool)
-    /// What a move-REDO needs to re-apply one item: where its undo put the item back, where the
-    /// original move had sent it, and the identity read at `from` the instant the undo landed it
-    /// there.
-    ///
-    /// The identity is the whole reason this is not a bare `(from:to:)` pair. A redo moves, so it
-    /// destroys, and it was gating on nothing but `fileExists(from)` — an existence test standing
-    /// in for an identity question, exactly as `liveLocation` was. Its undo re-snapshots the item
-    /// at `to` for the NEXT undo already, so recording the source costs one more stat on a path
-    /// that was taking one anyway.
-    ///
-    /// `destinationIdentity` is what the undo left at `to` once it had settled — the original it
-    /// restored there, or `.absent` — so the redo can tell that item, which the original move
-    /// replaced with the user's say-so, from one that has arrived since (FR25).
-    ///
-    /// `emptiedByMerge` marks a source folder a merge emptied and trashed (FR35). The merge trashed
-    /// it only once nothing but a `.DS_Store` was left in it, and its redo holds to the same rule
-    /// at its own move: a child whose redo was refused is still inside, and moving the folder to
-    /// the Trash would carry that child with it under a banner saying it was left in place.
-    ///
-    /// `redirectedIntoTrash` marks an item FR23 recorded in the Trash: its redo puts it back there,
-    /// and the next undo must read it there the way the first one did — deep, by file number (M3).
+    /// What a move-redo needs to re-apply one item: where its undo put the item back, where the
+    /// original move sent it, and `sourceIdentity`, read at `from` as the undo landed it. A redo
+    /// moves and so can destroy; a path is not an identity, so it moves only that item.
+    /// `destinationIdentity` is what the undo left at `to` (the original it restored, or `.absent`),
+    /// so the redo can tell it from something that arrived since. `emptiedByMerge`: trash the
+    /// folder again only if nothing but a `.DS_Store` is left, or a refused child would go with it.
+    /// `redirectedIntoTrash`: the redo puts it back in the Trash, and the next undo reads it there by
+    /// file number, deep, as the first did.
     typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity, destinationIdentity: ItemIdentity,
                                emptiedByMerge: Bool, redirectedIntoTrash: Bool)
-    /// What a copy-REDO needs to re-apply one item: the copy's source and destination, and what the
-    /// undo left at the destination — the original it restored, or `.absent` (FR25).
+    /// What a copy-redo needs to re-apply one item: the copy's source and destination, and what the
+    /// undo left at the destination (the original it restored, or `.absent`).
     typealias CopyRedoParam = (source: URL, destination: URL, destinationIdentity: ItemIdentity)
-    /// A restore the delete-undo actually performed, plus the identity the restored item had the
-    /// instant it landed — so the paired redo can refuse to trash something that is no longer it.
-    ///
-    /// The identity is the whole reason this is not a bare `URL`, exactly as `MoveRedoParam` is not
-    /// a bare `(from:to:)` pair: a redo trashes, and a path is not an identity.
+    /// A restore the delete-undo performed, plus the restored item's identity as it landed, so the
+    /// paired redo refuses to trash anything else at that path.
     typealias TrashRedoItemState = (url: URL, restoredIdentity: ItemIdentity)
-    /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
-    /// holds its backup. Only items that actually reached the Trash are represented — a delete
-    /// that fell through to a permanent remove has nothing to restore.
-    ///
-    /// `backupIdentity` is what sat at `trashedBackup` when the undo was registered, so the
-    /// restore can tell the item this delete put in the Trash from one that has taken its name
-    /// there since (FR27, `trashBackupVerdict`).
+    /// One deleted item awaiting a possible undo-restore: where it lived and where the Trash holds
+    /// it. Only items that reached the Trash are represented; a permanent remove has nothing to
+    /// restore. `backupIdentity` lets the restore tell this item from one that took its name in the
+    /// Trash since (`trashBackupVerdict`).
     typealias RestoreItemState = (original: URL, trashedBackup: URL, backupIdentity: ItemIdentity)
 
     /// Error raised when an undo/restore would land on a location that a different item has taken
@@ -132,11 +64,9 @@ extension FileSyncManager {
                 userInfo: [NSLocalizedDescriptionKey: "the original location is already occupied by another item"])
     }
 
-    /// Surfaces a failed undo/redo restore instead of swallowing it. When an undo trashes or removes
-    /// the current file and the restore of the original then fails — typically because the Trash
-    /// backup was emptied or auto-purged between the operation and the undo — the destination is left
-    /// EMPTY. The old best-effort `try?` gave the user no log line and no signal; this logs the
-    /// affected paths at `.error` and raises a warning banner on the main actor so the loss is visible.
+    /// Reports a failed undo/redo restore. When the undo has already removed the current file and
+    /// the original can't be restored (often because the Trash backup was emptied), the destination
+    /// is left empty, so this logs the paths at `.error` and raises a warning banner.
     nonisolated static func reportUndoRestoreFailure(
         of destination: URL,
         from backup: URL,
@@ -154,11 +84,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces an undo or redo move that DID put the item back whole — at `restored` — but, moving
-    /// it across volumes, could not fully remove what was left at `leftover` (B3, P2's
-    /// `originalPartlyRemoved`). Not a failed restore: the complete item is where the undo or redo
-    /// sent it, and the old "FAILED to restore … may have been removed from the Trash" said
-    /// otherwise. It is left out of the next step, whose move would meet the remains.
+    /// Reports an undo or redo move that put the item back whole at `restored` but, moving across
+    /// volumes, couldn't fully remove what was left at `leftover` (`originalPartlyRemoved`). Not a
+    /// failed restore. The item is left out of the next step, whose move would meet the remains.
     nonisolated static func reportMovedWithLeftoverRemains(
         restored: URL,
         leftover: URL,
@@ -175,12 +103,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a failed redo re-apply instead of swallowing it. When a redo's copy/move/mkdir
-    /// fails — typically because the source vanished between the undo and the redo — the old
-    /// best-effort `try?` gave no log line and no banner, yet still registered the item in the
-    /// next undo state, so a subsequent undo operated on a phantom item (up to a confusing
-    /// permanent-delete prompt for a file not on disk). This logs the failure at `.error` and
-    /// raises a warning banner; callers must also leave the failed item out of the next undo state.
+    /// Reports a failed redo (a copy, move or mkdir, usually because the source vanished) with an
+    /// `.error` log line and a warning banner. Callers must leave the item out of the next undo
+    /// state, or that undo acts on an item that isn't on disk.
     nonisolated static func reportRedoFailure(
         of destination: URL,
         actionName: String,
@@ -197,11 +122,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a copy-undo permanent delete that failed after the user confirmed it. The copied
-    /// item survives on disk, so its `overwritten` backup must stay where it is (restoring it
-    /// would collide with the survivor), and the caller leaves the item OUT of the redo params —
-    /// they are resolved after the removal loop from only the copies actually undone, so a later
-    /// redo skips the survivor instead of re-copying over it.
+    /// Reports a copy-undo permanent delete that failed after the user confirmed it. The copy is
+    /// still on disk, so its `overwritten` backup stays put (restoring it would collide), and the
+    /// caller leaves the item out of the redo params so a redo doesn't copy over it.
     nonisolated static func reportUndoRemoveFailure(
         of destination: URL,
         actionName: String,
@@ -216,34 +139,20 @@ extension FileSyncManager {
         }
     }
 
-    /// What a refused undo was about to do to the item, for `reportUndoRefusedChangedItem`. The
-    /// two callers do genuinely different things to genuinely different items, and one sentence
-    /// cannot be true of both.
+    /// What a refused undo was about to do, for `reportUndoRefusedChangedItem`: the two callers do
+    /// different things, and one sentence can't describe both.
     enum RefusedUndoIntent: Sendable {
-        /// The copy-undo: it would have REMOVED the item, and that item is the one the copy — the
-        /// operation this undo reverses — put there.
+        /// The copy-undo: it would have removed the item the copy put there.
         case removeTheCopyItProduced
-        /// The move-undo: it would have MOVED the item back to where it came from. Nothing is
-        /// removed, and the undo did not produce the item; the original move did.
+        /// The move-undo: it would have moved the item back where it came from. Nothing is removed.
         case moveItBackToItsSource
     }
 
-    /// Surfaces an undo that was REFUSED because the item it was about to remove or move is no
-    /// longer the item the undo was registered for. Trashing or displacing it would destroy work
-    /// the undo was never asked to reverse; the item is left in place, its `overwritten` backup
-    /// stays in the Trash, and the caller keeps the item out of the redo params (a refused item
-    /// must never be redone).
-    ///
-    /// `verdict` distinguishes the two refusals, which are not the same event to a person reading
-    /// the log: `.changed` means the item demonstrably differs, `.indeterminate` means it could
-    /// not be read and so nothing can be concluded. Both refuse — an unverifiable item is exactly
-    /// the one not to destroy — but only the first is evidence that something was edited.
-    ///
-    /// `intent` exists because this doc comment said "remove **or move**" while the sentence it
-    /// produced could only say *remove*: a refused MOVE-undo logged `REFUSED to remove "doc.txt" …
-    /// it is no longer the item this undo produced`, and both halves were false — nothing was
-    /// going to be removed (a move-undo moves it back), and the undo did not produce the item, the
-    /// original operation did. Shipped because all four refusal tests asserted only the banner.
+    /// Reports an undo refused because the item it would remove or move is no longer the one it
+    /// was registered for: touching it would destroy work the undo wasn't asked to reverse. The
+    /// item stays, its `overwritten` backup stays in the Trash, and the caller keeps it out of the
+    /// redo params. `verdict` says which refusal: `.changed` (it differs) or `.indeterminate` (it
+    /// couldn't be read). `intent` picks the sentence for what was refused.
     nonisolated static func reportUndoRefusedChangedItem(
         of destination: URL,
         actionName: String,
@@ -283,20 +192,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a move-undo refused because the identity recorded for the item is itself `.absent`
-    /// — there was nothing at the destination when the undo was REGISTERED, so there is nothing
-    /// this undo can be moving back.
-    ///
-    /// Separate from `reportUndoRefusedChangedItem` because neither of that reporter's two
-    /// sentences is true here: nothing changed (both sides are absent, which is why `compare`
-    /// answers `.unchanged`), and nothing failed to be read. Separate from the `vanished`
-    /// breadcrumb too — "no longer on disk" claims the item was on disk and the user removed it,
-    /// and a recorded `.absent` says the opposite.
-    ///
-    /// What it prevents is not a wrong sentence but a wrong ACT: `.unchanged` selected the move
-    /// branch, whose first statement recreates the source's parent directory, so a doomed undo
-    /// built a folder before failing — the very manufacture the branch's own comment says a
-    /// refusal must never perform.
+    /// Reports a move-undo refused because the identity recorded for the item is `.absent`:
+    /// nothing was at the destination when the undo was registered, so there is nothing to move
+    /// back. Its own case because `compare` answers `.unchanged` for two absents. Treated as a move,
+    /// that would recreate the source's parent folder before failing.
     nonisolated static func reportUndoRefusedUnrecordedItem(
         of destination: URL,
         actionName: String,
@@ -310,25 +209,11 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a REDO that was refused because the item it was about to move back to the
-    /// destination is no longer the item its undo put at the source. The undo path has refused this
-    /// for both of its own guards since `ItemIdentity` landed; the redo path had nothing, and
-    /// gated only on the source PATH existing.
-    ///
-    /// Measured before this existed: move `/src/report.txt` → `/dst/report.txt`, ⌘Z, then create a
-    /// DIFFERENT `/src/report.txt` and an unrelated `/dst/report.txt`, then ⌘⇧Z. The redo moved the
-    /// file the user had just created, replaced the unrelated file at the destination, left nothing
-    /// at the source, and reported nothing at all — no log line, no banner. A redo is as
-    /// destructive as an undo and gets the same refusal.
-    ///
-    /// A source that is simply GONE is NOT this case: nothing is there to move, and
-    /// `reportRedoFailure` already says exactly that. This is only for a source that is present and
-    /// demonstrably not ours (`.changed`) or that cannot be read at all (`.indeterminate`).
-    ///
-    /// **"Gone" has to be re-established at the move, not remembered from the pass.** A source
-    /// found absent up front and PRESENT again by the time its own move runs is not the gone case
-    /// at all — it is this one, and reporting it as a missing source would credit the redo with
-    /// having nothing to move while it moved a stranger.
+    /// Reports a redo refused because the item at the source is no longer the one its undo put
+    /// there: a redo is as destructive as an undo and gets the same refusal. Only for a source that
+    /// is present and `.changed` or `.indeterminate`; a missing source is `reportRedoFailure`.
+    /// Decide "missing" at the move itself, not from an earlier pass, since a file can appear there
+    /// in between.
     nonisolated static func reportRedoRefusedChangedItem(
         of source: URL,
         actionName: String,
@@ -357,23 +242,11 @@ extension FileSyncManager {
         }
     }
 
-    /// **A redo does not replace what it did not put there** (FR25). Whether the destination still
-    /// holds what the undo left there: nothing is there (`.unchanged` — nothing to replace), or the
-    /// item the undo recorded, the original the first operation replaced with the user's say-so.
-    /// Anything else — a file saved there by another app since the undo, over a destination the undo
-    /// left empty or holding a different version — answers `.changed`, and an unreadable one
-    /// `.indeterminate`; the redo refuses both.
-    ///
-    /// Before this the copy-redo and move-redo called `safeCopyItem`/`safeMoveItem` straight onto
-    /// the destination, which asks nobody: copy `report.pdf` to `Shared/`, ⌘Z, save a different
-    /// `Shared/report.pdf` in another app, ⌘⇧Z — the new file went to the Trash without a word.
-    ///
-    /// **Deep for a folder** (U2), as every Trash backup's identity is: the occupant is the original
-    /// the first operation replaced, put back by the undo, and the redo sends it to the Trash again.
-    /// Shallow, its identity was the folder's own date and child count, which the `.DS_Store` Finder
-    /// writes into a folder the user merely opens moves — and the redo refused the untouched
-    /// original. Recorded deep at the undo (`redoOccupantIdentity`), so read deep here; for a file
-    /// the two are the same read.
+    /// Whether a redo may replace what is at its destination: only nothing (`.unchanged`) or the
+    /// item the undo left there. Anything else, such as a file another app saved since, answers
+    /// `.changed` (or `.indeterminate` if unreadable), and the redo refuses rather than trash it.
+    /// Deep for a folder, as recorded by `redoOccupantIdentity`, so a `.DS_Store` Finder writes on
+    /// opening it doesn't count as a change.
     nonisolated static func redoDestinationVerdict(recorded: ItemIdentity, at destination: URL,
                                                    fileManager fm: FileManaging) -> DriftVerdict {
         let current = ItemIdentity.snapshot(at: destination, fileManager: fm)
@@ -382,9 +255,8 @@ extension FileSyncManager {
     }
 
     /// What an undo left at a redo's destination, as ``redoDestinationVerdict(recorded:at:fileManager:)``
-    /// reads it back: deep, OS noise ignored — or, for a folder with one unreadable descendant, its
-    /// own file number (L1, X5's fallback). Deep alone, that folder was `.indeterminate`, and the
-    /// redo refused it for as long as the redo lived.
+    /// reads it back: deep with OS noise ignored, or the folder's file number when a descendant
+    /// can't be read, so one unreadable file doesn't refuse the redo forever.
     nonisolated static func redoOccupantIdentity(at destination: URL, fileManager fm: FileManaging) -> ItemIdentity {
         ItemIdentity.deepSnapshotOrFileNumber(at: destination, fileManager: fm)
     }
@@ -415,9 +287,8 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a merge-emptied source folder (FR35) whose redo left it in place because it is no
-    /// longer empty: something the redo did not move — a child it refused, or an item put there
-    /// since — is inside, and trashing the folder would take that with it.
+    /// Reports a merge-emptied source folder that the redo left in place because it is no longer
+    /// empty: it holds something the redo didn't move, which trashing the folder would take with it.
     nonisolated static func reportRedoLeftMergeSourceFolder(
         _ folder: URL,
         actionName: String,
@@ -431,16 +302,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a delete-REDO that was refused because the item at the restored path is no longer
-    /// the item its undo put there.
-    ///
-    /// The sibling of ``reportRedoRefusedChangedItem(of:actionName:verdict:on:)`` for the other
-    /// destructive redo, and it exists for the reason that one states: a redo is as destructive as
-    /// an undo and gets the same refusal. The wording differs because the outcome does — this one
-    /// would have put the stranger in the Trash rather than moved it somewhere.
-    ///
-    /// An ABSENT path never reaches here; it is skipped before the identity is read, because
-    /// nothing being there is not a drift and there is nothing to leave in place.
+    /// Reports a delete-redo refused because the item at the restored path is no longer the one its
+    /// undo put there. The trash counterpart of
+    /// ``reportRedoRefusedChangedItem(of:actionName:verdict:on:)``. An absent path is skipped
+    /// before this: nothing there is not a drift.
     nonisolated static func reportRedoRefusedTrashOfChangedItem(
         at url: URL,
         actionName: String,
@@ -469,9 +334,8 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a copy-undo refused because the copy is locked in Finder by someone other than the
-    /// copy itself — it did not carry that lock from its source, so the user put it there, and
-    /// this undo does not lift a lock it did not create (FR31).
+    /// Reports a copy-undo refused because the copy is locked in Finder by a lock it didn't carry
+    /// from its source. The user put it there, and the undo lifts only a lock the copy carried.
     nonisolated static func reportUndoRefusedLockedItem(
         of destination: URL,
         actionName: String,
@@ -485,17 +349,17 @@ extension FileSyncManager {
         }
     }
 
-    /// Whether the copy at `destination` carries the Finder lock of its `source` — the only lock a
-    /// copy-undo may lift (FR31). Both must be locked: a copy locked while its source is not was
-    /// locked by someone else.
+    /// Whether the copy at `destination` carries its `source`'s Finder lock, the only lock a
+    /// copy-undo may lift. Both must be locked: a locked copy of an unlocked source was locked by
+    /// someone else.
     nonisolated static func copyCarriesItsSourcesLock(_ source: URL, _ destination: URL,
                                                       fileManager fm: FileManaging) -> Bool {
         isLocked(destination, fileManager: fm) && isLocked(source, fileManager: fm)
     }
 
-    /// Lifts the lock a copy carried from its source off THAT copy, for the copy-undo to remove it
-    /// (FR31), and returns exactly what it lifted so a failed removal can put it back. Empty —
-    /// nothing touched — when the item is not locked or its lock is not one the copy carried.
+    /// Lifts the lock a copy carried from its source, so the copy-undo can remove it, and returns
+    /// what it lifted so a failed removal can put it back. Empty, touching nothing, when there is no
+    /// such lock.
     nonisolated static func liftCopiedLock(_ item: CopyUndoItemState,
                                            fileManager fm: FileManaging) -> [FileAttributeKey: Any] {
         guard item.copiedLock,
@@ -518,10 +382,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a TRANSIENT trash failure during an undo (the item is busy/locked or momentarily
-    /// permission-blocked — see `isTransientTrashFailure`). Such failures must stay retryable:
-    /// escalating them to the permanent-delete prompt could destroy a file that a retry would
-    /// have moved to the Trash recoverably. The item stays on disk and out of the redo params.
+    /// Reports a transient trash failure during an undo (busy, locked or briefly blocked; see
+    /// `isTransientTrashFailure`). It must stay retryable: escalating to the permanent-delete prompt
+    /// could destroy a file a retry would have trashed recoverably. The item stays on disk and out
+    /// of the redo params.
     nonisolated static func reportUndoTransientTrashFailure(
         of destination: URL,
         actionName: String,
@@ -536,39 +400,19 @@ extension FileSyncManager {
         }
     }
 
-    /// The byte size of the regular FILE at `url`, or nil for directories, missing, or
-    /// unstatable items.
-    ///
-    /// **No longer drives any guard.** It used to be the copy-undo's drift snapshot, and its nil
-    /// — meaning "directory" *or* "missing" *or* "unstatable" alike, read through an `if let` —
-    /// is why a copied FOLDER had no drift check at all and why a same-length rewrite compared
-    /// equal. `ItemIdentity` replaced it at both undo sites; nothing in the app, the CLI or the
-    /// undo path calls this any more.
-    ///
-    /// It stays because `ItemIdentityTests` measures it: two of that suite's expectations run this
-    /// function against the very fixtures `ItemIdentity` now handles, so "nil for a directory" and
-    /// "4 for an edited 4-byte file" are recorded facts about the thing that was replaced rather
-    /// than a claim in a comment. (Same reasoning that keeps `scanNames` alive for
-    /// `NameNormalizerTests`.) Delete it only together with those expectations.
+    /// The byte size of the regular file at `url`, or nil for a folder or an unreadable or missing
+    /// item. Drives no guard; it isn't an identity, since nil conflates three cases and size misses
+    /// a same-length rewrite. Kept only for `ItemIdentityTests`; delete it with those expectations.
     nonisolated static func fileSizeSnapshot(at url: URL, fileManager fm: FileManaging) -> Int? {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else { return nil }
         if (attrs[.type] as? FileAttributeType) == .typeDirectory { return nil }
         return (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
     }
 
-    /// Every path a move in `batch` renamed away, keyed by its OLD path — `liveLocation`'s lookup
-    /// table, built ONCE per batch by the caller rather than once per item.
-    ///
-    /// Separated out because folding it into `liveLocation` made `registerMoveUndo(items:)`
-    /// quadratic on the MAIN ACTOR: it calls `liveLocation` per item and each call rebuilt the
-    /// whole table from the whole batch. Measured (debug build, before the split): n=100 → 0.015 s,
-    /// n=1000 → 1.70 s, n=3000 → **14.6 s**, n=6000 → 52.1 s of added main-thread time right after
-    /// a bulk move — reachable from a multi-select move and from `normalizeNames`, both of which
-    /// can hand over thousands of items.
-    /// `theUndoRegistrationOfThreeThousandItemsStaysUnderThreeSeconds` is what keeps it from
-    /// creeping back — and its name says what it can actually see: one point against a ceiling,
-    /// which separates a three-orders-of-magnitude blow-up from the current cost and would not
-    /// notice a merely 10× regression.
+    /// Every path a move in `batch` renamed away, keyed by its old path: `liveLocation`'s lookup
+    /// table. Build it once per batch, not per item: rebuilt per item, registering an undo is
+    /// quadratic on the main actor, and a bulk move can hand over thousands of items.
+    /// `theUndoRegistrationOfThreeThousandItemsStaysUnderThreeSeconds` guards the blow-up.
     nonisolated static func renameMap(for batch: [MoveItemState]) -> [String: String] {
         var renames: [String: String] = [:]
         for move in batch where move.from.path != move.to.path {
@@ -577,88 +421,18 @@ extension FileSyncManager {
         return renames
     }
 
-    /// Where `destination` — a path some item in a move batch was moved TO — actually sits once
-    /// every OTHER move in that same batch has been applied. `renames` is that batch's
-    /// `renameMap(for:)`.
+    /// Where `destination`, a path some item in a move batch was moved to, actually sits once every
+    /// other move in the batch is applied. `renames` is the batch's `renameMap(for:)`.
     ///
-    /// Only ANCESTOR components are rewritten, and only when another move's `from` is a strict
-    /// ancestor of `destination`. A batch that renames ancestors first leaves no old name to
-    /// match, so nothing is rewritten and the path is returned as-is — which is every single-item
-    /// batch and every same-directory batch, i.e. all but one of the nine call sites.
+    /// Only ancestor components are rewritten, when another move's `from` is a strict ancestor; most
+    /// batches return the path as-is. The leaf is never rewritten: an item's own name is final, and
+    /// in a renumbering cascade (`02→03` beside `01→02`, which `applyRenamePlans` produces) one
+    /// move's `to` is another's `from`, so following it would snapshot the wrong file.
     ///
-    /// **A rewrite also has to be confirmed against the disk, because the ancestor condition alone
-    /// is not proof.** The claim it used to rest on — "`destination` can still spell an ancestor's
-    /// OLD name only if the item landed there before that ancestor was renamed" — is false for a
-    /// batch that mixes NESTED provider roots, which `SettingsManager.existingSource` allows: with
-    /// roots `/P` and `/P/Backup`, a multi-select move can move `/P/Backup/D` first and then let
-    /// `ensureParentDirectoryExists` recreate `/P/Backup/D` under the item that lands second, so
-    /// that item IS at its recorded `to` and rewriting the path walks it off into
-    /// `/P/Backup/Backup/D/…`, snapshotting `.absent` and falsely refusing the undo.
-    ///
-    /// **The confirmation asks the DISK about the rewrite, not about the recorded path — because
-    /// `fileExists` cannot tell OUR item from any item.** Written the other way round ("if
-    /// something is still at `destination`, it did not go anywhere") this trusted a STRANGER: let a
-    /// normalize pass turn `/root/P␣/a␣.txt` into `/root/P/a.txt`, then let the user recreate
-    /// `/root/P␣` with an unrelated `a.txt` in it, and the recorded path is occupied again — by a
-    /// file that has nothing to do with the batch. The snapshot was then taken OF the stranger, the
-    /// undo's drift guard compared the stranger against itself, answered `.unchanged`, and moved
-    /// it: measured on that fixture, ⌘Z renamed the user's unrelated file to `a␣.txt` — planting
-    /// the very zero-width space the pass exists to remove — left the real item un-undone, and
-    /// raised a banner naming a different item and blaming the Trash, which nothing went near.
-    ///
-    /// So the recorded path is trusted only when the REWRITTEN one is absent: nothing else can be
-    /// there, so `destination` is the only candidate left. Ambiguity — both occupied — resolves to
-    /// the rewrite, which makes the snapshot disagree with whatever sits at the recorded path and
-    /// so makes the undo REFUSE. **That is the invariant this function is written to keep: a wrong
-    /// answer here must cost a refusal, never a move of the wrong item.** The stats cost two calls,
-    /// and only on the nested path where a rewrite was about to happen; every flat batch returns
-    /// before reaching them.
-    ///
-    /// Resolution is recursive so a three-deep nest resolves fully (`/A-BAD/B-BAD/c.txt` →
-    /// `/AOK/BOK/c.txt`), guarded by a `seen` set so a rename CYCLE stops rather than looping, and
-    /// bounded by a depth cap so the `seen` guard's absence fails legibly instead of overflowing
-    /// the stack. Giving up returns `destination`, which is the safe direction above.
-    /// The leaf itself is never rewritten: an item is renamed once per batch, so its own name is
-    /// final, and rewriting it would follow an unrelated item that happens to have taken the path —
-    /// a renumbering cascade (`01 - x.pdf`→`02 - x.pdf` beside `02 - x.pdf`→`03 - x.pdf`) has one
-    /// move's `to` equal to another's `from`, and would snapshot the wrong file.
-    ///
-    /// **`applyRenamePlans` is not a second exposure, and `4b21f9ed`'s message was wrong to say so.**
-    /// It claimed the nested-rename fix "also fixes `applyRenamePlans`, which has the identical
-    /// exposure"; that pass renames only FILES — `liveFiles` skips directories and passes
-    /// `.skipsSubdirectoryDescendants` — and every `dst` is `dir.appendingPathComponent(…)` in the
-    /// plan's own folder, so no move's `from` can be an ancestor of another move's `to` and this
-    /// function is a strict no-op for every batch it produces. Both backports had already dropped
-    /// the claim, but the reason they gave implies `main` has one, so it is corrected here rather
-    /// than left to be rediscovered. What `applyRenamePlans` genuinely is, is the closest real
-    /// producer of the LEAF collision above, so a leaf-rewriting `liveLocation` would find its
-    /// first victim there.
-    ///
-    /// **But not for the reason this used to give, and the difference matters.** It said the
-    /// cascades "stay safe only because the label travels with the number" (`01. Mar`→`02. Mar`
-    /// beside `02. Apr`→`03. Apr`, never onto each other) — which contradicts the leaf rule three
-    /// paragraphs up, whose whole justification is a cascade where one move's `to` IS another's
-    /// `from`. Both cannot be true of the same producer, and the fixture the leaf rule is built on
-    /// is the version the convention declares impossible. The convention is a property of today's
-    /// planner.
-    ///
-    /// **The replacement reason was wrong too, and in the more dangerous direction: it declared the
-    /// collision unproducible.** It credited the never-overwrite fallback at
-    /// `FileSyncManager+FilingRename.swift:251-258` — a `dst` already occupied by a DIFFERENT item
-    /// is diverted through `generateUniqueURL` — and concluded that "no applied step can land on a
-    /// path another step is still sourcing from, whatever the planner names things". That fallback
-    /// tests `fileExists` at APPLY time, per step, in `plan.steps` order, so it blocks the
-    /// collision only for a step whose target is still occupied. For an EARLIER one the path has
-    /// already been vacated and no diversion happens: a descending renumber `03→04`, `02→03`,
-    /// `01→02` moves `03` away first, so `02→03` finds `03` free, takes it, and produces a move
-    /// whose `to` is exactly another move's `from`. `applyRenamePlans` is therefore a real producer
-    /// of the leaf collision, which is what the paragraph above already assumes and what the leaf
-    /// rule is here to survive — and that is the whole answer. Nothing needs to make `to == from`
-    /// impossible; not rewriting the leaf is what makes it harmless.
-    ///
-    /// The habit worth keeping from both wrong versions: a guard whose stated reason is not its
-    /// operative reason is one planner change away from being silently wrong. Stating a guarantee
-    /// the code does not have is worse still, because it invites the guard's removal.
+    /// A rewrite is confirmed against the disk. With nested provider roots the item can really be at
+    /// its recorded path, and a stranger can take the recorded path too, which `fileExists` can't
+    /// tell apart. So the recorded path wins only when the rewritten one is empty; otherwise the
+    /// rewrite wins. **A wrong answer here must cost a refusal, never a move of the wrong item.**
     nonisolated static func liveLocation(
         of destination: URL, throughRenames renames: [String: String], fileManager fm: FileManaging
     ) -> URL {
@@ -687,41 +461,17 @@ extension FileSyncManager {
         liveLocation(of: destination, throughRenames: renameMap(for: batch), fileManager: fm)
     }
 
-    /// How many frames `resolveRenamedDirectory` may take before it abandons the resolution.
-    ///
-    /// One frame per path component plus one per rename hop. `PATH_MAX` is 1024 BYTES, so a real
-    /// path cannot carry more than ~512 components even at two bytes each, and every path this app
-    /// has ever seen is under fifty; a rename CHAIN long enough to add hundreds more would have to
-    /// be a renumbering cascade of that many DIRECTORIES in one batch. 512 is therefore far outside
-    /// anything producible, and deliberately small enough that hitting it cannot itself overflow a
-    /// stack: these frames are a few hundred bytes each, so the whole cap fits inside the 512 KB a
-    /// non-main thread gets — which matters because the tests that exercise it do not run on the
-    /// main actor, and a cap that crashed on the way to reporting itself would be no cap at all.
+    /// How many frames `resolveRenamedDirectory` may take before it gives up: one per path
+    /// component plus one per rename hop. `PATH_MAX` allows ~512 components, so no real batch reaches
+    /// it, and 512 small frames still fit the 512 KB stack of a non-main thread, where the tests
+    /// run.
     private nonisolated static let maxRenameResolutionDepth = 512
 
-    /// `liveLocation`'s worker: the path `path` reads as after `renames` are applied to it and to
-    /// every one of its ancestors, or nil if the resolution ran past `maxRenameResolutionDepth`.
-    /// `seen` bounds a cycle (A→B, B→A) to one lap.
-    ///
-    /// **`seen` is unreachable from production, and stays anyway.** The only caller of
-    /// `liveLocation` is `registerMoveUndo(items:)`, and every batch reaching it was applied
-    /// sequentially against a real filesystem through `safeMoveItem`: for A→B and B→A both to be
-    /// recorded, whichever ran second would have had to move onto a path the first one had just
-    /// filled, which `safeMoveItem`'s collision handling turns into a replace (one item, not a
-    /// cycle) rather than a second rename. So no input can reach the guard today. What it costs is
-    /// three lines; what its absence costs is not a wrong answer but an unbounded recursion — a
-    /// stack-overflow crash of the whole app, from a batch nobody could inspect afterwards. That
-    /// is the wrong side to be cheap on, so it stays, and `liveLocationStopsAtOneLapOfACycle`
-    /// pins the exact path it produces rather than accepting "either lap".
-    ///
-    /// **The depth cap is what makes that guard's absence legible.** Deleting `seen` used to be
-    /// invisible to the suite in the worst possible way: the recursion never returned, the test
-    /// host died with `exited with unexpected signal code 10`, and the run ended with no
-    /// `Test run with N tests` line at all — so the regression reported as broken infrastructure
-    /// and took every other verdict in the run with it. With the cap, the same deletion runs out of
-    /// frames, answers nil, and `liveLocation` returns the recorded path, which its own tests then
-    /// disprove as an ordinary red assertion. The cap is a BACKSTOP, not a replacement: `seen` is
-    /// what gives a cycle its correct one-lap answer, and nil is only ever a refusal.
+    /// `liveLocation`'s worker: `path` with `renames` applied to it and all its ancestors, or nil
+    /// past `maxRenameResolutionDepth`. `seen` stops a rename cycle (A→B, B→A) after one lap. No
+    /// production batch can form a cycle, but without `seen` one would overflow the stack and crash
+    /// the app. The depth cap is the backstop: if `seen` is lost, the tests fail with a wrong answer
+    /// instead of a dead test host.
     private nonisolated static func resolveRenamedDirectory(
         _ path: String, renames: [String: String], seen: inout Set<String>, depth: Int = 0
     ) -> String? {
@@ -739,57 +489,29 @@ extension FileSyncManager {
         return URL(fileURLWithPath: livingParent).appendingPathComponent(url.lastPathComponent).path
     }
 
-    /// Whether ANY entry sits at `url` — a file, a folder, or a symbolic link, whether or not the
-    /// link's target exists. For the undo's "the user already removed it" decisions (FR28).
-    ///
-    /// **`fileExists` answers a different question.** It follows a link, so a DANGLING link reads
-    /// as nothing at all — and moving a relative link usually leaves it dangling, because its
-    /// target is resolved against the folder it now sits in. The copy-undo and the move-undo both
-    /// asked `fileExists` whether their item had vanished, while `ItemIdentity` records a link as
-    /// ITSELF: so ⌘Z of a moved link reported "no longer on disk", never moved it back, and then
-    /// tried to put the displaced original over the link that was still there, failing under a
-    /// banner that blamed the Trash. `attributesOfItem` does not follow links; `fileExists` stays
-    /// only as the fallback for an entry that is there but cannot be statted, which is present.
+    /// Whether any entry sits at `url`: a file, a folder, or a symbolic link, even a dangling one.
+    /// For the undo's "the user already removed it" decisions. Not `fileExists`, which follows links,
+    /// so a moved relative link (usually dangling) would read as gone. `fileExists` is only the
+    /// fallback for an entry that can't be statted.
     nonisolated static func entryExists(at url: URL, fileManager fm: FileManaging) -> Bool {
         (try? fm.attributesOfItem(atPath: url.path)) != nil || fm.fileExists(atPath: url.path)
     }
 
-    /// What sits at a backup's location as an undo registers — the identity a later restore holds
-    /// that location to (FR27). `.absent` when there is no backup.
-    ///
-    /// **DEEP for a folder.** It began as being about Finder: the shallow folder identity was its
-    /// own date and child count, and Finder writes a `.DS_Store` into a folder the user merely
-    /// opens — in the Trash as anywhere — which moved both, so a ⌘Z after a look at the Trash
-    /// refused the folder it put there (the shallow identity now leaves that out too, M4). Deep, a
-    /// backup is also held to everything inside it, which is what a restore over the destination
-    /// is owed. `deepSnapshot` digests the descendants and
-    /// skips `.DS_Store` and the other OS noise, so a browsed folder does not differ and a stranger
-    /// folder with other contents does. A stranger with the SAME contents — two empty folders —
-    /// does not differ by its contents; the one backup that is always empty, a merge's emptied
-    /// source folder, is read by `mergeEmptiedFolderIdentity` instead. Its cost is a stat-only
-    /// walk, which is why every registration that reads this for a whole batch reads it off the
-    /// main actor.
-    ///
-    /// **A folder whose contents cannot be read is still known by its file number** (FR27,
-    /// follow-up): one unreadable descendant makes the deep walk `.indeterminate`, which records no
-    /// identity at all, so ⌘Z restored whatever had taken its name in the Trash. The folder's own
-    /// `st_ino` needs only a stat of the folder, survives the move into the Trash, and differs for
-    /// a stranger (`ItemIdentity.directoryFileNumber`).
+    /// The identity a later restore holds a backup's location to, read as the undo registers.
+    /// `.absent` when there is no backup. Deep for a folder, skipping `.DS_Store` and other OS noise,
+    /// so a folder browsed in the Trash still matches and one with other contents doesn't. If a
+    /// descendant can't be read, the folder's file number stands in, which survives the move into the
+    /// Trash. A stat-only walk, but read off the main actor for a whole batch. An always-empty merge
+    /// source uses `mergeEmptiedFolderIdentity`.
     nonisolated static func backupIdentity(_ backup: URL?, fileManager fm: FileManaging) -> ItemIdentity {
         backup.map { ItemIdentity.deepSnapshotOrFileNumber(at: $0, fileManager: fm) } ?? .absent
     }
 
-    /// What sits at the Trash location of a source folder a merge emptied and trashed (FR35):
-    /// `backupIdentity`'s deep rule plus the folder's own file number
-    /// (`ItemIdentity.directoryTreeAndFileNumber`). The merge trashes the folder only once nothing
-    /// but a `.DS_Store` is left in it, so its contents say nothing about WHICH folder it is: empty
-    /// the Trash, trash some other empty folder of that name, and ⌘Z pulled that one out as the
-    /// source. The number survives the move into the Trash and Finder's `.DS_Store`, so the real
-    /// folder, browsed or not, still comes back.
-    ///
-    /// Also the rule for an item FR23 recorded in the Trash (U3, M3), which can be any folder — and
-    /// one whose contents cannot all be read is known by its file number alone (L1), as
-    /// `backupIdentity` knows one, rather than recorded `.indeterminate` and refused forever.
+    /// The identity of a source folder a merge emptied and trashed: `backupIdentity`'s deep rule plus
+    /// the folder's file number. The folder is empty, so its contents can't tell it from another empty
+    /// folder of that name in the Trash; the file number can. Also used for an item a batch replaced
+    /// into the Trash. If its contents can't be read, the file number alone stands in, rather than
+    /// `.indeterminate` refusing it forever.
     nonisolated static func mergeEmptiedFolderIdentity(_ folder: URL, fileManager fm: FileManaging) -> ItemIdentity {
         let identity = ItemIdentity.deepSnapshotWithFileNumber(at: folder, fileManager: fm)
         guard identity == .indeterminate,
@@ -797,29 +519,13 @@ extension FileSyncManager {
         return .directoryFileNumber(fileNumber)
     }
 
-    /// **Is the item at a Trash backup's location still the one this operation put there?** (FR27)
-    ///
-    /// Every undo that restores from the Trash used to move whatever was at the recorded Trash URL,
-    /// and a path is not an identity. Empty the Trash, then trash a different file of the same name
-    /// in Finder — macOS hands the freed name to the newcomer — and ⌘Z moved THAT file, one this
-    /// app never touched, into the folder the undo was restoring. So each backup's identity is now
-    /// recorded when its undo is registered, moments after the trash, and read again here.
-    ///
-    /// Re-read at the depth it was recorded at (`drift`): a file by its size and date, a folder by
-    /// its contents (see `backupIdentity`), a folder whose contents could not be read by its file
-    /// number. Three answers let the restore through and are not
-    /// identity claims. Nothing was at the backup when the undo registered (`.absent`), or nothing
-    /// there could be read (`.indeterminate` — now only an item that could not even be statted, or
-    /// a file system with no file numbers): there is no identity to hold the backup to, and the
-    /// restore behaves exactly as it did before FR27. Holding it to `.indeterminate` refused it
-    /// forever, since every later read of that folder is `.indeterminate` too. And nothing is there
-    /// now — the restore's own move then fails and reports the Trash as emptied, which is the
-    /// truth. Against a known recorded identity, anything present that differs is `.changed` and
-    /// refuses as a stranger; an unreadable one is `.indeterminate` and refuses as unreadable.
-    ///
-    /// **Read before the undo's irreversible step** — trashing the copy, moving the item back —
-    /// so an unreadable backup refuses the whole item and leaves both where they are, rather than
-    /// leaving the destination empty with the original still in the Trash.
+    /// Whether the item at a Trash backup's location is still the one this operation put there.
+    /// Once the Trash is emptied, macOS gives the freed name to the next file trashed under it, so a
+    /// path is not an identity. Re-read at the depth it was recorded (`drift`). A restore goes
+    /// ahead when nothing usable was recorded (`.absent`, `.indeterminate`) or nothing is there now
+    /// (the move then fails and reports it). Otherwise a different item is `.changed` and an
+    /// unreadable one `.indeterminate`; both refuse. **Call it before the undo's irreversible
+    /// step**, so a refusal leaves everything in place.
     nonisolated static func trashBackupVerdict(recorded: ItemIdentity, at backup: URL,
                                                fileManager fm: FileManaging) -> DriftVerdict {
         guard recorded != .absent, recorded != .indeterminate else { return .unchanged }
@@ -827,9 +533,8 @@ extension FileSyncManager {
         return recorded.drift(at: backup, fileManager: fm)
     }
 
-    /// Surfaces a restore refused by ``trashBackupVerdict(recorded:at:fileManager:)``: the item at
-    /// the backup's Trash location is not the one this operation put there, so it stays in the
-    /// Trash and nothing is moved to `destination`.
+    /// Reports a restore refused by ``trashBackupVerdict(recorded:at:fileManager:)``: the item in the
+    /// Trash isn't the one this operation put there, so it stays and nothing moves to `destination`.
     nonisolated static func reportUndoRefusedTrashStranger(
         at backup: URL,
         restoring destination: URL,
@@ -852,10 +557,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Surfaces a copy- or move-undo refused BEFORE its irreversible step because the backup it
-    /// would restore cannot be read now (`trashBackupVerdict` answered `.indeterminate` against a
-    /// known recorded identity). Nothing was done: the item stays at `destination` and the backup
-    /// in the Trash, so a later ⌘Z — once the backup can be read — can still put both back.
+    /// Reports a copy- or move-undo refused before its irreversible step because the backup it
+    /// would restore can't be read now. Nothing changes, so a later ⌘Z can still put both back once
+    /// the backup is readable.
     nonisolated static func reportUndoRefusedUnreadableBackup(
         at backup: URL,
         leaving destination: URL,
@@ -873,13 +577,10 @@ extension FileSyncManager {
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
     enum UndoRestoreOutcome { case restored, failed, nothingToRestore }
 
-    /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, surfacing any
-    /// failure via `reportUndoRestoreFailure`. Shared by `registerCopyUndo`'s two removal paths —
-    /// the Trash path and the confirmed permanent-delete fallback — so the restore-and-report logic
-    /// lives in one place. `verdict` is `trashBackupVerdict`'s answer for the backup (FR27), read
-    /// by the caller BEFORE it removed the copy, so an unreadable backup could refuse the whole
-    /// item first; a different item at the backup's location is refused, reported, and counted as
-    /// a failure.
+    /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, reporting any
+    /// failure. Shared by `registerCopyUndo`'s Trash path and its permanent-delete fallback.
+    /// `verdict` is `trashBackupVerdict`'s answer, read by the caller before it removed the copy; a
+    /// stranger at the backup's location is refused and counted as a failure.
     nonisolated static func restoreOverwrittenBackup(
         _ overwritten: URL?,
         verdict: DriftVerdict,
@@ -903,71 +604,34 @@ extension FileSyncManager {
         }
     }
 
-    /// Any change to the undo stack invalidates a still-showing *undoable* completion banner: its
-    /// Undo button pops the current top step, so once a different operation is registered (or an
-    /// undo/redo re-registers its reverse), the button would reverse the WRONG operation. Clearing
-    /// the banner here removes the affordance the moment it goes stale. The op that WANTS a banner
-    /// registers its undo first and posts the banner after, so its own banner survives; non-undoable
-    /// (warning/error) banners are left alone — an error must not vanish because an unrelated op ran.
+    /// Clears a still-showing undoable banner whenever the undo stack changes: its Undo button pops
+    /// the top step, which is now a different operation. An operation that wants a banner registers
+    /// its undo first and posts the banner after, so its own survives. Warnings and errors stay.
     func invalidateUndoableBanner() {
         if banner?.isUndoable == true { banner = nil }
         // An Ask Claude card's Undo is the same kind of affordance (`undoPlan`).
         planUndoToken = nil
     }
 
-    /// Convenience for call sites whose copied items are fully known at registration time: wraps
-    /// them in an `AsyncValueResolver` that a detached identity walk resolves, so the
-    /// resolver-based form below stays the single implementation. The resolver forms remain for
-    /// the undo/redo chain, where the next state genuinely resolves later (inside the queued
-    /// file operation).
+    /// Registers a copy-undo for items fully known now, wrapping them in a resolver that a detached
+    /// identity walk fills. Each copy gets a deep identity, because this undo destroys: an edit
+    /// anywhere inside the copy makes ⌘Z refuse rather than trash it. (Move-undos stay shallow; each
+    /// says why.)
     ///
-    /// Snapshots each copied item's identity for the undo handler, which refuses to trash a
-    /// destination that is no longer the item this copy produced — and it takes the DEEP
-    /// snapshot, because this undo DESTROYS. `deepSnapshot` digests every descendant, so an edit
-    /// made two levels down inside the copy — which leaves the root's own date and child count
-    /// identical, the exact case the shallow identity's doc admitted it "answers `.unchanged`
-    /// for" — changes the identity and the ⌘Z refuses instead of trashing the only instance of
-    /// the edit. The move registrations below stay SHALLOW on purpose; each says why at its own
-    /// snapshot.
+    /// **Ordering:** the undo is registered synchronously before this returns; only the identity
+    /// arrives later. A ⌘Z before the walk finishes pops this undo and waits in the resolver, so it
+    /// never compares against a half-recorded state. The walk runs off the main actor because a big
+    /// folder (or SMB, or cold iCloud) can take seconds to minutes. Callers await the returned task
+    /// last, so "the operation returned" means "its undo is armed".
     ///
-    /// **The walk runs OFF the main actor, and the ordering that keeps that safe is spelled out
-    /// here because every caller leans on it.** The undo is registered with the undo manager
-    /// synchronously, before this returns — unchanged from when the walk was inline — and only
-    /// the IDENTITY arrives later, resolved by the detached task this returns. So a ⌘Z landing
-    /// before the walk finishes pops THIS undo, never the operation before it, and its handler
-    /// suspends in `stateResolver.get()` until the identity exists — a not-yet-resolved
-    /// registration can neither no-op nor compare against a half-recorded state. Inline, the
-    /// walk was the one main-actor stall in the whole chain: `FileSyncManager` is `@MainActor`,
-    /// so copying a big folder froze the UI for the length of its walk — measured 2026-08-21, a
-    /// 40,200-node tree (200 dirs × 200 files) costs ~1.8 s of recursive listing+stat on this
-    /// machine even cache-warm — and SMB or cold iCloud metadata turns that into minutes.
-    ///
-    /// **The returned task completes when the identity is recorded.** The copy/sync call sites
-    /// await it as the last step of the operation, which is what keeps "the operation returned"
-    /// implying "its undo is fully armed" — the property the drift tests (tamper the moment the
-    /// copy returns, then ⌘Z) are written against. A caller that discards it loses only that
-    /// determinism, never the guard.
-    ///
-    /// Residual, stated — and this convenience is for SINGLE-item call sites only (`syncFile`),
-    /// where the copy-to-recording gap really is milliseconds: the identity is read moments
-    /// after the copy rather than in the same main-actor turn, so an edit landing inside that
-    /// gap is recorded as part of the copy and a later ⌘Z will trash it. Out-of-process writers
-    /// always had that window. A BATCH must not funnel through here: this walk starts only when
-    /// the whole batch is done, and a batch blocks mid-run on user prompts and slow-volume I/O
-    /// — user-unbounded time during which an edit inside an already-landed copy would become
-    /// that copy's baseline. Batch loops start each item's walk as its own copy lands
-    /// (`startCopyIdentityWalk`) and register through `registerCopyUndo(pendingItems:)`.
-    ///
-    /// Cost: one stat-only recursive walk per copied folder (no bytes are read), at the moment
-    /// the copy just finished and the tree's metadata is warm. The duplicates path already
-    /// accepts the same trade for the same reason — `folderDriftedInPlace`: "one recursive walk
-    /// per folder copy, at the moment of a destructive click — the alternative is trashing the
-    /// last copy of 1,200 photos to save it."
+    /// **Single-item call sites only** (`syncFile`). The walk starts after the copy, so an edit in
+    /// that gap becomes the baseline. In a batch that gap can last as long as a user prompt, so
+    /// batches start each walk as its copy lands (`startCopyIdentityWalk`) and register through
+    /// `registerCopyUndo(pendingItems:)`.
     @discardableResult
     func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
-        // Registered before the walk is even spawned: no suspension can separate the caller
-        // from the registration, which is the first half of the ordering guarantee above.
+        // Registered before the walk is spawned, so no suspension separates caller and registration.
         registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
         return Task.detached(priority: .userInitiated) {
             var enriched: [CopyUndoItemState] = []
@@ -988,13 +652,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Batch registration over identity walks the call site already started, one per item, the
-    /// moment that item's own copy landed (`PendingCopyItemState`). The registration contract is
-    /// identical to `registerCopyUndo(items:)` — the undo is registered synchronously before the
-    /// first suspension, the handler suspends in the resolver until every identity exists, and
-    /// the returned task completes when the state is recorded (callers await it as the
-    /// operation's last step). Only WHEN each identity is read differs, and that is the point:
-    /// per item at copy-land time, not per batch at loop-end time.
+    /// Batch registration over identity walks the call site started as each copy landed
+    /// (`PendingCopyItemState`). Same contract as `registerCopyUndo(items:)`; only when each identity
+    /// is read differs: per item as it lands, not after the batch.
     @discardableResult
     func registerCopyUndo(pendingItems: [PendingCopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
@@ -1019,70 +679,31 @@ extension FileSyncManager {
         }
     }
 
-    /// Starts the detached identity walk for ONE landed copy. Batch call sites call this the
-    /// moment each item's own copy returns — inside the transfer/bulk loops — so the
-    /// copy-to-recording window stays milliseconds even when the rest of the batch then blocks
-    /// on a user prompt or hours of I/O; an edit the user makes during that tail reads as drift
-    /// (⌘Z refuses) instead of being recorded as the copy's baseline. The task feeds
-    /// `registerCopyUndo(pendingItems:)`.
+    /// Starts the detached identity walk for one landed copy, called as each copy returns inside a
+    /// batch loop, so a later edit reads as drift (⌘Z refuses) instead of becoming the baseline.
+    /// Feeds `registerCopyUndo(pendingItems:)`.
     ///
-    /// **Deliberately UNBOUNDED, against the `processInParallel(concurrency: min(4, …))` this
-    /// codebase uses everywhere else it fans out — measured, not assumed.** A 5,000-file bulk sync
-    /// spawns 5,000 of these, each doing blocking `stat` work on the cooperative pool alongside the
-    /// copy workers, and since `tree-3` a folder walk digests `.git`, `.build` and `node_modules`
-    /// too. Measured on this machine (10 cores, APFS, warm):
-    ///
-    /// | shape                                   | unbounded | serial |
-    /// |-----------------------------------------|-----------|--------|
-    /// | 5,000 file walks (one stat each)        |  0.095 s  | 0.22 s |
-    /// | 4 folder walks, 10k nodes               |  0.24 s   | 0.60 s |
-    /// | 16 folder walks, 40k nodes              |  1.53 s   | 5.01 s |
-    ///
-    /// Two facts decide it. First, **"5,000 spawned" is not 5,000 running**: `Task.detached` puts
-    /// them on the cooperative pool, which is capped at the core count — the 5,000-file run's
-    /// measured PEAK concurrency was 10, exactly `activeProcessorCount`. The fan-out is already
-    /// bounded, by the runtime, at the width of the machine. A `min(4, …)` cap would only make it
-    /// narrower than the hardware, and every measurement above says narrower is slower.
-    ///
-    /// Second, and the reason a cap would be a correctness regression rather than a tuning
-    /// choice: a capped walk STARTS LATE. Item 5,000 of a batch would not begin its walk until
-    /// 4,996 others had finished — which is the end of the batch, i.e. exactly the
-    /// copy-to-recording window the per-item start exists to eliminate. An edit made in that
-    /// window becomes the copy's recorded baseline and ⌘Z trashes it.
-    ///
-    /// What the walks DO cost is `copyItems`' tail, where `activeProgress` is still published at
-    /// 100% while the registration awaits them: measured over a 4-folder, 10,000-file batch, the
-    /// whole call took 1.36–1.66 s with the walks and 0.98–1.17 s with them stubbed out — ~0.45 s
-    /// of tail, which is the walks' own standalone cost rather than contention with the copies.
-    /// If that tail ever needs shortening the lever is the walk's own work, not its width.
+    /// **Deliberately unbounded**, unlike the `min(4, …)` fan-outs elsewhere. The cooperative pool
+    /// already caps concurrency at the core count, and measured unbounded walks beat serial ones.
+    /// A cap would also make walks start late, reopening the window in which an edit becomes the
+    /// baseline and ⌘Z trashes it. To shorten `copyItems`' tail, make each walk cheaper, not fewer.
     nonisolated static func startCopyIdentityWalk(at destination: URL, fileManager fm: FileManaging) -> Task<CopyIdentityReading, Never> {
         Task.detached(priority: .userInitiated) {
             recordedCopyIdentity(at: destination, fileManager: fm)
         }
     }
 
-    /// The identity every copy-undo registration records for one landed copy: the DEEP snapshot,
-    /// plus the one warning that makes an eventual refusal diagnosable. A registration-time
-    /// `.indeterminate` is a PERMANENT refusal for that item — the handler will decline the ⌘Z
-    /// however often it is pressed — and the user used to first learn of it hours later from a
-    /// banner that cannot say why, with the refusal itself as the log's only line. The cause is
-    /// knowable NOW (the walk can name the descendant it could not read), so it is logged now.
+    /// The identity a copy-undo records for one landed copy: the deep snapshot, plus the unreadable
+    /// descendant if there is one. An `.indeterminate` read now means that ⌘Z will always refuse,
+    /// so the cause is logged at registration, while it can still be named.
     nonisolated static func recordedCopyIdentity(at destination: URL, fileManager fm: FileManaging) -> CopyIdentityReading {
         ItemIdentity.deepSnapshotDetailingFailure(at: destination, fileManager: fm)
     }
 
-    /// The ONE line a batch leaves behind when some of its registration-time identity reads came
-    /// back `.indeterminate`. Emits nothing when none did.
-    ///
-    /// **One line, not one per item, and the cap is the reason.** `Logger.shared.entries` holds
-    /// the last 1000 entries, so a batch registered over an unreadable tree — a permissions
-    /// problem, an unmounted network volume, a provider that stopped answering — used to emit a
-    /// warning per item and push the surrounding context, including whatever explains the cause,
-    /// out of the buffer. Same shape and the same reason as `SyncHistoryStore.appendBatch`'s
-    /// dropped-record report: count them, name the first, say what it costs.
-    ///
-    /// A single-item batch reads exactly as it did before this was a batch report, because for
-    /// N == 1 there is nothing to summarize.
+    /// The one line a batch logs when some registration-time identity reads came back
+    /// `.indeterminate`; nothing when none did. One line, not one per item: the log keeps only the
+    /// last 1000 entries, and a warning per item would push out the context that explains the cause.
+    /// It counts them, names the first, and says what it costs.
     /// Which registration is reporting — its undo removes a copy, or moves an item back.
     enum IndeterminateRegistration: Sendable { case copy, move }
 
@@ -1101,51 +722,24 @@ extension FileSyncManager {
         Logger.shared.warning("\(label) (\(actionName)): \(subject) rather than \(act) what it can't verify")
     }
 
-    /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
-    ///
-    /// The returned task completes when the state is fully recorded, the backups' identities
-    /// included; callers may discard it (`registerCopyUndo(items:)` explains the contract).
-    ///
-    /// `mergeEmptiedFolders` names, by their Trash location (`to`), the items that are source
-    /// folders a merge emptied and trashed (FR35); see `MoveRedoParam.emptiedByMerge`.
-    /// `redirectedIntoTrash` names, the same way, the items a later move of the same batch replaced
-    /// into the Trash (FR23).
-    ///
-    /// `landedIdentities` holds, by `to`, an identity the caller read the moment that item landed
-    /// (M2): the pane transfer's, whose later items can write into an earlier one and are undone
-    /// first, so the earlier one is compared against what it was as it landed. An item it does not
-    /// name is read here, as before.
+    /// Registers a move-undo; same contract as `registerCopyUndo(items:actionName:fileManager:)`.
+    /// `mergeEmptiedFolders` and `redirectedIntoTrash` name items by their Trash location (`to`); see
+    /// `MoveRedoParam`. `landedIdentities` holds, by `to`, identities read as each item landed: in a
+    /// pane transfer a later item can write into an earlier one, so the earlier one is held to what it
+    /// was then. Items not named are read here.
     @discardableResult
     func registerMoveUndo(items: [MoveItemState], mergeEmptiedFolders: Set<URL> = [],
                           redirectedIntoTrash: Set<URL> = [], landedIdentities: [URL: ItemIdentity] = [:],
                           actionName: String,
                           fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
-        // Snapshots each moved item's identity HERE, at registration time — the move has already
-        // happened, so the item this undo is responsible for is on disk — so the handler can
-        // refuse to move back something that is no longer it.
+        // Snapshot each moved item now, so the handler refuses to move back something that is no
+        // longer it. Shallow on purpose: a move-undo moves the item, so an edit inside travels with
+        // it and nothing is lost, and a deep identity would refuse for no reason. Shallow still
+        // catches a destination replaced wholesale or reshaped one level down.
         //
-        // The SHALLOW snapshot, deliberately, where `registerCopyUndo` takes the deep one. The
-        // two undos do different things to the item: the copy-undo TRASHES it, so a deep edit it
-        // fails to notice is an edit destroyed; the move-undo MOVES it back, and an edit it fails
-        // to notice travels with the folder — nothing is lost. A deep identity here would turn
-        // that non-loss into a false refusal: edit any file inside a folder you moved and ⌘Z
-        // would decline to move the folder back, "protecting" content that was never in danger.
-        // The shallow check still catches what a move-back can genuinely clobber into being wrong
-        // — the destination replaced wholesale, or reshaped at depth 1.
-        //
-        // Read at `liveLocation` rather than at `to` itself, because for a NESTED
-        // batch `to` is not where the item is by the time registration runs. `normalizeNames`
-        // applies renames deepest-first (a child renames inside its still-named parent, then the
-        // parent is renamed around it) and registers shallowest-first, so the child's recorded
-        // `to` — /root/Photos-BAD/aOK.txt — names a path that no longer exists once the parent
-        // became /root/PhotosOK. Snapshotting there recorded `.absent`, and at undo time, with the
-        // parent already restored, `.absent` vs the real file compared `.changed`: the child's
-        // rename was refused and never reversed, a half-undone pass reported as drift that never
-        // happened. `to` itself stays the recorded value — at undo time the parent IS restored
-        // first, so `to` is again the right path to move back from.
-        // Built ONCE for the whole batch: this loop is the reason `renameMap(for:)` is separate
-        // from `liveLocation` — rebuilding it per item made a 3,000-item move cost 14.6 s of
-        // main-actor time (see `renameMap(for:)`).
+        // Read at `liveLocation`, not `to`: in a nested batch the parent may already be renamed, so
+        // `to` no longer exists. `to` stays recorded, since the undo restores the parent first.
+        // The rename map is built once per batch (see `renameMap(for:)`).
         let renames = FileSyncManager.renameMap(for: items)
         let enriched: [MoveUndoItemState] = items.map { item in
             (from: item.from, to: item.to, overwritten: item.overwritten,
@@ -1158,21 +752,11 @@ extension FileSyncManager {
         }
         let resolver = AsyncValueResolver<[MoveUndoItemState]>()
         registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
-        // The backups' identities (FR27) are a walk per replaced FOLDER, so they are read off the
-        // main actor; the undo is already registered and its handler waits on the resolver.
-        //
-        // A source folder a merge trashed (FR35) is a Trash backup too, and gets the same rule:
-        // DEEP, OS noise ignored (`backupIdentity`). Its shallow identity was the folder's own date
-        // and child count, which the `.DS_Store` Finder writes into a folder the user merely opens
-        // in the Trash moved — and ⌘Z then refused the original folder as "changed since". And
-        // its own file number, because its contents are the same as any other empty folder's
-        // (`mergeEmptiedFolderIdentity`).
-        //
-        // **An item a later move of the batch replaced into the Trash is held the same way (U3).**
-        // FR23 points its record at where the replace put it, so it is a Trash item like any
-        // backup, and the shallow identity read above refused its ⌘Z once Finder had written a
-        // `.DS_Store` into it there. Deep and by file number, as FR35's folders are: OS noise
-        // ignored, and the item itself rather than any folder with the same contents.
+        // Backup identities cost a walk per replaced folder, so they're read off the main actor;
+        // the handler waits on the resolver. Items now in the Trash (a merge-emptied source folder,
+        // or an item a later move replaced into the Trash) are re-read deep and by file number
+        // (`mergeEmptiedFolderIdentity`), so Finder's `.DS_Store` doesn't count as a change and
+        // another folder with the same contents doesn't match.
         return Task.detached(priority: .userInitiated) {
             let withBackups: [MoveUndoItemState] = enriched.map { item in
                 (from: item.from, to: item.to, overwritten: item.overwritten,
@@ -1181,9 +765,7 @@ extension FileSyncManager {
                  overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
                  emptiedByMerge: item.emptiedByMerge, redirectedIntoTrash: item.redirectedIntoTrash)
             }
-            // Said now, once per batch, as the copy's registration says it (L1): an identity that
-            // could not be read is a ⌘Z that will refuse, and the user should not first hear of
-            // it from that refusal.
+            // Logged now, once per batch: an unreadable identity is a ⌘Z that will refuse.
             let unreadable = withBackups.filter { $0.movedIdentity == .indeterminate }.map { (destination: $0.to, child: URL?.none) }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: withBackups.count, actionName: actionName,
                                                           operation: .move)
@@ -1191,11 +773,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
-    /// `trashedItems[i]` is the Trash location of `urls[i]` (nil when it wasn't trashed —
-    /// such items have no backup to restore, so they're dropped from the undo state here).
-    /// Each backup's identity (FR27) is read off the main actor — a deleted folder costs a walk —
-    /// and the returned task completes once they are all recorded.
+    /// Registers a delete-undo; same contract as `registerCopyUndo(items:actionName:fileManager:)`.
+    /// `trashedItems[i]` is where `urls[i]` went in the Trash, or nil if it wasn't trashed (then
+    /// there is nothing to restore and it's dropped). Backup identities are read off the main actor.
     @discardableResult
     func registerRestoreItems(urls: [URL], trashedItems: [URL?], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         let pairs: [(original: URL, trashed: URL)] = zip(urls, trashedItems).compactMap { original, trashed in
@@ -1226,15 +806,11 @@ extension FileSyncManager {
                 await target.enqueueFileOperation(slot: slot) {
                         let items = await stateResolver.get()
 
-                        // Undoing a copy deletes the copied item. On volumes without Trash that
-                        // deletion is permanent, so it needs the same user confirmation as
-                        // deleteItems — never a silent removeItem fallback.
-                        // Redo params are resolved from ONLY the copies actually undone (destination
-                        // removed), not eagerly from every item — a copy whose undo was refused (trash
-                        // failed AND the user declined the permanent delete) still exists on disk, so
-                        // redoing it would re-copy over the survivor. `redoParamResolver` MUST be
-                        // resolved on every exit (including the declined-confirmation early return) or
-                        // a later redo would await it forever.
+                        // Undoing a copy deletes it. Without a Trash that is permanent, so it needs
+                        // the same confirmation as deleteItems, never a silent removeItem.
+                        // Redo params come only from copies actually removed: a refused one still
+                        // exists, and redoing it would copy over it. Resolve `redoParamResolver` on
+                        // every exit, or a later redo awaits it forever.
                         var trashFailures: [CopyUndoItemState] = []
                         var removed = 0
                         var restored = 0
@@ -1242,41 +818,27 @@ extension FileSyncManager {
                         var leftInPlace = 0
                         var vanished = 0
                         var undoneCopies: [(source: URL, destination: URL)] = []
-                        /// The redo params: each undone copy with what this undo left at its
-                        /// destination, read once the whole run has settled — after every restore
-                        /// — because that is the state the redo will find (FR25).
+                        /// Each undone copy with what this undo left at its destination, read after
+                        /// every restore, since that is what the redo will find.
                         func redoParams() -> [CopyRedoParam] {
                             undoneCopies.map { copy in
                                 (source: copy.source, destination: copy.destination,
                                  destinationIdentity: FileSyncManager.redoOccupantIdentity(at: copy.destination, fileManager: fm))
                             }
                         }
-                        // Destinations THIS run already put into their pre-batch state. A batch
-                        // can register one path twice (the second copy replaced the first): after
-                        // item 1's trash, item 2 finds its destination "gone" — but not
-                        // externally-gone, and restoring ITS backup would resurrect the
-                        // intermediate copy item 1 just removed.
-                        // Exact strings PLUS a folded form: a batch can register one on-disk
-                        // file under two spellings ("F.txt" then "f.txt" via the replace
-                        // prompt), and the second must be recognized as already handled or its
-                        // backup restore resurrects content this run just removed. Folding is
-                        // gated on the destination VOLUME's case semantics (per parent — on a
-                        // case-sensitive volume two variants are two real files and only the
-                        // exact match may skip); Unicode always precomposes (APFS/HFS+ lookups
-                        // are normalization-insensitive on every volume).
+                        // Destinations this run already returned to their pre-batch state. A batch
+                        // can register one path twice (a second copy replaced the first), and
+                        // restoring the second's backup would resurrect the copy just removed. Kept
+                        // exact and folded, since one file can be registered under two spellings
+                        // ("F.txt", "f.txt"). Case folds only on a case-insensitive volume, where the
+                        // two are one file; Unicode always precomposes, as APFS/HFS+ lookups do.
                         var handledDestinations = Set<String>()
                         var handledFoldedDestinations = Set<String>()
                         var duplicateRegistrations = 0
-                        // The fold decision is per destination PARENT, resolved once and CACHED:
-                        // keys must be stable across the run (a parent vanishing mid-undo must
-                        // not change set membership), and the answer must come from a real
-                        // volume — resourceValues throws for a vanished path, and a fixed
-                        // fallback inverts the guard's rule exactly when the vanished branch
-                        // needs it (fail→fold skipped a REAL second file's restore on a
-                        // case-sensitive volume). Walking up to the nearest existing ancestor
-                        // answers for the volume the path lives on; volume semantics don't
-                        // change within a subtree. Total failure ("/" unanswerable) stays
-                        // exact-only: never skip a possibly-real file.
+                        // Whether to fold, per destination parent, cached so keys stay stable if a
+                        // parent vanishes mid-undo. Asked of the nearest existing ancestor, since a
+                        // vanished path can't answer and a fixed fallback would be wrong on some
+                        // volume. If nothing answers, don't fold: never skip a file that may be real.
                         var foldsByParent: [String: Bool] = [:]
                         func volumeFoldsCase(underParent parent: URL) -> Bool {
                             if let cached = foldsByParent[parent.path] { return cached }
@@ -1300,14 +862,9 @@ extension FileSyncManager {
                             return volumeFoldsCase(underParent: url.deletingLastPathComponent())
                                 ? precomposed.lowercased() : precomposed
                         }
-                        // **The redo re-copies what the batch ENDED with at each name (U5).** A
-                        // batch that landed two copies on one name is undone once, at the item
-                        // handled first, and the later registration is skipped as a duplicate; the
-                        // redo param named the handled item's source, so ⌘⇧Z re-copied the copy the
-                        // batch had replaced. `items` is in registration order: the last one wins.
-                        // The destination's SPELLING comes from that last registration too (L3): on a
-                        // folding volume `F.txt` then `f.txt` is one file the batch ended spelling
-                        // `f.txt`, and the redo re-copies under the name the batch left.
+                        // The redo re-copies what the batch ended with at each name, source and
+                        // spelling both. A name copied twice is undone once and the later
+                        // registration skipped, so take the last one (`items` is in order).
                         let finalCopyByDestination = Dictionary(
                             items.map { (foldedKey($0.destination), (source: $0.source, destination: $0.destination)) },
                             uniquingKeysWith: { _, later in later })
@@ -1322,7 +879,7 @@ extension FileSyncManager {
                             handledDestinations.contains(url.path)
                                 || handledFoldedDestinations.contains(foldedKey(url))
                         }
-                        // The backup's verdict (FR27); `.unchanged` when there is none.
+                        // The backup's verdict; `.unchanged` when there is none.
                         func backupVerdict(_ item: CopyUndoItemState) -> DriftVerdict {
                             item.overwritten.map {
                                 FileSyncManager.trashBackupVerdict(recorded: item.overwrittenIdentity, at: $0, fileManager: fm)
@@ -1334,17 +891,9 @@ extension FileSyncManager {
                                 logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled by an earlier item of this run — skipping its duplicate registration")
                                 continue
                             }
-                            // A copy the user already deleted themselves: nothing to trash. For
-                            // directories this used to fall through to trashItem (their nil size
-                            // snapshot skips the drift guard below), whose no-such-file error is
-                            // not transient — escalating to a permanent-delete prompt naming an
-                            // item that isn't on disk; for files, the drift guard refused with a
-                            // "changed" banner. Either way the overwritten backup stayed
-                            // stranded. The undo's goal at this path is already met: restore the
-                            // backup, keep the item in the redo params (a redo re-copies it),
-                            // and log the breadcrumb. (registerCreateFolderUndo guards its
-                            // missing-folder case the same way.)
-                            // No-follow (FR28): a copied link left dangling is still the copy.
+                            // The user already deleted the copy, so the undo's goal here is met:
+                            // restore the backup and keep the item in the redo params. Checked
+                            // without following links, since a dangling copied link is still the copy.
                             if !FileSyncManager.entryExists(at: item.destination, fileManager: fm) {
                                 vanished += 1
                                 markHandled(item.destination)
@@ -1357,19 +906,10 @@ extension FileSyncManager {
                                 }
                                 continue
                             }
-                            // "Still the same item?" drift guard: if the destination is no longer
-                            // the item this copy produced, refuse to trash it and keep it out of
-                            // the redo params. For a folder the recorded identity is DEEP
-                            // (`.directoryTree`), and `drift` re-walks at that same depth here —
-                            // so an edit buried levels down inside the copy refuses too, not just
-                            // a change to the root's own date or immediate children.
-                            //
-                            // Switched rather than `if let`-ed, which is the fix: the verdict has
-                            // three values and the old shape could only express two, so the third
-                            // — "could not tell" — silently took the destroy path.
-                            //
-                            // Read ONCE and switch on the binding: re-reading inside the branch
-                            // would let the reported verdict disagree with the one that chose it.
+                            // If the destination is no longer the item this copy produced (re-read
+                            // deep for a folder), refuse to trash it and keep it out of the redo
+                            // params. Switch on all three verdicts, so "couldn't tell" never takes
+                            // the destroy path. Read once, so the report matches the decision.
                             let verdict = item.destinationIdentity.drift(at: item.destination, fileManager: fm)
                             switch verdict {
                             case .unchanged:
@@ -1379,24 +919,18 @@ extension FileSyncManager {
                                 await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, intent: .removeTheCopyItProduced, on: target)
                                 continue
                             }
-                            // **A locked copy** (FR31). The copy of a file locked in Finder is
-                            // locked like it, and the kernel refuses to Trash a locked item — so
-                            // this ⌘Z read EPERM as "busy" and asked for a retry that could never
-                            // succeed. A lock the copy CARRIED from its source is lifted from this
-                            // copy, which the identity check above has just confirmed is the item
-                            // the copy produced; a lock nobody recorded — the user locked the copy
-                            // since — is theirs, and refuses with a sentence saying so.
+                            // A locked copy can't be trashed. A lock it carried from its source is
+                            // lifted, since the check above confirmed it is our copy; any other lock
+                            // is the user's, and the undo refuses and says so.
                             if FileSyncManager.isLocked(item.destination, fileManager: fm), !item.copiedLock {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedLockedItem(of: item.destination, actionName: actionName, on: target)
                                 continue
                             }
-                            // The backup is read BEFORE the copy goes (FR27): one that cannot be
-                            // read now refuses the whole item, because trashing the copy and then
-                            // declining the restore left the destination empty with the original
-                            // still in the Trash. A stranger (`.changed`) does not hold the copy
-                            // back — the original is gone from the Trash either way — and is
-                            // refused at the restore below.
+                            // Check the backup before the copy goes. An unreadable one refuses the
+                            // whole item, or the destination would end up empty with the original
+                            // still in the Trash. A stranger doesn't hold the copy back (the original
+                            // is gone either way); the restore below refuses it.
                             let itemBackupVerdict = backupVerdict(item)
                             if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
                                 leftInPlace += 1
@@ -1410,9 +944,8 @@ extension FileSyncManager {
                             } catch {
                                 // Left as it was found: the lock goes back on a copy that stays.
                                 FileSyncManager.relock(item.destination, liftedLock, fileManager: fm)
-                                // A transiently busy/locked item stays retryable — never escalate
-                                // it to the permanent-delete prompt (same distinction deleteItems
-                                // applies): a retry may well trash it recoverably.
+                                // A transient failure stays retryable, never a permanent-delete
+                                // prompt (as in deleteItems): a retry may trash it recoverably.
                                 if FileSyncManager.isTransientTrashFailure(error) {
                                     leftInPlace += 1
                                     await FileSyncManager.reportUndoTransientTrashFailure(of: item.destination, actionName: actionName, error: error, on: target)
@@ -1432,13 +965,11 @@ extension FileSyncManager {
                             }
                         }
 
-                        // Items whose destination an earlier (successful) attempt already put
-                        // into its pre-batch state are settled — the prompt must not ask the
-                        // user to confirm permanently deleting a file the loop would then skip.
+                        // Skip items an earlier attempt already settled, so the prompt doesn't ask
+                        // to delete a file the loop would then skip.
                         let confirmableFailures = trashFailures.filter { !alreadyHandled($0.destination) }
                         if !confirmableFailures.isEmpty {
-                            // The prompt lists each on-disk file ONCE: a duplicate-registered
-                            // path (both attempts failed trash) must not read as two files.
+                            // List each on-disk file once, even if registered twice.
                             var promptedFolded = Set<String>()
                             let promptPaths = confirmableFailures.compactMap { item -> String? in
                                 promptedFolded.insert(foldedKey(item.destination)).inserted
@@ -1452,19 +983,16 @@ extension FileSyncManager {
                                 return
                             }
                             for item in confirmableFailures {
-                                // Same duplicate guard as the main loop — on a Trash-less
-                                // volume BOTH registrations of one path land here, and without
-                                // this check item B's removeItem permanently unlinked the
-                                // pre-batch original item A had just restored.
+                                // The main loop's duplicate guard. Without a Trash both
+                                // registrations of a path land here, and the second removeItem would
+                                // permanently delete the original the first just restored.
                                 if alreadyHandled(item.destination) {
                                     duplicateRegistrations += 1
                                     logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled — skipping its duplicate permanent-delete")
                                     continue
                                 }
-                                // The same copied lock as the Trash path above, or the confirmed
-                                // delete fails on it exactly as the Trash did (FR31).
-                                // Read again before the delete, as the Trash path reads it before
-                                // the trash: the prompt may have been up for some time (FR27).
+                                // Re-read the backup before deleting, since the prompt may have been up
+                                // a while; the copied lock is lifted as on the Trash path.
                                 let itemBackupVerdict = backupVerdict(item)
                                 if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
                                     leftInPlace += 1
@@ -1477,8 +1005,7 @@ extension FileSyncManager {
                                     try fm.removeItem(at: item.destination)
                                 } catch {
                                     FileSyncManager.relock(item.destination, liftedLock, fileManager: fm)
-                                    // The copy survives on disk, so its backup must not be
-                                    // restored over it — report and leave everything in place.
+                                    // The copy survives, so its backup must not be restored over it.
                                     await FileSyncManager.reportUndoRemoveFailure(of: item.destination, actionName: actionName, error: error, on: target)
                                     continue
                                 }
@@ -1516,25 +1043,14 @@ extension FileSyncManager {
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
                         var leftInPlace = 0
-                        // Collected across the loop and reported once, for the reason
-                        // `logIndeterminateRegistrations` states: N lines over an unreadable tree
-                        // push the context that explains it out of the 1000-entry buffer.
+                        // Reported once after the loop (see `logIndeterminateRegistrations`).
                         var unreadable: [(destination: URL, child: URL?)] = []
 
-                        // **No source-identity guard here, deliberately, and it is not the same gap
-                        // the MOVE redo had.** A move-redo that reads a changed source relocates
-                        // it: the stranger leaves the source path and lands on the destination, and
-                        // that is destruction, so it refuses. A copy-redo reads the source and
-                        // leaves it exactly where it is. What it can overwrite is the DESTINATION,
-                        // and `safeCopyItem` asks nobody about that — it replaces whatever is there
-                        // and sends it to the Trash. (This said the user was asked; nothing in this
-                        // path ever asked.) So the destination gets its own guard, below (FR25):
-                        // only the item the undo left there — the original the first copy replaced
-                        // with the user's say-so — may be replaced again. There is also no
-                        // recorded identity to compare against: a copy never touches its source, so
-                        // nothing in this chain has ever snapshotted one. Re-copying a source the
-                        // user has since edited re-applies the copy to the file that is there now,
-                        // which is what "redo the copy" means.
+                        // No source-identity guard, on purpose: a copy-redo only reads its source,
+                        // so re-copying an edited source is what "redo the copy" means. What it can
+                        // destroy is the destination, which `safeCopyItem` replaces without asking,
+                        // so the destination is guarded below: only what the undo left there may
+                        // be replaced.
                         for param in params {
                             // Before the parent is made, so a refusal leaves the disk as it was.
                             let atDestination = FileSyncManager.redoDestinationVerdict(
@@ -1548,16 +1064,10 @@ extension FileSyncManager {
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
                                 let trashed = try FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
-                                // Re-snapshot the item this redo just produced — the next undo
-                                // must guard against drift from THIS copy, not the first. DEEP,
-                                // like `registerCopyUndo(items:)`: this identity feeds the same
-                                // trash guard, and recording it shallow here would quietly hand
-                                // the redo→undo leg back the deep-edit blindness the first leg
-                                // just closed — pinned by `aDeepEditAfterARedoRefusesTheSecondUndo`
-                                // (this line mutated to `snapshot` passed the whole suite before
-                                // that test: every copy-redo fixture was a file, for which the
-                                // two snapshots are definitionally identical). Taken inline,
-                                // right after the item's own copy, so the window is per item.
+                                // Re-snapshot this redo's copy for the next undo, deep as in
+                                // `registerCopyUndo(items:)` since that undo trashes, and inline so the
+                                // window is per item. `aDeepEditAfterARedoRefusesTheSecondUndo` fails if
+                                // this goes shallow.
                                 let read = FileSyncManager.recordedCopyIdentity(at: param.destination, fileManager: fm)
                                 if read.identity == .indeterminate {
                                     unreadable.append((param.destination, read.unreadableDescendant))
@@ -1567,9 +1077,8 @@ extension FileSyncManager {
                                                   overwrittenIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fm),
                                                   copiedLock: FileSyncManager.copyCarriesItsSourcesLock(param.source, param.destination, fileManager: fm)))
                             } catch {
-                                // A failed re-copy must stay out of the next undo state: undoing
-                                // a phantom copy would prompt to permanently delete a file that
-                                // is not on disk.
+                                // Keep a failed re-copy out of the next undo state, or its undo would
+                                // prompt to delete a file that isn't on disk.
                                 redoFailures += 1
                                 await FileSyncManager.reportRedoFailure(of: param.destination, actionName: actionName, error: error, on: target)
                             }
@@ -1584,62 +1093,12 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    /// **`items` arrives in whatever order its call site built it, and the whole chain preserves
-    /// that order**: the handler reverses them front to back, `registerMoveRedo` re-applies them
-    /// back to front, and the state it hands the next undo is reversed again.
-    ///
-    /// **Two of the nine call sites depend on that, and they arrange their order themselves.**
-    /// `normalizeNames` applies deepest-first and then deliberately re-sorts the batch
-    /// shallowest-first before registering, so a ⌘Z restores a renamed parent folder before the
-    /// children renamed inside it and a ⌘⇧Z renames the children before the folder around them.
-    /// The reversal in `registerMoveRedo` is written for that call site and the multi-select
-    /// move below, and the comment there saying it "restores the original apply order" is true of
-    /// those two only.
-    ///
-    /// Of the other eight, four pass a single item, where order is not a question at all, and
-    /// three (`FileSyncManager+Filing.swift`'s batch filing, `FileSyncManager+Automations.swift`'s
-    /// automation run, and `applyRenamePlans`' renumbering) hand over APPLY order, appending in the
-    /// order they moved things. For those the replay runs the batch backwards. Filing and
-    /// automation move FILES into destination folders and `applyRenamePlans` renames files inside
-    /// one folder, so in all three no move's `from` can be an ancestor of another's `to` and any
-    /// order reverses.
-    ///
-    /// **The multi-select move (`FileOperations.swift`) hands over its items LAST FIRST** (M2,
-    /// `undoItems(_:nodeStarts:restoringFirst:)`), because a later item can write into an earlier
-    /// one — a merge into the folder an earlier item became — and must be taken back out first.
-    /// So it is undone last item first and replayed in the order it was applied. It is also the
-    /// one whose ancestry has to be checked rather than assumed, and it does NOT keep its paths
-    /// apart either. `liveLocation`'s own doc, four hundred lines above, constructs the
-    /// counter-example: with nested provider roots `/P` and `/P/Backup`, a single multi-select move
-    /// batch has `/P/Backup/D` → `/P/Backup/moved-D` beside `/P/D/file.txt` →
-    /// `/P/Backup/D/file.txt`, where the first move's `from` IS a strict ancestor of the second's
-    /// `to`. This comment used to claim every other batch holds "items whose paths cannot reach
-    /// each other", which contradicted that; it says what is true instead. Nothing reaches the bad
-    /// replay today: undoing such a batch refuses the ancestor (its source is occupied by the
-    /// recreated directory), so the ancestor never enters the redo params and the reversal has
-    /// nothing to get wrong. If another call site ever needs an order, arrange it as these two do
-    /// rather than leaning on the reversal.
-    ///
-    /// **`applyRenamePlans`' cascades are safe, and neither reason this has given for it was the
-    /// real one.** The first credited the naming convention — the label travels with the number, so
-    /// `01. Mar`→`02. Mar` sits beside `02. Apr`→`03. Apr` and no destination is another's source.
-    /// That is true of today's planner and is not a guarantee. The second replaced it with the
-    /// never-overwrite fallback at `FileSyncManager+FilingRename.swift:251-258`, which diverts `dst`
-    /// through `generateUniqueURL` when the target is occupied by a different item, and concluded
-    /// that even a planner renumbering onto a live sibling "could not produce a move whose `to` is
-    /// another move's `from`". It can: that fallback stats at APPLY time in step order, so it
-    /// diverts only a step whose target is still occupied, and a descending renumber `03→04`,
-    /// `02→03`, `01→02` vacates `03` before `02→03` looks at it. The chain is produced.
-    ///
-    /// What actually holds is one step further on, and it is a property of the UNDO rather than of
-    /// the planner: undoing that batch first moves `04`→`03`, and `03` is occupied — by the very
-    /// item the `02→03` step put there — so the occupancy check refuses it with
-    /// `restoreTargetOccupiedError`, and a refused item is never added to `movedBackPairs`. `03`→`02`
-    /// refuses for the same reason one link along. The chain links therefore never reach the redo
-    /// params, and the reversal below has nothing to get wrong — the same mechanism that already
-    /// covers the multi-select case in the paragraph above, which is why this now names it once
-    /// instead of inventing a second one. Note what that means in the other direction: it holds
-    /// because the cascade cannot be undone, not because it cannot be built.
+    /// Registers the handler for a move-undo. `items` keeps its call-site order through the chain:
+    /// the undo walks it front to back and `registerMoveRedo` replays it back to front. Call sites
+    /// that need an order arrange it themselves: `normalizeNames` registers shallowest-first, so ⌘Z
+    /// restores a parent before its children, and the multi-select move registers last item first,
+    /// since a later item can write into an earlier one. A renumbering cascade (`03→04`, `02→03`)
+    /// chains, but its undo refuses each link as occupied, so no link reaches the redo params.
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
@@ -1652,104 +1111,56 @@ extension FileSyncManager {
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
-                    // An original parked by this undo's own cleanup is the item it moved BACK
-                    // from: the alert says so in undo's words (U7), not "reached its destination".
+                    // An original parked by this undo's cleanup is the item it moved back from, so
+                    // the alert words it as an undo.
                     await ParkedSourceLeftovers.$undoing.withValue(true) {
                         let items = await stateResolver.get()
 
-                        // Resolve the redo params AFTER the reversal loop, from ONLY the items that
-                        // actually moved back — mirroring how the redo path excludes failed re-applies
-                        // from its next-undo state. A refused item (its source is now occupied by a
-                        // DIFFERENT file) must never be in redoParams: redoing it would run the move
-                        // anyway and drop that unrelated occupant over the real file at the destination.
+                        // Redo params come only from items that actually moved back. A refused item
+                        // must never be redone: the redo would move an unrelated occupant over the
+                        // real file at the destination.
                         var movedBack = 0
                         var restoreFailures = 0
-                        // A drift refusal is not a failure — the undo CHOSE not to move the item,
-                        // and nothing it attempted went wrong. Counting it as a restore failure
-                        // reported "moved 0 of 1 item(s) back to source, 1 restore failure(s)" for
-                        // a run in which nothing failed, which reads as breakage in the log and
-                        // hides the genuine `safeMoveItem` throws among it. The copy path already
-                        // separates the two with its own `leftInPlace`; this is its twin.
+                        // Refusals, counted apart from failures: the undo chose not to act, and
+                        // nothing went wrong. Mirrors the copy path's `leftInPlace`.
                         var leftInPlace = 0
                         var movedBackPairs: [(from: URL, to: URL, emptiedByMerge: Bool, redirectedIntoTrash: Bool)] = []
-                        // Items the user removed themselves between the move and the ⌘Z. Counted
-                        // apart from `leftInPlace` because they are not a refusal: this undo did
-                        // not decline to act, there was nothing left to act on.
+                        // Items the user removed between the move and the ⌘Z: nothing to act on, so
+                        // not a refusal.
                         var vanished = 0
-                        // Items whose RECORDED identity is `.absent` — nothing was at the
-                        // destination when this undo was registered. A third category again: not a
-                        // drift refusal (nothing was ever there to drift), and not `vanished`
-                        // (which says the user removed it, and would be a false accusation here).
+                        // Items recorded as `.absent`: nothing was at the destination at
+                        // registration. Neither a drift refusal nor `vanished`.
                         var nothingRecorded = 0
                         for item in items {
                             var movedBackOK = false
-                            // **A recorded `.absent` must not authorise a move.** It is not an
-                            // identity, it is the absence of one, and the drift guard below cannot
-                            // say so: `compare(.absent, .absent)` answers `.unchanged` — correct,
-                            // and useless, because "nothing changed" here means "there was nothing,
-                            // and there still is nothing". That verdict reached the `else` branch,
-                            // whose FIRST statement is `createDirectory(item.from's parent)`, so an
-                            // undo that could only ever throw still manufactured a folder — for a
-                            // normalize batch, the zero-width-space name the pass had just removed.
-                            // Measured on an empty root with a batch recorded against a
-                            // never-created destination: `[]` before ⌘Z, `["P␣"]` after.
-                            //
-                            // **FIRST, ahead of the `vanished` branch, because the two overlap.**
-                            // That branch fires when the destination's parent exists and the
-                            // destination does not — which is exactly the ordinary normalize shape,
-                            // a child renamed inside a folder that is still there. It claimed such
-                            // an item first and reported "no longer on disk", a sentence that says
-                            // the USER removed it while a recorded `.absent` says it was never
-                            // recorded as being there at all — and it only logs, so the banner that
-                            // tells them the undo refused was lost with it. (The comment here used
-                            // to assert the two could not overlap, on the grounds that `.absent`
-                            // implies a missing parent. It does not: the measured fixture had the
-                            // root as the parent, and the test that pinned this deliberately
-                            // emptied the root, which is what kept the overlap invisible.)
-                            //
-                            // Checked before the drift stat rather than after: with the recorded
-                            // side absent there is nothing a stat could add, and the refusal is the
-                            // same whatever is at `item.to` now.
+                            // **A recorded `.absent` must not authorise a move.** The drift guard
+                            // answers `.unchanged` for two absents, and the move branch would then
+                            // create the source's parent folder before failing. Checked first, ahead
+                            // of `vanished`, which overlaps it whenever the parent exists and would
+                            // only log, losing the refusal banner.
                             if item.movedIdentity == .absent {
                                 nothingRecorded += 1
                                 await FileSyncManager.reportUndoRefusedUnrecordedItem(
                                     of: item.to, actionName: actionName, on: target)
                                 continue
                             }
-                            // The moved item is GONE. Not drift — nothing is there to be a
-                            // stranger — and both siblings already say so: the copy-undo has its
-                            // own "already deleted themselves" branch, and the move-REDO skips its
-                            // absent sources for the same reason. Only this loop fell through to
-                            // the drift comparison, where `.absent` differs from the recorded
-                            // identity and reported the deleted item as CHANGED.
+                            // The moved item is gone: not drift, just nothing to move back. Still
+                            // restore the original this move displaced, which is safe because the
+                            // destination is empty. Not added to `movedBackPairs`: there is nothing to
+                            // redo.
                             //
-                            // The sentence was false, and it cost something real: the ORIGINAL
-                            // this move displaced stayed stranded in the Trash. Restoring it is
-                            // the one part of the reversal still available, and it is safe
-                            // precisely here — the destination is empty, so nothing is clobbered.
-                            // Deliberately NOT added to `movedBackPairs`: nothing moved back, and
-                            // a redo has nothing to re-apply.
-                            //
-                            // **The parent has to exist for this to mean what it says**, and that
-                            // condition is the whole difference between the two ways a path can
-                            // come back missing. A NESTED batch whose shallow item was refused
-                            // leaves the deeper item's recorded `to` spelling an ancestor that was
-                            // never restored: the file is still on disk under the ancestor's other
-                            // name, so "no longer on disk" would be false, and moving the backup
-                            // there would manufacture the very folder the refusal declined to
-                            // recreate. Without this clause the nested-refusal test reported
-                            // `a.txt is no longer on disk` about a file sitting in `Photos/`.
-                            // A missing parent falls through to the drift guard, which refuses —
-                            // which is what it did before this branch existed.
-                            //
-                            // No-follow (FR28): a moved relative link usually dangles where it
-                            // landed, and it is still the item this undo moves back.
+                            // Only when the parent exists. In a nested batch whose parent's undo was
+                            // refused, `to` spells a parent that was never restored: the file is still
+                            // on disk under the other name, and restoring the backup there would create
+                            // that folder. A missing parent falls through to the drift guard, which
+                            // refuses. Checked without following links: a moved relative link usually
+                            // dangles, and is still the item.
                             let parentExists = fm.fileExists(atPath: item.to.deletingLastPathComponent().path)
                             if parentExists, !FileSyncManager.entryExists(at: item.to, fileManager: fm) {
                                 vanished += 1
                                 logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
                                 if let trashed = item.overwritten {
-                                    // Only the item this move put in the Trash (FR27).
+                                    // Only the item this move put in the Trash.
                                     let backupVerdict = FileSyncManager.trashBackupVerdict(
                                         recorded: item.overwrittenIdentity, at: trashed, fileManager: fm)
                                     if backupVerdict != .unchanged {
@@ -1768,51 +1179,23 @@ extension FileSyncManager {
                                 }
                                 continue
                             }
-                            // A case-only rename ("foo"→"Foo") is NOT a clobber: on a case-insensitive
-                            // volume item.from resolves to the very item.to being moved back, so
-                            // `fileExists(item.from)` is true even though nothing else took the spot.
-                            // Exclude that case (mirrors renameItem's isCaseOnly guard) and let
-                            // safeMoveItem perform the case-only rename; otherwise, if a DIFFERENT item
-                            // now occupies the original location, refuse rather than silently
-                            // replace-and-Trash it (a displacement Redo couldn't track).
-                            // Only treat item.from as "the moved item itself" on a case-INsensitive
-                            // volume, where the two case-variant paths are one file. On a
-                            // case-sensitive volume they're distinct, so a genuine occupant at
-                            // item.from must still trip the guard (matches renameItem's isCaseOnly,
-                            // which is likewise volume-gated).
-                            //
-                            // **The walking-up probe, because `item.from` is the path being
-                            // restored TO and is usually absent.** `volumeSupportsCaseSensitiveNames`
-                            // asks `resourceValues`, which throws for a path with nothing on disk —
-                            // its own sibling's doc says asking about a file about to be created
-                            // "always produced the fallback — never the volume's real answer". That
-                            // fallback is `false`, insensitive, and here that is the UNSAFE
-                            // direction: it makes `sameItemAsMoved` true on a genuinely
-                            // case-sensitive volume, where the two paths are distinct files, and
-                            // waves the undo past the occupant guard the comment above says must
-                            // trip. Folding is the safe default where it only costs a needless
-                            // " 2"; this is not that place.
-                            //
-                            // `…ForNewItem` walks to the nearest existing ancestor, which answers
-                            // for the volume the path lands on — volume semantics do not change
-                            // within a subtree.
+                            // Undoing a case-only rename ("foo"→"Foo") isn't a clobber. On a
+                            // case-insensitive volume `item.from` is the very item being moved back, so
+                            // let safeMoveItem do the rename (as renameItem's isCaseOnly does). On a
+                            // case-sensitive volume they're two files, and an occupant must still
+                            // refuse. Asked through the walking-up probe because `item.from` is usually
+                            // absent, and the plain probe's fallback (insensitive) is the unsafe answer
+                            // here.
                             let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: item.from)
                                 && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
-                            // "Still the same item?" — the guard the doc comment claimed and the
-                            // code did not have. The occupancy check below asks whether the SOURCE
-                            // is free; this asks whether the thing at the DESTINATION is still the
-                            // item this undo moved there. Without it, a newer version dropped at
-                            // the destination is moved away to the source path and the older one
-                            // restored over it, reported as a clean success.
-                            //
-                            // Checked before the occupancy branch so a drifted destination refuses
-                            // for the accurate reason rather than falling through to whichever
-                            // branch the source's state happens to select.
+                            // Is the item at the destination still the one this move put there? If
+                            // not (a newer version dropped there, say), moving it back would swap the
+                            // newer version out for the old. Checked before the source-occupancy
+                            // check, so the refusal gives the accurate reason.
                             let moveVerdict = item.movedIdentity.drift(at: item.to, fileManager: fm)
-                            // The backup is read BEFORE the item moves back (FR27), as the
-                            // copy-undo reads it before trashing the copy: an unreadable one
-                            // refuses the whole item, rather than moving the item out and then
-                            // declining to put the original back in its place.
+                            // Check the backup before the item moves back, as the copy-undo does: an
+                            // unreadable one refuses the whole item, so the original is never left
+                            // stranded.
                             let backupVerdict = item.overwritten.map {
                                 FileSyncManager.trashBackupVerdict(recorded: item.overwrittenIdentity, at: $0, fileManager: fm)
                             } ?? .unchanged
@@ -1820,8 +1203,7 @@ extension FileSyncManager {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, on: target)
                             } else if !sameItemAsMoved && FileSyncManager.entryExists(at: item.from, fileManager: fm) {
-                                // `entryExists`, not `fileExists` (U6): a dangling link at the
-                                // source is an occupant, which `fileExists` reads as nothing.
+                                // `entryExists`, not `fileExists`: a dangling link is an occupant.
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                             } else if let trashed = item.overwritten, backupVerdict == .indeterminate {
@@ -1830,14 +1212,8 @@ extension FileSyncManager {
                                     at: trashed, leaving: item.to, actionName: actionName, on: target)
                             } else {
                                 do {
-                                    // Recreating the source's parent belongs HERE, in the branch
-                                    // that is actually about to move something, not at the top of
-                                    // the loop. A refused item must leave the disk exactly as it
-                                    // found it, and running this first did not: for a NESTED batch
-                                    // whose shallow item was refused, the deeper item's `from`
-                                    // spells the old ancestor name, so the refusal that followed
-                                    // still left behind a brand-new empty folder carrying the very
-                                    // name the pass had just removed.
+                                    // Recreate the source's parent only here, once a move is
+                                    // certain: a refused item must leave the disk as it found it.
                                     try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
                                     _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
                                     movedBack += 1
@@ -1846,9 +1222,8 @@ extension FileSyncManager {
                                     movedBackPairs.append((from: item.from, to: item.to, emptiedByMerge: item.emptiedByMerge,
                                                            redirectedIntoTrash: item.redirectedIntoTrash))
                                 } catch FileOperationError.originalPartlyRemoved {
-                                    // Back whole at `from`; part of it is still at `to` (B3). Not a
-                                    // failed restore, and not redoable — nor is the original put
-                                    // back at `to`, over those remains: it stays in the Trash.
+                                    // Back whole at `from`, with remains at `to`. Not redoable, and
+                                    // the original stays in the Trash rather than land on the remains.
                                     movedBack += 1
                                     await FileSyncManager.reportMovedWithLeftoverRemains(
                                         restored: item.from, leftover: item.to, isRedo: false,
@@ -1864,9 +1239,8 @@ extension FileSyncManager {
                             // move-back failed, item.to still holds the item and this would just
                             // collide and mis-report a second failure.
                             if movedBackOK, let trashed = item.overwritten {
-                                // Only the item this move put in the Trash (FR27): a stranger that
-                                // has taken its name there stays put, and the destination stays
-                                // empty rather than receiving something nobody moved out of it.
+                                // Only the item this move put in the Trash: a stranger with its name
+                                // stays, and the destination stays empty.
                                 if backupVerdict != .unchanged {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRefusedTrashStranger(
@@ -1882,27 +1256,11 @@ extension FileSyncManager {
                                 }
                             }
                         }
-                        // The identity each restored item has NOW, read in one pass once the whole
-                        // reversal has settled — this is what lets the redo refuse to move a
-                        // stranger, and the pass has to come after the loop rather than inside it.
-                        // A batch can nest (`normalizeNames` restores a parent and then the
-                        // children inside it), and moving a child rewrites its PARENT's
-                        // modification date; a directory identity taken the moment that directory
-                        // landed would already disagree with itself two items later. The state the
-                        // loop leaves behind is the state the redo will find, so that is the one to
-                        // record.
-                        //
-                        // SHALLOW, deliberately, for the same reason as `registerMoveUndo(items:)`:
-                        // a redo MOVES rather than destroys, so a deep edit it misses travels with
-                        // the folder, while a deep identity here would falsely refuse the redo of
-                        // any folder edited inside since the undo — and the redo's own deepest-first
-                        // replay moves children out of the very directories it is about to compare,
-                        // which a recursive digest would read as drift this loop itself caused.
-                        //
-                        // The destination is read in the same pass, for the same reason: it holds
-                        // what this undo left there — an original it restored, or nothing — and the
-                        // redo may replace only that (FR25). Deep, unlike the source: the redo
-                        // sends that original to the Trash (U2, `redoDestinationVerdict`).
+                        // Read each restored item's identity after the whole loop, since that is what
+                        // the redo will find: in a nested batch, moving a child changes its parent's
+                        // date. The source is shallow, as in `registerMoveUndo(items:)`, because a redo
+                        // moves rather than destroys. The destination is deep, because the redo would
+                        // trash what's there (`redoDestinationVerdict`).
                         let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
                             (from: pair.from, to: pair.to,
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm),
@@ -1912,8 +1270,7 @@ extension FileSyncManager {
                         await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
                                     + (vanished > 0 ? ", \(vanished) no longer on disk" : "")
-                                    // Appended rather than folded into `leftInPlace`, whose
-                                    // parenthetical would stop being true of every item it counts.
+                                    // Separate from `leftInPlace`, whose parenthetical wouldn't fit it.
                                     + (nothingRecorded > 0 ? ", \(nothingRecorded) with nothing recorded to move back" : ""))
                     }
                 }
@@ -1938,49 +1295,16 @@ extension FileSyncManager {
                         var redoFailures = 0
                         var leftInPlace = 0
 
-                        // "Still the same item?" for the REDO, which had no such guard at all: it
-                        // gated on `fileExists(param.from)` and then moved whatever was there.
-                        // Measured — move `/src/report.txt` → `/dst/report.txt`, ⌘Z, create a
-                        // DIFFERENT `/src/report.txt` and an unrelated `/dst/report.txt`, ⌘⇧Z — the
-                        // redo relocated the file the user had just made, replaced the unrelated
-                        // one at the destination, and said nothing: no log line, no banner. The
-                        // undo path refuses exactly this via `reportUndoRefusedChangedItem`.
-                        //
-                        // **WHERE the check happens is decided per item, by the SOURCE's own type,
-                        // and both answers are load-bearing.**
-                        //
-                        // Checking every source up front and then moving every source leaves the
-                        // whole pass-to-move interval unguarded: for item *k* of *N* that is
-                        // (N−k stats) plus (k−1 real filesystem moves), which on the 3,000-item
-                        // batches `renameMap(for:)` is written for is seconds. Anything that lands
-                        // at a source inside that window is moved unchecked — the same
-                        // "`fileExists` answering an identity question" defect this pass was added
-                        // to fix, one step later in the same function. Measured on a two-item batch
-                        // with a stranger written at the first item's source while the second was
-                        // moving: it was relocated, and nothing was logged or bannered.
-                        //
-                        // But checking a DIRECTORY source in its turn is wrong, and not marginally:
-                        // the replay runs deepest-first, so moving a child rewrites its PARENT's
-                        // modification date, and the parent would then be measured against a date
-                        // this very loop had just changed. Verified — it refuses
-                        // `redoOfANestedNormalizePassReAppliesBothRenames` with `Redo left
-                        // "Photos␣" in place — it changed since`, which is a correct redo declined.
-                        //
-                        // That perturbation is only possible for a directory: a sibling move cannot
-                        // touch a `.file` or a `.symlink`'s identity, so nothing this loop does can
-                        // make a non-directory source disagree with itself. So a directory keeps the
-                        // up-front comparison, everything else is compared immediately before its
-                        // own move, and each keeps the property the other cannot.
-                        //
-                        // The residual is stated rather than hidden: a directory source SWAPPED for
-                        // another between the pass and its move is still moved. Closing that means
-                        // telling this replay's own perturbation apart from a foreign one, which an
-                        // identity alone cannot do — and it is the state every source was in before
-                        // this split, not a new exposure.
+                        // The redo moves only the item its undo put at the source, never a stranger
+                        // found there. When to check depends on the source's type. Files and links are
+                        // checked right before their own move, so nothing that appears mid-batch slips
+                        // through. Folders are checked up front: the replay runs deepest-first, so
+                        // moving a child changes its parent's date, and a parent checked at its turn
+                        // would refuse a correct redo. Remaining gap: a folder swapped for another
+                        // between the check and its move is still moved.
                         var replayable: [(param: MoveRedoParam, recheckAtItsMove: Bool)] = []
                         for param in params.reversed() {
-                            // Only a recorded DIRECTORY has the up-front pass to gain, and only a
-                            // present one: an absent directory has nothing to compare yet.
+                            // Only a recorded folder that is present now is checked up front.
                             guard case .directory = param.sourceIdentity else {
                                 replayable.append((param: param, recheckAtItsMove: true))
                                 continue
@@ -2001,44 +1325,20 @@ extension FileSyncManager {
                             replayable.append((param: param, recheckAtItsMove: false))
                         }
 
-                        // `replayable` is already REVERSED, because re-applying is not the same
-                        // order as reversing.
-                        //
-                        // The undo appends its params in the order it processed `items`, and
-                        // `normalizeNames` hands that in deliberately: apply deepest-first, undo
-                        // shallowest-first, so the parent is restored around the children before
-                        // they move back inside it. Re-applying in the undo's own order runs the
-                        // parent rename FIRST, and every deeper item's recorded `from` then spells
-                        // an ancestor that has just stopped existing. Measured on a normalize pass
-                        // over `<root>/Photos␣/a␣.txt`: ⌘⇧Z produced `Photos`, `Photos/a␣.txt` and
-                        // a brand-new EMPTY `Photos␣` — the risky name the pass exists to remove —
-                        // and the stray directory then occupied the child's source, so the next
-                        // ⌘Z hit `restoreTargetOccupiedError` and reversed nothing at all. No data
-                        // was lost, but the tree was one nobody asked for and the undo stack was
-                        // dead. Reversing restores the order in which `normalizeNames` applied the
-                        // moves, which is the order that made them possible in the first place.
-                        //
-                        // It also makes the inline snapshot below read a LIVE path for free: each
-                        // item is snapshotted the instant it lands, before the shallower moves
-                        // rename its ancestors, so `param.to` is where the item actually is. This
-                        // is why the redo does NOT need `liveLocation` — and must not use it, as
-                        // that would resolve to a path only the LATER moves make real.
+                        // `replayable` is reversed: re-applying runs in the original apply order
+                        // (deepest-first for `normalizeNames`), not the undo's order. In the undo's
+                        // order the parent is renamed first, and every child's `from` then names a
+                        // folder that no longer exists. Each item is also snapshotted as it lands,
+                        // before shallower moves rename its ancestors, so `param.to` is live and
+                        // `liveLocation` must not be used here.
                         for (param, recheckAtItsMove) in replayable {
                             if recheckAtItsMove {
                                 let liveSource = ItemIdentity.snapshot(at: param.from, fileManager: fm)
-                                // Still nothing there: that IS the gone case, and the re-apply
-                                // below reports it precisely as "its source may no longer exist".
-                                // Re-established here rather than remembered from the pass, which
-                                // is the second half of this fix — an `.absent` verdict taken up
-                                // front meant the recorded identity was never consulted at ANY
-                                // point, and the `fileExists` re-test below then moved whatever had
-                                // appeared. Measured: the user deleted a source after the undo and
-                                // wrote an unrelated file at the same path while a sibling was
-                                // moving; the redo relocated the new file and reported nothing.
-                                //
-                                // A recorded `.absent` cannot authorise anything through here
-                                // either: absent-vs-absent skips the compare and falls to the
-                                // failure report, and absent-vs-present compares `.changed`.
+                                // Nothing there now is the missing-source case, which the move below
+                                // reports. Decided here, at the move, not from the up-front pass, so
+                                // a file that appeared since is compared rather than moved. A
+                                // recorded `.absent` authorises nothing: against a present item it
+                                // compares `.changed`.
                                 if liveSource != .absent {
                                     let verdict = ItemIdentity.compare(recorded: param.sourceIdentity,
                                                                        current: liveSource)
@@ -2050,12 +1350,10 @@ extension FileSyncManager {
                                     }
                                 }
                             }
-                            // A source folder a merge emptied goes back to the Trash only as the
-                            // merge sent it there: holding nothing but a `.DS_Store` (FR35). The
-                            // replay runs deepest-first, so its children have had their turn; one
-                            // whose redo was refused is still inside, and moving the folder would
-                            // carry it into the Trash. Only for a folder still there — a missing
-                            // one falls to the move's own "may no longer exist" report.
+                            // A merge-emptied source folder goes back to the Trash only if, as when
+                            // the merge trashed it, nothing but a `.DS_Store` is left. A child whose
+                            // redo was refused would otherwise go with it. A missing folder falls to
+                            // the move's own report.
                             if param.emptiedByMerge, FileSyncManager.entryExists(at: param.from, fileManager: fm),
                                !FileSyncManager.mergeLeftNothing(in: param.from, fileManager: fm) {
                                 leftInPlace += 1
@@ -2063,10 +1361,9 @@ extension FileSyncManager {
                                     param.from, actionName: actionName, on: target)
                                 continue
                             }
-                            // And the DESTINATION is still what the undo left there (FR25):
-                            // `safeMoveItem` replaces whatever it finds, so a file saved there by
-                            // another app since the undo would go to the Trash unasked. Checked at
-                            // the item's own move, after the source, so a refusal says which.
+                            // The destination must still hold what the undo left there:
+                            // `safeMoveItem` trashes whatever it finds. Checked after the source, so
+                            // a refusal names the right one.
                             let atDestination = FileSyncManager.redoDestinationVerdict(
                                 recorded: param.destinationIdentity, at: param.to, fileManager: fm)
                             guard atDestination == .unchanged else {
@@ -2075,27 +1372,18 @@ extension FileSyncManager {
                                     of: param.to, actionName: actionName, verdict: atDestination, on: target)
                                 continue
                             }
-                            // Only manufacture the destination's parent for a move that can
-                            // actually happen. Unconditionally, this created the ancestor a
-                            // sibling move had just renamed away — the empty `Photos␣` above —
-                            // and then reported the failure anyway. If the source is not there,
-                            // nothing is going to land, so nothing should be built for it.
-                            // `entryExists` (L6): a dangling link at the source is a source to move.
+                            // Create the destination's parent only if there is a source to move
+                            // (including a dangling link), or it could recreate a folder a sibling
+                            // move just renamed away.
                             if FileSyncManager.entryExists(at: param.from, fileManager: fm) {
                                 try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
                             }
                             do {
                                 let trashed = try FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
-                                // Snapshot HERE, where the state is produced — the resolver is
-                                // consumed at undo time, and a snapshot taken there would be
-                                // compared against itself. Shallow, like every move-chain
-                                // identity: it feeds the next MOVE-undo's guard, which moves
-                                // rather than destroys (see `registerMoveUndo(items:)`) — except
-                                // a merge-emptied folder this redo put back in the Trash, which is
-                                // held to the Trash backups' deep rule there too, and to its own
-                                // file number (FR35, `mergeEmptiedFolderIdentity`) — and so is an
-                                // item FR23 recorded in the Trash, which this redo put back there
-                                // (M3): read shallow, Finder's `.DS_Store` refused its next ⌘Z.
+                                // Snapshot here, where the state is produced; at undo time it would
+                                // be compared against itself. Shallow, like every move identity,
+                                // except an item this redo put back in the Trash, which is read deep
+                                // and by file number (`mergeEmptiedFolderIdentity`).
                                 nextState.append((from: param.from, to: param.to, overwritten: trashed,
                                                   movedIdentity: param.emptiedByMerge || param.redirectedIntoTrash
                                                     ? FileSyncManager.mergeEmptiedFolderIdentity(param.to, fileManager: fm)
@@ -2104,26 +1392,21 @@ extension FileSyncManager {
                                                   emptiedByMerge: param.emptiedByMerge,
                                                   redirectedIntoTrash: param.redirectedIntoTrash))
                             } catch FileOperationError.originalPartlyRemoved {
-                                // At `to` whole; part of it is still at `from` (B3). Left out of
-                                // the next undo, whose move back would meet those remains.
+                                // Whole at `to`, with remains at `from`. Left out of the next undo,
+                                // whose move back would meet them.
                                 await FileSyncManager.reportMovedWithLeftoverRemains(
                                     restored: param.to, leftover: param.from, isRedo: true,
                                     actionName: actionName, on: target)
                             } catch {
-                                // A failed re-move must stay out of the next undo state: undoing
-                                // a phantom move would "restore" from a destination that was
-                                // never populated.
+                                // Keep a failed re-move out of the next undo state, or its undo would
+                                // restore from an empty destination.
                                 redoFailures += 1
                                 await FileSyncManager.reportRedoFailure(of: param.to, actionName: actionName, error: error, on: target)
                             }
                         }
 
-                        // Handed back in UNDO order — the reverse of the order just re-applied —
-                        // which is the invariant every array in this chain keeps: a move state is
-                        // always stored in the order its undo must process it. Resolved in the
-                        // replay's own order, the next ⌘Z would restore a parent before the
-                        // children inside it had left, which is the same defect one step further
-                        // along.
+                        // Handed back in undo order, the reverse of the replay: every move state in
+                        // this chain is stored in the order its undo processes it.
                         await nextUndoStateResolver.resolve(Array(nextState.reversed()))
                         logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (changed or unverifiable)")
                 }
@@ -2142,38 +1425,23 @@ extension FileSyncManager {
             target.registerCreateFolderRedo(url: url, fileManager: fm)
             let slot = target.claimFileOperationSlot()
             Task { await target.enqueueFileOperation(slot: slot) {
-                // This undo can follow a FAILED folder redo (its registration cannot be taken
-                // back once the redo's createDirectory throws), so it only removes what it owns:
-                // an existing directory at `url`. A missing folder — or a non-folder item that
-                // has since taken the path — must not be trashed or prompt for deletion.
+                // This undo can follow a failed folder redo, so it removes only an existing folder
+                // at `url`. A missing folder, or another item now at the path, is left alone.
                 var isDirectory: ObjCBool = false
                 guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                     logger.info("Undo (New Folder): no folder to remove at \(url.path)")
                     return
                 }
-                // **Only an empty folder is this undo's to remove** (FR24). Everything an action
-                // moved INTO the folder was registered after it, so its undo has already run; what
-                // is still inside got there some other way — the user put it there, or a move-back
-                // refused it as changed. Restructure's ⌘Z trashed such a folder right after a
-                // banner said the refused item was left in place. OS noise holds nothing; a folder
-                // that cannot be fully read is never treated as empty.
-                //
-                // **A subfolder is content too, empty or not** (L4). The count below ignores empty
-                // folders — the removal step's rule, where a drained folder may go with its drained
-                // children — so a tree the user built inside the new folder, folders only, read as
-                // empty and went to the Trash. Every folder an action made inside this one was
-                // registered after it, so its own undo has already removed it; one still here was
-                // put there some other way.
-                //
-                // **Restructure's own count, not a walk of this undo's own** (U1): it asks a
-                // cloud-only folder for its contents first, bounded (FR21), so a folder whose app
-                // has stopped reads as unknown instead of hanging the file queue; it skips what is
-                // inside `.Trashes`; and an entry it cannot stat counts as content. Nil — not
-                // fully read — is "not empty".
+                // **Only an empty folder is this undo's to remove.** Anything an action moved in was
+                // registered later, so its undo already ran; what remains got there another way (the
+                // user, or a refused move-back). OS noise holds nothing, but a subfolder counts as
+                // content even if empty. Uses Restructure's count, which bounds a cloud-only folder's
+                // listing, so a stopped cloud app can't hang the file queue. Nil (not fully read)
+                // means not empty.
                 var held = FileSyncManager.visibleFileCount(atPath: url.path, fm: fm)
                 if held == 0 {
-                    // No file anywhere beneath, so whatever this level lists beyond OS noise is a
-                    // folder. A listing that cannot be completed is unknown, as above.
+                    // No file beneath, so anything listed beyond OS noise is a subfolder. An
+                    // incomplete listing is unknown.
                     let top = fm.listing(of: url)
                     held = top.isComplete
                         ? top.urls.count { !ItemIdentity.deepIdentityIgnoredNames.contains($0.lastPathComponent) }
@@ -2181,8 +1449,7 @@ extension FileSyncManager {
                 }
                 guard held == 0 else {
                     let name = url.lastPathComponent
-                    // Unread is not "not empty" to the user (L2): nil is a folder that could not be
-                    // fully read, or whose cloud app did not answer — said as that.
+                    // Tell the user "couldn't be read" apart from "isn't empty".
                     let unread = held == nil
                     await MainActor.run {
                         logger.warning(unread
@@ -2197,10 +1464,8 @@ extension FileSyncManager {
                 do {
                     try fm.trashItem(at: url, resultingItemURL: nil)
                 } catch {
-                    // A transiently busy/locked folder stays retryable — same distinction as
-                    // deleteItems and the copy-undo: escalating a momentary EBUSY/EACCES to the
-                    // permanent-delete prompt could permanently destroy a folder (and whatever
-                    // the user has put in it since) that a retry would have trashed recoverably.
+                    // A transient failure stays retryable, as in deleteItems and the copy-undo: a
+                    // permanent-delete prompt could destroy a folder a retry would trash recoverably.
                     if FileSyncManager.isTransientTrashFailure(error) {
                         await FileSyncManager.reportUndoTransientTrashFailure(of: url, actionName: "New Folder", error: error, on: target)
                         return
@@ -2209,11 +1474,8 @@ extension FileSyncManager {
                     // permanent removal gets the same confirmation as everywhere else.
                     let confirmed = await MainActor.run { confirmPermanentDelete([url.path]) }
                     if confirmed {
-                        // Report the outcome either way. `try?` swallowed both: a failure left the
-                        // folder on disk after the user had confirmed its deletion, with nothing
-                        // in the log and no banner — the undo simply appeared to have worked. The
-                        // copy-undo's twin of this branch has always reported through
-                        // reportUndoRemoveFailure; this one just never did.
+                        // Report the outcome either way: a failure after the user confirmed would
+                        // otherwise look like success.
                         do {
                             try fm.removeItem(at: url)
                             _ = await MainActor.run {
@@ -2253,22 +1515,11 @@ extension FileSyncManager {
         undoManager?.setActionName("New Folder")
     }
     
-    /// Registers the REDO of a delete: the handler re-trashes what its paired undo actually
-    /// restored — `itemsResolver` is resolved by that undo AFTER its restore loop, from only the
-    /// successful restores, so a REFUSED restore (a different item occupied the original path)
-    /// can never put the unrelated occupant on the redo's trash list. Its only caller is the
-    /// delete-undo handler in `registerRestoreItems`, so the audit label is always "Redo".
-    ///
-    /// **And each item is re-identified at the moment it is trashed, not merely stat-ed for
-    /// existence.** Being on this list means "the undo put our item back here", which stops being
-    /// true the moment anything replaces it. The move-redo path has refused exactly this shape
-    /// since `ItemIdentity` landed (`reportRedoRefusedChangedItem`, whose doc says a redo is as
-    /// destructive as an undo and gets the same refusal); this one gated on the PATH existing and
-    /// would trash a stranger. Measured: delete `/a/report.txt`, ⌘Z, replace `/a/report.txt` with a
-    /// different file, ⌘⇧Z — the replacement went to the Trash, with no log line and no banner.
-    ///
-    /// A path that is simply GONE stays a silent skip: nothing is there to trash, the redo has
-    /// nothing to do about it, and the count line already says how many of how many were trashed.
+    /// Registers the redo of a delete, which re-trashes only what its undo actually restored
+    /// (`itemsResolver` is filled after the restore loop), so an occupant that refused a restore is
+    /// never trashed. Called only from `registerRestoreItems`. Each item is re-identified just before
+    /// it is trashed, and a replacement at the path is refused. A path that is gone is skipped
+    /// silently; the count line covers it.
     func registerTrashItems(itemsResolver: AsyncValueResolver<[TrashRedoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
@@ -2286,11 +1537,10 @@ extension FileSyncManager {
                         var refused = 0
                         for item in items {
                             let url = item.url
-                            // `entryExists` (U6): a dangling link the undo restored is still there.
+                            // `entryExists`: a dangling link the undo restored is still there.
                             guard FileSyncManager.entryExists(at: url, fileManager: fmLocal) else { continue }
-                            // Re-read HERE, immediately before the trash, rather than trusting the
-                            // existence check: the gap between "something is at this path" and
-                            // "our item is at this path" is the whole defect.
+                            // Re-identified right before the trash: "something is here" isn't "our
+                            // item is here".
                             let verdict = item.restoredIdentity.drift(at: url, fileManager: fmLocal)
                             guard verdict == .unchanged else {
                                 refused += 1
@@ -2313,12 +1563,9 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
 
-    /// Registers the UNDO of a delete: the handler restores each item from its Trash location.
-    /// The redo it registers re-trashes ONLY what this undo actually restored — the redo URL list
-    /// is resolved AFTER the restore loop (mirroring `registerMoveUndo`, "a refused item must
-    /// never be in redoParams"): a restore refused because a DIFFERENT item took the original
-    /// path leaves that occupant in place, and a redo that blindly re-trashed the full original
-    /// URL list would trash it.
+    /// Registers the undo of a delete, which restores each item from the Trash. The redo list is
+    /// resolved after the restore loop, from successful restores only, so a redo never trashes an
+    /// occupant that refused a restore.
     func registerRestoreItems(stateResolver: AsyncValueResolver<[RestoreItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
@@ -2340,17 +1587,14 @@ extension FileSyncManager {
                         let backupVerdict = FileSyncManager.trashBackupVerdict(
                             recorded: item.backupIdentity, at: item.trashedBackup, fileManager: fm)
                         if FileSyncManager.entryExists(at: item.original, fileManager: fm) {
-                            // `entryExists` (U6): a dangling link is an occupant too.
-                            // A different item now occupies the deleted item's location. Restoring
-                            // from Trash here would silently replace-and-Trash it (untracked by
-                            // Redo). Refuse and report; the item stays in the Trash, recoverable —
-                            // and stays OUT of redoURLs, so a redo can't trash the occupant either.
+                            // Something else, even a dangling link, now holds the original location.
+                            // Refuse rather than trash it: the item stays in the Trash and out of the
+                            // redo list.
                             restoreFailures += 1
                             await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                         } else if backupVerdict != .unchanged {
-                            // The item at the recorded Trash location is not the one this delete
-                            // put there (FR27) — the Trash was emptied and another item took the
-                            // name. It stays in the Trash, and stays OUT of the redo list.
+                            // The item in the Trash isn't the one this delete put there. It stays
+                            // there, and out of the redo list.
                             restoreFailures += 1
                             await FileSyncManager.reportUndoRefusedTrashStranger(
                                 at: item.trashedBackup, restoring: item.original, actionName: actionName,
@@ -2359,21 +1603,11 @@ extension FileSyncManager {
                             do {
                                 _ = try FileSyncManager.safeMoveItem(at: item.trashedBackup, to: item.original, fileManager: fm)
                                 restored += 1
-                                // Only a restore that actually happened is redoable — and it is
-                                // identified as it lands, so the redo can tell our item from
-                                // whatever may be at that path by the time it runs. Read AFTER the
-                                // move, so it describes the restored item rather than the backup.
-                                //
-                                // Shallow: `snapshot` not `deepSnapshot`, so for a directory this
-                                // is `.directory(childNames:fileNumber:)` — it notices a direct
-                                // child appearing, going or being renamed, and another folder put
-                                // at the path, and does NOT notice an edit further down; and it
-                                // leaves out the `.DS_Store` Finder writes into a folder the user
-                                // only opened, which the folder's date and raw count did not (M4). That asymmetry is the intended one. The deep walk exists
-                                // for the copy-undo, where a refusal is what protects the ONLY
-                                // instance of an edit; here the item goes to the Trash, which the
-                                // user can retrieve it from, so paying a recursive walk per
-                                // restored folder to catch a deep edit would buy very little.
+                                // Only a real restore is redoable. It is identified after the move, so
+                                // the redo can tell it from whatever is at the path later. Shallow on
+                                // purpose: the redo only trashes, which is recoverable, so a deep walk
+                                // per folder would buy little. Shallow still catches another folder at
+                                // the path or a changed direct child, and ignores `.DS_Store`.
                                 restoredItems.append((url: item.original,
                                                       restoredIdentity: ItemIdentity.snapshot(at: item.original, fileManager: fm)))
                             } catch {
@@ -2391,8 +1625,8 @@ extension FileSyncManager {
     }
 }
 
-/// A generic async resolver used to chain dynamically generated state values (like Trash URLs) 
-/// from background file executions into sequential, synchronously registered Undo/Redo blocks.
+/// Hands state produced by a background file operation (Trash URLs, say) to an undo/redo block
+/// that was registered synchronously before it existed.
 actor AsyncValueResolver<T: Sendable> {
     private var result: T?
     private var continuations: [CheckedContinuation<T, Never>] = []

@@ -2,16 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the second half of the bulk-vs-single exclusion, which was written in one direction only.
-///
-/// `syncAll` refuses to start while `syncingDifferenceIds` is non-empty — its own comment calls
-/// that guard a mirror of Verify All's. The mirror image was missing: `syncFile` read
-/// `syncingDifferenceIds` and `isVerifyAllRunning` but never `isBulkSyncRunning`, so a single-row
-/// sync queued behind a Sync All could start inside the window between syncAll's latch and its
-/// `markSyncing` — the two are separated by the confirmation prompt, whose modal spins the run
-/// loop by design. Both flows would then handle the same difference, and because
-/// `syncingDifferenceIds` is a set rather than a refcount, whichever `defer` ran first would
-/// release an id the other still owned.
+/// Bulk and single-row syncs exclude each other in both directions. `syncFile` must check
+/// `isBulkSyncRunning`: a single-row sync can otherwise start between `syncAll`'s latch and its
+/// `markSyncing`, which the confirmation prompt's modal run loop separates. Both flows would then
+/// handle the same difference, and since `syncingDifferenceIds` is a set, not a refcount, the first
+/// `defer` to run releases an id the other still owns.
 @Suite struct BulkSyncSingleRowExclusionTests {
 
     @MainActor
@@ -44,8 +39,8 @@ import Foundation
         #expect(manager.banner?.severity == .warning)
         // Nothing was written: the refusal must land before any I/O.
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
-        // The refusal happens before `markSyncing`, so it must not leak an in-flight id — a leak
-        // would refuse Verify All and pane swaps for the rest of the session.
+        // The refusal comes before `markSyncing`, so it leaks no in-flight id; a leak would refuse
+        // Verify All and pane swaps for the rest of the session.
         #expect(manager.syncingDifferenceIds.isEmpty)
         // And it must not clear the flag belonging to the run that is still going.
         #expect(manager.isBulkSyncRunning)
@@ -59,8 +54,8 @@ import Foundation
         _ = await manager.syncFile(diff, fileManager: mockFM)
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
 
-        // The guard is a wait, not a permanent refusal: the identical call goes through the
-        // moment the bulk run releases its latch.
+        // A wait, not a permanent refusal: the same call goes through once the bulk run releases
+        // its latch.
         manager.isBulkSyncRunning = false
         manager.banner = nil
         let ranAfter = await manager.syncFile(diff, fileManager: mockFM)
@@ -68,8 +63,8 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
     }
 
-    /// The direction that already worked, kept alongside its twin so a future edit that
-    /// "simplifies" one of them has to confront both.
+    /// The other direction: a bulk run refuses while a single row is in flight. Kept beside its
+    /// twin so an edit to one has to face both.
     @MainActor
     @Test func bulkRunStillRefusedWhileASingleRowIsInFlight() async throws {
         let (manager, mockFM, diff) = try makeFixture()

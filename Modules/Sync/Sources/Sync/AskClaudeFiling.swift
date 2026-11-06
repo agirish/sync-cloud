@@ -1,15 +1,15 @@
 import Foundation
 
-/// Filing help's card in Ask Claude (TE255), and what Claude is told. The card is local UI and
-/// shows everything; Claude gets the folders and reasons, and the word read from the file only
-/// when the file is in a folder shared without asking.
+/// Filing help's card in Ask Claude, and what Claude is told. The card is local UI and shows
+/// everything; Claude gets the folders and reasons, and the word read from the file only when the
+/// file is in a folder shared without asking.
 public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
 
     public enum Kind: Codable, Equatable, Sendable {
         case suggestions
-        /// No Filing profile yet (decision EX): the card offers Setup.
+        /// No Filing profile yet: the card offers Setup.
         case noProfile
-        /// The place they named is outside the surveyed folder, which is named (TE284).
+        /// The place they named is outside the surveyed folder, which is named.
         case outside(surveyed: String)
         /// The profile has no folder that fits.
         case noMatch
@@ -25,8 +25,8 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         public let reason: String
         /// The reason names a word read from the file.
         public let fromFile: Bool
-        /// Not in the place they named, which is kept because the file plainly belongs here
-        /// (decision FX): "Outside Travel".
+        /// Not in the place they named, but kept because the file plainly belongs here:
+        /// "Outside Travel".
         public let note: String?
 
         public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool, note: String? = nil) {
@@ -83,7 +83,7 @@ public enum AskClaudeFiling {
         case .noProfile:
             return "They have no folder survey yet, so there are no conventions of theirs to go by. Say so; their card offers Setup, whose survey learns how they file. Don’t guess a folder."
         case .outside(let surveyed):
-            // Decision FY: say so, and offer the survey's folder instead.
+            // Say so, and offer the survey's folder instead.
             let survey = AskClaudeScreenCard.escape(surveyed)
             let place = card.place.map(AskClaudeScreenCard.escape) ?? "the place they named"
             return "Their folder survey covers \(survey) only, and \(place) isn’t in it, so there are no conventions of theirs to sort by there. Say so, and offer to sort it into \(survey) by how they file instead, or to move it into one folder of \(place) they name, with propose_changes. Don’t guess a folder."
@@ -94,7 +94,7 @@ public enum AskClaudeFiling {
             for (i, folder) in card.folders.enumerated() {
                 let rank = i == 0 ? "best" : "runner-up"
                 // A folder picked by a word read from the file says what the file holds, so unless
-                // the file shares freely it stays on their card (review of TE319–TE323).
+                // the file shares freely it stays on their card.
                 if folder.fromFile && !sharesFreely {
                     lines.append("\(rank): a folder picked by a word read from the file · \(folder.confidence) · on their card, not sent to you")
                     continue

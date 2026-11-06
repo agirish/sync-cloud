@@ -18,10 +18,9 @@ public struct OperationBanner: Equatable, Sendable {
     public let id: UUID
     public var message: String
     public var severity: Severity
-    /// Whether the operation this banner reports can be reversed by a single `UndoManager.undo()` —
-    /// i.e. it registered exactly one (possibly grouped) undo step. When true the banner offers an
-    /// Undo button, the visible face of the ⌘Z that already works. Left false for outcomes that are
-    /// not a single undo (a guided-review session, a partial batch) or not undoable at all.
+    /// Whether one `UndoManager.undo()` reverses the operation: it registered exactly one
+    /// (possibly grouped) undo step. Then the banner offers an Undo button, the same as ⌘Z. False
+    /// for outcomes that aren't a single undo (a guided-review session, a partial batch).
     public var isUndoable: Bool
     /// A second, quieter line under the sentence — a batch naming each file it skipped, and why.
     public var detail: String?

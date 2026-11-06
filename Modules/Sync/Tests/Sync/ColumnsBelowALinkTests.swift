@@ -2,20 +2,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Columns below a folder link, under a root spelled through one, and above iCloud Drive's
-/// container.**
+/// Columns below a folder link, under a root spelled through one, and above iCloud Drive's
+/// container. A column's directory is composed from the tree root and the names clicked
+/// (`PaneBrowsePath.columnDirectories`), but `contentsOfDirectory(at:)` returns symlink-resolved
+/// URLs: ids go real two levels below a folder link, everywhere under a root spelled through one
+/// (`/var/…` lists `/private/var/…`), and above the container. Looked up by composed path, such a
+/// column misses, and the next republish prunes the stack back to the last column that answered.
 ///
-/// A column's directory is composed from the tree root and the names clicked
-/// (`PaneBrowsePath.columnDirectories`), and the walk does not always spell a node that way:
-/// `contentsOfDirectory(at:)` hands back symlink-RESOLVED URLs for a folder reached through a link,
-/// so ids go real two levels below a folder symlink (`R/link/sub` lists `T/sub/deeper`), everywhere
-/// under a root spelled through a link (a `/var/…` root lists `/private/var/…`) and under a pane
-/// focused below one; and above the container the walk lists the linked `Documents` as the real
-/// folder. Asked by its composed path, every such column missed, and the next republish pruned the
-/// stack back to the last column that answered.
-///
-/// Real temp-dir fixtures and the manager's own walk throughout — the spellings are the
-/// filesystem's, so a hand-built tree would only restate the assumption under test.
+/// Real temp-dir fixtures and the manager's own walk: the spellings are the filesystem's, and a
+/// hand-built tree would only restate the assumption under test.
 @Suite struct ColumnsBelowALinkTests {
 
     /// `R` holds an ordinary branch and `link → Target`, with `Target` outside `R`; `other` is the
@@ -27,8 +22,8 @@ import Testing
     ///     Target/sub/deeper/e.txt
     ///     Target/sub/deeper/deepest/f.txt
     ///
-    /// `Target/sub` is exactly as long as `R/link/sub`, on purpose: a resolved id and the path a
-    /// column composes for it then differ in their bytes and in nothing a length check can see.
+    /// `Target/sub` is exactly as long as `R/link/sub`, so a resolved id and its composed path
+    /// differ in bytes but not in anything a length check can see.
     private static func makeFixture() throws -> (base: URL, root: URL, target: URL, other: URL) {
         let fm = FileManager.default
         let base = try makeCanonicalTempRoot(prefix: "ColumnsBelowALink")
@@ -53,8 +48,8 @@ import Testing
         CloudProvider(id: id, displayName: id, imageName: "folder", rootPath: path, type: .localFolder)
     }
 
-    /// The node reached from `nodes` by these names, each matched against the last component of a
-    /// node's id — the tree's shape, independent of how the walk spelled the ids.
+    /// The node reached from `nodes` by these names, each matched against the last component of an
+    /// id: the tree's shape, whatever spelling the walk gave the ids.
     private static func node(at names: [String], in nodes: [FileNode]) -> FileNode? {
         guard let first = names.first,
               let hit = nodes.first(where: { ($0.id as NSString).lastPathComponent == first }) else { return nil }
@@ -62,7 +57,7 @@ import Testing
     }
 
     /// Every column of `stack` lists something, the deepest lists `deepest`, and a republish's prune
-    /// keeps the whole stack — the two halves of "open a folder below a link and stay there".
+    /// keeps the whole stack: "open a folder below a link and stay there".
     @MainActor
     private static func expectEveryColumnResolves(_ stack: PaneBrowsePath, treeRoot: String,
                                                   index: PaneChildrenIndex,
@@ -82,10 +77,9 @@ import Testing
 
     // MARK: - The children index
 
-    /// **Two levels below a folder link.** The link and its child keep the link's spelling — the URL
-    /// API lists nothing AT a symlink, and the path-based fallback does — and from there down the
-    /// ids are where the link leads. Measured 2026-10-02: `["link", "sub", "deeper"]` asked for
-    /// `R/link/sub/deeper`, got nil, and the next republish cut the stack back to `["link", "sub"]`.
+    /// Two levels below a folder link. The link and its child keep the link's spelling (the URL API
+    /// lists nothing at a symlink, so the path-based fallback does), and below that the ids are
+    /// where the link leads. Composed as `R/link/sub/deeper`, that column must still resolve.
     @MainActor
     @Test func aStackTwoLevelsBelowAFolderLinkKeepsEveryColumn() async throws {
         let f = try Self.makeFixture()
@@ -103,15 +97,15 @@ import Testing
         Self.expectEveryColumnResolves(PaneBrowsePath(components: ["link", "sub", "deeper", "deepest"]),
                                        treeRoot: f.root.path, index: index, links: [:], deepest: ["f.txt"])
 
-        // Through the manager's own republish prune, which is what moved the user.
+        // Through the manager's own republish prune, which is what would move the user.
         m.setBrowsePath(isLeft: true, PaneBrowsePath(components: ["link", "sub", "deeper"]))
         m.pruneBrowsePath(isLeft: true, against: index, treeRoot: f.root.path)
         #expect(m.leftBrowsePath.components == ["link", "sub", "deeper"])
     }
 
-    /// **A root spelled through a link** — `/var/folders/…`, whose walk lists `/private/var/…` from
-    /// its FIRST level, so every column past the root missed, on an ordinary branch as much as below
-    /// the link. `makeCanonicalTempRoot` hides this spelling on purpose; it is undone here.
+    /// A root spelled through a link: `/var/folders/…` lists `/private/var/…` from its first level,
+    /// so every column past the root is at stake, on an ordinary branch as much as below the link.
+    /// `makeCanonicalTempRoot` hides this spelling on purpose; it is undone here.
     @MainActor
     @Test func aRootSpelledThroughALinkKeepsEveryColumn() async throws {
         let f = try Self.makeFixture()
@@ -133,8 +127,8 @@ import Testing
                                        treeRoot: root, index: index, links: [:], deepest: ["f.txt"])
     }
 
-    /// **A pane focused below a link** lists resolved ids from its first level, so Columns could not
-    /// open any folder there. Reached through a breadcrumb, a tab, or "Compare only this folder".
+    /// A pane focused below a link lists resolved ids from its first level, and Columns must still
+    /// open folders there. Reached through a breadcrumb, a tab, or "Compare only this folder".
     @MainActor
     @Test func aPaneFocusedBelowALinkKeepsEveryColumn() async throws {
         let f = try Self.makeFixture()
@@ -156,9 +150,8 @@ import Testing
     }
 
     /// iCloud Drive's shape on the fixture's own table: the container links `Documents` to
-    /// `home/Documents`, outside it — and inside that, `dlink` is an ordinary folder link to
-    /// `elsewhere`, whose grandchildren the walk spells where it leads. `Pictures/Documents` is an
-    /// ordinary folder that only shares the linked one's name.
+    /// `home/Documents`, outside it, and inside that `dlink` is an ordinary folder link to
+    /// `elsewhere`. `Pictures/Documents` is an ordinary folder that only shares the linked one's name.
     private static func makeLinkedFixture() throws
         -> (base: URL, above: URL, container: URL, real: URL, elsewhere: URL, other: URL,
             links: PathBoundary.LinkedFolders) {
@@ -181,15 +174,13 @@ import Testing
         return (base, above, container, real, elsewhere, other, [container.path: ["Documents": real.path]])
     }
 
-    /// **Above iCloud Drive's container** the walk lists the linked `Documents` as `~/Documents`, and
-    /// the column composed `…/com~apple~CloudDocs/Documents`: measured 2026-10-02, the stack pruned
-    /// to `["com~apple~CloudDocs"]`. At the container itself the first column always worked —
-    /// `PaneBrowsePath.step` resolves a FIRST component through the table — but a folder link inside
-    /// `Documents` broke both two levels down, which is the second stack here.
+    /// Above iCloud Drive's container the walk lists the linked `Documents` as `~/Documents` while
+    /// the column composes `…/com~apple~CloudDocs/Documents`. At the container itself
+    /// `PaneBrowsePath.step` resolves a first component through the table, but a folder link inside
+    /// `Documents` is at stake in both cases two levels down: the second stack here.
     ///
-    /// Through the manager's own prune and a mirrored drill too, which compose with the manager's
-    /// table: at the container, with the machine's, `Documents` composed lexically and both cut the
-    /// stack back to the root.
+    /// Also through the manager's own prune and a mirrored drill, which must compose with the
+    /// manager's table, not the machine's, or `Documents` composes lexically and the stack is cut.
     @MainActor
     @Test(arguments: [true, false])
     func aStackThroughTheLinkedFolderKeepsEveryColumn(rootedAboveTheContainer: Bool) async throws {
@@ -213,7 +204,7 @@ import Testing
                                        index: index, links: f.links, deepest: ["x.md"])
         let stack = PaneBrowsePath(components: documents + ["dlink", "sub", "deeper"])
         Self.expectEveryColumnResolves(stack, treeRoot: root, index: index, links: f.links, deepest: ["z.md"])
-        // Only a FIRST component goes through the table: a deeper `Documents` is the folder it is.
+        // Only a first component goes through the table: a deeper `Documents` is the folder it is.
         Self.expectEveryColumnResolves(
             PaneBrowsePath(components: Array(documents.dropLast()) + ["Pictures", "Documents"]),
             treeRoot: root, index: index, links: f.links, deepest: ["p.md"])
@@ -226,12 +217,11 @@ import Testing
         #expect(m.leftBrowsePath.components == stack.components, "the mirrored drill pruned it to \(m.leftBrowsePath.components)")
     }
 
-    /// **A folder the tree holds twice is two columns.** Home holds `~/Dropbox` and the folder it
-    /// leads to, and below the link both routes carry one id — while the budget can walk one route
-    /// and stop the other. Keyed by that id, the walked route's column listed the stopped route's
-    /// copy and read as unreadable (measured on `/System/Library/PrivateFrameworks`, see
-    /// `PaneChildrenIndex`). A walk capped at four levels stands in for the budget: `R/T/sub/deeper`
-    /// is read, and the same folder reached through `R/z/link` one level deeper is not.
+    /// A folder the tree holds twice is two columns. Home holds `~/Dropbox` and the folder it leads
+    /// to, and below the link both routes carry one id, while the budget can walk one route and stop
+    /// the other. Keyed by id, the walked column would list the stopped copy and read as unread (see
+    /// `PaneChildrenIndex`). A four-level cap stands in for the budget: `R/T/sub/deeper` is read,
+    /// and the same folder through `R/z/link`, one level deeper, is not.
     @MainActor
     @Test func eachRouteToAFolderTheTreeHoldsTwiceListsItsOwnCopy() async throws {
         let fm = FileManager.default
@@ -273,10 +263,10 @@ import Testing
 
     // MARK: - A folder the walk did not read
 
-    /// **A budget-unexplored folder below a link is asked for, and its listing lands.** The index
-    /// answered "not unexplored" for the column's path, so the column read "Empty" over a folder
-    /// nobody had listed; and the graft matched the tree by id, so even asked, it found nothing to
-    /// fill. A walk capped at three levels stands in for the budget: both mark the same way.
+    /// A budget-unexplored folder below a link is asked for, and its listing lands. The index must
+    /// call the column's path unexplored, or the column reads "Empty" over an unlisted folder, and
+    /// the graft must find the node by that path, not by id. A three-level cap stands in for the
+    /// budget: both mark the same way.
     @MainActor
     @Test func anUnreadFolderBelowALinkIsReadIntoItsColumn() async throws {
         let f = try Self.makeFixture()
@@ -305,10 +295,9 @@ import Testing
                 == ["deepest", "e.txt"])
     }
 
-    /// **The outline asks with a row's id, not a composed path** — and under a root spelled through a
-    /// link no id is a path under the root, so the names cannot find it. The id prefix found it
-    /// before the names existed, and still has to: opening an unread folder in the Tree there must
-    /// keep filling it in.
+    /// The outline asks with a row's id, not a composed path, and under a root spelled through a
+    /// link no id is a path under the root, so names can't find it. The id prefix must: opening an
+    /// unread folder in the Tree there must still fill it in.
     @MainActor
     @Test func anUnreadFolderTheOutlineAsksForByIdIsReadUnderARootSpelledThroughALink() async throws {
         let f = try Self.makeFixture()
@@ -334,11 +323,10 @@ import Testing
 
     // MARK: - The cache slice
 
-    /// **Navigating below a link is served from the cached walk of the root, as it is anywhere
-    /// else.** The slice matched by id prefix and missed there, so the pane took a cold walk where a
-    /// warm slice would do. Told apart by a file written behind the manager's back: a cold walk lists
-    /// it, a slice of the walk taken before it existed does not. `plain/a` is the control — ids
-    /// continue there, and it was served from the slice all along.
+    /// Navigating below a link is served from the root's cached walk, as anywhere else; a slice
+    /// matched by id prefix misses there and takes a cold walk. Told apart by a file written behind
+    /// the manager's back: a cold walk lists it, a slice of the earlier walk doesn't. `plain/a`,
+    /// where ids continue, is the control.
     @MainActor
     @Test(arguments: ["plain/a", "link/sub/deeper"])
     func aFocusBelowTheRootIsSlicedFromItsCachedWalk(focus: String) async throws {

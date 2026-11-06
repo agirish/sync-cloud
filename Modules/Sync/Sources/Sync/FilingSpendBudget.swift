@@ -1,9 +1,8 @@
 import Foundation
 
-/// A pre-flight snapshot of what a cloud (Claude) Filing classify would cost, shown to the user
-/// BEFORE the call commits — the actual cost is only known after the API responds, so this is the
-/// estimate the confirmation dialog and budget gate reason about. Pure data; all math lives in
-/// `FilingSpendBudget`.
+/// What a cloud (Claude) Filing classify would cost, shown before the call commits. The real cost
+/// is known only after the API responds, so the confirmation dialog and budget gate use this
+/// estimate. Pure data; the math lives in `FilingSpendBudget`.
 public struct FilingSpendPreflight: Sendable, Equatable {
     /// How many files this batch would send to the cloud.
     public let fileCount: Int
@@ -23,12 +22,11 @@ public struct FilingSpendPreflight: Sendable, Equatable {
     public let totalSpentUSD: Double
     /// The total (lifetime) budget cap. 0 = no cap (unlimited/off).
     public let totalCapUSD: Double
-    /// What `fileCount` counts — "file" for the filing refine, "folder name" for §5.6's mapping
-    /// refine. The dialog pluralises it; a prompt claiming "24 files" over a payload of 24 names
-    /// would misstate exactly the thing a payment prompt exists to state.
+    /// What `fileCount` counts: "file" for the filing refine, "folder name" for the mapping refine.
+    /// The dialog pluralises it, so a payment prompt never says "24 files" for 24 names.
     public let unit: String
-    /// How many of the files are only in the cloud and will be downloaded — and kept — so their
-    /// first page can be read (GZ). The estimate already prices their pages.
+    /// How many of the files are cloud-only and will be downloaded, and kept, so their first page
+    /// can be read. The estimate already prices their pages.
     public let downloadCount: Int
 
     public init(fileCount: Int, model: String, estInputTokens: Int, estOutputTokens: Int,
@@ -58,22 +56,19 @@ public struct FilingSpendPreflight: Sendable, Equatable {
         totalCapUSD > 0 && (totalSpentUSD + estCostUSD) > totalCapUSD
     }
 
-    /// True when running this call would breach EITHER the monthly or the total cap. A cap of 0 on a
-    /// dimension means unlimited there, so an all-zero-cap preflight is never blocked — the user is
-    /// never surprise-blocked by a dimension they left off.
+    /// True when running this call would breach either cap. A cap of 0 means unlimited, so a cap
+    /// the user left off never blocks.
     public var wouldExceedCap: Bool {
         wouldExceedMonthlyCap || wouldExceedTotalCap
     }
 }
 
-/// Pure month-accounting and cap math for cloud Filing spend. Kept separate from `FilingSpendStore`
-/// (which only tracks lifetime totals) so the monthly-window logic is unit-testable without touching
-/// UserDefaults.
+/// Month accounting and cap math for cloud Filing spend. Separate from `FilingSpendStore` (lifetime
+/// totals only) so the monthly window is testable without UserDefaults.
 public enum FilingSpendBudget {
 
-    /// Sums `estimatedCostUSD` of the entries whose `timestamp` falls in the same calendar
-    /// month + year as `now`. Everything outside the current month (last month, this month a year
-    /// ago) is excluded — the cap is a rolling per-calendar-month budget.
+    /// Sums `estimatedCostUSD` over entries in the same calendar month and year as `now`: the cap
+    /// is a per-calendar-month budget, so last month and the same month a year ago don't count.
     public static func monthlySpend(entries: [FilingSpendEntry], now: Date, calendar: Calendar = .current) -> Double {
         let nowComps = calendar.dateComponents([.year, .month], from: now)
         return entries.reduce(0) { running, entry in
@@ -83,10 +78,9 @@ public enum FilingSpendBudget {
         }
     }
 
-    /// True when a cap is set (> 0) and `spent` has already reached or passed it. Used as a hard gate
-    /// before a cloud call — at or over the cap, no further cloud calls run. Dimension-agnostic: pass
-    /// this month's spend against the monthly cap, or lifetime spend against the total cap. A cap of 0
-    /// means unlimited, so this is always false there.
+    /// True when a cap is set (> 0) and `spent` has reached it: the hard gate before a cloud call.
+    /// Works for either cap (month's spend against the monthly cap, lifetime against the total). A
+    /// cap of 0 means unlimited, so this is always false there.
     public static func isOverCap(spent: Double, capUSD: Double) -> Bool {
         capUSD > 0 && spent >= capUSD
     }

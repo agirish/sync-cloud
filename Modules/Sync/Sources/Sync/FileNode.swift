@@ -20,39 +20,30 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     public var tags: [String]?
     /// The human-readable file type or kind (e.g. "PNG image").
     public var kind: String?
-    /// True when this is a directory whose children were NOT walked (the tree builder's
-    /// symlink-cycle guard, its hard depth cap, or a depth-capped shallow pass stopped there).
-    /// Its `children == []` is a construction artifact, not an observation — consumers that
-    /// treat a subtree as authoritative (the prefetch cache's `subtree` slicing, and through
-    /// it the in-memory diff) must treat such a node as a miss, never as an empty folder.
-    /// Optional so JSON encoded before this field existed still decodes (nil = walked).
+    /// True when this is a directory whose children were not walked (the symlink-cycle guard, the
+    /// depth cap, or a shallow pass stopped there). Its `children == []` is not an observation:
+    /// anything that trusts a subtree (the prefetch cache's `subtree` slicing, and through it the
+    /// in-memory diff) must treat it as a miss, never as an empty folder.
+    /// Optional so older JSON still decodes (nil = walked).
     public var isUnexplored: Bool?
-    /// True when this entry is a symbolic link (its `fileSize`/`kind`/`isDirectory` describe the
-    /// link's TARGET — the walk resolves them for display and diffing). The duplicate finder
-    /// excludes symlinks: a link and its in-tree target otherwise hash identically and group as
-    /// "copies," and trashing the real target would leave a dangling link as the "kept" copy.
-    /// Optional so JSON encoded before this field existed still decodes (nil = not a link).
+    /// True when this entry is a symbolic link; its `fileSize`, `kind` and `isDirectory` describe
+    /// the target. The duplicate finder excludes links: a link and its target hash alike, and
+    /// trashing the target would leave a dangling link as the "kept" copy.
+    /// Optional so older JSON still decodes (nil = not a link).
     public var isSymbolicLink: Bool?
-    /// **True when this node's subtree is ALSO reached by a shorter route under the same walk
-    /// root**, so anything that adds up the tree must count it once, here or there, never both.
+    /// True when this node's subtree is also reached by a shorter route under the same walk root,
+    /// so anything that adds up the tree must count it once, never twice.
     ///
-    /// One shape produces it, and only one: a folder that a root links in from OUTSIDE
-    /// (`PathBoundary.LinkedFolders` — iCloud Drive's `Desktop` and `Documents`) while the real
-    /// folder is *itself* inside the walk root. Walk `~` and `~/Documents` arrives twice — once
-    /// directly, once through the container — carrying the identical id both times, because the
-    /// walk deliberately substitutes the link for the folder it points at.
+    /// Only one shape produces it: a folder a root links in from outside
+    /// (`PathBoundary.LinkedFolders`, iCloud Drive's `Desktop` and `Documents`) whose real folder is
+    /// inside the walk root too. Walk `~` and `~/Documents` arrives twice with the same id, since
+    /// the walk substitutes the real folder for the link. `isSymbolicLink` can't mark it: the node
+    /// is the real directory, not a link.
     ///
-    /// **`isSymbolicLink` cannot answer this**, which is why the field exists. The substituted node
-    /// describes the REAL directory: its id is the real path and it is not a link, so flagging it
-    /// as one would be a lie told to every consumer, including those that act on the path. Measured
-    /// 2026-09-08 on a real machine — the container's children come back `sym=false` with real-path
-    /// ids — and the cost of nothing marking them was a Storage total 10.5 GB over and a Duplicates
-    /// group that offered to Trash `~/Documents` as a copy of itself.
-    ///
-    /// Consumers that SUM or GROUP the tree skip these (`StorageLensAnalyzer`, `DuplicateFinder`,
-    /// `SelectionSummary`). Consumers that DISPLAY or navigate must not: the folder really is
-    /// browsable at that spot, and the panes drew it long before this flag existed.
-    /// Optional so JSON encoded before this field existed still decodes (nil = not a re-reach).
+    /// Consumers that sum or group the tree skip these (`StorageLensAnalyzer`, `DuplicateFinder`,
+    /// `SelectionSummary`); unmarked, Storage counts the folder twice and Duplicates offers to Trash
+    /// `~/Documents` as a copy of itself. Consumers that display or navigate must not skip them.
+    /// Optional so older JSON still decodes (nil = not a re-reach).
     public var isCoveredElsewhere: Bool?
 
     /// Initializes a new FileNode with optional metadata.
@@ -82,18 +73,13 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.isCoveredElsewhere = isCoveredElsewhere
     }
 
-    /// **True when this directory is a package** — a `.pages`, `.key`, `.app` or
-    /// `.photoslibrary` that is a folder on disk and ONE document to the person using it.
+    /// True when this directory is a package: a `.pages`, `.key`, `.app` or `.photoslibrary` that
+    /// is a folder on disk and one document to the user.
     ///
-    /// Read off ``kind``, the type identifier the walk already records, rather than a field of its
-    /// own: a stored flag would read `nil` in every tree encoded before it existed, and pane trees
-    /// are cached as JSON — so the answer is the same however the tree was obtained. Measured on this Mac against `.isPackageKey`
-    /// for `.key`, `.pages`, `.numbers`, `.app`, `.photoslibrary`, `.rtfd`, `.xcodeproj`, `.band`,
-    /// `.bundle`, `.plugin`, `.framework` and the real Photos library: the two agreed on every one.
-    /// What neither sees is a plain folder carrying only Finder's bundle bit.
-    ///
-    /// Walks still go inside packages — Browse and Compare show their contents — so consumers that
-    /// GROUP or MOVE pieces of a tree are the ones that must ask (`DuplicateFinder`).
+    /// Read off ``kind`` rather than stored, so trees cached as JSON before a stored flag existed
+    /// still answer. It agrees with `.isPackageKey` on the common package types; neither sees a
+    /// plain folder carrying only Finder's bundle bit. Walks still go inside packages, so consumers
+    /// that group or move pieces of a tree must ask (`DuplicateFinder`).
     public var isPackage: Bool {
         guard isDirectory, let kind, kind != "public.folder" else { return false }
         return UTType(kind)?.conforms(to: .package) == true
@@ -105,16 +91,10 @@ extension Array where Element == FileNode {
     /// - Parameter paths: A set of absolute path IDs.
     /// - Returns: The matching `FileNode`s in pre-order.
     ///
-    /// Stops walking once *every distinct requested path* has been matched at least once — a big
-    /// win because this runs per render against panes of ~40k nodes (a full walk was ~100ms each
-    /// in debug), and a 1-item selection now returns right after its match instead of visiting
-    /// every node. Guarantees: no requested path present in the tree is ever dropped, and results
-    /// stay pre-ordered. The exit is keyed on distinct paths (not `found.count`), so a tree with
-    /// duplicate ids can't satisfy it early and skip a still-unmatched path. The only difference
-    /// from an exhaustive walk is that a *trailing duplicate* of an already-matched id — which a
-    /// real filesystem tree never produces (paths are unique) — may be omitted; harmless for the
-    /// selection consumers, which act per path. A stale path absent from the tree keeps the exit
-    /// from ever triggering, so it degrades to a full walk exactly as before.
+    /// Stops once every distinct requested path has matched, since this runs per render over panes
+    /// of ~40k nodes. Keyed on distinct paths, not `found.count`, so duplicate ids can't end it
+    /// early. A trailing duplicate of a matched id may be omitted, which a real tree never has. A
+    /// stale path absent from the tree means a full walk.
     public func findNodes(at paths: Set<String>) -> [FileNode] {
         guard !paths.isEmpty else { return [] }
         var found: [FileNode] = []
@@ -124,10 +104,8 @@ extension Array where Element == FileNode {
         return found
     }
 
-    /// Appends matching nodes in pre-order; `unmatched` shrinks as distinct ids are seen, and the
-    /// walk unwinds as soon as it is empty (every requested path has a match). Nodes are still
-    /// appended whenever their id is requested, so duplicates encountered before the walk
-    /// completes are preserved.
+    /// Appends matching nodes in pre-order and unwinds once `unmatched` is empty. Duplicates met
+    /// before then are kept.
     private func collectNodes(matching paths: Set<String>, unmatched: inout Set<String>, into found: inout [FileNode]) -> Bool {
         for node in self {
             if paths.contains(node.id) {
@@ -146,14 +124,8 @@ extension Array where Element == FileNode {
     /// Prunes nested nodes from a selection array, keeping only the highest-level parent nodes.
     /// This prevents duplicate operations (e.g., trying to move a child after its parent was already moved).
     public func pruneNestedNodes() -> [FileNode] {
-        // Sort paths by length so parents come first.
-        //
-        // **By BYTES, not by Characters.** `String.count` is a grapheme count — an O(path) walk —
-        // and a sort comparator runs it O(n log n) times rather than n, re-walking two full
-        // absolute paths per comparison. `utf8.count` is O(1) on a native string and preserves the
-        // ordering this depends on: an ancestor is strictly shorter in bytes too, because its path
-        // is a byte prefix of its descendants'. Measured over 20,000 paths: 62ms against 17ms, 3.7x.
-        // Reached on every transfer entry point.
+        // Sort by length so parents come first. By bytes: `utf8.count` is O(1), while `String.count`
+        // walks graphemes on every comparison. An ancestor is a byte prefix, so it still sorts first.
         let sortedNodes = self.sorted { $0.id.utf8.count < $1.id.utf8.count }
         var pruned: [FileNode] = []
         var acceptedIds = Set<String>()

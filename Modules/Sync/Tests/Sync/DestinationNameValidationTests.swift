@@ -2,11 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the pre-write destination-name check: before a copy/move writes into a cloud
-/// provider's folder, a name that provider forbids (e.g. a trailing space on Dropbox) runs
-/// through the `invalidNameResolver` seam — offering the sanitized name (which then goes
-/// through the normal collision flow if occupied) instead of silently creating an item the
-/// provider never uploads.
+/// The pre-write destination-name check: before a copy or move writes into a provider's folder,
+/// a name that provider forbids (a trailing space on Dropbox) goes through `invalidNameResolver`,
+/// which offers the sanitized name (then subject to the normal collision flow), rather than
+/// silently creating an item the provider never uploads.
 @MainActor
 @Suite struct DestinationNameValidationTests {
 
@@ -75,8 +74,8 @@ import Foundation
         let synced = await manager.syncFile(missingOnRight("Report "))
 
         #expect(synced)
-        // The collision prompt saw the SANITIZED destination — this is exactly the
-        // "becomes a normal collision" behavior instead of a silent doppelganger.
+        // The collision prompt saw the sanitized destination: a normal collision, not a silent
+        // second item beside the first.
         #expect(collision?.destinationPath == "/dropbox/Report")
         #expect(fm.virtualDisk["/dropbox/Report"] != nil)
         #expect(fm.virtualDisk["/dropbox/Report "] == nil)
@@ -92,15 +91,15 @@ import Foundation
 
         #expect(!synced)
         #expect(Set(fm.virtualDisk.keys) == diskBefore)
-        // The name-check skip is one of syncFile's early exits and must release the row's
-        // in-flight mark (set before any prompt) — a leaked id would permanently refuse
-        // Verify All and pane swaps and leave the row's spinner stuck.
+        // This skip is an early exit of syncFile and must release the row's in-flight mark (set
+        // before any prompt): a leaked id would refuse Verify All and pane swaps for good and leave
+        // the row's spinner stuck.
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
     @Test func testUnwiredResolverFailsSafeBySkipping() async throws {
-        // The seam default must never create an unsyncable item (mirrors the collision
-        // resolver's fail-safe default).
+        // The default must never create an unsyncable item, like the collision resolver's
+        // fail-safe default.
         let (manager, fm) = try makeManager()
         addFile(fm, "/icloud/Report ")
         let diskBefore = Set(fm.virtualDisk.keys)
@@ -165,8 +164,8 @@ import Foundation
     }
 
     @Test func testWithoutScanProvidersNoCheckRuns() async throws {
-        // No scan has attributed roots to providers (tests, CLI cold start): the check
-        // stands down and the transfer behaves exactly as before the seam existed.
+        // No scan has attributed roots to providers (tests, CLI cold start): the check stands
+        // down and the transfer goes ahead unchecked.
         let (manager, fm) = try makeManager()
         manager.lastScanProviders = nil
         addFile(fm, "/icloud/Report ")

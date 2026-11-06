@@ -4,10 +4,10 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Coverage for the X2 "Undo Last Run" scoping fix: the reversal must fire ONLY when the last
-/// recorded sync run is still the top of the shared undo stack, must refuse (and name what's there)
-/// when a non-sync action is on top, and must itemize what it will reverse. Uses a synchronous
-/// `UndoManager` with marker targets so the gate is tested without depending on the async reversal.
+/// "Undo Last Run" scoping: the reversal fires only while the last recorded sync run is still the
+/// top of the shared undo stack, refuses (naming what's there) when a non-sync action is on top,
+/// and itemizes what it will reverse. Uses a synchronous `UndoManager` with marker targets so the
+/// gate is tested without the async reversal.
 @MainActor
 @Suite struct SyncRunUndoGuardTests {
 
@@ -27,8 +27,8 @@ import EventsTestSupport
         SyncHistoryRecord(runId: run, action: action, sourcePath: "/a/x.txt", destPath: "/b/x.txt")
     }
 
-    /// Registers one named, grouped undo (mirroring how the op sites register a run) that flips the
-    /// marker when reversed.
+    /// Registers one named, grouped undo (as the op sites register a run) that flips the marker
+    /// when reversed.
     private func registerRun(_ manager: FileSyncManager, name: String, marker: Marker) {
         let um = manager.undoManager!
         um.beginUndoGrouping()
@@ -58,11 +58,10 @@ import EventsTestSupport
     }
 
     @Test func manualUndoOfASameNamedRunClosesTheGate() {
-        // Every bulk run registers under the same literal name ("Sync run"), so the name gate
-        // alone can't tell two runs apart. After one manual ⌘Z reverses run B, run A's
-        // identically-named group sits on top — the stale pairing would pass the gate while the
-        // preview still describes run B's records and undo() would reverse run A. The pairing
-        // must die with the manual undo instead.
+        // Every bulk run registers under the same name ("Sync run"), so the name gate alone can't
+        // tell two runs apart. After a manual ⌘Z reverses run B, run A's same-named group is on top:
+        // a stale pairing would pass the gate while the preview described run B's records and
+        // undo() reversed run A. The pairing must die with the manual undo.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let markerA = Marker(), markerB = Marker()
@@ -78,14 +77,14 @@ import EventsTestSupport
         #expect(manager.lastSyncRunUndoPreview == nil)       // top is run A's group, not run B's
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
         #expect(markerA.undone == false)                     // run A must NOT be reversed
-        // Honest refusal: the top IS named "Sync run", so the old "…is “Sync run”, not a sync
-        // run" text contradicted itself. A dead pairing reads as history-changed instead.
+        // The top is named "Sync run", so "…is “Sync run”, not a sync run" would contradict
+        // itself; a dead pairing reads as the history having changed.
         #expect(refusal == "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) in the main window to step back.")
     }
 
     @Test func manualRedoAlsoClosesTheGate() {
-        // ⇧⌘Z re-registers the run's group under a fresh registration the pairing knows
-        // nothing about — the gate must stay closed after a redo, exactly as after an undo.
+        // ⇧⌘Z re-registers the run's group under a fresh registration the pairing knows nothing
+        // about, so the gate stays closed after a redo, as after an undo.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
@@ -98,8 +97,8 @@ import EventsTestSupport
     }
 
     @Test func swappingTheUndoManagerDropsThePairing() {
-        // A window reopen injects a NEW UndoManager: a pairing armed against the old stack
-        // must not be validated against the new one's identically-named groups.
+        // A window reopen injects a new UndoManager: a pairing armed against the old stack must
+        // not be validated against the new one's same-named groups.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
@@ -114,10 +113,10 @@ import EventsTestSupport
     }
 
     @Test func historyWithoutAnUndoNeverRepointsTheGate() {
-        // An all-permanent delete records durable history but registers no undo (nothing
-        // reached the Trash). Pairing those records with the stack's current top would make
-        // "Undo Last Run" describe the delete while reversing the unrelated action on top.
-        // The unpaired record must leave the previous run's (still correct) pairing intact.
+        // An all-permanent delete records history but registers no undo (nothing reached the
+        // Trash). Pairing those records with the current top would make "Undo Last Run" describe
+        // the delete while reversing the unrelated action on top, so the previous run's pairing
+        // must stay intact.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
@@ -134,11 +133,10 @@ import EventsTestSupport
     }
 
     @Test func allPermanentDeleteDoesNotHijackThePreviousRunsPairing() async throws {
-        // End-to-end shape of the funnel above: copy a file (registers "Copy 1 Item"), then
-        // delete another file on a volume where trashing fails and the user confirms the
-        // permanent fallback. The delete's records must not pair with the copy's undo group.
-        // Unlike the gate tests, the real op sites register their undos through the manager's
-        // own grouping — so this manager keeps the UndoManager's default event grouping.
+        // End to end: copy a file (registers "Copy 1 Item"), then delete another on a volume where
+        // trashing fails and the user confirms the permanent fallback. The delete's records must
+        // not pair with the copy's undo group. The real op sites register through the manager's
+        // own grouping, so this manager keeps the UndoManager's default event grouping.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.undoManager = UndoManager()
@@ -160,19 +158,18 @@ import EventsTestSupport
         _ = await manager.deleteItems(at: ["/src/g.txt"], fileManager: mockFM)
         #expect(mockFM.virtualDisk["/src/g.txt"] == nil)     // permanently deleted
 
-        // The gate still points at the copy — preview and reversal agree.
+        // The gate still points at the copy: preview and reversal agree.
         let preview = manager.lastSyncRunUndoPreview
         #expect(preview?.actionName == "Copy 1 Item")
         #expect(preview?.records.allSatisfy { $0.action == .copy } == true)
     }
 
     @Test func mixedDeleteInvalidatesAStalePairingUnderACollidingName() async throws {
-        // The delete undo's action name follows the TRASHED count ("Move to Trash" for one), so two
-        // consecutive deletes can push identically-named groups: run 1 deletes one item (all
-        // trashed, pairing armed), run 2 deletes two items of which only one reaches the Trash
-        // (mixed → not armed, but a NEW group named "Move to Trash" now tops the stack). The
-        // stale run-1 pairing would pass the name gate and preview run 1's paths while undo()
-        // restored run 2's item. A mixed delete must invalidate the stale pairing outright.
+        // The delete undo's name follows the trashed count ("Move to Trash" for one), so two
+        // deletes can push same-named groups: run 1 trashes one item (pairing armed), run 2 deletes
+        // two of which only one reaches the Trash (mixed, not armed, but a new "Move to Trash"
+        // group tops the stack). A stale run-1 pairing would pass the name gate, preview run 1's
+        // paths and restore run 2's item, so a mixed delete must invalidate it outright.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         manager.undoManager = UndoManager()
@@ -187,29 +184,28 @@ import EventsTestSupport
         #expect(manager.lastSyncRunUndoPreview?.actionName == "Move to Trash")   // run 1 armed
         #expect(manager.banner?.message == "Moved “a.txt” to the Trash")
 
-        // Run 2: one of the two trashes, the other goes permanent → group also "Move to Trash".
+        // Run 2: one of the two trashes, the other goes permanent; its group is "Move to Trash" too.
         mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
         _ = await manager.deleteItems(at: ["/src/b.txt", "/src/c.txt"], fileManager: mockFM)
         // Part of this batch is gone for good, so the banner may not say "to the Trash".
         #expect(manager.banner?.message == "Deleted 2 items")
-        // **Sync History tells the two apart from the record itself** (FD2): the item that reached
-        // the Trash reads "Move to Trash", the one deleted outright "Delete" — and run 1's single
-        // trashed item "Move to Trash".
+        // Sync History tells the two apart from the record itself: the item that reached the Trash
+        // reads "Move to Trash", the one deleted outright "Delete", and run 1's item "Move to Trash".
         let labels = manager.syncHistoryStore.records.map(\.actionLabel)
         #expect(labels.count == 3, "\(labels)")
         #expect(labels.first == "Move to Trash")
         #expect(labels.dropFirst().sorted() == ["Delete", "Move to Trash"])
 
-        // The stack top is run 2's partial group; run 1's pairing must be dead, not matching
-        // the colliding name.
+        // The top is run 2's partial group; run 1's pairing must be dead, not matching the
+        // colliding name.
         #expect(manager.lastSyncRunUndoPreview == nil)
     }
 
     // MARK: gate — negative (the bug this fixes)
 
     @Test func previewGoneAfterAManualUndoChangesTheTop() {
-        // Simulates ⌘Z between the recorded run and pressing the window button: the stack's top no
-        // longer matches, so the button won't blindly reverse whatever is now on top.
+        // ⌘Z between the recorded run and the window button: the stack's top no longer matches,
+        // so the button won't blindly reverse whatever is on top now.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let marker = Marker()
@@ -222,10 +218,9 @@ import EventsTestSupport
     // MARK: the Sync History window's entry point
 
     /// After a relaunch the undo stack is empty while Sync History still lists records. The
-    /// History window's click used to answer in the MAIN window's banner — so the click looked
-    /// dead. The asking entry point hands the reason back
-    /// for the History window to show, sets no banner, and never asks to confirm a run it can't
-    /// reverse.
+    /// asking entry point hands the reason back for the History window to show (a banner in the
+    /// main window would make the click look dead), sets no banner, and never asks to confirm a
+    /// run it can't reverse.
     @Test func historyClickWithNothingToUndoReturnsTheReasonAndLeavesTheBannerAlone() {
         let manager = isolatedManager()                      // a fresh stack: the relaunch case
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -256,9 +251,8 @@ import EventsTestSupport
         #expect(manager.banner == nil)
     }
 
-    /// **A refusal is logged.** It shows in Sync History's own alert, which leaves nothing behind;
-    /// the banner it replaced logged itself through its didSet. The action's name carries a UUID so
-    /// no sibling case's refusal can satisfy the capture.
+    /// A refusal is logged: Sync History's alert leaves nothing behind, so the log line is the
+    /// record. The action's name carries a UUID so no sibling case's refusal can satisfy the capture.
     @Test func historyClickRefusalIsLogged() async {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -303,8 +297,8 @@ import EventsTestSupport
 
     // MARK: a long run going (Banner Room, CF)
 
-    /// **Undo Last Run waits for a long run, and says which**, without asking: a run on the stack's
-    /// top it would otherwise reverse stays put, and the reason is the run's own lock sentence.
+    /// Undo Last Run waits for a long run, and says which, without asking: the run on top stays
+    /// put, and the reason is the running job's own lock sentence.
     @Test func historyClickDuringARunWaitsAndSaysWhy() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -327,7 +321,7 @@ import EventsTestSupport
         #expect(marker.undone == true, "the run's end did not let the undo through")
     }
 
-    /// **A run that starts behind the confirmation** stops the reversal the alert agreed to.
+    /// A run that starts behind the confirmation stops the reversal the alert agreed to.
     @Test func aRunStartedBehindTheConfirmationStopsTheReversal() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -367,8 +361,8 @@ import EventsTestSupport
         #expect(detail.components(separatedBy: "  •  ").count - 1 == 3)
     }
 
-    /// **A delete run is a move to the Trash, and Undo Last Run says so** (FD2): "3 moves to the
-    /// Trash … put back", where it said "3 deletes … restored from the Trash".
+    /// A delete run is a move to the Trash, and Undo Last Run says so: "2 moves to the Trash … Put
+    /// back", not "deletes … restored".
     @Test func confirmationDetailPhrasesTrashMovesAsPutBack() {
         let run = UUID()
         let recs = ["old.txt", "older.txt"].map {
@@ -386,8 +380,8 @@ import EventsTestSupport
         #expect(one.actionSummary == "1 move to the Trash")
     }
 
-    /// TE262: a card that made a folder and moved a file in says both, and that the folder goes
-    /// only if empty.
+    /// A card that made a folder and moved a file in says both, and that the folder goes only if
+    /// empty.
     @Test func confirmationDetailSaysANewFolderGoesOnlyIfEmpty() {
         let run = UUID()
         let recs = [SyncHistoryRecord(runId: run, action: .newFolder, sourcePath: "/d/Japan 2026"),
@@ -399,9 +393,8 @@ import EventsTestSupport
         #expect(detail.contains("Moved files go back to where they were; folders it made are removed if they’re empty."))
     }
 
-    /// FR29: the closing note says what THIS run's undo does. A copy-only run used to be told
-    /// "Files move back to where they were; deleted items are restored from the Trash" — and its
-    /// undo moves nothing back: the copies go to the Trash.
+    /// The closing note says what this run's undo does: a copy-only run's undo moves nothing back,
+    /// it sends the copies to the Trash.
     @Test func confirmationDetailDescribesACopyRunsUndoAsTrashingTheCopies() {
         let run = UUID()
         let copy = SyncHistoryRecord(runId: run, action: .copy, sourcePath: "/a/new.txt", destPath: "/dest/dir/new.txt")

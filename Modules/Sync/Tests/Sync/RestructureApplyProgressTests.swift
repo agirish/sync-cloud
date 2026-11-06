@@ -2,13 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.5's eight steps, published as they run (proposal O7). The engine already marked its own
-/// boundaries; this is about what a watcher can see, and what it costs to let them see it.
+/// The landing's eight steps, published as they run: what a watcher can see, and what it costs to
+/// let them see it.
 @Suite struct RestructureApplyProgressTests {
 
-    /// **The order is the point.** The inverse reaches disk before anything moves and the verify
-    /// is a separate pass afterwards — that sequence is the trust the design paid for, and a
-    /// checklist that showed it out of order would be worse than none.
+    /// The order is the point: the inverse reaches disk before anything moves, and the verify is a
+    /// separate pass afterwards. A checklist that showed it out of order would be worse than none.
     @Test func theStagesRunInTheOrderTheEngineDoesThem() {
         #expect(RestructureApplyProgress.Stage.allCases
                     == [.guards, .inverse, .operations, .verify, .rederive, .artifacts])
@@ -48,13 +47,10 @@ import Testing
                 "no total yet is no count, not '0 of 0'")
     }
 
-    /// **Coalesced through this module's own gate, and measurably so.**
-    ///
-    /// The first cut invented a wall-clock interval, which `ProgressPublishGate`'s doc explicitly
-    /// rejects — an interval is unbounded in total (a long landing publishes forever) and can only
-    /// be tested against a clock seam. This drives a landing of 300 operations and counts the
-    /// publishes: a percent gate caps any run at ~101, and the assertion is that the count is far
-    /// below the operation count rather than that a constant sits in a range.
+    /// Coalesced through `ProgressPublishGate`, a percent gate, not a wall-clock interval (which
+    /// is unbounded in total and testable only against a clock seam). A 300-operation landing
+    /// publishes at most ~101 times; the assertion is that the count is far below the operation
+    /// count, not that a constant sits in a range.
     @Test func theOperationCounterIsCoalescedFarBelowOnePerOperation() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("coalesce-\(UUID().uuidString)")
@@ -81,9 +77,8 @@ import Testing
         #expect(seen == seen.sorted())
     }
 
-    /// The executor reports through the hook, coalesced, and **always ends on the true total** —
-    /// the last window may not have elapsed, and a checklist stuck at "34 of 38" over a finished
-    /// landing is the one number it must never show.
+    /// The executor reports through the hook, coalesced, and always ends on the true total: the
+    /// last window may not have elapsed, and "34 of 38" over a finished landing must never show.
     @Test func theExecutorAlwaysReportsItsFinalCount() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("progress-\(UUID().uuidString)")

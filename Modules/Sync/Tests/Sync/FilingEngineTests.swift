@@ -114,8 +114,8 @@ import Testing
     }
 
     @Test func cameraSequenceYearIsAShotCounterNotAFilingYear() throws {
-        // IMG_2023.jpg is shot #2023 off a camera, not a 2023 photo — reading its digits as the
-        // filename year filed whole camera rolls into Photos/2023 at high confidence AND batch
+        // IMG_2023.jpg is shot #2023 off a camera, not a 2023 photo: reading its digits as the
+        // filename year would file whole camera rolls into Photos/2023 at high confidence, batch
         // eligible (mtime 2024 here). Same for DSC_1995 ("dsc" is not a stopword, so the token
         // guard alone can't catch it). A real year in a real name ("Wedding 2023") still wins.
         let taxonomy = [dir("/root/Photos", [])]
@@ -153,8 +153,8 @@ import Testing
         #expect(!FilingEngine.isCameraSequenceStem("IMG_1234567"))     // counter too long
         #expect(!FilingEngine.isCameraSequenceStem("IMG_2023 edit"))   // trailing words = a real name
         #expect(!FilingEngine.isCameraSequenceStem("screenshot 2023"))
-        // Multi-word hand-named files must NEVER count as camera sequences: the old `gopr\w*`
-        // alternative backtracked through "o_hawaii"/"o_Backup" and ate the REAL year — breaking
+        // Multi-word hand-named files must never count as camera sequences: a loose `gopr\w*`
+        // alternative backtracks through "o_hawaii"/"o_Backup" and eats the real year, breaking
         // both year filing and "mentions 2023" automation rules for those files.
         #expect(!FilingEngine.isCameraSequenceStem("gopro_hawaii_2023"))
         #expect(!FilingEngine.isCameraSequenceStem("GoPro_Backup_2023"))
@@ -169,10 +169,9 @@ import Testing
         #expect(!FilingEngine.fileTokens("IMG_2023.jpg").contains("2023"))
         #expect(!FilingEngine.fileTokens("DSC_1995.jpg").contains("1995"))
         #expect(FilingEngine.fileTokens("Wedding 2023.jpg").contains("2023"))
-        // A hand-named GoPro video keeps its REAL year token — the old `gopr\w*` stem match
-        // swallowed it, breaking both year filing and "mentions 2023" automation rules.
-        // (Genuine GoPro counters — GOPR2023, GX010023 — never tokenize their digits
-        // separately, so the stem guard has nothing to shed for them.)
+        // A hand-named GoPro video keeps its real year token, which a loose `gopr\w*` stem match
+        // would swallow. (Genuine GoPro counters, GOPR2023 and GX010023, never tokenize their
+        // digits separately, so the stem guard has nothing to shed for them.)
         #expect(FilingEngine.fileTokens("gopro_hawaii_2023.mp4").contains("2023"))
         #expect(FilingEngine.fileTokens("GoPro_Backup_2023").contains("2023"))
         #expect(FilingEngine.filenameYear(in: FilingEngine.fileTokens("IMG_2023.jpg"),
@@ -250,7 +249,7 @@ import Testing
         let byName = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
         #expect(byName[0].candidates.isEmpty)
 
-        // Content extraction found the entities; now it lands the same place F1 does by name.
+        // Content extraction found the entities; now it lands where a name match would.
         let content = ["/root/Downloads/scan0012.pdf": Set(["tesla", "policy", "geico"])]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                      providerRoot: "/root", contentTokens: content).first?.best)
@@ -578,10 +577,10 @@ import Testing
     }
 
     @Test func rejectionIsAppliedBeforeCappingSoAValidCandidateSurvives() throws {
-        // R-T2: with the cap pressed to 1, the top-ranked folder is the ONLY candidate that
-        // survives ranking. If the user has rejected it, filtering after the cap would strip that
-        // sole survivor and leave the file with no home at all — even though a valid deeper folder
-        // exists. Filtering the pool BEFORE the cap keeps the deeper folder as the suggestion.
+        // With the cap pressed to 1, the top-ranked folder is the only candidate that survives
+        // ranking. If the user rejected it, filtering after the cap would strip that sole survivor
+        // and leave no home, though a valid deeper folder exists. Filtering the pool before the cap
+        // keeps the deeper folder as the suggestion.
         let taxonomy = [dir("/root/Insurance", []),
                         dir("/root/Health", [dir("/root/Health/Insurance", [])])]
         let loose = [file("/root/Downloads/insurance renewal.pdf", modified: y2024)]
@@ -590,7 +589,7 @@ import Testing
         let out = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
                                        rejectedByFile: rejected,
                                        options: FilingOptions(maxCandidates: 1))
-        // Pre-fix (filter after cap) this would be empty; the deeper valid folder must survive.
+        // Filtered after the cap this would be empty; the deeper valid folder must survive.
         #expect(out.first?.candidates.count == 1)
         #expect(out.first?.best?.path == "/root/Health/Insurance")
     }

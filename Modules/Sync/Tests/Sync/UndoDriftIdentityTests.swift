@@ -3,41 +3,19 @@ import Foundation
 import Events
 @testable import Sync
 
-/// The three drift gaps the size-based snapshot could not close.
+/// Undo and redo destroy only what they recorded: drift is checked by `ItemIdentity`, not size.
+/// A copied folder is guarded (a folder's stat size is not its content size), a same-length
+/// rewrite of a file counts as an edit, the move-undo checks what sits at the destination, and
+/// an item that can't be read is refused. Each test drives the real undo through
+/// `FileSyncManager`: a rule proven only where it is defined is one revert from being unused.
 ///
-/// `fileSizeSnapshot` answered `Int?`, and the guards read `if let expected = …`, so the two
-/// states it could not express both took the destroy path:
-///
-/// 1. **A copied FOLDER had no drift guard at all.** Directories return nil by design — a folder's
-///    stat size is not its content size — and nil skipped the check rather than falling back to
-///    another one.
-/// 2. **A file was compared by size alone**, so a same-length rewrite (2025→2026) read as
-///    untouched and was trashed.
-/// 3. **The move-undo never checked the destination**, only that the source path was free. The
-///    doc comment claiming a "still the same item?" guard described the occupancy check, which
-///    answers a different question.
-///
-/// Each test below drives the real undo through `FileSyncManager` rather than asserting on
-/// `ItemIdentity` in isolation: the seam already has its own tests, and a rule that is only proven
-/// where it is defined is one revert away from being unused.
-/// **`.serialized`, and it is load-bearing rather than tidy.** Two tests here —
-/// `undoOfANestedNormalizePassReversesTheChildRenameToo` and
-/// `undoAfterARedoOfANestedNormalizePassStillReversesBothRenames` — assert the BYTE-IDENTICAL log
-/// line `Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0
-/// left in place`. No other file in the package can write it (grepped: `Normalize 2 Names` appears
-/// in this file alone), so the exposure is entirely between these two siblings — and both are
-/// `@MainActor` but both suspend at `waitUntil`, so run in parallel they interleave.
-///
-/// **Measured, three runs each way.** Remove the second test's own undo, so it produces no line at
-/// all, and delay the sibling so its identical line lands inside the second test's window: the
-/// presence assertion PASSED, satisfied by a line its own code never wrote. It passed just the same
-/// with the window bounded strictly between this suite's own markers — bounding keeps out lines
-/// from before and after, and this one is INSIDE. Serialized, the same mutation fails immediately
-/// (3 issues → 4). `docs/flaky-tests.md` mechanism 12 ("A log assertion reading a window that has
-/// already rolled") names both halves and this suite needs both:
-/// rule 2 bounds the window, rule 4 is what stops a concurrent sibling writing into it. CI runs
-/// this target WITHOUT `--no-parallel`, so parallel is the configuration that ships. The whole
-/// suite costs about half a second, so serializing it is free.
+/// `.serialized` is load-bearing. `undoOfANestedNormalizePassReversesTheChildRenameToo` and
+/// `undoAfterARedoOfANestedNormalizePassStillReversesBothRenames` assert the byte-identical line
+/// `Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in
+/// place`, and both suspend at `waitUntil`, so in parallel either could pass on the other's line.
+/// Markers bound the window in time; only serializing keeps a sibling from writing inside it
+/// (`docs/flaky-tests.md`, "A log assertion reading a window that has already rolled"). CI runs
+/// this target in parallel, and serializing costs about half a second.
 @Suite(.serialized) struct UndoDriftIdentityTests {
 
     @MainActor
@@ -59,25 +37,13 @@ import Events
 
     // MARK: Reading the refusal LOG, not just the banner
 
-    /// Every test here used to assert `manager.banner?.message` alone. The banner is one short
-    /// sentence shared by both undo paths; the LOG line is where the path-specific wording lives,
-    /// and it is precisely because nothing read it that the move-undo shipped logging `REFUSED to
-    /// remove "doc.txt" … it is no longer the item this undo produced` — a sentence in which both
-    /// claims are false.
+    /// The tests read the log, not just the banner: the banner is one sentence shared by both undo
+    /// paths, and the log line carries the path-specific wording. A marker planted before the
+    /// operation lets `logLines(since:)` tell a line that was never written from a window that
+    /// lost its front, and reports the latter as inconclusive.
     ///
-    /// `Logger.shared.entries` is capped at 1000 and every suite in this target writes to the same
-    /// logger, so a refusal line can be EVICTED between the decision and the assertion — which
-    /// reads exactly like a line that was never written. Planting a marker BEFORE the operation
-    /// tells the two apart: if the marker is gone, the window rolled and the run is reported as
-    /// inconclusive rather than as a missing log line.
-    ///
-    /// Planted at `.info`, not `.debug`. `Logger.log` drops anything below `minimumLevel`, and
-    /// `.debug` is the one level it can drop, while every line these tests assert on is `.error`
-    /// or `.info`. Nothing in this target raises `minimumLevel` today, so the marker is not
-    /// currently at risk — but if anything ever did, the marker would vanish while the asserted
-    /// lines stayed, and the helper would report "the log window rolled": a red run blaming the
-    /// 1000-entry cap for something that has nothing to do with it. Matching the level of the
-    /// lines being measured costs nothing and removes the trap.
+    /// Planted at `.info`, the level of the lines asserted on, not `.debug`: `Logger.log` drops
+    /// anything below `minimumLevel`, and a dropped marker would read as a rolled window.
     @MainActor
     private func plantLogMarker(_ label: String) async -> String {
         let marker = "undo-drift-marker \(label) \(UUID().uuidString)"
@@ -85,47 +51,25 @@ import Events
         return marker
     }
 
-    /// The messages logged strictly BETWEEN `marker` and a closing marker written here — rule 2 of
-    /// `docs/flaky-tests.md` mechanism 12 ("A log assertion reading a window that has already
-    /// rolled"), both halves of it.
+    /// The lines logged strictly between `marker` and a closing marker written here
+    /// (`docs/flaky-tests.md`, "A log assertion reading a window that has already rolled"). A
+    /// missing opening marker means the window lost its front, so nothing can be concluded; the
+    /// closing one keeps out lines logged after the operation.
     ///
-    /// The opening marker is the eviction guard: if the 1000-entry cap rolled past it, the window
-    /// this would return is a fiction, and saying so is the whole point of planting it.
+    /// The window still holds lines from suites running alongside on the shared `Logger`, so an
+    /// absence assertion must first filter to lines naming the test's own paths.
     ///
-    /// **The closing marker is the half this was missing, and it was silently costing coverage.**
-    /// This used to slice `entries[start...]` — open-ended, all the way to whatever had been logged
-    /// by the time the assertion ran — on the stated ground that every assertion here matches a
-    /// string unique to its own fixture. That is not true of this file: the nested-normalize undo
-    /// test and its undo-after-redo sibling assert the BYTE-IDENTICAL line `Undo (Normalize 2
-    /// Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place`, both
-    /// are `@MainActor` but both suspend at `waitUntil`, so they interleave, and either could
-    /// satisfy the other's presence assertion while its own code did nothing. CI runs this target
-    /// WITHOUT `--no-parallel`, so that is the configuration it ships under. Bounding the top costs
-    /// one line and closes it.
-    ///
-    /// The window is still a SUPERSET of this test's own lines — suites in this target run in
-    /// parallel against one shared `Logger`, so a neighbour's lines land inside it — which is why
-    /// absence assertions filter it down to lines naming this test's own paths first. An unfiltered
-    /// `allSatisfy` over the window asserts something about whatever else happened to be running,
-    /// which is how the first draft of this suite failed.
-    ///
-    /// Both indices are resolved and guarded BEFORE anything is sliced, and `start` is searched for
-    /// only in `lines[..<end]`, so the bounds cannot be reversed: `lines[a..<b]` on reversed
-    /// bounds TRAPS, and a trap here takes the whole test host down and loses every other verdict
-    /// in the run.
+    /// Both indices are guarded before anything is sliced, and `start` is searched only in
+    /// `lines[..<end]`: slicing reversed bounds traps and takes the whole test host down.
     @MainActor
     private func logLines(since marker: String,
                           sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
         let closing = "undo-drift-close \(marker)"
         await Logger.shared.info(closing).value
-        // **The log FILE, not `Logger.shared.entries`.** The entries are a rolled 1000-line window
-        // every suite in the package shares; under load a 14 s test let the rest of a full run log
-        // past this test's own marker, and the opening `guard` below failed with nothing wrong in
-        // the undo (flaky-tests: "A log assertion reading a window that has already rolled"). The
-        // per-process file rolls far later, not never: `LogFileWriter.trimMidSessionIfOversized`
-        // cuts it to its newest half once it passes the writer's cap (about 5 MB), so a very long
-        // run can still trim the opening marker away — the guard below says that, rather than
-        // blaming the undo. `flushToDisk` drains the writer first.
+        // The log file, not `Logger.shared.entries`: the entries are a 1000-line window every
+        // suite shares, and a slow test under load can see its marker rolled out. The file rolls
+        // far later, but `LogFileWriter.trimMidSessionIfOversized` halves it past about 5 MB, so
+        // the guard below names that rather than blaming the undo. `flushToDisk` drains it first.
         Logger.shared.flushToDisk()
         let text = (try? String(contentsOf: Logger.shared.logFileURL, encoding: .utf8)) ?? ""
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -149,14 +93,9 @@ import Events
 
     // MARK: 1 — a copied folder is now guarded
 
-    /// The sharpest of the three. Copy a folder, let files land in it, press ⌘Z: before this, the
-    /// nil size snapshot skipped the guard and the folder was trashed with everything in it.
-    ///
-    /// The fixture folder is `photos-drifted`, not `photos`, for the same reason `locked` and
-    /// `ledger.txt` are named as they are: the log window this asserts against is shared with
-    /// every suite running alongside, so a path a NEIGHBOUR could also log is not a scope. Its
-    /// untouched-folder twin below still uses plain `photos` and can keep it — it reads no log at
-    /// all — but the two sharing a name was one log assertion away from measuring each other.
+    /// Copy a folder, let files land in it, press ⌘Z: the undo refuses rather than trash the folder
+    /// with everything in it. Named `photos-drifted` so no neighbour's log line can match it: the
+    /// window is shared with every suite running alongside.
     @MainActor
     @Test func copyUndoOfAFolderRefusesOnceItsContentsChanged() async throws {
         let manager = makeManager()
@@ -181,8 +120,7 @@ import Events
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
         #expect(manager.banner?.message.contains("changed since") == true)
-        // The copy path's sentence: this undo really would have REMOVED the item, and that item
-        // really is the one the copy produced.
+        // The copy path's sentence: this undo would have removed the item the copy produced.
         let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to remove \"photos-drifted\" at /dst/photos-drifted")
@@ -194,8 +132,7 @@ import Events
         #expect(mockFM.virtualDisk["/dst/photos-drifted/new2.jpg"] != nil)
     }
 
-    /// The other half of the same guard: an untouched copied folder must still undo cleanly, or
-    /// the fix would simply have broken folder undo. A guard that refuses everything is not a
+    /// An untouched copied folder still undoes cleanly: a guard that refuses everything is not a
     /// guard.
     @MainActor
     @Test func copyUndoOfAnUntouchedFolderStillRemovesIt() async throws {
@@ -219,8 +156,8 @@ import Events
 
     // MARK: 2 — a same-size edit is drift
 
-    /// `2025` → `2026`: identical length, different content. The size-only comparison read this as
-    /// the copy it produced and trashed it.
+    /// `2025` → `2026`: identical length, different content. A size-only check would trash it as
+    /// the copy it produced.
     @MainActor
     @Test func copyUndoRefusesASameSizeEditOfTheCopy() async throws {
         let manager = makeManager()
@@ -254,9 +191,9 @@ import Events
 
     // MARK: 3 — the move-undo checks the destination
 
-    /// The move-undo's only guard was that the SOURCE path is free. Drop a different file at the
-    /// destination and press ⌘Z: that file was moved away to the source path and the older version
-    /// restored over it, reported as a clean success.
+    /// The move-undo checks the destination, not only that the source path is free. Without that,
+    /// a different file dropped at the destination would be moved to the source on ⌘Z and the older
+    /// version restored over it, as a clean success.
     @MainActor
     @Test func moveUndoRefusesWhenTheDestinationIsNoLongerWhatItMoved() async throws {
         let manager = makeManager()
@@ -286,22 +223,22 @@ import Events
                 "nothing may be restored to the source while the destination is unverified")
 
         let lines = await logLines(since: marker)
-        // A move-undo moves the item BACK; it removes nothing, and it did not produce the item —
-        // the original move put it there. The old sentence claimed both.
+        // A move-undo moves the item back: it removes nothing, and the original move, not the
+        // undo, put it there.
         #expect(lines.contains {
             $0.contains("REFUSED to move \"ledger.txt\" at /dst/ledger.txt back to its original location")
                 && $0.contains("no longer the item that was moved here")
         }, "the move refusal still describes a removal; lines since the marker: \(lines)")
         #expect(lines.allSatisfy { !$0.contains("REFUSED to remove \"ledger.txt\"") },
                 "no move refusal may say it was going to REMOVE the item")
-        // And the refusal is not a failure: nothing the undo attempted went wrong, it chose not to
-        // attempt anything. Counted as a restore failure, this run reported "1 restore failure(s)".
+        // A refusal is not a failure: the undo chose not to attempt anything, so it is tallied as
+        // left in place, not as a restore failure.
         #expect(lines.contains {
             $0.contains("moved 0 of 1 item(s) back to source, 0 restore failure(s), 1 left in place")
         }, "a deliberate refusal is still being tallied as a failure; lines since the marker: \(lines)")
     }
 
-    /// Both directions again: an untouched move must still undo, or the guard is just an outage.
+    /// An untouched move still undoes, or the guard is just an outage.
     @MainActor
     @Test func moveUndoOfAnUntouchedItemStillMovesItBack() async throws {
         let manager = makeManager()
@@ -321,18 +258,10 @@ import Events
         #expect(mockFM.virtualDisk["/dst/doc.txt"] == nil)
     }
 
-    /// The moved item is GONE — the user deleted it themselves between the move and the ⌘Z.
-    ///
-    /// Not drift: there is nothing at the destination to be a stranger. The copy-undo has said so
-    /// explicitly since before the drift guard existed ("a copy the user already deleted
-    /// themselves: nothing to trash"), and the move-REDO says it too ("a source that is simply
-    /// GONE is not drift"). Only the move-UNDO fell through to the drift comparison, where
-    /// `.absent` differs from the recorded identity and so reported the item as *changed*.
-    ///
-    /// Two things are wrong with that, and the second is the one that costs the user something:
-    /// the sentence is false, and the ORIGINAL this move displaced stays stranded in the Trash —
-    /// where the vanished branch is exactly the place to bring it back, because the destination is
-    /// now empty and nothing can be clobbered by restoring it.
+    /// The moved item is gone: the user deleted it between the move and the ⌘Z. That is not drift
+    /// (nothing at the destination can be a stranger), as for the copy-undo and the move-redo, so
+    /// it must not be reported as changed. And the original the move displaced comes back from the
+    /// Trash: the destination is empty, so restoring it can clobber nothing.
     @MainActor
     @Test func moveUndoOfAnItemTheUserDeletedRestoresWhatTheMoveDisplaced() async throws {
         let manager = makeManager()
@@ -340,8 +269,8 @@ import Events
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/report.txt"] = file(100, modified: Date(timeIntervalSince1970: 1_000))
-        // An older file already at the destination: the move displaces it to the Trash, and undo
-        // is what is supposed to bring it back.
+        // An older file already at the destination: the move displaces it to the Trash, and the
+        // undo should bring it back.
         mockFM.virtualDisk["/dst/report.txt"] = file(42, modified: Date(timeIntervalSince1970: 500))
 
         let node = FileNode(id: "/src/report.txt", name: "report.txt", isDirectory: false)
@@ -358,18 +287,10 @@ import Events
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
         let lines = await logLines(since: marker)
-        // It must not be reported as a change: nothing changed, the item is gone.
-        //
-        // **Narrowed to this fixture's own item.** `Logger.shared` is process-wide and a window
-        // bounds time, not authorship: a whole-window `!contains("REFUSED")` fails the moment any
-        // concurrent suite writes a refusal of its own inside it, and the package has several —
-        // the duplicates gate, the merge gate, and the delete-redo guard among them. Not
-        // hypothetical: this went red the day the delete-redo refusal was added, on a line about
-        // `/docs/report.pdf`.
-        //
-        // Not vacuous, and that is the thing to check before narrowing an absence: the refusal
-        // this guards is `reportUndoRefusedChangedItem`, whose message embeds
-        // `\(destination.path)` — so a real one WOULD name `/dst/report.txt` and still be caught.
+        // Not reported as a change: nothing changed, the item is gone. Narrowed to this item's
+        // lines, because a window bounds time, not authorship, and other suites log refusals of
+        // their own. Still not vacuous: `reportUndoRefusedChangedItem` embeds
+        // `\(destination.path)`, so a real refusal would name `/dst/report.txt`.
         let mine = lines.filter { $0.contains("/dst/report.txt") }
         #expect(mine.allSatisfy { !$0.contains("REFUSED") },
                 "a vanished item is not a refusal; lines naming this item: \(mine)")
@@ -377,7 +298,7 @@ import Events
                 "the banner still claims the deleted item changed: \(String(describing: manager.banner))")
         #expect(lines.contains { $0.contains("report.txt is no longer on disk") },
                 "the vanished item is not named in the log; lines since the marker: \(lines)")
-        // The displaced original comes back, which is the whole remaining point of this undo.
+        // The displaced original comes back, the one thing left for this undo to do.
         #expect(mockFM.virtualDisk["/dst/report.txt"]?.attributes?[FileAttributeKey.size] as? Int == 42,
                 "the file the move displaced is still stranded in the Trash")
         // And nothing is invented at the source: the item the user deleted stays deleted.
@@ -386,9 +307,8 @@ import Events
 
     // MARK: The third verdict
 
-    /// An item whose state cannot be read is refused, not destroyed. This is the state the old
-    /// `Int?` could not express at all: nil meant "no guard", so an unreadable item took the same
-    /// path as a verified one.
+    /// An item whose state can't be read is refused, not destroyed, and reported as unverifiable
+    /// rather than changed.
     @MainActor
     @Test func copyUndoRefusesWhenTheDestinationCannotBeRead() async throws {
         let manager = makeManager()
@@ -402,8 +322,8 @@ import Events
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
         #expect(mockFM.virtualDisk["/dst/locked"] != nil)
 
-        // The copy is still there but can no longer be listed — permissions changed, volume
-        // trouble. Nothing can be concluded about whether it is still the copy.
+        // The copy is still there but can no longer be listed (permissions, volume trouble), so
+        // nothing can be concluded about whether it is still the copy.
         mockFM.unlistableDirectories = ["/dst/locked"]
         manager.banner = nil
         let marker = await plantLogMarker("copy-unreadable")
@@ -415,15 +335,14 @@ import Events
         #expect(manager.banner?.message.contains("couldn’t be checked") == true,
                 "an unverifiable item reports as unverifiable, not as changed")
         #expect(mockFM.virtualDisk["/dst/locked"] != nil, "an item that cannot be checked is not destroyed")
-        // The log has to keep the two refusals apart too: "could not be read" is not evidence that
-        // anything was edited, and a person reading the log acts differently on each.
+        // The log keeps the two refusals apart too: "could not be read" is no evidence of an edit,
+        // and a reader acts differently on each.
         let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to remove \"locked\" at /dst/locked")
                 && $0.contains("its current state could not be read")
         }, "the indeterminate refusal log line is missing or reworded; lines since the marker: \(lines)")
-        // Scoped to this fixture's own path — the window carries whatever the suites running
-        // alongside logged, and "locked" is used by no other test here.
+        // Scoped to this fixture's path: the window carries other suites' lines too.
         #expect(lines.filter { $0.contains("/dst/locked") }
                      .allSatisfy { !$0.contains("it changed since the operation") },
                 "an unreadable item must not be logged as a demonstrated change")
@@ -431,31 +350,21 @@ import Events
 
     // MARK: 4 — a NESTED batch, where `to` is not where the item is
 
-    /// The regression this file did not cover, and `f16aa66a` introduced.
+    /// `normalizeNames` applies renames deepest-first and registers the undo shallowest-first: the
+    /// child renames inside its still-named parent, then the parent around it. So at registration
+    /// the child's recorded `to` (`<root>/Photos␣/a.txt`, under the old parent name) no longer
+    /// exists. Snapshotted there, it reads `.absent`, and once the undo restores the parent the
+    /// child reads as changed and is left half-undone under a false drift banner.
     ///
-    /// `normalizeNames` applies renames DEEPEST-first and registers the undo SHALLOWEST-first,
-    /// both deliberately: the child renames inside its still-named parent, then the parent is
-    /// renamed around it; the undo then restores the parent before the children inside it. So by
-    /// the time registration runs, the child's recorded `to` — `<root>/Photos␣/a.txt`, spelling
-    /// the OLD parent name — is a path that no longer exists.
-    ///
-    /// Measured on this exact fixture before the fix: the child snapshotted `.absent`; the undo
-    /// restored the parent, making that path real again; `compare(.absent, .file)` answered
-    /// `.changed`; and the child's rename was refused and never reversed. Disk was left at
-    /// `<root>/Photos␣/a.txt` — parent name back, child name not — under the banner
-    /// `Undo left "a.txt" in place — it changed since`: a half-undone pass, reported to the user
-    /// as drift that never happened.
-    ///
-    /// Driven through the real filesystem rather than `MockFileManager`, whose `moveItem` of a
-    /// DIRECTORY does not carry keys that were not in its `contents` list — a nested fixture would
-    /// measure the double, not the code.
+    /// Real filesystem, not `MockFileManager`: the mock's `moveItem` of a directory drops keys not
+    /// in its `contents` list, so a nested fixture would measure the double.
     @MainActor
     @Test func undoOfANestedNormalizePassReversesTheChildRenameToo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeUndo")
         defer { try? FileManager.default.removeItem(at: root) }
 
         // Zero-width spaces: risky to every provider, and robust on APFS (distinct entries, not
-        // trimmed by URL handling) — unlike trailing-space or trailing-dot names.
+        // trimmed by URL handling), unlike trailing-space or trailing-dot names.
         let riskyFolder = root.appendingPathComponent("Photos\u{200B}")
         let riskyChild = riskyFolder.appendingPathComponent("a\u{200B}.txt")
         try FileManager.default.createDirectory(at: riskyFolder, withIntermediateDirectories: true)
@@ -464,7 +373,7 @@ import Events
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
         await manager.scanNames(root: root, provider: .iCloud)
-        // The folder AND the file — a nested batch is the whole point of the fixture.
+        // The folder and the file: the fixture is about a nested batch.
         #expect(manager.riskyNames.count == 2,
                 "expected both the folder and the file to be flagged, got \(manager.riskyNames.map(\.currentName))")
 
@@ -487,9 +396,8 @@ import Events
         // Every one of the three paths is back, and nothing of the normalized pass survives.
         #expect(FileManager.default.fileExists(atPath: riskyFolder.path))
         #expect(FileManager.default.fileExists(atPath: riskyChild.path))
-        // `try?`, deliberately: a throwing read here would abort the test at the first missing
-        // file and take the banner and log assertions below with it — exactly the evidence a
-        // future regression needs to report.
+        // `try?`: a throwing read would abort at the first missing file and skip the banner and
+        // log assertions below, the evidence a regression needs to report.
         #expect((try? Data(contentsOf: riskyChild)) == Data("child payload".utf8),
                 "the child must be the same file moved back, not a fresh one")
         #expect(!FileManager.default.fileExists(atPath: safeFolder.path),
@@ -502,26 +410,16 @@ import Events
         #expect(lines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
         }, "the undo did not reverse both renames; lines since the marker: \(lines)")
-        // Scoped to this fixture's unique temp root: the window also holds the lines of whatever
-        // suites ran alongside, and a neighbour's legitimate refusal is not this test's business.
+        // Scoped to this fixture's temp root: a neighbour's refusal in the window isn't ours.
         #expect(lines.filter { $0.contains(root.path) }.allSatisfy { !$0.contains("REFUSED") },
                 "nothing drifted, so nothing may be refused; lines since the marker: \(lines)")
     }
 
-    /// The other half of the nested pass: ⌘⇧Z has to put the normalized names BACK.
-    ///
-    /// `normalizeNames` is careful about order in both directions — apply deepest-first, register
-    /// the undo shallowest-first — and the redo was not. The undo appends its reversed params in
-    /// `items` order (shallowest-first) and the redo replayed them in that same order, which is
-    /// the wrong order for re-APPLYING: the parent is renamed back to `Photos` first, and the
-    /// child's recorded `from` — `Photos␣/a␣.txt` — then names a path whose parent has just
-    /// vanished. `createDirectory` manufactured that parent rather than letting the move fail, so
-    /// a redo produced a brand-new EMPTY folder carrying exactly the risky name this feature
-    /// exists to remove.
-    ///
-    /// Measured on this fixture before the fix:
-    /// after ⌘⇧Z the tree was `["Photos", "Photos/a␣.txt", "Photos␣"]` under the banner
-    /// `Redo couldn't re-apply "a.txt" — its source may no longer exist`.
+    /// ⌘⇧Z puts the normalized names back. The undo's params are shallowest-first, the wrong order
+    /// for re-applying: renaming the parent first leaves the child's recorded `from`
+    /// (`Photos␣/a␣.txt`) under a parent that has just vanished, and recreating it would leave an
+    /// empty folder carrying the very risky name the pass removed. The tree must end exactly
+    /// `["Photos", "Photos/a.txt"]`.
     @MainActor
     @Test func redoOfANestedNormalizePassReAppliesBothRenames() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeRedo")
@@ -559,16 +457,12 @@ import Events
                 "nothing was missing, so nothing may fail to redo; lines since the marker: \(lines)")
     }
 
-    /// And the leg after that. A redo that re-applies in the wrong order also leaves the next
-    /// UNDO unable to fix it: the stray `Photos␣` directory occupies the child's source, so the
-    /// undo hits `restoreTargetOccupiedError`, reverses nothing, and the stack is dead — measured
-    /// as "after ⌘Z again: unchanged" under `Undo couldn't restore the original of "Photos␣" —
-    /// it may have been removed from the Trash`, which is also untrue (nothing was in the Trash).
+    /// The undo after that redo reverses both renames again. A stray `Photos␣` left by a
+    /// wrong-order redo would occupy the child's source, so this undo would reverse nothing.
     ///
-    /// This leg is what proves the redo's own snapshot reads a LIVE path. Each re-applied item is
-    /// snapshotted the moment it lands, before the shallower moves rename its ancestors, so the
-    /// recorded `to` is where the item actually is — the guarantee `liveLocation` has to buy for
-    /// `registerMoveUndo(items:)`, which snapshots after the whole batch instead.
+    /// This leg proves the redo's own snapshot reads a live path: each re-applied item is
+    /// snapshotted as it lands, before shallower moves rename its ancestors. `liveLocation` buys
+    /// the same guarantee for `registerMoveUndo(items:)`, which snapshots after the whole batch.
     @MainActor
     @Test func undoAfterARedoOfANestedNormalizePassStillReversesBothRenames() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeRedoUndo")
@@ -609,23 +503,19 @@ import Events
                 "nothing drifted, so nothing may be refused; lines since the marker: \(lines)")
     }
 
-    /// A REFUSED nested undo must build nothing.
-    ///
-    /// The undo recreated `item.from`'s parent at the top of its loop, before deciding anything.
-    /// For a nested batch whose shallow item has drifted, the deeper item's `from` spells the old
-    /// ancestor name — so the loop manufactured `Photos␣`, the very name the pass had just
-    /// removed, and only then refused the item it had built it for. An undo that declines to touch
-    /// an item has to leave the disk exactly as it found it; a stray empty folder carrying a risky
-    /// name is not "left in place".
+    /// A refused nested undo builds nothing. When the shallow item has drifted, the deeper item's
+    /// `from` spells the old ancestor name, so recreating its parent before deciding would
+    /// manufacture `Photos␣`, the name the pass removed. A refused item leaves the disk exactly as
+    /// it found it.
     @MainActor
     @Test func aRefusedNestedUndoManufacturesNoDirectory() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NestedNormalizeRefused")
         defer { try? FileManager.default.removeItem(at: root) }
         let f = try await stageNestedNormalizePass(root: root)
 
-        // Something lands in the normalized folder between the pass and the ⌘Z, so the folder is
-        // no longer the item the rename produced and its restore is refused. The child's own
-        // recorded destination is inside the folder's OLD name, which now stays unrestored.
+        // Something lands in the normalized folder before the ⌘Z, so the folder's restore is
+        // refused. The child's recorded destination is under the folder's old name, which now
+        // stays unrestored.
         try Data("dropped in later".utf8).write(to: f.safeFolder.appendingPathComponent("extra.txt"))
         f.manager.banner = nil
         let marker = await plantLogMarker("nested-normalize-refused")
@@ -645,12 +535,8 @@ import Events
         }, "both items should have been refused, and neither counted as a failure; lines since the marker: \(lines)")
     }
 
-    /// The redo's half of the same rule: a re-apply that cannot happen must build nothing for it.
-    ///
-    /// `createDirectory` ran unconditionally, so a redo whose source had gone still created the
-    /// destination's parent and only then reported the failure — leaving an empty directory the
-    /// user never asked for, at a path the undo had emptied. Staged flat and on the mock, because
-    /// this is about the gate rather than about ordering: with the ordering fixed, the nested
+    /// The redo's half of the same rule: a re-apply that can't happen builds nothing, not even the
+    /// destination's parent. Staged flat on the mock, because with the ordering right the nested
     /// batch never reaches a missing source, so nothing else here can see this.
     @MainActor
     @Test func aRedoThatCannotReApplyBuildsNoDestinationForIt() async throws {
@@ -668,8 +554,8 @@ import Events
         await waitUntil("the move is reversed") { mockFM.virtualDisk["/src/report.txt"] != nil }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // Between the ⌘Z and the ⌘⇧Z the user deletes both the file and the folder it had been
-        // moved into. Neither is the redo's to recreate.
+        // Between ⌘Z and ⌘⇧Z the user deletes the file and the folder it had been moved into.
+        // Neither is the redo's to recreate.
         mockFM.virtualDisk["/src/report.txt"] = nil
         mockFM.virtualDisk["/dst"] = nil
         manager.banner = nil
@@ -687,37 +573,15 @@ import Events
 
     // MARK: 5 — an occupied recorded path is not proof of identity
 
-    /// The regression the previous round introduced, and the reason `liveLocation` now asks the
-    /// disk about the REWRITTEN path instead of the recorded one.
+    /// An occupied recorded path is not proof of identity: `fileExists` can't tell our item from
+    /// any item. After a pass turns `<root>/P␣/a␣.txt` into `<root>/P/a.txt`, the user recreates
+    /// `<root>/P␣` with an unrelated `a.txt`. Snapshotting the recorded path would record that
+    /// stranger, compare it with itself and move it, planting the risky name on the user's file.
+    /// `liveLocation` reads the rewritten path instead, so the undo refuses.
     ///
-    /// `fileExists(destination)` cannot tell OUR item from ANY item. Let a normalize pass turn
-    /// `<root>/P␣/a␣.txt` into `<root>/P/a.txt`, then let the user recreate `<root>/P␣` with an
-    /// unrelated `a.txt` in it, and the recorded destination is occupied again — by a stranger. The
-    /// "if it is still there it did not go anywhere" short-circuit then snapshotted the STRANGER,
-    /// the undo's drift guard compared the stranger against itself, answered `.unchanged`, and
-    /// moved it.
-    ///
-    /// Measured on this exact fixture before the fix — our child 13 bytes, the stranger 4242:
-    ///
-    /// ```
-    /// <root>/P/a.txt              <- OUR file. NEVER REVERSED.
-    /// <root>/P␣/a␣.txt            <- the STRANGER's file, RENAMED to the risky name
-    /// banner = Undo couldn't restore the original of "P␣" — it may have been removed from the Trash
-    /// ```
-    ///
-    /// So the undo planted a zero-width space in an unrelated user file's name — the exact hazard
-    /// the feature exists to remove — left the real item un-undone, and the only banner named a
-    /// different item and blamed the Trash, which nothing went near. Under the design this replaced
-    /// (rewrite unconditionally) the same situation was a safe REFUSAL, so the change converted a
-    /// false refusal into a wrong-item move.
-    ///
-    /// Driven by calling `registerMoveUndo(items:)` with `normalizeNames`' exact shallowest-first
-    /// batch, rather than through `normalizeNames` itself: the snapshot is taken at REGISTRATION
-    /// time, so the stranger has to already be on disk when registration runs. That is the shape of
-    /// every call site — the batch is applied asynchronously and registered afterwards, and the
-    /// disk can move underneath it — and it is what the original probe drove. Real filesystem, for
-    /// the same reason the nested tests use one: `MockFileManager.moveItem` of a DIRECTORY would
-    /// measure the double.
+    /// Calls `registerMoveUndo(items:)` with `normalizeNames`' shallowest-first batch directly: the
+    /// snapshot is taken at registration, so the stranger must already be on disk then, as it can
+    /// be at any call site that registers after applying. Real filesystem, as for the nested tests.
     @MainActor
     @Test func undoRefusesAStrangerSittingOnTheRecordedDestination() async throws {
         let root = try makeCanonicalTempRoot(prefix: "StrangerAtRecordedPath")
@@ -732,8 +596,8 @@ import Events
         // The state the pass leaves behind: our item normalized...
         try FileManager.default.createDirectory(at: safeFolder, withIntermediateDirectories: true)
         try Data("child payload".utf8).write(to: safeChild)          // 13 bytes, ours
-        // ...and the user has since recreated the risky folder with an unrelated file in it, whose
-        // name happens to be the one the pass gave ours.
+        // ...and the user has since recreated the risky folder with an unrelated file in it, named
+        // as the pass named ours.
         try FileManager.default.createDirectory(at: riskyFolder, withIntermediateDirectories: true)
         try Data(repeating: 0x41, count: 4242).write(to: strangerChild)
 
@@ -742,9 +606,8 @@ import Events
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, false) }
 
-        // `normalizeNames`' batch, shallowest-first, exactly as it registers it: the child was
-        // renamed inside its still-risky parent, so its recorded `to` is `<root>/P␣/a.txt` — the
-        // very path the stranger now occupies.
+        // `normalizeNames`' batch, shallowest-first, as it registers it: the child was renamed
+        // inside its still-risky parent, so its recorded `to` is where the stranger now sits.
         let batch: [FileSyncManager.MoveItemState] = [
             (from: riskyFolder, to: safeFolder, overwritten: nil),
             (from: riskyChild, to: strangerChild, overwritten: nil)
@@ -758,8 +621,7 @@ import Events
         await waitUntil("the undo refuses something") { manager.banner?.severity == .warning }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // The stranger keeps its OWN name. This is the assertion the bug fails: it used to become
-        // `a␣.txt`.
+        // The stranger keeps its own name; renamed, it would be `a␣.txt`.
         #expect(treeUnder(root) == ["P", "P/a.txt", "P<ZWSP>", "P<ZWSP>/a.txt"],
                 "an undo may not rename an unrelated file; tree is \(treeUnder(root))")
         #expect(!FileManager.default.fileExists(atPath: riskyChild.path),
@@ -775,7 +637,7 @@ import Events
                 && $0.contains("no longer the item that was moved here")
         }, "the stranger was not refused; lines since the marker: \(lines)")
         // One refusal (the child) and one occupied source (the folder, whose original location the
-        // recreated directory holds) — and nothing moved at all.
+        // recreated directory holds), and nothing moved.
         #expect(lines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 0 of 2 item(s) back to source, 1 restore failure(s), 1 left in place")
         }, "the undo moved something it should have refused; lines since the marker: \(lines)")
@@ -783,19 +645,9 @@ import Events
 
     // MARK: 6 — the redo checks identity too
 
-    /// The redo gated on the SOURCE PATH existing and moved whatever was there.
-    ///
-    /// Measured before the fix — move `/redo-src/stranger.txt` → `/redo-dst/stranger.txt`, ⌘Z, then
-    /// the user creates a DIFFERENT `/redo-src/stranger.txt` (999 bytes) and an unrelated
-    /// `/redo-dst/stranger.txt` (555 bytes), then ⌘⇧Z:
-    ///
-    /// ```
-    /// after the redo: /redo-dst/stranger.txt size = 999, /redo-src/stranger.txt = gone, banner = nil
-    /// ```
-    ///
-    /// The redo relocated a file the user had just created, replaced an unrelated file at the
-    /// destination, and reported NOTHING — no log line and no banner. The undo path has refused
-    /// this exact situation since `ItemIdentity` landed; the redo had no equivalent at all.
+    /// The redo checks identity, not just that the source path exists. After ⌘Z, the user writes a
+    /// different file at the source and an unrelated one at the destination; a path-only redo
+    /// would move the first over the second and report nothing. It refuses, as the undo does.
     @MainActor
     @Test func redoRefusesASourceTheUserReplacedAfterTheUndo() async throws {
         let manager = makeManager()
@@ -812,8 +664,8 @@ import Events
         await waitUntil("the move is reversed") { mockFM.virtualDisk["/redo-src/stranger.txt"] != nil }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // Between the ⌘Z and the ⌘⇧Z the user writes a DIFFERENT file at the source path, and an
-        // unrelated one at the destination. Neither is the redo's to touch.
+        // Between ⌘Z and ⌘⇧Z the user writes a different file at the source and an unrelated one
+        // at the destination. Neither is the redo's to touch.
         mockFM.virtualDisk["/redo-src/stranger.txt"] = file(999, modified: Date(timeIntervalSince1970: 9_999))
         mockFM.virtualDisk["/redo-dst/stranger.txt"] = file(555, modified: Date(timeIntervalSince1970: 8_888))
         manager.banner = nil
@@ -840,9 +692,8 @@ import Events
         }, "a redo refusal is not being tallied; lines since the marker: \(lines)")
     }
 
-    /// The other half of the redo guard: an untouched source must still redo, or the guard is an
-    /// outage. Same fixture, same steps, nothing edited in between — and the opposite answer, so
-    /// neither test can be passing on the fallback.
+    /// An untouched source still redoes, or the guard is an outage. Same steps with nothing edited
+    /// and the opposite answer, so neither test can pass on the fallback.
     @MainActor
     @Test func redoOfAnUntouchedSourceStillReAppliesTheMove() async throws {
         let manager = makeManager()
@@ -872,27 +723,11 @@ import Events
 
     // MARK: 7 — WHEN the redo checks, not just whether
 
-    /// The gate the round above added verified every source in an up-front pass and then moved
-    /// every source, so anything that changed **in between** was moved unchecked — which is
-    /// verbatim the bug that pass was added to fix, moved one step later in the same function.
-    ///
-    /// **Both existing redo tests are single-item, and that is exactly why this shipped**: with one
-    /// param the pre-pass and an in-loop check are indistinguishable, so neither of them can tell
-    /// the two shapes apart. The window for item *k* of *N* is (N−k stats) plus (k−1 real
-    /// filesystem moves — the previous items of the batch), and this file's own registration
-    /// benchmark uses 3,000-item batches, so on the sizes it designs for the window is seconds
-    /// wide. The app's subject matter is cloud-synced folders, where a provider daemon
-    /// materialises files asynchronously.
-    ///
-    /// Measured on this fixture before the fix — a stranger written at `/tsrc/a.txt` while
-    /// `bb.txt` was moving, i.e. after `a.txt`'s up-front check had already passed:
-    ///
-    /// ```
-    /// afterUndo:  /tsrc/a.txt=10    /tsrc/bb.txt=20
-    /// afterRedo:  /tdst/a.txt=8888  /tdst/bb.txt=20   banner=nil
-    /// ```
-    ///
-    /// 8888 is the stranger, relocated with no guard and no report.
+    /// The redo checks each source at its own move, not in an up-front pass: anything that changed
+    /// between the pass and the move would go unchecked. With one item the two shapes look the
+    /// same, so this batch has two. For item k of N the gap spans the earlier items' real moves,
+    /// seconds on a large batch, and cloud providers materialise files at any time. Here a
+    /// stranger lands at `/tsrc/aa.txt` while `b.txt` moves, after an up-front check would pass.
     @MainActor
     @Test func redoRefusesASourceReplacedWhileAnEarlierItemOfTheSameBatchMoved() async throws {
         let manager = makeManager()
@@ -902,12 +737,9 @@ import Events
         mockFM.virtualDisk["/tsrc/aa.txt"] = file(10)
         mockFM.virtualDisk["/tsrc/b.txt"] = file(20)
 
-        // The two names are DIFFERENT LENGTHS on purpose. `pruneNestedNodes` orders the selection
-        // by path length with `sorted(by:)`, which Swift does not promise is stable, so two
-        // equal-length names would hand the batch over in an order that can differ between runs —
-        // and which item moves first is the whole fixture. `b.txt` shorter than `aa.txt` pins the
-        // batch as [b, aa], and a multi-select move replays in the order it was applied (M2):
-        // `b.txt` moves first, `aa.txt` last.
+        // Different lengths on purpose: `pruneNestedNodes` orders by path length with
+        // `sorted(by:)`, which isn't stable, and which item moves first is the whole fixture. The
+        // batch is [b, aa], and a multi-select move replays in the order it was applied.
         let nodes = [FileNode(id: "/tsrc/aa.txt", name: "aa.txt", isDirectory: false),
                      FileNode(id: "/tsrc/b.txt", name: "b.txt", isDirectory: false)]
         await manager.moveItems(nodes: nodes, toPath: "/tdst", fileManager: mockFM)
@@ -923,9 +755,8 @@ import Events
         #expect(afterUndo == "/tsrc/aa.txt=10  /tsrc/b.txt=20",
                 "the undo leg must put both files back before the redo is measured; got \(afterUndo)")
 
-        // A stranger takes `aa.txt`'s place WHILE `b.txt` is moving — after `aa.txt`'s up-front
-        // check has passed and before its own move runs. One-shot, by nilling the hook, so the
-        // redo's own bookkeeping moves cannot re-arm it.
+        // A stranger takes `aa.txt`'s place while `b.txt` is moving, before `aa.txt`'s own move.
+        // One-shot (the hook nils itself), so the redo's bookkeeping moves can't re-arm it.
         mockFM.beforeCopyItem = { src in
             guard src == "/tsrc/b.txt" else { return }
             mockFM.beforeCopyItem = nil
@@ -960,23 +791,9 @@ import Events
         }, "the tally does not report one refusal and one re-apply; lines since the marker: \(lines)")
     }
 
-    /// The other half of the same hole: an `.absent` source skipped the identity check ENTIRELY.
-    ///
-    /// The pre-pass short-circuited on `.absent` — "nothing is there to be a stranger" — and for
-    /// those params the recorded identity was then never consulted at any point. The replay's own
-    /// `fileExists` re-test let whatever had appeared in the meantime be moved. The reasoning is
-    /// true at the stat and false at the move: absence is a licence to skip the check only if it
-    /// is re-confirmed where the destruction happens.
-    ///
-    /// Measured on this fixture before the fix — the user deletes `y.txt` after the undo, then
-    /// writes an unrelated `y.txt` while `xx.txt` is moving:
-    ///
-    /// ```
-    /// afterUndo:  /dsrc/xx.txt=10
-    /// afterRedo:  /ddst/xx.txt=10  /ddst/y.txt=7777   banner=nil
-    /// ```
-    ///
-    /// 7777 is the user's brand-new file, relocated with no guard and no report.
+    /// A source found absent is still checked at its move. "Nothing there to be a stranger" holds
+    /// only if re-confirmed where the move happens. Here the user deletes `yy.txt` after the undo,
+    /// then writes an unrelated `yy.txt` while `x.txt` moves; the redo must refuse it.
     @MainActor
     @Test func redoRefusesASourceFilledAfterItWasFoundAbsent() async throws {
         let manager = makeManager()
@@ -986,9 +803,8 @@ import Events
         mockFM.virtualDisk["/dsrc/yy.txt"] = file(20)
         mockFM.virtualDisk["/dsrc/x.txt"] = file(10)
 
-        // Lengths pin the order again, and this time the LONGER name has to be the absent one:
-        // the batch is applied [x, yy], and a multi-select move replays in that order (M2) —
-        // `x.txt` moves first and `yy.txt`, the absent source, moves last.
+        // Lengths pin the order again, with the longer name the absent one: the batch is [x, yy],
+        // replayed in that order, so `x.txt` moves first and `yy.txt` last.
         let nodes = [FileNode(id: "/dsrc/yy.txt", name: "yy.txt", isDirectory: false),
                      FileNode(id: "/dsrc/x.txt", name: "x.txt", isDirectory: false)]
         await manager.moveItems(nodes: nodes, toPath: "/ddst", fileManager: mockFM)
@@ -1001,14 +817,13 @@ import Events
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // The user deletes the restored yy.txt themselves, so its source is genuinely ABSENT when
-        // the redo's up-front pass looks at it...
+        // The user deletes the restored yy.txt, so its source is absent when the redo starts...
         mockFM.virtualDisk["/dsrc/yy.txt"] = nil
         let afterUndo = probe(mockFM, ["/dsrc/x.txt", "/dsrc/yy.txt", "/ddst/x.txt", "/ddst/yy.txt"])
         #expect(afterUndo == "/dsrc/x.txt=10",
                 "only the surviving source may be on disk when the redo starts; got \(afterUndo)")
 
-        // ...and then writes a NEW, unrelated yy.txt while x.txt is moving.
+        // ...and then writes a new, unrelated yy.txt while x.txt is moving.
         mockFM.beforeCopyItem = { src in
             guard src == "/dsrc/x.txt" else { return }
             mockFM.beforeCopyItem = nil
@@ -1045,28 +860,11 @@ import Events
 
     // MARK: 8 — a recorded `.absent` is not an identity
 
-    /// `compare(.absent, .absent)` answers `.unchanged`, which is true and useless: it says nothing
-    /// changed, and the move-undo read it as "this is still my item, go ahead".
-    ///
-    /// The `vanished` branch above needs the destination's PARENT to exist, so an item whose
-    /// recorded destination AND its parent are both missing falls through to the drift guard —
-    /// where a recorded `.absent` meets a live `.absent`, votes `.unchanged`, and selects the MOVE
-    /// branch. Its first act is `createDirectory(item.from's parent)`, and only then does
-    /// `safeMoveItem` throw. So an undo that could never do anything still manufactured a folder,
-    /// carrying the very zero-width-space name the normalize pass exists to remove — contradicting
-    /// the invariant stated four lines above the `createDirectory` call, that "a refused item must
-    /// leave the disk exactly as it found it".
-    ///
-    /// Measured on this fixture before the fix:
-    ///
-    /// ```
-    /// disk before ⌘Z:  ["/root"]
-    /// disk after  ⌘Z:  ["/root", "/root/P<ZWSP>"]
-    /// ```
-    ///
-    /// Driven by registering the batch directly, because that is what produces a recorded
-    /// `.absent`: `registerMoveUndo(items:)` snapshots at registration time, so a destination that
-    /// is not on disk when registration runs records the absence itself.
+    /// A recorded `.absent` is not an identity: `compare(.absent, .absent)` answers `.unchanged`,
+    /// which must not read as "still my item". With the destination and its parent both missing,
+    /// the `vanished` branch can't fire, and taking the move branch would recreate `item.from`'s
+    /// parent (`P␣`) before failing. The undo refuses and builds nothing. Registered directly,
+    /// since a destination missing at registration is what records `.absent`.
     @MainActor
     @Test func undoOfAnItemNeverRecordedOnDiskManufacturesNoDirectory() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AbsentRecordedIdentity")
@@ -1080,8 +878,8 @@ import Events
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, false) }
 
-        // Nothing under `root` at all — neither the recorded destination nor its parent, which is
-        // what keeps the `vanished` branch from firing and sends this down the drift guard.
+        // Nothing under `root`, not even the destination's parent, so the `vanished` branch can't
+        // fire.
         try #require(treeUnder(root) == [])
 
         manager.registerMoveUndo(items: [(from: riskyChild, to: safeChild, overwritten: nil)],
@@ -1109,24 +907,16 @@ import Events
         }, "the tally does not separate 'nothing recorded' from a genuine failure; lines since the marker: \(lines)")
     }
 
-    /// **The same refusal, with the destination's parent on disk — which is the ordinary shape.**
-    ///
-    /// The test above deliberately empties the root so the `vanished` branch cannot fire, and that
-    /// makes it blind to the case a normalize batch actually produces: a child renamed inside a
-    /// folder that exists, whose destination was not on disk when the undo was registered. There,
-    /// `parentExists` is true and `item.to` is missing, so the `vanished` branch claimed the item
-    /// first and reported "no longer on disk" — which says the user removed it, and a recorded
-    /// `.absent` says the opposite. The banner that tells them the undo refused was lost with it:
-    /// `vanished` only logs.
-    ///
-    /// Both branches decline to act, so nothing was manufactured either way — this is about what
-    /// the user is told, and about the two counters staying separate.
+    /// The same refusal with the destination's parent on disk, the shape a normalize batch
+    /// produces. The `vanished` branch must not claim it: "no longer on disk" says the user removed
+    /// it, a recorded `.absent` says it was never there, and `vanished` only logs, so the refusal
+    /// banner would be lost. This is about what the user is told and the counters staying apart.
     @MainActor
     @Test func anUnrecordedItemIsRefusedAsSuchEvenWhenItsParentExists() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AbsentRecordedParentExists")
         defer { try? FileManager.default.removeItem(at: root) }
 
-        // The parent IS on disk — the whole difference from the test above.
+        // The parent is on disk: the one difference from the test above.
         let parent = root.appendingPathComponent("Photos")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let riskyChild = parent.appendingPathComponent("a\u{200B}.txt")
@@ -1161,17 +951,16 @@ import Events
         }, "the tally counted this as vanished rather than unrecorded; lines: \(lines)")
     }
 
-    /// `path=size` for each of `paths` that is on the virtual disk, in the order given — the shape
-    /// the probes in the three doc comments above are written in, so a failure prints the same
-    /// table the defect was measured with rather than four separate expectations.
+    /// `path=size` for each of `paths` on the virtual disk, in the order given, so a failure prints
+    /// one table rather than four separate expectations.
     private func probe(_ fm: MockFileManager, _ paths: [String]) -> String {
         paths.compactMap { path in
             (fm.virtualDisk[path]?.attributes?[FileAttributeKey.size] as? Int).map { "\(path)=\($0)" }
         }.joined(separator: "  ")
     }
 
-    /// Runs the risky-name pass the two redo tests share and hands back the manager and the four
-    /// paths, having checked the pass itself landed.
+    /// Runs the risky-name pass the nested redo and refusal tests share, checks it landed, and
+    /// hands back the manager and the four paths.
     @MainActor
     private func stageNestedNormalizePass(
         root: URL, sourceLocation: SourceLocation = #_sourceLocation
@@ -1196,9 +985,8 @@ import Events
         return (manager, riskyFolder, riskyChild, safeFolder, safeChild)
     }
 
-    /// Every path under `root`, relative and sorted, with zero-width spaces spelled out so a
-    /// failure message is readable — `["Photos<ZWSP>", "Photos<ZWSP>/a<ZWSP>.txt"]` rather than
-    /// two strings that look identical to the normalized ones.
+    /// Every path under `root`, relative and sorted, with zero-width spaces spelled `<ZWSP>` so a
+    /// failure doesn't print strings that look identical to the normalized ones.
     private func treeUnder(_ root: URL) -> [String] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }
@@ -1210,18 +998,15 @@ import Events
 
     // MARK: The batch-relative resolution itself
 
-    /// `liveLocation` is what makes the snapshot above read the right path. Pinned directly as
-    /// well as through the call site: the three-deep case and the cycle guard cannot be staged
-    /// from `normalizeNames`, and a rule proven only end-to-end loses its edges.
+    /// `liveLocation` makes the snapshots above read the right path. Pinned directly too: the
+    /// three-deep case and the cycle guard can't be staged from `normalizeNames`.
     @Test func liveLocationRewritesOnlyAncestorsRenamedLaterInTheSameBatch() {
-        // An empty disk, so the "still there?" confirmation never short-circuits a case that is
-        // about the resolution itself. `liveLocationLeavesAnItemThatIsStillAtItsRecordedPath`
-        // below is where that confirmation is measured.
+        // An empty disk, so the "still there?" check never short-circuits the resolution;
+        // `liveLocationLeavesAnItemThatIsStillAtItsRecordedPath` covers that check.
         let empty = MockFileManager()
 
-        // Three deep, applied deepest-first: the leaf's recorded `to` still spells BOTH old
-        // ancestor names, and both have to be rewritten — resolving only the nearest one leaves a
-        // path that is still wrong.
+        // Three deep, applied deepest-first: the leaf's recorded `to` spells both old ancestor
+        // names, and both must be rewritten.
         let nested: [FileSyncManager.MoveItemState] = [
             (from: url("/root/A-BAD/B-BAD/c-BAD.txt"), to: url("/root/A-BAD/B-BAD/cOK.txt"), overwritten: nil),
             (from: url("/root/A-BAD/B-BAD"), to: url("/root/A-BAD/BOK"), overwritten: nil),
@@ -1232,16 +1017,10 @@ import Events
         #expect(FileSyncManager.liveLocation(of: url("/root/A-BAD/BOK"), afterBatch: nested, fileManager: empty)
                 == url("/root/AOK/BOK"))
 
-        // A flat batch — every single-item call site, and every same-directory one — is untouched.
-        //
-        // Staged as a RENUMBERING CASCADE rather than two unrelated renames, so the assertion has
-        // something to disprove: `02 - x.pdf` is one move's destination AND another move's source,
-        // exactly the collision the "leaf is never rewritten" rule exists for. Written as two
-        // unrelated renames (`a b.txt`→`a-b.txt` beside `c d.txt`→`c-d.txt`), the expected value
-        // is the fallback, and an implementation that was nothing but `return destination` passed
-        // it — as did one that resolved the WHOLE path instead of only the parent, which is the
-        // mutation this now catches: it would answer `/root/03 - x.pdf` and snapshot the wrong
-        // file entirely.
+        // A flat batch (every single-item or same-directory call site) is untouched. Staged as a
+        // renumbering cascade, where `02 - x.pdf` is one move's destination and another's source,
+        // so the leaf rule has something to disprove: resolving the whole path instead of only the
+        // parent must fail here, answering `/root/03 - x.pdf`.
         let cascade: [FileSyncManager.MoveItemState] = [
             (from: url("/root/01 - x.pdf"), to: url("/root/02 - x.pdf"), overwritten: nil),
             (from: url("/root/02 - x.pdf"), to: url("/root/03 - x.pdf"), overwritten: nil)
@@ -1250,9 +1029,8 @@ import Events
                 == url("/root/02 - x.pdf"),
                 "the LEAF must never be rewritten — an item is renamed once per batch, so its own name is final")
 
-        // The same rule one level up, and the case the old "the shallowest item stays put"
-        // assertion could not see: here the shallowest item's destination IS another move's
-        // source, so a leaf-rewriting implementation answers `/root/B` instead of leaving it.
+        // The same rule one level up: the shallowest item's destination is another move's source,
+        // so a leaf-rewriting implementation would answer `/root/B`.
         let chain: [FileSyncManager.MoveItemState] = [
             (from: url("/root/A"), to: url("/root/B"), overwritten: nil),
             (from: url("/root/C"), to: url("/root/A"), overwritten: nil)
@@ -1261,15 +1039,9 @@ import Events
                 == url("/root/A"))
     }
 
-    /// The cycle guard, pinned to the ONE path it produces rather than to "either lap".
-    ///
-    /// The previous assertion accepted both, which made it unfailable — and removing the `seen`
-    /// guard it was meant to justify did not fail it either: the recursion never returns, and the
-    /// test host dies with `unexpected signal code 10` and no `Test run with N tests` line at all,
-    /// taking the rest of the run with it. Resolution is fully deterministic (the map is keyed by
-    /// exact path, so dictionary ordering cannot reach it), so the exact answer can be named, and
-    /// a mutation that keeps the recursion bounded but drops the guard's ANSWER — returning
-    /// `renames[path]` instead of `path` on the second visit — fails it cleanly.
+    /// The cycle guard, pinned to the one path it produces. Resolution is deterministic (keyed by
+    /// exact path), so the exact answer can be named: returning `renames[path]` instead of `path`
+    /// on the second visit must fail this.
     @Test func liveLocationStopsAtOneLapOfACycle() {
         let cycle: [FileSyncManager.MoveItemState] = [
             (from: url("/root/X"), to: url("/root/Y"), overwritten: nil),
@@ -1280,18 +1052,10 @@ import Events
                 == url("/root/X/leaf.txt"),
                 "X→Y→X closes the lap at X, so the parent resolves back to itself and the path is left alone")
 
-        // **The same guard, where the expected value is NOT the fallback.** The assertion above
-        // cannot be that: a cycle always closes back at its own entry point, so the parent resolves
-        // to itself, `liveLocation` returns `destination`, and an implementation consisting of
-        // nothing but `return destination` passes it. Here the cycle sits one level ABOVE a parent
-        // that really is renamed, so the correct answer names a different directory than the
-        // recorded path does and the fallback is disprovable.
-        //
-        // This is also what makes the `seen` guard's ABSENCE report as a test failure rather than
-        // as broken infrastructure. Deleting `seen` used to recurse forever and kill the host with
-        // `unexpected signal code 10`, taking every other verdict in the run with it; with the
-        // depth cap, the same deletion runs out of frames, resolution answers nil, `liveLocation`
-        // falls back to `/root/A/deep/leaf.txt`, and this line goes red like any other.
+        // The same guard where the expected value is not the fallback: above, a cycle closes at
+        // its entry, so `return destination` alone would pass. Here the cycle sits above a parent
+        // that really is renamed. Deleting `seen` must fail this line: the depth cap stops the
+        // recursion, resolution answers nil, and `liveLocation` falls back to the recorded path.
         let cycleAboveARename: [FileSyncManager.MoveItemState] = [
             (from: url("/root/A"), to: url("/root/B"), overwritten: nil),
             (from: url("/root/B"), to: url("/root/A"), overwritten: nil),
@@ -1304,14 +1068,11 @@ import Events
                 "the cycle above must close at A and leave the /deep → /deepOK rename to apply")
     }
 
-    /// **An occupied recorded path is not proof that the occupant is ours**, and this is where that
-    /// is pinned in isolation. `undoRefusesAStrangerSittingOnTheRecordedDestination` drives the
-    /// whole undo over a real filesystem; this names the one decision that test rests on.
-    ///
-    /// Three inputs, one batch, three different answers, so no branch here can be the fallback:
-    /// only the rewrite occupied → the recorded path (the nested-provider-root narrowing); only the
-    /// recorded path occupied → the recorded path; BOTH occupied → the rewrite, which is what makes
-    /// the undo refuse rather than move a stranger.
+    /// An occupied recorded path is not proof the occupant is ours, pinned in isolation
+    /// (`undoRefusesAStrangerSittingOnTheRecordedDestination` drives the whole undo). One batch,
+    /// three disks: only the rewrite occupied → the rewrite; only the recorded path occupied → the
+    /// recorded path (a nested provider root); both occupied → the rewrite, so the undo refuses
+    /// rather than move a stranger.
     @Test func liveLocationPrefersTheRecordedPathOnlyWhenTheRewrittenOneIsFree() throws {
         // `normalizeNames`' shape: the child was renamed inside its still-risky parent, then the
         // parent was renamed around it.
@@ -1328,8 +1089,8 @@ import Events
                                             fileManager: renamed)
                 == url("/root/P/a.txt"))
 
-        // Our item still at the recorded path and nothing at the rewritten one — the nested
-        // provider root, where the item really did land at its recorded `to`.
+        // Our item still at the recorded path and nothing at the rewritten one: a nested provider
+        // root, where the item really did land at its recorded `to`.
         let stayedPut = MockFileManager()
         try stayedPut.createDirectory(at: url("/root/P-BAD"), withIntermediateDirectories: true)
         stayedPut.virtualDisk["/root/P-BAD/a.txt"] = file(13)
@@ -1337,11 +1098,9 @@ import Events
                                             fileManager: stayedPut)
                 == url("/root/P-BAD/a.txt"))
 
-        // BOTH occupied. The recorded path holds a STRANGER — a recreated `/root/P-BAD` with an
-        // unrelated 4242-byte `a.txt` — and our 13-byte item is at the rewritten path. Trusting the
-        // recorded path here snapshots the stranger, and the undo then moves it: measured, ⌘Z
-        // renamed the user's unrelated file to `a␣.txt`. Answering with the rewrite makes the
-        // snapshot disagree with whatever sits at `item.to`, so the undo refuses.
+        // Both occupied: a stranger at the recorded path, our item at the rewritten one. Trusting
+        // the recorded path would snapshot the stranger and the undo would move it; the rewrite
+        // makes the snapshot disagree with what sits at `item.to`, so the undo refuses.
         let ambiguous = MockFileManager()
         try ambiguous.createDirectory(at: url("/root/P-BAD"), withIntermediateDirectories: true)
         try ambiguous.createDirectory(at: url("/root/P"), withIntermediateDirectories: true)
@@ -1353,18 +1112,12 @@ import Events
                 "an ambiguous path must resolve to the REWRITE — a wrong answer here has to cost a refusal, never a move of the wrong item")
     }
 
-    /// The narrowing that keeps a NESTED PROVIDER ROOT from being falsely refused.
-    ///
-    /// `SettingsManager.existingSource` refuses only the SAME folder, so `/P` and `/P/Backup` can
-    /// both be roots. A multi-select move across them orders by `id.count`, so the FOLDER
-    /// `/P/Backup/D` moves first and `ensureParentDirectoryExists` then recreates `/P/Backup/D`
-    /// under the file that lands second — the item arrives AFTER its ancestor moved, the inverse
-    /// of the order the ancestor rewrite assumes. Resolving anyway walked the file off into
-    /// `/P/Backup/Backup/D/file.txt`, snapshotted `.absent`, and the undo refused an item that had
-    /// never drifted. The blast radius was only ever a bad READ — `item.to` still drives the move
-    /// itself — but a false refusal is the thing `liveLocation` exists to prevent.
-    ///
-    /// The disk settles it: an item still sitting at its recorded destination did not go anywhere.
+    /// Keeps a nested provider root from being falsely refused. `/P` and `/P/Backup` can both be
+    /// roots (`SettingsManager.existingSource` refuses only the same folder). A multi-select move
+    /// orders by `id.count`, so the folder `/P/Backup/D` moves first and the file landing second
+    /// recreates `/P/Backup/D`: the item arrives after its ancestor moved. Rewriting would read it
+    /// at a path where it isn't, and the undo would refuse an item that never drifted. An item
+    /// still at its recorded destination didn't go anywhere.
     @Test func liveLocationLeavesAnItemThatIsStillAtItsRecordedPath() throws {
         let batch: [FileSyncManager.MoveItemState] = [
             (from: url("/P/Backup/D"), to: url("/P/Backup/moved-D"), overwritten: nil),
@@ -1379,41 +1132,21 @@ import Events
                 == url("/P/Backup/D/file.txt"),
                 "an item still at its recorded destination must be read there, not chased through the batch")
 
-        // And the narrowing is not a blanket "never rewrite": with the destination genuinely gone
-        // — the nested-rename case this whole seam exists for — the ancestor rewrite still runs.
-        // Same batch, same query, opposite answer, so neither branch can be the fallback.
+        // Not a blanket "never rewrite": with the destination gone (the nested-rename case) the
+        // ancestor rewrite still runs. Same query, opposite answer, so neither is the fallback.
         #expect(FileSyncManager.liveLocation(of: url("/P/Backup/D/file.txt"), afterBatch: batch,
                                             fileManager: MockFileManager())
                 == url("/P/Backup/moved-D/file.txt"))
     }
 
-    /// Registering the undo for a large batch must stay LINEAR in the batch size.
+    /// Registering the undo for a large batch must not go quadratic. `registerMoveUndo(items:)`
+    /// runs on the main actor right after a bulk move and calls `liveLocation` per item; rebuilding
+    /// the rename map per item costs about 15 s of frozen UI at 3,000 items, and a multi-select move
+    /// or a "Fix all" pass can hand over thousands.
     ///
-    /// `registerMoveUndo(items:)` runs on the MAIN ACTOR, immediately after a bulk move, and calls
-    /// `liveLocation` once per item. With the rename map built inside `liveLocation` it rebuilt
-    /// the whole table from the whole batch every time — measured on this machine, debug build:
-    /// n=100 → 0.015 s, n=1000 → 1.70 s, n=3000 → **14.6 s**, n=6000 → 52.1 s of frozen UI, and a
-    /// multi-select move (`FileOperations.swift`) or a "Fix all" normalize pass can hand over
-    /// thousands of items.
-    ///
-    /// **What this costs and why the ceiling is loose.** A timing assertion is a machine
-    /// measurement, so it is written to separate two shapes rather than to police a budget: with
-    /// the map hoisted this fixture takes tens of milliseconds here, and the ceiling is 3 s — over
-    /// 100× the expected cost, and still under a FIFTH of the 14.6 s the quadratic form spent. A
-    /// runner slow enough to fail this honestly would have to be ~100× this machine, and the same
-    /// runner would take ~24 minutes to do it quadratically. The batch is flat (no nesting
-    /// needed): the table was rebuilt per item regardless of shape.
-    ///
-    /// **It is named for what it measures, which is ONE point.** It used to be called
-    /// `theUndoRegistrationOfALargeBatchStaysLinear`, and it cannot see linearity: a single
-    /// (n, seconds) pair against a fixed ceiling passes just as happily for a 10× or 50× LINEAR
-    /// regression as for the current cost. What it does see is the quadratic blow-up it was written
-    /// for, because that one is three orders of magnitude, not one. The scaling itself was measured
-    /// out of band on this machine — n=1500 → 0.0254 s, n=3000 → 0.0344 s, n=6000 → 0.0594 s, so
-    /// t(2n)/t(n) is 1.35 and 1.73 — and deliberately NOT turned into a ratio assertion: at tens of
-    /// milliseconds the measurement noise on a shared, Rosetta-hosted CI runner is the same order
-    /// as the signal, which is `docs/flaky-tests.md` mechanism 6 exactly. An honest name plus a
-    /// recorded measurement beats a ratio test that fails for the machine's reasons.
+    /// One point against a loose ceiling: linear registration takes tens of milliseconds here, and
+    /// 3 s is over 100× that yet far below the quadratic cost. It can't see a linear slowdown, and
+    /// a ratio test would be noise on CI (`docs/flaky-tests.md`, "Load-scaled benchmarks").
     @MainActor
     @Test func theUndoRegistrationOfThreeThousandItemsStaysUnderThreeSeconds() async throws {
         let n = 3000

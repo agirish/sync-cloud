@@ -3,10 +3,9 @@ import CryptoKit
 
 // MARK: - Result model
 
-/// How the copies in a duplicate group are related. Shape (and the UI glyph derived from it)
-/// encodes the relationship, so the right resolution reads without color: identical copies can
-/// be collapsed to one, overlapping folders want an additive merge, versions want "keep the
-/// newest".
+/// How the copies in a duplicate group are related, and so how to resolve them: identical copies
+/// collapse to one, overlapping folders want an additive merge, versions want "keep the newest".
+/// The UI glyph encodes it by shape, so it reads without color.
 public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     /// Byte-for-byte identical content (files) or identical recursive trees (folders).
     case identical
@@ -15,15 +14,12 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     case overlapping(sharedFraction: Double)
     /// File names that reduce to one stem (`Report`, `Report (1)`, `Report-final`) but drifted.
     case versions
-    /// Documents whose *text* is identical although their bytes are not — one document downloaded
-    /// twice from a provider that re-stamps each copy. See ``ContentFingerprint``.
+    /// Documents whose text is identical although their bytes are not, such as one document
+    /// downloaded twice from a provider that re-stamps each copy. See ``ContentFingerprint``.
     ///
-    /// **A strictly weaker claim than `identical`, and it carries its own rules because of that.**
-    /// The digest proves the extracted text matches, which is not the same as proving the documents
-    /// match: measured over the real tree, 9 of 212 such groups turned out to be a signed copy
-    /// beside its unsigned original, a redacted copy beside the full one, or a resume revision whose
-    /// edit was purely visual. So the group is never in the "Apply recommended" batch — the user
-    /// looks at each one — while still being resolvable per group once they have.
+    /// Weaker than `identical`: matching text can still be a signed copy beside the unsigned one, a
+    /// redacted copy beside the full one, or a purely visual edit. So it is never in the "Apply
+    /// recommended" batch; the user resolves each group by hand.
     case sameText
 
     /// A stable key for filtering/sorting that ignores the associated value.
@@ -41,62 +37,40 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     }
 }
 
-/// What the duplicate scan measured about ONE folder copy's contents, per entry — the baseline a
+/// What the duplicate scan measured about one folder copy's contents, per entry: the baseline a
 /// destructive action re-walks against before trashing that copy (or trusting it as the keeper).
 ///
-/// **Per entry, because the aggregate lied in both directions.** The scan's rollup (recursive
-/// count + recursive bytes) was compared against a RAW re-walk: the scan skips
-/// `DuplicateFinderOptions.ignoredNames` and counts a symlink as one zero-byte entry, while a raw
-/// listing counts a `.DS_Store` and stats a link's own bytes — so every folder ever opened in
-/// Finder was refused as "changed since it was scanned", permanently, and the constant offset
-/// could equally mask a real loss. And even a convention-true aggregate cannot see a same-length
-/// rewrite, which leaves count and bytes both unchanged while replacing the only copy of the new
-/// content. Size AND mtime per relative path is the same fidelity `MergeFileSnapshot` gives the
-/// merge path's trash step, for the same reason.
-///
-/// The snapshot carries its own `ignoredNames` so the resolve-time re-walk skips exactly the set
-/// the scan skipped — the two sides of the comparison share one convention by construction.
+/// Per entry, not an aggregate count and size: an aggregate can't see a same-length rewrite, and
+/// any convention mismatch with the re-walk (`.DS_Store`, a link's own bytes) would refuse every
+/// folder or mask a real loss. Size and mtime per relative path, as `MergeFileSnapshot` gives the
+/// merge path's trash step. It carries its own `ignoredNames` so the re-walk skips exactly what the
+/// scan skipped.
 public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
     /// One directory entry as the scan's walk saw it.
     public enum Entry: Sendable, Equatable, Hashable {
-        /// A regular file: byte size and modification date, both from the walk. Either changing —
-        /// or the entry changing kind — is drift. The mtime half inherits the volume's timestamp
-        /// granularity: FAT and some SMB mounts round to 1–2 s, so a rewrite landing inside that
-        /// window with the same byte count compares equal — the same fidelity, and the same
-        /// residual blindness, as the file-level drift check. Two further residuals it shares
-        /// with that check (see `copyDriftedInPlace`): an mtime-preserving writer (`touch -r`,
-        /// `rsync --times`, some cloud daemons) restores the original mtime after rewriting the
-        /// bytes, so a same-length rewrite by one compares equal on ANY volume; and xattr/
-        /// Finder-tag edits move ctime only, so a copy whose sole change is metadata still reads
-        /// as unchanged.
+        /// A regular file: byte size and modification date from the walk. Either changing, or the
+        /// entry changing kind, is drift. Same blind spots as the file-level check
+        /// (`copyDriftedInPlace`): a same-length rewrite within the volume's mtime granularity
+        /// (1–2 s on FAT and some SMB), one by an mtime-preserving writer (`touch -r`,
+        /// `rsync --times`), and xattr or tag edits, which move only ctime.
         case file(size: Int, modificationDate: Date?)
-        /// A symbolic link. The walk resolves size/mtime to the link's TARGET, so a retarget is
-        /// caught exactly as far as those two readings move: a link repointed at a target whose
-        /// size or mtime differ reads as drift, while a retarget to a same-size, same-mtime target
-        /// compares equal — the entry never records the target PATH, so that case is invisible.
-        /// An untouched link always compares equal; the same resolution on both walks is what
-        /// keeps this stable.
+        /// A symbolic link, with the size and mtime the walk resolved from its target. A retarget
+        /// is caught only if those readings move; the target path isn't recorded. An untouched link
+        /// always compares equal, since both walks resolve it the same way.
         case symlink(size: Int, modificationDate: Date?)
-        /// A subdirectory: presence only. Its contents are entries of their own, so comparing the
-        /// directory's stat would only re-detect changes the file entries already catch — or
-        /// falsely refuse on metadata the entries do not cover.
+        /// A subdirectory: presence only. Its contents are entries of their own, and its stat
+        /// would only re-detect their changes or refuse on metadata they don't cover.
         case directory
     }
 
     /// Relative path under the folder copy's root → what the scan saw there.
     ///
-    /// **Keys compare by canonical equivalence, so NFC/NFD sibling names collapse.** Swift's
-    /// `String` `==`/hash are canonical-equivalence-based, which means two directory entries whose
-    /// names differ only in Unicode normalization — possible on SMB/NFS mounts, where the server
-    /// preserves whatever bytes a client sent, unlike APFS/HFS+ — land on ONE dictionary key here,
-    /// last-wins. Both the scan's snapshot and the resolve-time re-walk collapse identically (same
-    /// walk, same sort, same dictionary), so the comparison stays self-consistent; the residual is
-    /// that a change to the collapsed-away sibling is invisible to the drift gate. A byte-
-    /// preserving key would have to abandon `String` keys (canonical equivalence is not opt-out —
-    /// `precomposedStringWithCanonicalMapping` on the way in changes nothing about `==`), which
-    /// changes this public shape for a case only exotic mounts can produce; documented instead.
+    /// Keys compare by canonical equivalence, so NFC/NFD sibling names (possible on SMB/NFS
+    /// mounts) collapse to one key, last-wins. Both walks collapse identically, so the comparison
+    /// stays consistent, but a change to the collapsed-away sibling is invisible to the drift gate.
+    /// Fixing that would mean abandoning `String` keys for a case only such mounts produce.
     public let entries: [String: Entry]
-    /// The names the scan's traversal skipped (subtrees included) — a re-walk must skip the same.
+    /// The names the scan's traversal skipped (subtrees included); a re-walk must skip the same.
     public let ignoredNames: Set<String>
 
     public init(entries: [String: Entry], ignoredNames: Set<String>) {
@@ -104,17 +78,13 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
         self.ignoredNames = ignoredNames
     }
 
-    /// Builds a snapshot from an already-walked tree, mirroring ``DuplicateFinder``'s traversal
-    /// conventions exactly: ignored names are skipped with their subtrees, symlinks are recorded
-    /// but never descended into (even directory links, whose followed subtree the walk itself
-    /// explores), and sizes/mtimes are the walk's own readings.
+    /// Builds a snapshot from an already-walked tree with ``DuplicateFinder``'s conventions:
+    /// ignored names skipped with their subtrees, symlinks recorded but never descended (even
+    /// directory links), and the walk's own sizes and mtimes.
     ///
-    /// Returns nil when any subtree was not fully walked (`isUnexplored`): a partial walk cannot
-    /// be a complete baseline, and downstream a nil snapshot refuses the destructive action —
-    /// the same direction the finder takes by refusing such a folder a structural signature.
-    /// The refusal is worded as "couldn't be fully checked", not "changed": while the descendant
-    /// stays unreadable a rescan reproduces nil, so there is no change to claim and no rescan
-    /// that clears it.
+    /// nil when any subtree was not fully walked (`isUnexplored`): a partial walk is no baseline,
+    /// and a nil snapshot refuses the destructive action. That refusal says "couldn't be fully
+    /// checked", not "changed", since a rescan would reproduce it.
     public init?(walkedChildren: [FileNode], ignoredNames: Set<String>) {
         var out: [String: Entry] = [:]
         guard Self.collect(walkedChildren, prefix: "", ignoredNames: ignoredNames, into: &out) else { return nil }
@@ -131,8 +101,8 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
                 out[rel] = .symlink(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
                 continue
             }
-            // A folder reached twice under one root is recorded like a link and not descended —
-            // the snapshot describes what is HERE, and its contents belong to the shorter route.
+            // A folder reached twice under one root is recorded like a link and not descended: its
+            // contents belong to the shorter route.
             if n.isCoveredElsewhere == true {
                 out[rel] = .symlink(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
                 continue
@@ -151,7 +121,7 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
 
 /// One copy within a duplicate group.
 public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
-    /// Absolute filesystem path — the copy's identity.
+    /// Absolute filesystem path: the copy's identity.
     public let id: String
     public var path: String { id }
     public let name: String
@@ -161,34 +131,29 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     /// Recursive count of enclosed items for folders; 1 for a file.
     public let itemCount: Int
     public let modificationDate: Date?
-    /// Number of content items in this copy that are NOT present in the group's keeper.
-    /// 0 for a fully redundant copy; > 0 for an overlapping copy that would need a merge.
+    /// Number of content items in this copy that are not in the group's keeper. 0 for a fully
+    /// redundant copy; > 0 for an overlapping copy that would need a merge.
     public let uniqueItemCount: Int
     /// Depth of the path below the scan root (fewer = closer to root = more canonical).
     public let depth: Int
     /// Whether this is the recommended copy to keep.
     public let isRecommendedKeeper: Bool
-    /// True when the scan could NOT content-verify this copy: its hash (or, for a folder, some
-    /// descendant's) was skipped — cloud-only, unreadable. Lets the UI say the group's
-    /// content claim rests on less than full verification. Defaulted so existing construction
-    /// sites are unaffected.
+    /// True when the scan couldn't content-verify this copy: its hash (or a descendant's) was
+    /// skipped as cloud-only or unreadable, so the UI can say the group's claim is not fully
+    /// verified.
     public let contentUnverified: Bool
 
-    /// True when this copy lives inside a folder another group is KEEPING, so no recommendation may
-    /// offer to remove it — not the current one, and not one the user re-aims by picking a
-    /// different keeper. Without this the invariant lasted exactly as long as the default keeper:
-    /// `choosingKeeper` relabels copies purely by id, so moving the keeper elsewhere put the kept
-    /// folder's own file straight back on the removal list.
+    /// True when this copy lives inside a folder another group is keeping, so no recommendation may
+    /// offer to remove it, even after the user picks a different keeper (`choosingKeeper`
+    /// relabels by id alone and would put it back on the removal list).
     public let isProtectedFromRemoval: Bool
 
-    /// The scan's per-entry baseline for a FOLDER copy (nil for files, and for hand-built copies
-    /// that never went through a scan). Every destructive path re-walks against it before
-    /// trashing: nil refuses, because a folder with no recorded baseline cannot be shown to still
-    /// be what the scan grouped. Session-only, like the group it belongs to — scan results are
-    /// never persisted, so the field costs no migration.
+    /// The scan's per-entry baseline for a folder copy (nil for files and hand-built copies).
+    /// Every destructive path re-walks against it before trashing, and nil refuses: without a
+    /// baseline the folder can't be shown to still be what was grouped. Session-only, never saved.
     public let contentSnapshot: FolderContentSnapshot?
 
-    /// A non-keeper copy that holds nothing the keeper lacks — safe to remove outright.
+    /// A non-keeper copy that holds nothing the keeper lacks: safe to remove outright.
     public var isFullyRedundant: Bool { !isRecommendedKeeper && uniqueItemCount == 0 }
 
     public init(
@@ -227,13 +192,11 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     /// The common display name (e.g. "Folder 1"). For versions it's the shared stem.
     public let name: String
     public let isDirectory: Bool
-    /// The copies **as the finder built them** — keeper first, then by ascending depth and path.
+    /// The copies as the finder built them: keeper first, then by ascending depth and path.
     ///
-    /// **That order is the scan's, and it does not survive a keeper re-pick.** `choosingKeeper`
-    /// deliberately leaves the array where it was (see its doc), so after one the keeper can be at
-    /// any index. Nothing here reads position to find it — `keeper`, `redundantCopies` and
-    /// `recommendedRemovalPaths` all filter on `isRecommendedKeeper` — and a future caller must do
-    /// the same rather than trust `copies[0]`.
+    /// **That order doesn't survive a keeper re-pick**, which leaves the array as it was. Find the
+    /// keeper by `isRecommendedKeeper`, as `keeper`, `redundantCopies` and
+    /// `recommendedRemovalPaths` do, never by `copies[0]`.
     public let copies: [DuplicateCopy]
     /// Bytes recoverable by applying the recommended resolution.
     public let reclaimableBytes: Int
@@ -254,57 +217,36 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         self.reclaimableBytes = reclaimableBytes
     }
 
-    /// A stable identity for this cluster across scans — the sorted copy paths. Lets a
-    /// "Keep separate" choice persist so the same group isn't re-flagged next scan.
+    /// A stable identity for this cluster across scans (the sorted copy paths), so a "Keep
+    /// separate" choice persists and the group isn't re-flagged next scan.
     public var ignoreKey: String {
         copies.map { $0.id }.sorted().joined(separator: "\n")
     }
 
     /// The recommended copy to keep.
     ///
-    /// **The `??` is a fallback for a broken invariant, not a normal path.** Every production route
-    /// keeps exactly one copy flagged — the finder builds with `isKeeper: idx == 0`,
-    /// ``choosingKeeper(_:)`` refuses an id the group does not hold, and
-    /// ``removingRedundantCopy(atPath:)`` promotes the shallowest survivor when it removes the
-    /// keeper. It is here because `init` is public and takes any array.
-    ///
-    /// `copies[0]` still traps on an EMPTY group, which no finder builds. Left as a trap rather
-    /// than made optional: this is read by a dozen call sites across the duplicates subsystem and
-    /// each would need its own answer for nil, most of which would be invented rather than
-    /// decided. A group with no copies is not a group.
+    /// The `??` covers a broken invariant only: every production route keeps exactly one copy
+    /// flagged, but `init` is public and takes any array. `copies[0]` still traps on an empty
+    /// group, which no finder builds; a group with no copies is not a group.
     public var keeper: DuplicateCopy {
         copies.first(where: { $0.isRecommendedKeeper }) ?? copies[0]
     }
 
     /// The copies the recommendation would remove or merge away.
     ///
-    /// **Excludes whatever ``keeper`` actually names, not merely whatever is flagged.** The two
-    /// used to disagree in exactly the case the fallback above exists for: with no copy flagged,
-    /// `keeper` answered `copies[0]` while this returned EVERY copy — including that one. A caller
-    /// reading both saw a group whose keeper was also redundant, and the consumers of this list
-    /// drive "Move to Trash", so that is every copy of the user's file going to the Trash with the
-    /// one meant to survive among them.
-    ///
-    /// Both conditions, deliberately. Dropping the flag test and filtering on the keeper's id
-    /// alone would make a SECOND flagged copy redundant — the same invariant broken the other way.
-    /// Together they can only ever remove fewer copies than either alone, which is the right
-    /// direction for a list that feeds a trash.
+    /// **Excludes whatever ``keeper`` names, and every flagged copy.** This list drives "Move to
+    /// Trash", so it must never include the copy meant to survive, even with no copy flagged or
+    /// two. Both conditions together can only remove fewer copies, the right direction for a trash.
     public var redundantCopies: [DuplicateCopy] {
-        // Computed here rather than via `keeper` so an empty group stays empty instead of trapping.
-        // **The id test excludes whatever `keeper` names, flagged or not.** It used to compare
-        // against a `fallbackKeeperID` that was nil whenever ANY copy carried the flag, so it
-        // guarded only the no-flag case — and a group holding two copies at one PATH, one flagged
-        // and one not, walked straight through it. That is reachable: a folder a root links in
-        // from outside is substituted for the real folder, so a `~` scan saw `~/Documents` twice
-        // with one path (measured 2026-09-08) and this list named the keeper's own path as a thing
-        // to Trash. Comparing against the keeper's id closes it without weakening the case below.
+        // Not via `keeper`, so an empty group stays empty instead of trapping. The id test also
+        // covers two copies at one path, one flagged and one not, which a folder linked in from
+        // outside can produce (`~/Documents` twice in a `~` scan).
         let keeperID = copies.first(where: { $0.isRecommendedKeeper })?.id ?? copies.first?.id
-        // Both conditions still, deliberately — see the doc above: the id test alone would make a
-        // SECOND flagged copy redundant, and together they can only ever remove fewer copies.
+        // Both conditions: the id test alone would make a second flagged copy redundant.
         return copies.filter { !$0.isRecommendedKeeper && $0.id != keeperID }
     }
 
-    /// True when the recommendation removes copies without any merge — the per-group one-click
+    /// True when the recommendation removes copies without any merge: the per-group one-click
     /// case (identical dedup, or keep-newest for versions).
     public var isFullyResolvableByRemoval: Bool {
         switch matchType {
@@ -313,11 +255,9 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         }
     }
 
-    /// True when this group is safe to include in the blind "Apply recommended" batch. Only
-    /// byte-identical duplicates qualify: versions discard genuinely *different* older content and
-    /// version-matching is heuristic (bursts, numbered series), so they require a per-group look —
-    /// and a `sameText` group proves only that two documents *read* the same, which the measured
-    /// signed-copy and redacted-copy cases show is not the same as being the same document.
+    /// True when this group is safe for the blind "Apply recommended" batch. Only byte-identical
+    /// duplicates qualify: versions discard different older content on a heuristic match, and
+    /// `sameText` proves only that two documents read the same.
     public var isRecommendedForBatch: Bool {
         if case .identical = matchType { return true }
         return false
@@ -327,43 +267,33 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     public var recommendedRemovalPaths: [String] {
         switch matchType {
         case .identical, .versions, .sameText:
-            // Protected copies are filtered here, at the ONE place a recommendation becomes a list
-            // of paths to trash, so re-aiming the keeper cannot smuggle one back in.
+            // Protected copies are filtered here, the one place a recommendation becomes paths to
+            // trash, so re-aiming the keeper can't put one back.
             return redundantCopies.filter { !$0.isProtectedFromRemoval }.map { $0.path }
         case .overlapping:
             return []
         }
     }
 
-    /// Whether the user may pick a different keeper — whatever `isFullyResolvableByRemoval` admits,
-    /// which is identical, versions **and same-text** (`DuplicateFinderSameTextTests` pins that
-    /// last one deliberately). Overlapping is the exclusion: changing its keeper would re-shuffle
-    /// which items are "unique", which needs the content hashes we don't retain after a scan.
-    /// Read off `isFullyResolvableByRemoval` rather than restated — the list was spelled out here,
-    /// stopped matching when same-text arrived, and the fix reproduced the same drift by
-    /// forgetting a kind. It has since drifted twice more, in two other files.
+    /// Whether the user may pick a different keeper: whatever `isFullyResolvableByRemoval` admits
+    /// (identical, versions and same-text, which `DuplicateFinderSameTextTests` pins). Not
+    /// overlapping: a new keeper would change which items are unique, which needs hashes a scan
+    /// doesn't keep. Read off `isFullyResolvableByRemoval`, not restated, so the lists can't drift.
     public var allowsKeeperChoice: Bool { isFullyResolvableByRemoval }
 
     /// Returns this group with a different keeper chosen (no-op unless `allowsKeeperChoice` and the
     /// id names a non-keeper copy). Recomputes reclaimable bytes; keeps the same `id` so
     /// list/expansion identity is stable.
     ///
-    /// **The copies keep the order they were in.** This used to return `[newKeeper] + rest`, so
-    /// picking a copy moved its row — and its thumbnail — to the top of the card under the click
-    /// that picked it. His report: "the ordering changes and it is very confusing if we selected
-    /// anything", because a list that rearranges itself gives no before/after to compare, and the
-    /// row now under the pointer is not the row that was clicked. Nothing needs keeper-first
-    /// order: ``keeper`` finds the flag, ``redundantCopies`` filters on it, and re-ordering
-    /// `redundantCopies` here would only reorder a removal list whose members are all removed.
+    /// The copies keep their order, so the row the user clicked stays under the pointer. Nothing
+    /// needs keeper-first order: ``keeper`` and ``redundantCopies`` read the flag.
     public func choosingKeeper(_ copyID: DuplicateCopy.ID) -> DuplicateGroup {
         guard allowsKeeperChoice,
               copyID != keeper.id,
               copies.contains(where: { $0.id == copyID }) else { return self }
         let relabelled = copies.map { Self.relabel($0, isKeeper: $0.id == copyID) }
-        // Protected copies are excluded, for the same reason `recommendedRemovalPaths` excludes
-        // them: re-aiming the keeper is exactly what puts a protected copy on the redundant side,
-        // and counting bytes that will never be trashed makes the card promise a reclaim the
-        // "Move to Trash" it sits beside cannot deliver.
+        // Protected copies are excluded, as in `recommendedRemovalPaths`: they are never trashed,
+        // so counting them would promise a reclaim "Move to Trash" can't deliver.
         let reclaim = relabelled
             .filter { !$0.isRecommendedKeeper && !$0.isProtectedFromRemoval }
             .reduce(0) { $0 + $1.size }
@@ -372,12 +302,9 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     }
 
     /// Returns this group with the copy at `path` removed and its figures recomputed, or nil when
-    /// fewer than two copies remain (the cluster is no longer a duplicate). Keeps the same `id` so
-    /// list/expansion identity is stable. Used when a single copy is resolved out-of-band — trashed
-    /// from the Compare duplicate review — so the Duplicates list updates without a full rescan.
-    ///
-    /// The Compare flow only ever trashes a *redundant* copy (the keeper stays on the left), but if
-    /// the keeper is the one removed we promote the shallowest survivor so the group keeps a keeper.
+    /// fewer than two copies remain. Keeps the same `id`. Used when one copy is trashed from the
+    /// Compare duplicate review, so the Duplicates list updates without a rescan. If the keeper is
+    /// removed, the shallowest survivor is promoted so the group keeps one.
     public func removingRedundantCopy(atPath path: String) -> DuplicateGroup? {
         guard let removed = copies.first(where: { $0.id == path }) else { return self }
         var remaining = copies.filter { $0.id != path }
@@ -397,8 +324,8 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                                            remaining: keeperFirst, priorReclaim: reclaimableBytes))
     }
 
-    /// A copy of `c` with its keeper flag set — the single relabelling used by
-    /// ``choosingKeeper(_:)`` and ``removingRedundantCopy(atPath:)``.
+    /// A copy of `c` with its keeper flag set, for ``choosingKeeper(_:)`` and
+    /// ``removingRedundantCopy(atPath:)``.
     private static func relabel(_ c: DuplicateCopy, isKeeper: Bool) -> DuplicateCopy {
         DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
                       itemCount: c.itemCount, modificationDate: c.modificationDate,
@@ -408,11 +335,10 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                       contentSnapshot: c.contentSnapshot)
     }
 
-    /// Recomputes reclaimable bytes after one copy is removed, per the finder's own rules: identical
-    /// and versions groups reclaim the full size of every remaining redundant copy; an overlapping
-    /// group reclaims each redundant copy's *shared* bytes, so it drops by the removed copy's share
-    /// (its per-copy fraction isn't retained, so the group's average shared fraction stands in);
-    /// name-only groups reclaim nothing.
+    /// Recomputes reclaimable bytes after one copy is removed, per the finder's rules: identical,
+    /// versions and same-text groups reclaim every remaining unprotected redundant copy's full size;
+    /// an overlapping group drops by the removed copy's shared bytes, estimated with the group's
+    /// average shared fraction since per-copy fractions aren't kept.
     private static func reclaim(after removed: DuplicateCopy, matchType: DuplicateMatchType,
                                 remaining: [DuplicateCopy], priorReclaim: Int) -> Int {
         switch matchType {
@@ -431,24 +357,18 @@ public struct DuplicateFinderOptions: Sendable {
     /// Files smaller than this are ignored for standalone file grouping (they still count toward
     /// folder signatures). Keeps trivially tiny files out of the results.
     public var minFileSize: Int
-    /// A folder joins an overlapping group when it shares at least this much with the keeper —
-    /// measured both ways, see `mutualFraction`. Below it a folder simply does not join, and a
-    /// group with no members left is not reported at all.
+    /// A folder joins an overlapping group when it shares at least this much with the keeper,
+    /// measured both ways (`mutualFraction`). A group with no members left is not reported.
     public var overlapThreshold: Double
     /// Names skipped entirely (their subtrees don't count toward signatures either).
     public var ignoredNames: Set<String>
     /// Whether to surface drifted same-stem files as version groups.
     public var detectVersions: Bool
-    /// Whether to read documents and group those whose *text* matches although their bytes do not
-    /// — the re-stamped-download case. Costs one PDF parse per document on a COLD scan and nothing
-    /// on a rescan, because the digests are cached by the same (path, mtime, size, file number,
-    /// ctime) key the content hashes use.
-    ///
-    /// **~5.5 minutes for this tree's 10,569 PDFs, not the 46 s this once said.** That figure was
-    /// measured with six parses running at a time, which is the arrangement
-    /// ``PDFKitSerialAccess`` exists to forbid — PDFKit's text extraction is not thread-safe, and
-    /// the fast number was buying a digest that changed between runs. The honest cost of a stable
-    /// fingerprint is one parse at a time.
+    /// Whether to read documents and group those whose text matches although their bytes don't
+    /// (the re-stamped download). Costs one PDF parse per document on a cold scan and nothing on a
+    /// rescan, since digests are cached under the content hashes' key. Parses run one at a time
+    /// (``PDFKitSerialAccess``): PDFKit's text extraction is not thread-safe, so ~10k PDFs take
+    /// minutes.
     public var detectSameText: Bool
 
     public init(
@@ -465,13 +385,11 @@ public struct DuplicateFinderOptions: Sendable {
         self.detectSameText = detectSameText
     }
 
-    /// NOTE: `ItemIdentity.deepIdentityIgnoredNames` deliberately does NOT reuse this set. This
-    /// one is a DISCOVERY filter, so it may skip whole tooling trees (`.git`, `.build`,
-    /// `node_modules`) — but a skipped tree still exists, so it leaves its folder's identity
-    /// UNKNOWN rather than absent (see `collect`); only that set's OS noise is dropped outright.
-    /// The copy-undo's identity walk is a DESTRUCTION guard — a false skip there lets ⌘Z trash the only copy of an edit made inside
-    /// such a tree — so it digests them and skips OS noise only. A name added or removed here
-    /// does not automatically apply there; argue it into each set on its own merits.
+    /// `ItemIdentity.deepIdentityIgnoredNames` deliberately doesn't reuse this set. This is a
+    /// discovery filter, so it may skip tooling trees (`.git`, `.build`, `node_modules`), leaving
+    /// the folder's identity unknown (see `collect`). The copy-undo's identity walk guards against
+    /// destruction, where a false skip lets ⌘Z trash the only copy of an edit, so it skips only OS
+    /// noise. Change each set on its own merits.
     public static let defaultIgnoredNames: Set<String> = [
         ".DS_Store", ".git", ".build", "node_modules", ".Trashes", "Thumbs.db", ".localized"
     ]
@@ -511,16 +429,15 @@ public struct DuplicateFinderOptions: Sendable {
 
 // MARK: - Engine
 
-/// Finds duplicate and related items *within a single provider tree*. Pure and deterministic:
-/// grouping runs over an already-walked ``FileNode`` tree plus a map of file content hashes, so
-/// the logic is fully testable without disk. Mirrors ``FileDiffEngine`` (stateless statics).
+/// Finds duplicate and related items within a single provider tree. Pure and deterministic:
+/// grouping runs over an already-walked ``FileNode`` tree plus a map of content hashes, so it is
+/// testable without a disk. Stateless statics, like ``FileDiffEngine``.
 public enum DuplicateFinder {
 
-    /// Prefix of the per-path placeholder signature the scan assigns to files it could NOT hash
-    /// (unreadable, cloud-only), or did not need to (no same-size twin, or ends unlike any
-    /// twin's). Placeholders keep folder signatures computable
-    /// — a unique value can never falsely MATCH — but they are not content identity: they must
-    /// never count as evidence that two files' contents DIFFER either.
+    /// Prefix of the per-path placeholder signature for files the scan couldn't hash (unreadable,
+    /// cloud-only) or didn't need to (no same-size twin, or ends unlike any twin's). A unique value
+    /// keeps folder signatures computable and can never falsely match, but it must never count as
+    /// evidence that contents differ either.
     public static let unknownSignaturePrefix = "u:"
 
     /// Builds the placeholder signature for a file whose content identity is unknown.
@@ -546,8 +463,8 @@ public enum DuplicateFinder {
         let signature: String?
         /// Set of descendant file content hashes (folders); the file's own hash (files).
         let contentHashes: Set<String>
-        /// Whether this node is, or holds, an entry the walk skipped as a tooling tree (`.git`,
-        /// `node_modules`, …) — content that exists and that nothing here has looked at.
+        /// Whether this node is, or holds, an entry skipped as a tooling tree (`.git`,
+        /// `node_modules`, …): content that exists but nothing here has looked at.
         var holdsUnseenContent: Bool = false
         /// Whether this node is, or holds, a package (`.key`, `.pages`, `.photoslibrary`, …).
         var holdsPackage: Bool = false
@@ -560,8 +477,7 @@ public enum DuplicateFinder {
     ///     treated as "identity unknown" and never asserted identical.
     ///   - options: Tuning.
     ///   - textFingerprints: Map of absolute file path → ``ContentFingerprint`` digest, for the
-    ///     documents that produced one. Absent means "this document did not say enough to be
-    ///     identified by what it says" and is never evidence either way.
+    ///     documents that produced one. Absent is never evidence either way.
     /// - Returns: Groups sorted by reclaimable bytes (desc), then name.
     public static func findGroups(
         tree: [FileNode],
@@ -575,12 +491,10 @@ public enum DuplicateFinder {
         for node in tree {
             _ = collect(node, depth: 0, fileHashes: fileHashes, options: options, files: &files, dirs: &dirs)
         }
-        // The walked node for every directory that could become a folder copy, so the two folder
-        // passes can record a ``FolderContentSnapshot`` on each copy they emit. Snapshots are
-        // built LAZILY, per emitted copy, rather than rolled up in `collect`: a rollup would hold
-        // every descendant's entry once per ancestor level for the whole scan, while group members
-        // number in the dozens. The index mirrors `collect`'s own reach — ignored names and
-        // symlinked directories are skipped, so anything absent here was never a candidate.
+        // The walked node for every directory that could become a folder copy, so the folder
+        // passes can record a ``FolderContentSnapshot`` on each copy. Built lazily per emitted copy:
+        // a rollup in `collect` would hold every entry once per ancestor level. The index skips
+        // what `collect` skips, so anything absent here was never a candidate.
         var dirNodesByPath: [String: FileNode] = [:]
         func indexDirs(_ nodes: [FileNode]) {
             for n in nodes where n.isDirectory {
@@ -596,32 +510,27 @@ public enum DuplicateFinder {
             return FolderContentSnapshot(walkedChildren: node.children ?? [],
                                          ignoredNames: options.ignoredNames)
         }
-        // Hard-linked files (link count > 1) leave duplicate candidacy ENTIRELY, before any
-        // pass: a directory entry is not the bytes, so every offer the single-path copy model
-        // could make about one is a lie — trashing one link frees nothing (a sibling entry, in
-        // or out of the scan, keeps the blocks), "identical" links aren't a duplicate pair, and
-        // a versions group must not adjudicate history between an inode and itself. One drop
-        // here protects the identical AND versions passes alike; a per-pass collapse protected
-        // one and un-claimed the links for the other. Unknown link counts (no stat) stay in:
-        // over-reporting a duplicate beats hiding one.
+        // Hard-linked files (link count > 1) leave candidacy entirely, before any pass: trashing
+        // one link frees nothing, "identical" links aren't a duplicate pair, and a versions group
+        // must not judge an inode against itself. Dropped here so every pass is covered. Unknown
+        // link counts stay in: over-reporting a duplicate beats hiding one.
         if !multiLinkPaths.isEmpty {
             files.removeAll { multiLinkPaths.contains($0.path) }
         }
 
         var groups: [DuplicateGroup] = []
-        // Paths already fully accounted for by an ancestor duplicate group (so we don't also
-        // report every file inside a redundant folder copy as its own duplicate).
+        // Paths already covered by an ancestor duplicate group, so files inside a redundant folder
+        // copy aren't reported again.
         var coveredRoots: Set<String> = []
         // File paths already placed in a group (identical wins over versions).
         var groupedFilePaths: Set<String> = []
-        // The KEEPER side of every identical-folder group. `coveredRoots` deliberately holds only
-        // the redundant copies, so without this the file passes below could recommend removing a
-        // file from inside a folder the very same batch is keeping — see `protectingFolderKeepers`.
+        // The keeper of every identical-folder group. `coveredRoots` holds only redundant copies,
+        // so without this a file pass could recommend removing a file inside a kept folder (see
+        // `protectingFolderKeepers`).
         var folderKeeperRoots: Set<String> = []
 
-        // The KEEPER side of every identical-FILE group, for the same reason `folderKeeperRoots`
-        // exists one line up: the same-text pass below is allowed to reach back for one of these
-        // as an anchor, and must never offer to remove it.
+        // The keeper of every identical-file group: the same-text pass may use one as an anchor
+        // and must never offer to remove it.
         var identicalFileKeepers: Set<String> = []
 
         groups += identicalFolderGroups(dirs, options: options, snapshotForDir: snapshotForDir,
@@ -629,10 +538,8 @@ public enum DuplicateFinder {
         groups += overlappingFolderGroups(dirs, options: options, snapshotForDir: snapshotForDir,
                                                coveredRoots: &coveredRoots)
         groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths, keepers: &identicalFileKeepers)
-        // BEFORE versions, deliberately. A provider's second download often lands beside the first
-        // under a name the version stemmer reduces to the same stem — `DE429D.pdf` next to
-        // `DE429D-2.pdf`. Left to the versions pass those become "keep newest, trash older", which
-        // is a story about a document that changed; the fingerprint knows it did not change at all.
+        // Before versions: a second download (`DE429D-2.pdf` beside `DE429D.pdf`) shares a stem,
+        // and the versions pass would call it an older version when the text says it never changed.
         if options.detectSameText, !textFingerprints.isEmpty {
             groups += sameTextFileGroups(files, fingerprints: textFingerprints, options: options,
                                          coveredRoots: coveredRoots, folderKeeperRoots: folderKeeperRoots,
@@ -654,11 +561,9 @@ public enum DuplicateFinder {
     /// Rolls up a node bottom-up, appending files/dirs to the collectors. Returns the node's info
     /// (or nil if it was skipped as an ignored name).
     ///
-    /// **A package is one item** (FR1). Its contents are rolled up into its own size, content
-    /// hashes and signature — so two identical decks still match, and so does a folder of them —
-    /// but nothing INSIDE it is ever a candidate (`insidePackage`): two Keynote versions sharing
-    /// `Data/photo.jpg` were an identical-file group, and Apply recommended trashed one deck's
-    /// image. A Photos library's originals and an app's frameworks went the same way.
+    /// A package is one item. Its contents roll up into its size, hashes and signature, so two
+    /// identical decks still match, but nothing inside is ever a candidate (`insidePackage`), or
+    /// Apply recommended could trash an image shared by two Keynote decks, or a Photos original.
     private static func collect(
         _ node: FileNode,
         depth: Int,
@@ -668,15 +573,11 @@ public enum DuplicateFinder {
         dirs: inout [NodeInfo],
         insidePackage: Bool = false
     ) -> NodeInfo? {
-        // **Skipped is not the same as absent.** OS noise (`.DS_Store`, `Thumbs.db`, …) carries no
-        // content anyone keeps, so it is dropped as if it were not there. Everything else this set
-        // skips — `.git`, `node_modules`, `.build` — is content: a repository's whole history sits
-        // in `.git`. Dropping it made a clone and a ZIP of its working tree "identical", and Apply
-        // recommended could trash the clone. So nothing below it is looked at here — the scan walks
-        // it, but hashes, reads and link-checks none of it (`flattenFiles(_:skipping:)`) — and
-        // it reaches the parent as an entry of UNKNOWN identity, the treatment a directory link
-        // gets below: the parent can no longer be asserted identical, and `holdsUnseenContent`
-        // keeps it from being folded away as an overlapping copy.
+        // Skipped is not absent. OS noise (`.DS_Store`, `Thumbs.db`) is dropped. Other skipped
+        // names (`.git`, `node_modules`) are content: dropped, a clone would match a ZIP of its
+        // working tree and could be trashed. So they reach the parent as an entry of unknown
+        // identity, like a directory link: nothing inside is hashed (`flattenFiles(_:skipping:)`),
+        // the parent can't be identical, and `holdsUnseenContent` keeps it out of overlapping.
         if options.ignoredNames.contains(node.name) {
             if ItemIdentity.deepIdentityIgnoredNames.contains(node.name) { return nil }
             return NodeInfo(
@@ -685,19 +586,12 @@ public enum DuplicateFinder {
                 depth: depth, signature: nil, contentHashes: [], holdsUnseenContent: true
             )
         }
-        // A symlink must never be a duplicate CANDIDATE: the walk resolves its size/content to its
-        // target, so a link and its in-tree target would hash identically and group as "copies,"
-        // and trashing the real target would leave a dangling link as the "kept" copy. But it still
-        // occupies a name in its parent, so it MUST contribute to the parent's structural signature
-        // — otherwise a folder containing a symlink would look identical to one without it and the
-        // two would be offered as duplicate folders. So return an info the parent folds into its
-        // signature (a file link carries a "symlink:"-TAGGED target hash so it can never collide
-        // with a REAL file of the same name+hash — otherwise a folder holding a symlink would look
-        // identical to one holding the real file and the two would be offered as duplicate folders,
-        // trashing the real copy; a directory link is left unhashed, conservatively making its
-        // parent non-groupable) WITHOUT adding it to the file/dir buckets, and without walking a
-        // linked directory's contents. Size 0 + itemCount 0: a symlink reclaims no space and adds no
-        // nested items (the parent still counts it as one entry via its own `+ 1`).
+        // A symlink is never a candidate: it hashes like its target, and trashing the target would
+        // leave a dangling link as the "kept" copy. It still occupies a name, so it folds into the
+        // parent's signature: a file link as a "symlink:"-tagged hash, so a folder holding a link
+        // never matches one holding the real file; a directory link unhashed, making its parent
+        // non-groupable. Not added to the buckets or walked. Size and itemCount 0; the parent
+        // counts it as one entry.
         if node.isSymbolicLink == true {
             let signature = node.isDirectory ? nil : fileHashes[node.id].map { "symlink:" + $0 }
             return NodeInfo(
@@ -712,14 +606,10 @@ public enum DuplicateFinder {
                 contentHashes: []
             )
         }
-        // **A subtree this walk also reached by a shorter route is not a copy of anything** — it is
-        // the SAME directory entry, arriving twice with one path because the walk substitutes a
-        // linked-in folder for the folder it points at. The symlink branch above cannot catch it:
-        // the substituted node carries the real path and `isSymbolicLink == false`. Measured
-        // 2026-09-08 — under a `~` scan this produced an `identical` group whose two copies were
-        // both `/Users/…/Documents`, recommending the user Trash 11 GB of their own Documents
-        // folder as a redundant copy of itself. Same treatment as a symlink: counted by the parent
-        // as one entry, never a candidate, never walked into.
+        // A subtree also reached by a shorter route is not a copy of anything: it is the same
+        // entry arriving twice (`FileNode.isCoveredElsewhere`), and the symlink test can't see it.
+        // As a candidate, a `~` scan would offer to Trash `~/Documents` as a copy of itself. So it
+        // is treated like a symlink: one entry, never a candidate, never walked into.
         if node.isCoveredElsewhere == true {
             return NodeInfo(
                 path: node.id, name: node.name, isDirectory: node.isDirectory,
@@ -756,17 +646,17 @@ public enum DuplicateFinder {
         }
 
         let size = childInfos.reduce(0) { $0 + $1.size }
-        // A skipped tooling tree is not counted: the figure is what the walk saw, as it always was.
-        // (Any child still carrying an ignored name here is one — OS noise never comes back.)
+        // A skipped tooling tree isn't counted, so the figure is what the walk saw. (Any child
+        // still carrying an ignored name is one; OS noise never comes back.)
         let itemCount = childInfos.reduce(0) {
             options.ignoredNames.contains($1.name) ? $0 : $0 + 1 + ($1.isDirectory ? $1.itemCount : 0)
         }
         var contentHashes = Set<String>()
         for ci in childInfos { contentHashes.formUnion(ci.contentHashes) }
 
-        // Structural signature: canonical serialization of sorted child (name, sig) pairs, hashed
-        // to keep it bounded. nil if any descendant's identity is unknown (an unhashed file, or a
-        // directory whose children weren't walked) — then we can't assert this tree is identical.
+        // Structural signature: sorted child (name, sig) pairs, hashed to keep it bounded. nil if
+        // any descendant's identity is unknown (an unhashed file, an unwalked directory), so the
+        // tree is never asserted identical.
         var signature: String? = nil
         if node.isUnexplored != true {
             let parts = childInfos.map { ci -> String? in ci.signature.map { "\(ci.name)\u{0}\($0)" } }
@@ -786,8 +676,8 @@ public enum DuplicateFinder {
             depth: depth,
             signature: signature,
             contentHashes: contentHashes,
-            // A folder the walk did not read holds content nothing here has looked at — the same
-            // standing as a skipped `.git`, so it is never folded away (FR12).
+            // A folder the walk didn't read holds unseen content, like a skipped `.git`, so it is
+            // never folded away.
             holdsUnseenContent: node.isUnexplored == true || childInfos.contains(where: \.holdsUnseenContent),
             holdsPackage: isPackage || childInfos.contains(where: \.holdsPackage)
         )
@@ -821,8 +711,8 @@ public enum DuplicateFinder {
             }
 
         var groups: [DuplicateGroup] = []
-        // Every folder that holds a keeper chosen so far — so "does this member hold one?" is one
-        // lookup, not a walk over every keeper per member.
+        // Every folder that holds a keeper chosen so far, so "does this member hold one?" is one
+        // lookup.
         var keeperAncestors = Set<String>()
         func recordAncestors(of path: String) {
             var current = (path as NSString).deletingLastPathComponent
@@ -835,13 +725,11 @@ public enum DuplicateFinder {
             members = members.filter { !isCovered($0.path, by: coveredRoots) }
             guard members.count >= 2 else { continue }
 
-            // **A folder an earlier group keeps — or one that holds it — is never a copy to remove
-            // here.** Covering only the REDUNDANT copies let a later group trash the folder holding
-            // an earlier group's keeper: `Pics`, `P/Sub` and `Q/Sub` identical, `P` and `Q` holding
-            // only `Sub`; the first group kept `P/Sub` and trashed `Q/Sub`, the second kept `Q` and
-            // trashed `P`, and one Apply recommended sent every copy to the Trash. Such a member may
-            // still be this group's keeper, and is marked protected so a keeper re-pick cannot put
-            // it on the removal list; with nothing removable left there is no group.
+            // **A folder an earlier group keeps, or one that holds it, is never a copy to remove
+            // here.** Otherwise one group could keep `P/Sub` and trash `Q/Sub` while another kept
+            // `Q` and trashed `P`, and one Apply recommended would trash every copy. Such a member
+            // may still be the keeper, marked protected so a re-pick can't put it on the removal
+            // list; with nothing removable left there is no group.
             let protectedPaths = Set(members.filter { m in
                 isCovered(m.path, by: keeperRoots) || keeperAncestors.contains(m.path)
             }.map(\.path))
@@ -853,8 +741,8 @@ public enum DuplicateFinder {
                 let keeper = protected[chooseKeeper(protected)]
                 let removable = members.filter { !protectedPaths.contains($0.path) }
                 guard !removable.isEmpty else { continue }
-                // A second protected member has nowhere safe to sit, so it leaves the group — the
-                // rule `protectingFolderKeepers` applies to the file passes.
+                // A second protected member has nowhere safe to sit, so it leaves the group, as in
+                // `protectingFolderKeepers`.
                 ordered = [keeper] + removable.sorted { ($0.depth, $0.path) < ($1.depth, $1.path) }
             }
             let keeper = ordered[0]
@@ -871,9 +759,8 @@ public enum DuplicateFinder {
                 reclaimableBytes: reclaimable
             ))
             for c in copies.dropFirst() { coveredRoots.insert(c.path) }
-            // Recorded separately from `coveredRoots`: covering the keeper would also hide inner
-            // folder pairs from the passes below, which is a wider change than this invariant
-            // needs. The file passes consult it to keep their hands off the kept folder.
+            // Not in `coveredRoots`, which would also hide inner folder pairs from the passes
+            // below. The file passes consult it to leave the kept folder alone.
             keeperRoots.insert(keeper.path)
             recordAncestors(of: keeper.path)
         }
@@ -897,10 +784,9 @@ public enum DuplicateFinder {
 
         var groups: [DuplicateGroup] = []
         for (name, allMembers) in byName {
-            // A folder nested inside another same-named folder is already *part of* that folder's
-            // content, not a separate copy. Grouping the pair would let a merge copy files into
-            // the keeper and then trash a piece of it (the nested copy) — data loss. Keep only the
-            // outermost members.
+            // A folder nested inside a same-named folder is part of its content, not a copy.
+            // Grouped, a merge would copy files into the keeper and then trash a piece of it: data
+            // loss. Keep only the outermost members.
             let members = outermost(allMembers)
             guard members.count >= 2 else { continue }
             // Drop groups that are actually identical (already handled): keep only those with at
@@ -912,21 +798,12 @@ public enum DuplicateFinder {
             let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
             let keeper = ordered[0]
 
-            // **Each folder joins on its own merits, and the group is what is left.**
-            //
-            // The gate used to be one average over every same-named folder, admitting or rejecting
-            // them together — which loses a real finding to the company it keeps. His `Form W-2`
-            // set holds a genuine six-against-six twin plus three unrelated subsets of one and two
-            // files; the average of the four is 37.5%, under a threshold the twin clears at 100%.
-            // Filtering first keeps the twin and drops the subsets, which is what a reader does by
-            // eye — and it means a group's members are the folders that really are versions of
-            // each other, rather than everything that shared their name.
-            // **A copy holding content the walk skipped is never folded away.** Folding merges what
-            // the walk saw into the keeper and trashes the rest of the copy — and the rest would
-            // include a `.git` nobody compared with anything.
-            // Nor a package, or a folder holding one: the merge walks file by file and would fold
-            // one document's insides into another's — a bundle neither app wrote
-            // (`FileOperations.isMergeableFolder`).
+            // Each folder joins on its own merits, and the group is what is left: one average over
+            // all same-named folders would let unrelated subsets sink a real twin.
+            // **A copy holding content the walk skipped is never folded away**: folding trashes
+            // the rest of the copy, which would include a `.git` nobody compared. Nor a package or
+            // a folder holding one: the file-by-file merge would fold one document's insides into
+            // another's (`FileOperations.isMergeableFolder`).
             let folded = ordered.dropFirst().filter {
                 !$0.holdsUnseenContent && !$0.holdsPackage
                     && mutualFraction(of: $0, against: keeper) >= options.overlapThreshold
@@ -937,16 +814,15 @@ public enum DuplicateFinder {
             let mutual = folded.map { mutualFraction(of: $0, against: keeper) }
             let avgMutual = mutual.isEmpty ? 0 : mutual.reduce(0, +) / Double(mutual.count)
 
-            // Snapshots on these copies too: the Compare review offers its trash gate for EVERY
-            // directory group kind, not just identical ones, and its directory verdict comes from
-            // the recorded baseline.
+            // Snapshots here too: the Compare review gates its trash on the recorded baseline for
+            // every directory group kind.
             let copies = kept.enumerated().map { idx, info in
                 makeCopy(info, keeper: keeper, isKeeper: idx == 0,
                          contentSnapshot: snapshotForDir(info.path))
             }
 
-            // Anything survived the per-copy gate, so there is a group. `avgMutual` is now only
-            // the figure the card reports, not the test for whether to report one.
+            // Something survived the per-copy gate, so there is a group. `avgMutual` is only the
+            // figure the card reports.
             if !folded.isEmpty {
                 // Reclaimable ≈ the shared (redundant) bytes of each folded-in copy.
                 let reclaimable = zip(folded, fractions)
@@ -962,18 +838,10 @@ public enum DuplicateFinder {
                 // files as standalone identical-file duplicates.
                 for c in copies { coveredRoots.insert(c.path) }
             }
-            // With nothing left after the per-copy gate, nothing is reported at all. **Sharing a NAME is not evidence of
-            // duplication in an organised tree**, which is the whole finding here: he reviewed
-            // these and "they are all expected to have those same names". Measured against his
-            // hash index first — across ~/Documents, 115 same-name folder sets share not one file
-            // and are named `2020` (36 folders), `2021` (25), `2023` (23), `Archive`, `Approval`,
-            // `Payslips`; another 150 share 3–60% and are the same story one level down, a year or
-            // a person repeated under every subject.
-            //
-            // Nothing real is lost. This branch never wrote to `coveredRoots` — only the
-            // overlapping branch above does — so the documents genuinely filed in two of these
-            // folders are still reported, as the identical FILE groups they are. What is gone is
-            // the folder-level card that could only ever say "nothing to reclaim".
+            // With nothing left after the gate, nothing is reported: in an organised tree a shared
+            // name (`2020`, `Archive`, `Payslips`) is not evidence of duplication. Nothing real is
+            // lost, since only a reported group writes `coveredRoots`, so files filed in two such
+            // folders are still reported as identical-file groups.
         }
         return groups
     }
@@ -1011,10 +879,9 @@ public enum DuplicateFinder {
                 copies: copies,
                 reclaimableBytes: reclaimable
             ))
-            // EVERY member of the bucket is marked grouped, not just the copies that survived
-            // protection: a protected file dropped from this group is still accounted for by it,
-            // and leaving it unmarked let it reappear in a versions group the identical pass had
-            // always suppressed.
+            // Every member is marked grouped, not just the surviving copies: a protected file
+            // dropped from this group is still accounted for, and must not reappear in a versions
+            // group.
             for m in members { groupedFilePaths.insert(m.path) }
             keepers.insert(keeper.path)
         }
@@ -1023,25 +890,16 @@ public enum DuplicateFinder {
 
     // MARK: Same text, different bytes
 
-    /// Documents whose ``ContentFingerprint`` digest matches although their bytes do not — the
+    /// Documents whose ``ContentFingerprint`` digest matches although their bytes don't: the
     /// re-stamped download, the compressed re-save, the same statement filed under two names.
     ///
-    /// **The pass only ever adds information the byte hash did not have**, and it gets that from
-    /// `groupedFilePaths` rather than from a guard of its own. A first draft carried an explicit
-    /// "at least two distinct content signatures" check, and mutation testing could not kill it:
-    /// it is unreachable by construction. `identicalFileGroups` buckets by content hash under the
-    /// same size floor and the same `coveredRoots`, so any two members here that share a KNOWN
-    /// hash were already grouped and marked — leaving at most that group's keeper behind — while
-    /// members with no hash are distinct by definition. An inert guard reads as a safety net that
-    /// is holding something; this comment is what it was actually worth.
+    /// It only adds what the byte hash lacked, via `groupedFilePaths`: two members sharing a known
+    /// hash were already grouped by `identicalFileGroups` (same size floor, same `coveredRoots`),
+    /// leaving at most that group's keeper, so no "distinct signatures" guard is needed.
     ///
-    /// **It reaches back for an identical group's keeper, and only as an anchor.** Measured on the
-    /// real tree, 14 of the 253 groups this finds contain a byte-identical sub-pair — one document
-    /// downloaded twice *and* copied once — and in every one of those 14 the remaining members are
-    /// a single file. Excluding everything the identical pass touched would therefore not weaken
-    /// those 14 groups, it would delete them. So an identical group's keeper may anchor a group
-    /// here (it is the copy that pass promised to keep), while never being offered for removal by
-    /// it: two groups, disjoint removal sets, no way for one batch to undo the other's promise.
+    /// An identical group's keeper may anchor a group here, never be offered for removal by it.
+    /// Excluding it would delete groups where a document was downloaded twice and also copied; with
+    /// disjoint removal sets, one batch can't undo the other's promise.
     private static func sameTextFileGroups(
         _ files: [NodeInfo],
         fingerprints: [String: String],
@@ -1061,26 +919,22 @@ public enum DuplicateFinder {
         }
 
         var groups: [DuplicateGroup] = []
-        // Sorted by digest so the emitted order does not ride on dictionary iteration. It is
-        // observable only where the final sort ties (two groups with equal reclaimable bytes and
-        // equal names) and only ACROSS launches, because Swift seeds its hasher per process — so
-        // no single-process test can kill this line, and none pretends to.
+        // Sorted by digest so the order doesn't ride on dictionary iteration. Visible only where
+        // the final sort ties, and only across launches (Swift seeds its hasher per process), so
+        // no single-process test can catch it.
         for digest in buckets.keys.sorted() {
             let members = buckets[digest]!
             guard members.count >= 2 else { continue }
             let protectedPaths = Set(members.map { $0.path }.filter {
                 identicalKeepers.contains($0) || isCovered($0, by: folderKeeperRoots)
             })
-            // Keeper: preferred from the protected subset when there is one. Same argument as
-            // `protectingFolderKeepers` makes for identical files — the keeper choice is a location
-            // heuristic carrying no promise, and the user can re-aim it — so anchoring on the copy
-            // another group already promised to keep costs nothing and keeps this group actionable.
+            // Keeper from the protected subset when there is one, as in `protectingFolderKeepers`:
+            // the choice is a location heuristic the user can re-aim, so anchoring on a copy
+            // another group keeps costs nothing.
             let pool = protectedPaths.isEmpty ? members : members.filter { protectedPaths.contains($0.path) }
             let keeper = pool[chooseKeeper(pool)]
-            // A SECOND protected member leaves the group rather than appearing in it: it can be
-            // neither the keeper (taken) nor removable, so it has nowhere safe to sit — the same
-            // call `protectingFolderKeepers` makes, for the same reason. It stays marked as grouped
-            // below, so nothing downstream picks it up again.
+            // A second protected member can be neither keeper nor removable, so it leaves the
+            // group, as in `protectingFolderKeepers`. It stays marked as grouped below.
             let removable = members.filter { $0.path != keeper.path && !protectedPaths.contains($0.path) }
             guard !removable.isEmpty else { continue }
 
@@ -1095,8 +949,7 @@ public enum DuplicateFinder {
                 copies: copies,
                 reclaimableBytes: copies.dropFirst().reduce(0) { $0 + $1.size }
             ))
-            // Every member, protected ones included — the rule the two passes above follow, so a
-            // file this group accounted for can never be picked up again by versions.
+            // Every member, protected ones included, as above, so versions can't pick one up again.
             for m in members { groupedFilePaths.insert(m.path) }
         }
         return groups
@@ -1116,25 +969,13 @@ public enum DuplicateFinder {
             guard f.size >= options.minFileSize else { continue }
             guard !isCovered(f.path, by: coveredRoots), !groupedFilePaths.contains(f.path) else { continue }
             guard let (stem, ext, markers) = versionStemAndMarkers(f.name) else { continue }
-            // **A download counter is not evidence of versions (FR14).** " (1)", " (2)" is what a
-            // browser appends when a name it is saving already exists, and a site hands out the
-            // same name for every document of a kind: `invoice.pdf`, `invoice (1).pdf`,
-            // `invoice (2).pdf` are three months' bills, different bytes because they are
-            // different documents, and "Keep newest, Trash older" would trash two of them. A
-            // re-download of the SAME document is caught upstream — identical bytes by the
-            // identical pass, the same text re-stamped by the same-text pass — so what reaches
-            // here behind a counter is exactly the case the name cannot tell apart from distinct
-            // documents. So a name whose stem needed a counter stripped never joins by name, even
-            // beside one a person added on purpose (" copy", "-v2", "final") — and even when it
-            // carries one itself: `statement (1) copy.xlsx` is a copy of the second bill, not a
-            // version of the first. Unmarked members (same-folder case variants, the original
-            // beside its copy) are unaffected.
-            //
-            // **Dropped here, before any clustering, not from each cluster afterwards.** A counter
-            // name left in the bucket still counted as a marker bearer and as drift evidence, so it
-            // could split the bucket into per-folder clusters, or prove a folder's drift on its own
-            // hash, and then leave that cluster too small to stand once it was filtered out —
-            // taking the deliberate marker beside it with it, where the pool would have kept it.
+            // A download counter is not evidence of versions. A browser appends " (1)" when the
+            // name exists, and `invoice.pdf`, `invoice (1).pdf` can be different months' bills that
+            // "Keep newest, Trash older" would trash. A re-download of the same document is caught
+            // upstream (identical or same-text), so a counter name never joins by name, even beside
+            // or alongside a deliberate marker (`statement (1) copy.xlsx`). Dropped before
+            // clustering: left in, it would still count as a marker and as drift evidence, and
+            // could split or sink a cluster.
             guard !markers.contains(0) else { continue }
             guard !DuplicateFinderOptions.genericVersionStems.contains(stem) else { continue }
             buckets["\(stem)\u{0}\(ext)", default: []].append(f)
@@ -1142,35 +983,23 @@ public enum DuplicateFinder {
 
         var groups: [DuplicateGroup] = []
         for bucket in buckets.values where bucket.count >= 2 {
-            // A shared stem alone is weak evidence: unrelated same-named files routinely live in
-            // different folders (/2019/IMG_0001.jpg vs /2023/IMG_0001.jpg, ClientA/invoice.pdf vs
-            // ClientB/invoice.pdf) and must NOT form a "versions" group — its recommendation would
-            // trash a unique file. Require a real version signal: at least one member whose name
-            // carried a stripped marker (" (1)", "copy", "-v2", "final", …), or every member in the
-            // SAME folder (same-stem siblings that differ only by case/whitespace normalization).
+            // A shared stem alone is weak evidence: unrelated same-named files live in different
+            // folders (/2019/IMG_0001.jpg, /2023/IMG_0001.jpg), and a "versions" group would trash
+            // a unique one. So require a stripped marker (" (1)", "copy", "-v2", "final", …) on at
+            // least one member, or every member in the same folder.
             //
-            // A marker vouches ONLY for its own name and for the members sharing its parent
-            // directory — "IMG_0001 copy.jpg" is evidence someone duplicated the IMG_0001.jpg
-            // NEXT TO IT, not that a same-stem file in a different folder is a version of either.
-            // Licensing the whole cross-folder stem bucket off one marker would group
-            // /2023/IMG_0001.jpg + "/2023/IMG_0001 copy.jpg" + /2019/IMG_0001.jpg and recommend
-            // trashing the unrelated 2019 photo. So cross-folder members join only on their OWN
-            // marker (or by sharing a marker-bearer's parent); the rest of the bucket is dropped.
+            // A marker vouches only for its own name and the members beside it: "IMG_0001 copy.jpg"
+            // says nothing about a same-stem file elsewhere. So cross-folder members join only on
+            // their own marker or by sharing a bearer's parent.
             //
-            // And a parent's vouching stops at ONE duplication site: markers in more than one
-            // folder are independent events (ClientA duplicated its report; ClientB its own),
-            // not one document's history. Pooling every marker folder's plain siblings made the
-            // newest file anywhere the keeper and recommended trashing another folder's unmarked
-            // original. With multiple marker parents, each marker folder that has same-stem
-            // company forms its OWN group (round-5 same-parent semantics, per folder) — pairing
-            // every copy with ITS original, never another folder's. Only LONE bearers (no
-            // same-stem sibling beside them) still pool cross-folder: their marker names carry
-            // their own evidence (the save-as-into-Downloads case), and unmarked files never
-            // ride along with that pool.
+            // Markers in several folders are independent events, so each marker folder with
+            // same-stem company forms its own group, pairing each copy with its own original. Only
+            // lone bearers pool across folders, on their own names' evidence; unmarked files never
+            // join that pool.
             let sameParent = Set(bucket.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
             let memberClusters: [[NodeInfo]]
             if sameParent {
-                memberClusters = [bucket]   // same-stem siblings: the round-4 same-parent path, unchanged
+                memberClusters = [bucket]   // same-stem siblings
             } else {
                 let markerBearers = bucket.filter { hasVersionMarker($0.name) }
                 let markerParents = Set(markerBearers.map { ($0.path as NSString).deletingLastPathComponent })
@@ -1183,20 +1012,15 @@ public enum DuplicateFinder {
                 } else {
                     var clusters: [[NodeInfo]] = []
                     var loneBearerPool: [NodeInfo] = []
-                    // Grouped ONCE. This filtered the whole bucket per parent and recomputed
-                    // `deletingLastPathComponent` inside the closure every time — n×m string work
-                    // where one pass suffices, on a loop that runs per name-bucket.
+                    // Grouped once, not filtered per parent.
                     let byParent = Dictionary(grouping: bucket) {
                         ($0.path as NSString).deletingLastPathComponent
                     }
                     for parent in markerParents.sorted() {
                         let inParent = byParent[parent] ?? []
-                        // A cluster that cannot PROVE drift (fewer than two real hashes — its
-                        // companions are cloud-only or unreadable) will die at the guard
-                        // below; its bearers then fall through to the cross-folder pool instead
-                        // of silently vanishing — a marked name still carries its own evidence,
-                        // and a lone bearer elsewhere may prove the drift the home folder
-                        // couldn't. Unmarked companions never follow them into the pool.
+                        // A cluster that can't prove drift (fewer than two real hashes) would die
+                        // at the guard below, so its bearers fall through to the cross-folder pool,
+                        // where another bearer may prove it. Unmarked companions never follow.
                         let provableDrift = Set(inParent.compactMap { $0.signature }
                             .filter { !isUnknownSignature($0) }).count >= 2
                         if inParent.count >= 2 && provableDrift {
@@ -1211,15 +1035,11 @@ public enum DuplicateFinder {
             }
             for members in memberClusters {
                 guard members.count >= 2 else { continue }
-                // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
-                // already grouped). Placeholder ("u:" unknown) and missing signatures are not
-                // evidence of difference — two byte-identical files that were merely cloud-only
-                // (or unreadable) must not be claimed as drifted versions. Unknown-hash
-                // members may ride along in a group that real hashes justify, but can never
-                // stand one up by themselves.
-                // Files inside a kept folder can anchor a version group but are never offered for
-                // removal by it (see `protectingFolderKeepers`) — applied before the drift check
-                // below so the evidence is read off the members that actually remain.
+                // Only proven drift: at least two distinct real contents. Placeholder and missing
+                // signatures are not evidence of difference, so unknown-hash members may ride along
+                // in a group real hashes justify but never stand one up. Files inside a kept folder
+                // may anchor but are never offered for removal (`protectingFolderKeepers`), applied
+                // first so the evidence is read off the members that remain.
                 guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: newestIndex,
                                                             keeperMayBePickedFromProtected: false) else { continue }
                 let realHashes = Set(ordered.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
@@ -1238,9 +1058,7 @@ public enum DuplicateFinder {
                     copies: copies,
                     reclaimableBytes: reclaimable
                 ))
-                // Every member, not just the copies that survived protection — the same rule the
-                // identical pass follows. A protected file dropped from this group is still
-                // accounted for by it, and nothing downstream should be able to pick it up again.
+                // Every member, not just the surviving copies, as the identical pass does.
                 for m in members { groupedFilePaths.insert(m.path) }
             }
         }
@@ -1249,21 +1067,13 @@ public enum DuplicateFinder {
 
     // MARK: Folder-keeper protection
 
-    /// A file group's members reordered so that anything living inside an identical-folder group's
-    /// KEEPER is the group's own keeper — never one of the copies it recommends removing. Returns
-    /// nil when fewer than two members survive, i.e. there is no group left to report.
+    /// A file group's members reordered so that a file inside an identical-folder group's keeper is
+    /// never one of the copies recommended for removal. nil when fewer than two members survive.
     ///
-    /// A folder group tells the user "F1 is kept, F2 is redundant", and one "Apply recommended"
-    /// acts on every group at once. Nothing stopped a file group from independently recommending
-    /// `F1/a.txt` — content of the folder being kept — because `coveredRoots` only ever received
-    /// the REDUNDANT copies. A single batch would then trash F2 *and* hollow out F1, so the folder
-    /// the app had just called an intact copy no longer matched the one the user verified. The
-    /// mirror direction (a keeper inside a redundant copy) was already guarded; this is the same
-    /// invariant approached from the other side.
-    ///
-    /// Protected files still ANCHOR groups — that is how a third copy elsewhere stays discoverable
-    /// and removable — but only as the keeper. A second protected member has nowhere safe to sit,
-    /// so it leaves the group instead of becoming a removal recommendation.
+    /// One "Apply recommended" acts on every group at once, and `coveredRoots` holds only redundant
+    /// copies, so without this one batch could trash F2 and hollow out the kept F1 too. Protected
+    /// files still anchor groups, so a third copy elsewhere stays removable, but only as the
+    /// keeper. A second protected member has nowhere safe to sit and leaves the group.
     private static func protectingFolderKeepers(
         _ members: [NodeInfo],
         keeperRoots: Set<String>,
@@ -1272,32 +1082,24 @@ public enum DuplicateFinder {
     ) -> [NodeInfo]? {
         guard members.count >= 2 else { return nil }
         guard !keeperRoots.isEmpty else {
-            // The overwhelmingly common case (no identical-folder groups at all): the group is
-            // exactly what it always was.
+            // The common case: no identical-folder groups at all.
             return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
         }
         let protected = members.filter { isCovered($0.path, by: keeperRoots) }
         guard !protected.isEmpty else {
             return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
         }
-        // WHICH file anchors the group depends on what the pass's keeper choice MEANS.
-        //
-        // For identical copies it is a location heuristic ("least archive-like"), with no promise
-        // attached and a user-facing control to change it — so preferring a protected file is free,
-        // and it is what keeps a third copy elsewhere both visible and removable.
-        //
-        // For versions the keeper is the NEWEST, and the card says so in as many words ("Keep
-        // newest, Trash older"). Choosing the newest of the protected SUBSET quietly makes that
-        // false — it can be years older than the newest member — so the keeper stays whatever the
-        // pass picked over all members, and protection only removes the protected files from the
+        // Which file anchors depends on what the keeper choice means. For identical copies it is
+        // a location heuristic the user can change, so preferring a protected file is free. For
+        // versions the card promises "Keep newest", and the newest protected file could be years
+        // older, so the keeper is picked over all members and protection only shrinks the
         // removable side.
         let keeper = keeperMayBePickedFromProtected
             ? protected[chooseKeeperIn(protected)]
             : members[chooseKeeperIn(members)]
         let removable = members.filter { $0.path != keeper.path && !isCovered($0.path, by: keeperRoots) }
         guard !removable.isEmpty else { return nil }
-        // Keeper first, then the pass's usual (depth, path) ordering for the rest — the ordering
-        // `DuplicateGroup.copies` documents.
+        // Keeper first, then (depth, path), as `DuplicateGroup.copies` documents.
         return [keeper] + removable.sorted { ($0.depth, $0.path) < ($1.depth, $1.path) }
     }
 
@@ -1333,14 +1135,11 @@ public enum DuplicateFinder {
         return segs.reduce(0) { $0 + (archiveSegments.contains($1) ? 1 : 0) }
     }
 
-    /// The location penalty for a VERSIONS keeper. Unlike ``archiveSegments`` (used for
-    /// identical groups, where every copy holds the same bytes and the penalty only picks the
-    /// canonical HOME), this list holds only true archive/backup/trash segments. Versions
-    /// groups' copies hold DIFFERENT bytes and the recommendation trashes the non-keepers — a
-    /// just-downloaded newest revision legitimately sits in Downloads (or tmp/cache), and
-    /// penalizing those transient locations recommended keeping the STALE Documents copy and
-    /// trashing the only copy of the new content. Archive/backup stay penalized: there a
-    /// backup tool's mtime rewrite really does crown the wrong copy.
+    /// The location penalty for a versions keeper: only true archive, backup and trash segments,
+    /// unlike ``archiveSegments``, which only picks a home among identical bytes. Versions differ
+    /// and the non-keepers are trashed, and the newest revision may well sit in Downloads or tmp;
+    /// penalizing those would trash the only copy of new content. Backups stay penalized, since a
+    /// backup tool's mtime rewrite can make a stale copy look newest.
     private static let versionsStaleLocationSegments: Set<String> = [
         "archive", "archives", "old", "backup", "backups", "trash", ".trash"
     ]
@@ -1350,11 +1149,8 @@ public enum DuplicateFinder {
         return segs.reduce(0) { $0 + (versionsStaleLocationSegments.contains($1) ? 1 : 0) }
     }
 
-    /// Picks the versions keeper: least "stale" location first (archive/backup/trash only — a
-    /// backup copy must not be recommended as the one to keep even when its mtime is newest,
-    /// e.g. because a backup tool rewrote it; but a Downloads/tmp copy may well BE the newest
-    /// revision), then the most recently modified, then the shallowest path.
-    /// Internal (not private) so tests can pin the keeper choice directly.
+    /// Picks the versions keeper: least stale location first (``versionsStaleLocationSegments``),
+    /// then the most recently modified, then the shallowest path. Internal so tests can pin it.
     static func newestIndex(_ infos: [NodeInfo]) -> Int {
         var best = 0
         for i in 1..<infos.count {
@@ -1374,20 +1170,18 @@ public enum DuplicateFinder {
     // MARK: Helpers
 
     /// - Parameters:
-    ///   - protectedRoots: DIRECTORIES whose contents may not be removed (an identical-folder
+    ///   - protectedRoots: Directories whose contents may not be removed (an identical-folder
     ///     group's keeper). Tested by containment.
-    ///   - protectedPaths: EXACT paths that may not be removed (an identical-file group's keeper).
-    ///     A separate parameter because `isInsideDirectory` matches proper ancestors only, so a
-    ///     file path handed to `protectedRoots` would protect nothing — silently.
+    ///   - protectedPaths: Exact paths that may not be removed (an identical-file group's keeper).
+    ///     Separate because `isInsideDirectory` matches proper ancestors only, so a file path in
+    ///     `protectedRoots` would silently protect nothing.
     private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool,
                                  protectedRoots: Set<String> = [],
                                  protectedPaths: Set<String> = [],
                                  contentSnapshot: FolderContentSnapshot? = nil) -> DuplicateCopy {
         let unique = isKeeper ? 0 : info.contentHashes.subtracting(keeper.contentHashes).count
-        // Unverified content: a file whose hash is missing or an unknown-content placeholder, or
-        // a folder without a full structural signature (some descendant wasn't walked) or with an
-        // unknown-content descendant (placeholders make the signature computable and unique, but
-        // the folder's contents still weren't fully verified).
+        // Unverified: a file whose hash is missing or a placeholder, or a folder with no full
+        // signature or with a placeholder descendant (computable, but not verified).
         let unverified: Bool
         if info.isDirectory {
             unverified = info.signature == nil || info.contentHashes.contains(where: isUnknownSignature)
@@ -1418,34 +1212,21 @@ public enum DuplicateFinder {
         return [keeper] + rest
     }
 
-    /// How much of `copy` is already in `keeper` — the basis for the reclaim estimate, because
-    /// what a fold-in frees is this copy's redundant bytes.
-    ///
-    /// **One-sided, and that is why it cannot be the gate.** See ``mutualFraction(of:against:)``.
+    /// How much of `copy` is already in `keeper`: the reclaim estimate, since a fold-in frees this
+    /// copy's redundant bytes. One-sided, so it can't be the gate (``mutualFraction(of:against:)``).
     private static func sharedFraction(of copy: NodeInfo, against keeper: NodeInfo) -> Double {
         guard !copy.contentHashes.isEmpty else { return 0 }
         let shared = copy.contentHashes.intersection(keeper.contentHashes).count
         return Double(shared) / Double(copy.contentHashes.count)
     }
 
-    /// How much of the two folders TOGETHER is shared: the intersection over the larger side.
+    /// How much of the two folders together is shared: the intersection over the larger side.
     ///
-    /// **The one-sided fraction called a folder of one file "100% shared".** The folder pass
-    /// buckets by name, so an overlapping group is a name match that content is supposed to
-    /// justify — and `shared / |copy|` justifies it far too cheaply: a one-item `Visa` folder deep
-    /// inside an H-1B petition's supporting documents, holding a single file that also lives in the
-    /// 361-item top-level `Visa`, scored 1.0 and was offered as a merge. It is not a copy of that
-    /// folder; it is a different subject that happens to contain one of the same documents. His
-    /// report, and his own reading of it: "that explains why it doesn't actually need to be merged
-    /// in the first place."
-    ///
-    /// Over the larger side, the same pair scores 1/361. Two folders that really are versions of
-    /// each other barely move: twenty items against eighteen shared is 0.9 either way.
-    ///
-    /// **What this deliberately drops** is the small-subset case — five items wholly inside a
-    /// ten-item folder now scores 0.5 and is not reported as a folder finding. Those five files are
-    /// still reported, as the identical FILE duplicates they are; what goes is a folder-level
-    /// "merge these" over two folders that are not the same folder.
+    /// The folder pass buckets by name, and a one-sided fraction would call a one-file folder that
+    /// shares its file with a 361-item namesake "100% shared" and offer a merge. Over the larger
+    /// side that scores 1/361, while real versions barely move (18 of 20 is 0.9 either way). A
+    /// small subset (5 inside 10 scores 0.5) is deliberately not a folder finding; its files are
+    /// still reported as identical-file duplicates.
     private static func mutualFraction(of copy: NodeInfo, against keeper: NodeInfo) -> Double {
         let larger = max(copy.contentHashes.count, keeper.contentHashes.count)
         guard larger > 0 else { return 0 }
@@ -1458,10 +1239,8 @@ public enum DuplicateFinder {
 
     /// Keeps only the members not nested inside another member (drops ancestor/descendant dupes).
     private static func outermost(_ infos: [NodeInfo]) -> [NodeInfo] {
-        // **`paths` alone, not `paths.subtracting([$0.path])`.** Rebuilding the whole Set once per
-        // member is O(n²) copying plus n allocations, and it bought nothing: `isInsideDirectory`
-        // only matches at a "/" boundary, so a path can never be INSIDE itself. Called per
-        // name-bucket, and a common folder name (`img`, `assets`, `.git`) buckets large.
+        // `paths` alone, not minus `$0.path` (an O(n²) rebuild): `isInsideDirectory` matches only
+        // at a "/" boundary, so a path is never inside itself. Buckets can be large.
         let paths = Set(infos.map { $0.path })
         return infos.filter { !$0.path.isInsideDirectory(anyOf: paths) }
     }
@@ -1471,17 +1250,9 @@ public enum DuplicateFinder {
         return HexEncoding.string(digest)
     }
 
-    /// The trailing copy/version markers, compiled ONCE.
-    ///
-    /// `range(of:options:.regularExpression)` compiles its pattern on every call, and this ran four
-    /// of them inside a `while changed` loop — then `hasVersionMarker` called the whole thing again
-    /// from scratch. Measured over 20,000 names: **11.4 µs each as written against 4.0 µs
-    /// pre-compiled, 2.9x.** Called for every file above the size floor, then three more times per
-    /// bucket.
-    ///
-    /// `try!` because these are four literals in this file: a failure here is a typo in the line
-    /// above it, not a runtime condition, and the alternative is an optional that every caller
-    /// would have to pretend could be nil.
+    /// The trailing copy/version markers, compiled once: `range(of:options:.regularExpression)`
+    /// would compile per call, and this runs for every file above the size floor. `try!` because
+    /// these are literals; a failure is a typo, not a runtime condition.
     private static let versionMarkerPatterns: [NSRegularExpression] = [
         #"\s*\(\d+\)$"#,            // " (1)"
         #"[ _-]copy(\s*\d+)?$"#,    // " copy", "-copy 2"
@@ -1496,7 +1267,7 @@ public enum DuplicateFinder {
     }
 
     /// ``versionStem(_:)`` plus the indexes into ``versionMarkerPatterns`` of the markers it
-    /// stripped — index 0 is the download counter — from one pass of the patterns.
+    /// stripped (index 0 is the download counter).
     private static func versionStemAndMarkers(_ name: String)
         -> (stem: String, ext: String, markers: Set<Int>)? {
         let ns = name as NSString
@@ -1508,7 +1279,7 @@ public enum DuplicateFinder {
     }
 
     /// `stem` with every trailing marker removed, and the indexes into ``versionMarkerPatterns``
-    /// of the ones that fired — index 0 is the download counter, " (1)".
+    /// of the ones that fired (index 0 is the download counter, " (1)").
     private static func strippingVersionMarkers(_ stem: String) -> (String, Set<Int>) {
         var stem = stem
         var fired: Set<Int> = []
@@ -1528,10 +1299,9 @@ public enum DuplicateFinder {
         return (stem, fired)
     }
 
-    /// True when ``versionStem(_:)`` actually stripped a version/copy marker from the name — i.e.
-    /// the name itself carries evidence of being a version ("report copy.pdf", "deck-final.key"),
-    /// as opposed to merely sharing a stem with another file. Case/whitespace normalization alone
-    /// does not count as a marker.
+    /// True when ``versionStem(_:)`` stripped a version or copy marker, so the name itself is
+    /// evidence of a version ("report copy.pdf", "deck-final.key"). Case and whitespace
+    /// normalization alone don't count.
     static func hasVersionMarker(_ name: String) -> Bool {
         guard let (stem, _) = versionStem(name) else { return false }
         let plain = ((name as NSString).deletingPathExtension as String)

@@ -1,15 +1,15 @@
 import Foundation
 
-/// Which file types a pane is showing — the Filter button's state (RD70).
+/// Which file types a pane is showing: the Filter button's state.
 ///
-/// **`nil` on the pane means no filter.** A value is always a narrowing; one that would tick every
-/// extension the folder holds is normalized back to `nil` by the editing operations below, so the
-/// button returns to normal the moment the list is all ticked again (TE268).
+/// `nil` on the pane means no filter. A value is always a narrowing; the editing operations below
+/// normalize one that ticks every extension the folder holds back to `nil`, so the button returns
+/// to normal once the list is all ticked again.
 ///
-/// Two sets because a ticked kind and a ticked extension mean different things (TE278): `families`
-/// are whole kinds, which take in extensions that appear later — a `.gif` arriving while Images is
-/// ticked shows — and `extensions` are ticked one by one, which do not. Unticking one extension
-/// inside a whole kind turns that kind into its present extensions minus the one.
+/// Two sets, because a ticked kind and a ticked extension differ: `families` are whole kinds and
+/// take in extensions that appear later (a `.gif` arriving while Images is ticked shows), while
+/// `extensions` are ticked one by one and don't. Unticking one extension inside a whole kind turns
+/// that kind into its present extensions minus the one.
 public struct PaneTypeFilter: Equatable, Hashable, Sendable {
     public var families: Set<FileTypeFamily>
     /// Lowercased, as `FileTypeFamily.fileExtension(ofName:)` returns them.
@@ -52,8 +52,8 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         if filter.families.contains(family) { return .on }
         let present = presentExtensions(of: family, in: census)
         let ticked = present.filter(filter.extensions.contains)
-        // A ticked extension that is not in this folder (it was ticked elsewhere, FG) still counts
-        // toward the kind, so the box does not read as off while its row shows a ticked 0.
+        // A ticked extension not in this folder (ticked elsewhere) still counts toward the kind,
+        // so the box doesn't read as off while its row shows a ticked 0.
         let tickedAbsent = filter.extensions.contains { !present.contains($0) && FileTypeFamily.of(extension: $0) == family }
         if !present.isEmpty, ticked.count == present.count { return .on }
         return ticked.isEmpty && !tickedAbsent ? .off : .mixed
@@ -64,8 +64,8 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         filter?.matches(extension: ext) ?? true
     }
 
-    /// The ticked extensions of `family` that `census` does not hold — listed at 0 under the kind,
-    /// so a type ticked in another folder can still be unticked here (TE278).
+    /// The ticked extensions of `family` that `census` doesn't hold, listed at 0 under the kind so
+    /// a type ticked in another folder can still be unticked here.
     public static func absentTickedExtensions(of family: FileTypeFamily, in filter: PaneTypeFilter?,
                                               census: [String: Int]) -> [String] {
         guard let filter else { return [] }
@@ -92,7 +92,7 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         if next.matches(extension: ext) {
             if next.families.contains(family) {
                 // Unticking inside a whole kind: the kind becomes its present extensions minus this
-                // one, so it stops taking in new arrivals (TE278).
+                // one, so it stops taking in new arrivals.
                 next.families.remove(family)
                 next.extensions.formUnion(presentExtensions(of: family, in: census))
             }
@@ -119,11 +119,10 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         normalized(PaneTypeFilter(extensions: [ext]), census: census)
     }
 
-    /// Every kind, as a value — what an edit starts from when the pane had no filter. **Every kind,
-    /// not every kind present** (his call GR): unticking Images from no filter means "all but
-    /// Images", so a kind the walk has not reached yet, or a file of a new kind arriving later, still
-    /// shows. Ticking kinds one by one after Only is the other way to build a filter, and that one
-    /// stays a list of what is wanted.
+    /// Every kind, as a value: what an edit starts from when the pane had no filter. Every kind,
+    /// not every kind present, so unticking Images means "all but Images" and a kind the walk hasn't
+    /// reached yet, or one arriving later, still shows. Ticking kinds one by one after Only builds
+    /// the other sort of filter, a list of what is wanted.
     static let everything = PaneTypeFilter(families: Set(FileTypeFamily.allCases))
 
     /// `nil` when `filter` shows every file `census` holds.
@@ -136,8 +135,8 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
 
     /// The status-bar chip and VoiceOver value: "Images", "Images, PDFs", ".jpg, .png",
     /// "Images, PDFs +2". Kinds in the list's order, then any loose extensions of each. A filter
-    /// that shows most kinds is named by what it leaves out (GR): "All but Images", and "All but
-    /// some Images" for a kind split into its extensions.
+    /// that shows most kinds is named by what it leaves out: "All but Images", and "All but some
+    /// Images" for a kind split into its extensions.
     public var summary: String {
         if isExclusion {
             let parts = FileTypeFamily.allCases.filter { !families.contains($0) }.map { family in
@@ -158,8 +157,8 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
         return Self.joined(parts)
     }
 
-    /// "Showing only Images" or "Showing all but Images" — the button's tooltip and what Ask Claude
-    /// is told, which need the verb the summary leaves out.
+    /// The "only Images" or "all but Images" in "Showing …": the button's tooltip and what Ask
+    /// Claude is told, which need the wording the summary leaves out.
     public var showingPhrase: String {
         isExclusion ? "all but " + summary.dropFirst("All but ".count) : "only \(summary)"
     }
@@ -174,8 +173,8 @@ public struct PaneTypeFilter: Equatable, Hashable, Sendable {
                         : parts.joined(separator: ", ")
     }
 
-    /// The one kind this filter shows, when it shows only one — what a folder's pill names its
-    /// count after ("2 images"). `nil` when it spans kinds, so the pill says "files".
+    /// The one kind this filter shows, if only one: what a folder's pill names its count after
+    /// ("2 images"). `nil` when it spans kinds, so the pill says "files".
     public var soleFamily: FileTypeFamily? {
         let kinds = families.union(extensions.map(FileTypeFamily.of(extension:)))
         return kinds.count == 1 ? kinds.first : nil
@@ -196,14 +195,13 @@ public struct PaneTypeFilterFacts: Equatable, Sendable {
     /// Folder id → matching files strictly beneath it. Absent for a folder with none. Empty when
     /// there is no filter.
     public var matchCounts: [String: Int]
-    /// Folders the walk never listed (TE270), which the census could not count.
+    /// Folders the walk never listed, which the census could not count.
     public var unexploredCount: Int
-    /// Every file and folder before the type filter — the "of 52" in "28 of 52 items".
+    /// Every file and folder before the type filter: the "of 52" in "28 of 52 items".
     public var itemCountBeforeFilter: Int
-    /// Folders kept (`keep`: made here, or open) that held nothing even before the filter. A column
-    /// for one is empty, not filtered: it says "Empty", where any other column the filter emptied
-    /// says "No matching files". Only kept ones, because a folder with nothing in it is otherwise
-    /// dropped by the filter and has no column — so the set stays a handful.
+    /// Folders kept (`keep`: made here, or open) that held nothing even before the filter. Their
+    /// column says "Empty", not "No matching files". Only kept ones, since any other empty folder is
+    /// dropped by the filter and has no column, so the set stays small.
     public var keptEmptyFolders: Set<String>
 
     public init(census: [String: Int] = [:], matchCounts: [String: Int] = [:],
@@ -221,18 +219,16 @@ public struct PaneTypeFilterFacts: Equatable, Sendable {
 
 /// The type filter itself: one recursive pass over a pane's tree.
 ///
-/// **Folders are kept where they stand, not flattened** (TE269). `PaneTreeSearch` refuses to be a
-/// filter because rebuilding the tree "destroys the one thing a tree communicates — where a hit
-/// sits"; this keeps every ancestor of a match, so the hit still sits where it did, and drops only
-/// branches with nothing in them.
+/// Folders are kept where they stand, not flattened: every ancestor of a match stays, so a hit
+/// sits where it did, and only branches with nothing in them are dropped. (`PaneTreeSearch` doesn't
+/// filter at all, for the same reason.)
 public enum PaneTypeFilterPass {
 
     /// The pruned tree plus its facts.
     ///
-    /// Kept: a file that matches or whose path is in `keep` (what this pane just made, TE277, and
-    /// the folders open in it, GQ); a package, judged as one file by its own extension and never
-    /// entered (TE275); a folder that is unexplored (TE270 — the filter cannot know what it holds),
-    /// in `keep`, or left with any child.
+    /// Kept: a file that matches or is in `keep` (what this pane just made, and the folders open
+    /// in it); a package, judged as one file by its own extension and never entered; a folder that
+    /// is unexplored (the filter can't know what it holds), in `keep`, or left with any child.
     public static func apply(_ filter: PaneTypeFilter, to tree: [FileNode],
                              keep: Set<String> = []) -> (tree: [FileNode], facts: PaneTypeFilterFacts) {
         var walk = Walk(filter: filter, keep: keep)
@@ -295,7 +291,7 @@ public enum PaneTypeFilterPass {
                     facts.census[ext, default: 0] += 1
                     if node.isDirectory {
                         // A package's contents still count as items: `countItems` walks into them,
-                        // and the "of N" has to be the number the unfiltered status bar shows.
+                        // and the "of N" must match the unfiltered status bar.
                         facts.itemCountBeforeFilter += FileSyncManager.countItems(in: node.children ?? [])
                     }
                     let shown = filter?.matches(extension: ext) ?? true

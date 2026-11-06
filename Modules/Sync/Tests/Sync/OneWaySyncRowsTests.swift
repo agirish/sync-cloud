@@ -131,7 +131,7 @@ import Testing
                 == ["ows:stop:dropbox", "ows:stop:uploading", "ows:stop:icloud"])
     }
 
-    /// DF: SyncCloud Removed past a tenth of free space says so, once.
+    /// SyncCloud Removed past a tenth of free space says so, once.
     @Test func syncCloudRemovedPastATenthOfFreeSpaceSaysSo() throws {
         let now = Date(timeIntervalSince1970: 1_793_361_600)
         #expect(OneWaySyncRows.removedSpace(holding: 10, free: 100, at: now) == nil)

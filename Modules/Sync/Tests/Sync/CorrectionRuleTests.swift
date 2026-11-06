@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE286: a correction in Ask Claude's chat becomes a free rule on the Mac. Decisions HF (any
-/// correction, generalized), HG (one updatable rule, any of the words), HH (a sibling for another
-/// folder), HI (the month is the first travel date on page 1).
+/// A correction in Ask Claude's chat becomes a free rule on the Mac: any correction, generalized;
+/// one updatable rule matching any of the words; a sibling rule for another folder; and the month
+/// taken from the first travel date on page 1.
 @MainActor
 @Suite struct CorrectionRuleTests {
 
@@ -93,8 +93,8 @@ import Testing
         #expect(correction(phrases: ["the", "a"]) == .failure(.noWords))
     }
 
-    /// The month folder he named isn't the ticket's: the folder stays as he said it, never a token
-    /// that would file this very ticket somewhere else.
+    /// The month folder the user named isn't the ticket's: the folder stays as given, never a
+    /// token that would file this very ticket somewhere else.
     @Test func aMonthThePageDoesntBearOutStaysLiteral() throws {
         let offer = try correction(into: "Travel/Trips/IN-US/2026/Oct").get()
         #expect(offer.rule.destinationTemplate == "Travel/Trips/IN-US/2026/Oct")
@@ -230,8 +230,8 @@ import Testing
     }
 
     /// A rule taught in Ask Claude is relative to the survey it was taught in, so it carries that
-    /// survey's root and files nothing in another source's scan — a Dropbox scan must not get a
-    /// High card into Dropbox/Travel/… from a rule taught for iCloud's Travel.
+    /// survey's root and files nothing in another source's scan: a Dropbox scan must not get a High
+    /// card into Dropbox/Travel/… from a rule taught for iCloud's Travel.
     @Test func aTaughtRuleActsOnlyInItsSurveysTree() throws {
         let root = "/never-on-disk-correction-scope/Documents"
         let m = FileSyncManager()
@@ -257,7 +257,7 @@ import Testing
         #expect(home(in: root, offer.rule)?.path == root + "/Travel/Trips/IN-US/2026/Sep")
         #expect(home(in: "/never-on-disk-correction-scope/Dropbox", offer.rule) == nil, "it filed into another source's tree")
 
-        // A rule saved before it carried a root still loads, and acts in every tree as it did.
+        // A rule saved without a root still loads, and acts in every tree.
         var old = offer.rule
         old.surveyRoot = nil
         let data = try JSONEncoder().encode(old)

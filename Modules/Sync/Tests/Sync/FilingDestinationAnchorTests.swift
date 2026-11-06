@@ -2,13 +2,12 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins filing's destination-anchor guard — the stat `transferItems` has always had and the filing
-/// path never did.
+/// Pins filing's destination-anchor guard, the same stat `transferItems` makes.
 ///
 /// `performFiling` creates the destination with `withIntermediateDirectories: true`, so a tree that
-/// went away since the scan (a provider unmounted, an external volume ejected) was silently
-/// recreated as an ordinary local folder. Filing is a MOVE, so the file left a live tree to sit in a
-/// dead one the provider never syncs — under a success banner. The guard stats the folder the new
+/// went away since the scan (a provider unmounted, an external volume ejected) would be silently
+/// recreated as an ordinary local folder. Filing is a move, so the file would leave a live tree for
+/// a dead one the provider never syncs, under a success banner. The guard stats the folder the new
 /// segments hang off; everything above what we are asked to create must already be there.
 @Suite struct FilingDestinationAnchorTests {
 
@@ -134,9 +133,9 @@ import Foundation
     }
 
     /// An EMPTY provider root is no root at all. `URL(fileURLWithPath: "")` resolves against the
-    /// process working directory, so clamping to it would aim the guard at an unrelated folder —
-    /// and `PathBoundary.contains(_, under: "")` is now false, which is what makes the empty case
-    /// easy to fall into. The anchor must simply stay unclamped.
+    /// process working directory, so clamping to it would aim the guard at an unrelated folder,
+    /// and `PathBoundary.contains(_, under: "")` is false, which makes the empty case easy to fall
+    /// into. The anchor must simply stay unclamped.
     @Test func anEmptyProviderRootDoesNotClampTheAnchorToTheWorkingDirectory() {
         let dest = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
                                      confidence: .high, reasons: [], newSegments: ["Tesla"])
@@ -246,9 +245,9 @@ import Foundation
         #expect(manager.currentError?.reason == "Couldn’t file this item; it was left in place.")
     }
 
-    /// **A file gone since the scan is said to be gone (F6)** — not "left in place", the generic
-    /// reason, which is false of a file no longer there. The destination exists, so nothing but
-    /// the missing source refuses.
+    /// A file gone since the scan is said to be gone, not "left in place" (the generic reason),
+    /// which is false of a file no longer there. The destination exists, so nothing but the
+    /// missing source refuses.
     @MainActor
     @Test func aFileGoneSinceTheScanSaysSo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGone")

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The same-text pass: what it groups, what it refuses to group, and — the part that matters — the
-/// promises it must not be able to break.
+/// The same-text pass: what it groups, what it refuses to group, and the promises it must not be
+/// able to break.
 @Suite struct DuplicateFinderSameTextTests {
 
     private func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
@@ -51,8 +51,8 @@ import Testing
     }
 
     @Test func withoutFingerprintsNothingChanges() {
-        // The whole feature is off when no document was read, and this is the assertion that keeps
-        // every pre-existing grouping test honest about why it still passes.
+        // The feature is off when no document was read, which is why the other grouping tests
+        // pass unchanged.
         let (tree, hashes) = restampedPair
         #expect(DuplicateFinder.findGroups(tree: tree, fileHashes: hashes).isEmpty)
     }
@@ -88,10 +88,9 @@ import Testing
     // MARK: What it refuses
 
     @Test func aBucketTheByteHashAlreadyExplainedIsNotReportedTwice() {
-        // Same fingerprint AND the same content hash: `identicalFileGroups` has already said
-        // everything there is to say, and two groups over one pair could contradict each other.
-        // What stops it is `groupedFilePaths` — both members are marked, and only the keeper is
-        // allowed back in, which leaves one member and no group.
+        // Same fingerprint and same content hash: `identicalFileGroups` already covers it, and two
+        // groups over one pair could contradict each other. `groupedFilePaths` marks both members
+        // and lets only the keeper back in, leaving one member and no group.
         let tree = [
             dir("/root/A", [file("/root/A/bill.pdf"), file("/root/A/a-only.txt")]),
             dir("/root/B", [file("/root/B/bill.pdf"), file("/root/B/b-only.txt")]),
@@ -122,9 +121,9 @@ import Testing
     // MARK: The promises
 
     @Test func aSameTextGroupIsNeverInTheRecommendedBatch() {
-        // The never-auto-trash rule. Text equality is a weaker claim than byte equality — measured,
-        // 9 of 212 such groups on the real tree were a signed copy beside its unsigned original or
-        // a purely visual revision — so the batch must not act on it blind.
+        // The never-auto-trash rule. Text equality is weaker than byte equality (on a real tree,
+        // 9 of 212 such groups were a signed copy beside its original or a visual revision), so
+        // the batch must not act on it blind.
         let (tree, hashes) = restampedPair
         let groups = DuplicateFinder.findGroups(
             tree: tree, fileHashes: hashes,
@@ -138,10 +137,9 @@ import Testing
     }
 
     @Test func itRunsBeforeVersionsSoARestampedCopyIsNotCalledANewerVersion() {
-        // `Passport - All Pages.pdf` beside `Passport - All Pages copy.pdf` reduces to one version
-        // stem, and the versions pass offers "keep newest, trash older" — a story about a document
-        // that changed. Both are on the real tree, and the fingerprint knows the document did not
-        // change at all: one is a re-compressed save of the other.
+        // `All Pages.pdf` beside `All Pages copy.pdf` reduces to one version stem, and the versions
+        // pass would offer "keep newest, trash older", a story about a document that changed. The
+        // fingerprint knows it didn't: one is a re-compressed save of the other.
         let old = Date(timeIntervalSince1970: 1_600_000_000)
         let new = Date(timeIntervalSince1970: 1_700_000_000)
         let a = "/root/Passport/All Pages.pdf"
@@ -159,11 +157,11 @@ import Testing
     }
 
     @Test func anIdenticalGroupsKeeperCanAnchorButIsNeverRemovedByThisPass() {
-        // The mixed case, measured at 14 of 212 groups: one document downloaded twice AND copied
-        // once. `/root/A/bill.pdf` and `/root/Copy/bill.pdf` are byte-identical; `/root/B/bill.pdf`
-        // is the re-stamped download. Dropping everything the identical pass touched would delete
-        // this group rather than weaken it, so its keeper anchors — and must not be trashable here,
-        // or one batch would hollow out the copy the other promised to keep.
+        // The mixed case: one document downloaded twice and copied once. `/root/A/bill.pdf` and
+        // `/root/Copy/bill.pdf` are byte-identical; `/root/B/restamped.pdf` is the re-stamped
+        // download. Dropping everything the identical pass touched would lose this group, so its
+        // keeper anchors it, and must not be trashable here, or one batch would hollow out the copy
+        // the other promised to keep.
         let tree = [
             dir("/root/A", [file("/root/A/bill.pdf"), file("/root/A/a-only.txt")]),
             dir("/root/Copy", [file("/root/Copy/bill.pdf"), file("/root/Copy/c-only.txt")]),
@@ -219,15 +217,12 @@ import Testing
 
     @Test func aFileInsideAKeptFolderIsNotOfferedForRemoval() throws {
         // The folder-keeper invariant, from the same-text side: `/root/Backup` and `/root/Zzz` are
-        // identical folders, so Zzz is kept whole (Backup carries the archive penalty) — and a
-        // same-text group must not then trash `/root/Zzz/bill.pdf` out of it, or one "Apply
-        // recommended" would hollow out the folder the other group called an intact copy.
+        // identical folders, so Zzz is kept whole (Backup carries the archive penalty), and a
+        // same-text group must not trash `/root/Zzz/bill.pdf` out of it.
         //
-        // The two loose copies matter. WITH the protection, Zzz's file is preferred as the group's
-        // keeper (the anchor rule) and cannot be removed either way; WITHOUT it, `chooseKeeper`
-        // ranks `/root/Aaa` first on path order and Zzz's file lands straight on the removal list.
-        // A fixture with one loose copy passes either way — Zzz wins the keeper slot by accident of
-        // ordering — which is how this test survived its own mutation once.
+        // The two loose copies matter: without the protection, `chooseKeeper` ranks `/root/Aaa`
+        // first and Zzz's file lands on the removal list. With one loose copy Zzz wins the keeper
+        // slot by ordering alone, and removing the protection would still pass.
         let tree = [
             dir("/root/Backup", [file("/root/Backup/bill.pdf")]),
             dir("/root/Zzz", [file("/root/Zzz/bill.pdf")]),
@@ -254,22 +249,15 @@ import Testing
     }
 
     @Test func aMemberThisGroupCouldNotOfferIsStillMarkedAgainstTheVersionsPass() throws {
-        // EVERY member is marked as grouped, protected ones included — the rule `identicalFileGroups`
-        // follows, for the reason its comment gives. The member it matters for is the one that
-        // cannot appear on this group's removal list: `/root/Zzz/bill.pdf` sits inside the folder
-        // the identical pass is keeping whole, so it anchors the group and is never offered.
+        // Every member is marked as grouped, protected ones included, as `identicalFileGroups`
+        // does. It matters for `/root/Zzz/bill copy.pdf`, which sits in the folder kept whole, so it
+        // anchors the group and is never offered.
         //
-        // Left unmarked it is simply an ungrouped file to the versions pass, which knows nothing
-        // about the text match. Both it and `/root/Loose/bill (1).pdf` carry a version marker and
-        // are alone in their folders, so the versions pass pools them across folders; the kept
-        // folder's copy is the newer, so it anchors a "keep newest, Trash older" offer aimed at
-        // Loose's file — a different document sharing nothing but a stem. That is the story the
-        // pass ordering exists to prevent, arriving through the back door.
-        //
-        // The shape is this specific because the versions pass is well defended: an UNMARKED
-        // cross-folder member is dropped for want of its own marker, and two members inside the
-        // kept folder are both protected. Two lone marker-bearers in different folders is the one
-        // arrangement in which the missing mark actually costs a file.
+        // Left unmarked, the versions pass would pool it with `/root/Loose/bill (1).pdf` (both
+        // carry a version marker and are alone in their folders) and, as the newer, aim a "keep
+        // newest, Trash older" offer at Loose's file: a different document sharing only a stem.
+        // Two lone marker-bearers in different folders is the one shape where the missing mark
+        // costs a file; the versions pass defends the others.
         let older = Date(timeIntervalSince1970: 1_000_000)
         let newer = Date(timeIntervalSince1970: 2_000_000)
         let tree = [
@@ -317,10 +305,9 @@ import Testing
     }
 
     @Test func repeatedGroupingOfTheSameInputIsStable() {
-        // What this does NOT prove is `buckets.keys.sorted()` in the pass: Swift seeds its hasher
-        // per process, so a single-process test cannot observe the iteration order that sorting
-        // replaces — removing the sort leaves this green. It is kept because the property is worth
-        // holding, and the sort is kept for the reason its own comment gives.
+        // This can't prove `buckets.keys.sorted()` in the pass: Swift seeds its hasher per process,
+        // so one process can't observe the order the sort replaces, and removing it stays green.
+        // Kept because the property is worth holding.
         let tree = [
             dir("/root/A", [file("/root/A/one.pdf"), file("/root/A/two.pdf")]),
             dir("/root/B", [file("/root/B/one-copy.pdf"), file("/root/B/two-copy.pdf")]),

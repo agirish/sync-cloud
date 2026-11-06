@@ -3,14 +3,10 @@ import Foundation
 import Events
 @testable import Sync
 
-/// With the panes linked, walking into a folder on one side should walk the other side there too —
-/// which is the whole reason columns earn their place in a comparison app: two synchronized stacks
-/// let you read *where* the divergence is.
-///
-/// The interesting case is the one a naive copy gets wrong. The two sides are being compared
-/// precisely because they differ, so the folder just opened may not exist over there. Mirroring
-/// must degrade to the deepest folder the panes still share rather than pointing a column at
-/// something absent.
+/// With the panes linked, walking into a folder on one side walks the other side there too, so two
+/// synchronized stacks show where the sides diverge. The folder just opened may not exist on the
+/// other side, so mirroring falls back to the deepest folder the panes still share rather than
+/// pointing a column at something absent.
 @MainActor
 @Suite struct PaneColumnMirrorTests {
 
@@ -32,10 +28,9 @@ import Events
         #expect(m.rightBrowsePath.isEmpty, "unlinked, the sibling must not move")
     }
 
-    /// An unmirrored click must not even ASK for the other pane's index. Building it is a full walk
-    /// of that pane's tree — ~40k nodes in the real app — and the call site sits inside the click
-    /// handler, so an eagerly-evaluated argument spent that on the main thread on every column click
-    /// whether or not the seam link wanted a mirror.
+    /// An unmirrored click must not even ask for the other pane's index. Building it walks that
+    /// pane's whole tree (tens of thousands of nodes) on the main thread inside the click handler,
+    /// so an eager argument would pay for it on every column click.
     @Test func testMirrorOffNeverBuildsTheOtherPanesIndex() {
         let m = FileSyncManager()
         var built = 0

@@ -4,14 +4,10 @@ import Testing
 @testable import Sync
 
 /// Awaits a semaphore off the main actor (a blocking `wait` on the test's actor would deadlock
-/// anything the signaller needs from it). Bounded, and the timeout is RECORDED as a failure —
-/// discarding it made the bound worse than useless: a test whose signal never arrives would
-/// wait out the ten seconds and then carry on ungated, asserting against a state it never
-/// actually reached. A positive control is where that hurts most, because "the gate never
-/// engaged" and "the gate engaged and the pass still published" look identical afterwards.
-///
-/// **Bounded by scheduler turns as well as by seconds** — see ``TurnDeadline``. What signals here
-/// is work the test started, and it gets there on main-actor and pool turns.
+/// anything the signaller needs from it). Bounded, and a timeout is recorded as a failure: a test
+/// whose signal never arrives must not carry on ungated, asserting against a state it never
+/// reached. Bounded by scheduler turns as well as seconds (``TurnDeadline``), since what signals
+/// here is work the test started, which runs on main-actor and pool turns.
 func awaitSignal(
     _ semaphore: DispatchSemaphore,
     timeout: TimeInterval = 10,
@@ -35,23 +31,20 @@ func awaitSignal(
 public let signalTurnFloor = 2 * waitPollFloor
 
 /// The fewest scheduler turns a park waits for its release before it may give up. A release comes
-/// after the test's own waits — an `awaitSignal`, a `waitUntil` or several — so the park has to
-/// outlast all of them, in the unit they are counted in. Ten `waitUntil` floors.
+/// after the test's own waits (an `awaitSignal`, a `waitUntil` or several), so the park must outlast
+/// all of them in the unit they are counted in: ten `waitUntil` floors.
 public let parkTurnFloor = 10 * waitPollFloor
 
 /// A process-wide count of scheduler turns: one each time a probe has slept 10 ms on the
 /// cooperative pool, crossed to the main actor, and come back.
 ///
-/// **Why a park needs this.** A gate's release comes from the test's async side, and that side
-/// advances on main-actor and pool turns. A loaded run has fewer of those per second, so a bound in
-/// seconds alone runs out exactly when the release is slowest — `docs/flaky-tests.md`, "Fixed pumps
-/// and fixed sleeps". `waitUntil` answers that with its own poll count, but a park cannot count its
-/// own turns: it is blocked on a thread, or (``parkUntilReleased``) polling on the pool, which is
-/// not where the release is waiting. This probe needs one turn of each, so it slows down whenever
-/// either one is starved, and runs at the same pace as a `waitUntil` poll, which has the same
-/// shape: a 10 ms sleep, then a main-queue trip.
-///
-/// Started on first use and never stopped. It costs one main-actor job per 10 ms.
+/// A gate's release comes from the test's async side, which advances on main-actor and pool turns;
+/// a loaded run has fewer per second, so a bound in seconds alone runs out exactly when the release
+/// is slowest (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). A park can't count its own
+/// turns: it is blocked on a thread, or (``parkUntilReleased``) polling on the pool, not where the
+/// release waits. This probe needs one turn of each, so it slows whenever either is starved, at the
+/// pace of a `waitUntil` poll (a 10 ms sleep, then a main-queue trip). Started on first use and
+/// never stopped; it costs one main-actor job per 10 ms.
 enum SchedulerTurns {
     private static let box = TurnBox()
     private static let ticker: Void = {
@@ -77,12 +70,11 @@ enum SchedulerTurns {
     }
 }
 
-/// A bound that passes only once BOTH its seconds and its scheduler turns have run out — the shape
-/// `waitUntil` already has, for waits that cannot count their own polls. An idle run is held to the
-/// seconds, as before; a loaded one is held to the turns, which is what its release is made of.
-///
-/// One wall-clock bound is left, at thirty times the seconds: it is reached only if the turns stop
-/// altogether — a wedged main thread — and there it turns a hang into a verdict.
+/// A bound that passes only once both its seconds and its scheduler turns have run out, the shape
+/// `waitUntil` has, for waits that can't count their own polls. An idle run is held to the seconds,
+/// a loaded one to the turns, which is what its release is made of. A wall-clock ceiling at thirty
+/// times the seconds remains, reached only if the turns stop altogether (a wedged main thread), so
+/// a hang still becomes a verdict.
 public struct TurnDeadline: Sendable {
     private let start = ContinuousClock.now
     private let seconds: Duration
@@ -124,17 +116,13 @@ extension DispatchSemaphore {
     }
 }
 
-/// A two-semaphore park for holding a SYNCHRONOUS seam call in flight: the seam calls `park()`,
-/// which signals `entered` and blocks until the test signals `release`.
-///
-/// The wait is bounded so a mis-wired test fails instead of hanging — and the bound RECORDS
-/// itself, which is the half that actually matters. A discarded timeout is worse than no bound
-/// at all: the parked call quietly resumes on its own and the test goes on asserting against a
-/// state it never held, so "the gate never engaged" and "the gate engaged and the behaviour
-/// happened anyway" become indistinguishable afterwards. Every user must
-/// `try #require(!gate.releasedByTimeout)` once the work under test has finished. `FirstStatGate`
-/// carries the same flag, for the same reason; use this wherever a gate is not also a
-/// `FileManaging` stand-in.
+/// A two-semaphore park for holding a synchronous seam call in flight: the seam calls `park()`,
+/// which signals `entered` and blocks until the test signals `release`. The wait is bounded so a
+/// mis-wired test fails instead of hanging, and the bound records itself: a silent timeout would
+/// let the parked call resume on its own and the test assert against a state it never held. Every
+/// user must `try #require(!gate.releasedByTimeout)` once the work under test has finished.
+/// `FirstStatGate` carries the same flag; use this wherever a gate isn't also a `FileManaging`
+/// stand-in.
 public final class ParkGate: @unchecked Sendable {
     public let entered = DispatchSemaphore(value: 0)
     public let release = DispatchSemaphore(value: 0)
@@ -152,15 +140,15 @@ public final class ParkGate: @unchecked Sendable {
     }
 
     /// True once `park()` has engaged at least once. `releasedByTimeout` is false both for a gate
-    /// that was held and released AND for one that never engaged at all, so on its own it cannot
-    /// tell those apart; consumers detect the second through `awaitSignal(gate.entered)`, and
-    /// `ParkBudgetTests` pins both directions through this.
+    /// that was held and released and for one that never engaged, so alone it can't tell them
+    /// apart; consumers catch the second through `awaitSignal(gate.entered)`, and `ParkBudgetTests`
+    /// pins both directions through this.
     public var didPark: Bool {
         lock.lock(); defer { lock.unlock() }
         return everParked
     }
 
-    /// True while a call is blocked inside `park()`. Only `ParkBudgetTests` reads it — a consumer
+    /// True while a call is blocked inside `park()`. Only `ParkBudgetTests` reads it; a consumer
     /// waits on `entered` and `release`, never on this.
     public var isParked: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -169,13 +157,12 @@ public final class ParkGate: @unchecked Sendable {
 
     /// Signals `entered`, then blocks until `release` arrives or the bound expires.
     ///
-    /// **This blocks a REAL THREAD, and under a package run that thread is a cooperative-pool
-    /// one** — production reaches its `FileManaging` seams from `Task.detached`. A test whose gate
-    /// gets here must declare `.parksAThread` so the pool keeps enough width to deliver the
+    /// **This blocks a real thread, and under a package run that thread is a cooperative-pool
+    /// one**, because production reaches its `FileManaging` seams from `Task.detached`. A test whose
+    /// gate gets here must declare `.parksAThread` so the pool keeps enough width to deliver the
     /// release; see ``ParkThreadBudget`` and `docs/flaky-tests.md`, "Every gate parks at once, on
-    /// the pool their releases need".
-    ///
-    /// Bounded by ``parkTurnFloor`` scheduler turns as well as by `timeout` — see ``TurnDeadline``.
+    /// the pool their releases need". Bounded by ``parkTurnFloor`` scheduler turns as well as by
+    /// `timeout` (``TurnDeadline``).
     public func park(timeout: TimeInterval = 10, turns: Int = parkTurnFloor) {
         lock.lock(); parked = true; everParked = true; lock.unlock()
         entered.signal()
@@ -189,10 +176,10 @@ public final class ParkGate: @unchecked Sendable {
 /// The width of the Swift cooperative pool: one thread per core, and it does not grow when one
 /// blocks. Every park below holds one of these threads, and every release needs one.
 ///
-/// `SYNC_TESTS_POOL_WIDTH=3` narrows it to a hosted runner's on a wider Mac, by holding the threads
+/// `SYNC_TESTS_POOL_WIDTH=3` narrows it to a hosted runner's on a wider Mac by holding the threads
 /// above that for the rest of the run, so a red that needs GitHub's three vCPUs reproduces here
 /// (`docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need"). The hold
-/// starts at the first park reservation, which every run reaches in its first instant.
+/// starts at the first park reservation, which every run reaches at once.
 let cooperativePoolWidth: Int = {
     let cores = ProcessInfo.processInfo.activeProcessorCount
     guard let width = ProcessInfo.processInfo.environment["SYNC_TESTS_POOL_WIDTH"].flatMap(Int.init),
@@ -203,65 +190,46 @@ let cooperativePoolWidth: Int = {
 
 private func holdAPoolThreadForTheRun() { DispatchSemaphore(value: 0).wait() }
 
-/// How many REAL THREADS the thread-blocking parks in this target may hold at once, process-wide.
-///
-/// A quarter of the cooperative pool, and never more than half of it: 2 on a ten-core Mac, 1 on
-/// GitHub's 3-vCPU runners. The point is the rest: every park is released by async work that
-/// needs a pool thread to get there, and any other test may be holding one with a long
-/// synchronous loop, so the budget is sized by what has to keep running, not by what is allowed
-/// to stop. A floor of 2 let the parks hold two of a runner's three threads, and one such loop
-/// took the third (2026-11-03).
+/// How many real threads the thread-blocking parks in this target may hold at once, process-wide:
+/// a quarter of the cooperative pool, at least one, so 2 on a ten-core Mac and 1 on GitHub's
+/// 3-vCPU runners. Sized by what has to keep running: every park is released by async work that
+/// needs a pool thread, and any other test may be holding one in a long synchronous loop, so two
+/// parks plus one such loop would take all of a runner's three threads.
 let parkThreadBudget = max(1, cooperativePoolWidth / 4)
 
 /// Admits at most ``parkThreadBudget`` threads' worth of thread-blocking parks at once.
 ///
-/// **Why this exists.** A park holds a SYNCHRONOUS seam call in flight — `FileManaging`'s
-/// `fileExists`/`attributesOfItem`/`copyItem` are not `async`, so the only way to hold one is to
-/// block the thread it was called on, and production reaches those seams from
-/// `Task.detached(priority: .userInitiated)`, i.e. from the Swift cooperative pool. That pool's
-/// width is the core count and it does not grow when a thread blocks. swift-testing starts every
-/// suite at once, so without this the gated tests all park within the same instant, near the
-/// start of the run: 9 of 10 pool threads blocked, measured 2026-08-11. The async side that would
-/// signal `release` then needs a thread from what is left, alongside every other test that also
-/// just started, and some parks reach their 10 s bound instead of being released.
+/// A park holds a synchronous seam call in flight (`FileManaging`'s `fileExists`,
+/// `attributesOfItem`, `copyItem` are not `async`), so it must block the thread it was called on,
+/// and production calls those seams from `Task.detached`, on the cooperative pool. The pool is one
+/// thread per core and doesn't grow when one blocks. swift-testing starts every suite at once, so
+/// without a limit the gated tests park in the same instant, nearly filling the pool, and the async
+/// side that would signal `release` can't get a thread, so parks hit their bound instead.
 ///
-/// **Why a limiter rather than a rewrite.** The park cannot stop blocking a thread — that is what
-/// holding a synchronous call in flight *is*. `DuplicateBatchRedesignTests`'s continuation-backed
-/// `Latch` is the right answer for what it parks (an enqueued *async* operation), and cannot be
-/// applied here without making `FileManaging` async, which is production API. What can change is
-/// how many park at once.
+/// A limiter, not a rewrite: a park can't stop blocking a thread, and a continuation-backed latch
+/// (like `DuplicateBatchRedesignTests`' `Latch`, for async operations) would need `FileManaging`
+/// to be async, which is production API. The wait must be asynchronous and on the test side:
+/// `park()` queueing for a slot would hold the same pool thread as parking. So the test reserves
+/// in async context before the work that reaches the seam starts (``ParksThreads``).
 ///
-/// **Why the wait has to be asynchronous, and on the test side.** Making `park()` itself queue for
-/// a slot would not help: a seam call blocked waiting for a slot holds exactly the same pool thread
-/// as one blocked in the park. The reservation must therefore be taken by the test, in async
-/// context, BEFORE the work that reaches the seam starts — which is what ``ParksThreads`` does.
-///
-/// FIFO, so a wide reservation cannot be starved by a stream of narrow ones: a waiter only tries
-/// once it is at the head of the queue. Waiting costs no thread — it suspends.
+/// FIFO, so a wide reservation can't be starved by a stream of narrow ones: a waiter only tries
+/// once it is at the head of the queue. Waiting suspends and costs no thread.
 actor ParkThreadBudget {
     static let shared = ParkThreadBudget()
 
-    /// How long a reservation waits before giving up and going ahead anyway. Far longer than any
-    /// legitimate queue — every gated test is under two seconds and there are about two dozen of
-    /// them — so reaching it means the budget itself is wedged.
-    ///
-    /// **Bounded, and the bound RECORDS itself**, for the same reason the parks it governs are:
-    /// this is a limiter, not a correctness device, so letting an extra park through is a far
-    /// smaller failure than hanging the package run — but a limiter that has quietly stopped
-    /// limiting must not look like one that is working. Both halves are pinned by
-    /// `aReservationThatCanNeverBeServedGivesUpAndSaysSo`; removing the deadline check below turns
-    /// that test from a red one into a run that never finishes, which is how it was found.
+    /// How long a reservation waits before giving up and going ahead anyway: far longer than any
+    /// legitimate queue, so reaching it means the budget itself is wedged. Bounded, and the bound
+    /// records itself: letting an extra park through is a smaller failure than hanging the package
+    /// run, but a limiter that has stopped limiting must not look like one that works. Pinned by
+    /// `aReservationThatCanNeverBeServedGivesUpAndSaysSo`; without the deadline check that test
+    /// never finishes.
     let giveUpAfter: Duration
 
-    /// Where a give-up is reported. The default is a real test failure, because the whole point of
-    /// the bound is that a limiter which has quietly stopped limiting must not look like one that
-    /// is working.
-    ///
-    /// Injectable **only** so `ParkBudgetTests` can exercise the give-up without a `withKnownIssue`
-    /// — which would put "with 1 known issue" on the summary line of every `Modules/Sync` run
-    /// forever, and that line is the first thing anyone reads off a run here. The cost of the seam
-    /// is that the test drives an injected reporter rather than the shipped one, so
-    /// `theGiveUpDefaultsToARealTestFailure` checks the default by reading this source.
+    /// Where a give-up is reported. The default is a real test failure, so a limiter that has
+    /// stopped limiting can't look like one that works. Injectable only so `ParkBudgetTests` can
+    /// exercise the give-up without `withKnownIssue`, which would put "with 1 known issue" on every
+    /// `Modules/Sync` run's summary line; `theGiveUpDefaultsToARealTestFailure` checks the default by
+    /// reading this source.
     private let report: @Sendable (String) -> Void
 
     init(giveUpAfter: Duration = .seconds(60),
@@ -272,22 +240,21 @@ actor ParkThreadBudget {
 
     private var held = 0
     private var nextTicket = 0
-    /// Waiting reservations, oldest first. An array of ids rather than a served counter, because a
-    /// reservation can leave the queue OUT OF ORDER when it gives up, and a counter that skipped
-    /// to its ticket would strand everyone still waiting behind it.
+    /// Waiting reservations, oldest first. An array of ids, not a served counter: a reservation can
+    /// leave out of order when it gives up, and a counter that skipped to its ticket would strand
+    /// everyone still waiting behind it.
     private var queue: [Int] = []
 
-    /// The most threads ever reserved at once. Not used by the limiter — it is what
-    /// ``ParkBudgetTests`` measures the limiter with, and what a future "is this still doing
-    /// anything?" question is answered from.
+    /// The most threads ever reserved at once. Not used by the limiter; ``ParkBudgetTests``
+    /// measures the limiter with it.
     private(set) var highWaterMark = 0
 
     /// Threads reserved right now.
     var inFlight: Int { held }
 
     /// Suspends until `threads` more parked threads fit inside the budget. A single reservation
-    /// wider than the whole budget is admitted alone rather than deadlocking — the `held == 0`
-    /// arm — which is what lets a four-worker rendezvous run at all.
+    /// wider than the whole budget is admitted alone (the `held == 0` arm) rather than
+    /// deadlocking, which lets a four-worker rendezvous run at all.
     func reserve(_ threads: Int) async {
         let ticket = nextTicket
         nextTicket += 1
@@ -308,13 +275,12 @@ actor ParkThreadBudget {
                     """)
                 return
             }
-            // Cancellation ends the wait, and the `defer` still balances the `relinquish` the
-            // trait will make. Without this the loop spins at full speed once cancelled —
-            // `try?` swallows the `Task.sleep` cancellation error and the sleep stops
-            // sleeping — so a swift-testing `.timeLimit` could not stop it either. Found by
-            // mutation: removing the deadline above hung the run instead of failing it.
+            // Cancellation ends the wait, and the `defer` still balances the trait's `relinquish`.
+            // Without it the loop would spin once cancelled (`try?` swallows the `Task.sleep`
+            // cancellation error and the sleep stops sleeping), and even `.timeLimit` couldn't
+            // stop it.
             if Task.isCancelled { return }
-            // A suspension, not a block: a waiter holds no thread, which is the whole point.
+            // A suspension, not a block: a waiter holds no thread.
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
     }
@@ -323,21 +289,15 @@ actor ParkThreadBudget {
 }
 
 /// Declares that a test parks `threads` real threads at a gate, and takes that many out of
-/// ``ParkThreadBudget`` for the test's duration.
-///
-/// Applied per test rather than per suite because the gated tests sit in suites that are mostly
-/// NOT gated (six of `AutoVerifyOnScanTests`, three of `VerifyAllWithChecksumTests`), and
-/// serialising a whole suite to slow down six of its tests is a much larger bill than the problem.
-///
-/// **The reservation covers the whole test, not just the park.** It could be tightened to the
-/// parked window, but for these tests the park IS most of the test: the body launches the work,
-/// waits for `entered`, does its staging, signals `release` and joins. There is nothing
-/// meaningful outside it to reclaim.
+/// ``ParkThreadBudget`` for the test's duration. Per test, not per suite: most tests in the gated
+/// suites aren't gated, and serialising a whole suite for a few would cost far more. The
+/// reservation covers the whole test, since for these tests the park is most of it: launch, wait
+/// for `entered`, stage, signal `release`, join.
 struct ParksThreads: SuiteTrait, TestTrait, TestScoping {
     let threads: Int
 
-    /// So the trait can also be written on a suite, and mean "each of its tests", rather than
-    /// "this whole suite runs alone".
+    /// So the trait can also be written on a suite and mean "each of its tests", not "this whole
+    /// suite runs alone".
     var isRecursive: Bool { true }
 
     func provideScope(for test: Test, testCase: Test.Case?,
@@ -348,8 +308,8 @@ struct ParksThreads: SuiteTrait, TestTrait, TestScoping {
         do {
             try await function()
         } catch {
-            // Relinquished on the failure path too — a throwing test must not strand every other
-            // gated test behind it, which would turn one failure into a whole-run timeout.
+            // Relinquished on the failure path too: a throwing test must not strand every other
+            // gated test behind it and turn one failure into a whole-run timeout.
             await ParkThreadBudget.shared.relinquish(threads)
             throw error
         }
@@ -358,16 +318,16 @@ struct ParksThreads: SuiteTrait, TestTrait, TestScoping {
 }
 
 extension Trait where Self == ParksThreads {
-    /// The test holds ONE real thread parked at a gate for its duration.
+    /// The test holds one real thread parked at a gate for its duration.
     static var parksAThread: Self { Self(threads: 1) }
 
-    /// The test holds `count` real threads parked at once — two gates in one run, or a rendezvous
+    /// The test holds `count` real threads parked at once: two gates in one run, or a rendezvous
     /// several workers wide.
     static func parksThreads(_ count: Int) -> Self { Self(threads: count) }
 }
 
-/// A tiny lock-guarded box for collecting values out of `@Sendable` callbacks in tests
-/// (e.g. recording the paths a seam closure was consulted with).
+/// A small lock-guarded box for collecting values out of `@Sendable` callbacks in tests (the
+/// paths a seam closure was consulted with, say).
 final class LockedBox<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var value: Value
@@ -378,36 +338,22 @@ final class LockedBox<Value>: @unchecked Sendable {
     }
 }
 
-/// Polls a main-actor condition until it holds or the timeout expires, recording a labeled
-/// test failure on timeout. The single shared replacement for the per-suite polling helpers
-/// and the fixed post-operation sleeps that flaked under parallel-suite main-actor
-/// congestion: always wait for the observable effect, never a guessed duration.
+/// Polls a main-actor condition until it holds or the timeout expires, recording a labeled failure
+/// on timeout. Always wait for the observable effect, never a guessed duration. The failure is
+/// reported at the call site (`sourceLocation`), so a full run with several timeouts names each
+/// test rather than this helper's `#expect`.
 ///
-/// The timeout is reported at the CALL SITE, like `awaitSignal` above. Without the forwarded
-/// `sourceLocation` every one of this helper's ~150 callers anchors its failure to the `#expect`
-/// below, so a full-suite run with several timeouts names this one line several times and no test
-/// file at all. That is expensive precisely when it is least affordable — a run whose failures you
-/// cannot place is the problem mechanism 8 exists for.
-///
-/// **Bounded by POLLS as well as by seconds**, and the seconds are the weaker of the two.
-/// Everything this waits for arrives on main-actor turns, and a congested run has fewer of them
-/// per second, not more — so the deadline shrinks, in the only unit that matters, exactly when the
-/// wait needs it most. Measured across a full Sync run on 2026-08-08: nominally a poll costs its
-/// 10 ms sleep, and under the CPU-spin load in `docs/flaky-tests.md` the worst observed rate was
-/// **223 ms per poll**, 22× that. Five seconds buys ~500 evaluations at the nominal rate and ~22 at
-/// that one. A sibling helper elsewhere in the repo was measured at 4 polls in 4.44s on a loaded CI
-/// runner and failed there, which is the outcome this floor exists to prevent.
-///
-/// Every one of the ~160 real callers takes the default `timeout:` — `WaitUntilFloorTests`, which
-/// passes 0 deliberately to leave the floor as the only thing driving the loop, is the sole
-/// exception — so the floor cannot collide with a deliberately short budget, and it costs a passing
-/// wait nothing: the loop still returns the moment the condition holds.
+/// Bounded by polls as well as seconds, and the seconds are the weaker bound: everything this
+/// waits for arrives on main-actor turns, and a congested run has fewer per second, so a deadline
+/// in seconds shrinks exactly when the wait needs it most. A poll nominally costs its 10 ms sleep,
+/// but under CPU load it has been measured above 200 ms, leaving five seconds only about 20
+/// evaluations. Callers take the default `timeout:` (`WaitUntilFloorTests` passes 0 on purpose),
+/// so the floor never collides with a short budget, and a passing wait still returns the moment
+/// the condition holds.
 ///
 /// **Keep this in step with the copies in `SyncCloudTests/TestSupport.swift` and
-/// `Modules/Dashboard/Tests/Dashboard/WaitSupport.swift`**, which cannot import this one — a test
-/// target's code is not visible to another target. All three bodies are identical on purpose.
-/// Dashboard joined them on 2026-08-22, replacing a suite-local wait that returned silently when it
-/// gave up; the failure that cost is in `docs/flaky-tests.md` under "Fixed pumps and fixed sleeps".
+/// `Modules/Dashboard/Tests/Dashboard/WaitSupport.swift`**, which can't import this one (a test
+/// target's code isn't visible to another target). All three bodies are identical on purpose.
 @MainActor
 func waitUntil(
     _ what: Comment,
@@ -415,10 +361,10 @@ func waitUntil(
     sourceLocation: SourceLocation = #_sourceLocation,
     _ condition: () -> Bool
 ) async {
-    // Bounded by scheduler turns as well as seconds (``TurnDeadline``): on a hosted 3-vCPU VM,
-    // 2026-10-29, thirteen of these gave up at the 50-poll floor after more than five seconds,
-    // their own polls starved by a main actor every suite was queued on. A turn needs the pool
-    // and the main actor, so a starved run stops this clock instead of spending it.
+    // Bounded by scheduler turns as well as seconds (``TurnDeadline``): on a starved run, such as
+    // a hosted 3-vCPU VM with every suite queued on the main actor, the polls themselves slow down.
+    // A turn needs the pool and the main actor, so a starved run stops this clock instead of
+    // spending it.
     var polls = 0
     let deadline = TurnDeadline(seconds: timeout, turns: waitPollFloor)
     while polls < waitPollFloor || !deadline.hasPassed {
@@ -426,29 +372,22 @@ func waitUntil(
         if condition() { return }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    // The poll count IS the diagnosis, so it goes in the message: a wait that gave up after a
-    // handful was starved and says nothing about the code, while one that gave up after hundreds
-    // was genuinely disproved.
+    // The poll count is the diagnosis, so it goes in the message: a wait that gave up after a
+    // handful was starved and says nothing about the code; one that gave up after hundreds was
+    // genuinely disproved.
     #expect(condition(), "\(what.rawValue) — still false after \(polls) polls; \(deadline.spent)",
             sourceLocation: sourceLocation)
 }
 
-/// Waits for NSUndoManager's event-scoped group to CLOSE, so the next registration starts a new
-/// top-level step instead of nesting into the previous action's — the separation two undo suites
-/// depend on when they perform an unrelated operation and then the one under test.
+/// Waits for NSUndoManager's event-scoped group to close, so the next registration starts a new
+/// top-level step instead of nesting into the previous action's: the separation undo suites need
+/// when they perform an unrelated operation and then the one under test.
 ///
-/// **This replaced `RunLoop.main.run(until: Date().addingTimeInterval(0.02))`, which both suites
-/// carried and which did nothing at all.** Measured in this test process: that call returns in
-/// ~2 µs and `groupingLevel` reads 1 on the line after it — `run(until:)` exits immediately when
-/// no input source is attached to the main runloop, which is the case under `swift test`. So it
-/// was neither a pump nor even the fixed sleep it looked like. What actually closes the group in
-/// these tests is the ordinary `await` that comes next: a `Task.sleep` hands the main thread
-/// back, the main queue is serviced, and the group closes — measured as level 1 → 0 across a
-/// single 10 ms `Task.sleep`. The separation the helper claimed to establish was being provided
-/// by whichever suspension happened to follow it.
-///
-/// Condition-based and bounded, never a duration: it polls the level that has to reach zero and
-/// fails, naming the level and the poll count, if it never does.
+/// `RunLoop.main.run(until:)` can't do this: under `swift test` no input source is attached to the
+/// main runloop, so it returns at once with the group still open. What closes the group is an
+/// ordinary suspension, which hands the main thread back so the main queue is serviced. This polls
+/// the level that must reach zero, bounded, and fails naming the level and poll count if it never
+/// does.
 @MainActor
 func closeTheUndoEventGroup(_ undoManager: UndoManager?,
                             timeout: TimeInterval = 5,
@@ -470,19 +409,18 @@ func closeTheUndoEventGroup(_ undoManager: UndoManager?,
             sourceLocation: sourceLocation)
 }
 
-/// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
+/// The fewest polls `waitUntil` makes before it may give up, however little of its deadline is
 /// left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the FileExplorer test
-/// target — the one sibling that exists on both release lines.
+/// target.
 let waitPollFloor = 50
 
 /// Creates a fresh, uniquely named temp directory for real-filesystem tests and returns it
-/// CANONICALIZED — macOS's temporaryDirectory lives behind the /var -> /private/var symlink,
-/// while the real enumerator and contentsOfDirectory(at:) yield canonical (/private/var/...)
-/// child URLs. Code under test matches roots against those children by exact path prefix
-/// (the diff engine's relative-key trim, buildTree's cache/subtree helpers), so a test using
-/// the raw /var/... root would silently mismatch and pass vacuously or flake.
-/// resolvingSymlinksInPath can't do this job: it deliberately STRIPS /private instead of
-/// adding it — only the canonicalPath resource value gives the enumerator's form.
+/// canonicalized. macOS's temporaryDirectory sits behind the /var -> /private/var symlink, while
+/// the real enumerator and contentsOfDirectory(at:) yield canonical (/private/var/...) children.
+/// Code under test matches roots against those children by exact path prefix (the diff engine's
+/// relative-key trim, buildTree's cache and subtree helpers), so a raw /var/... root would
+/// mismatch and pass vacuously or flake. resolvingSymlinksInPath strips /private instead of adding
+/// it; only the canonicalPath resource value gives the enumerator's form.
 ///
 /// The caller owns cleanup: `defer { try? FileManager.default.removeItem(at: root) }`.
 func makeCanonicalTempRoot(prefix: String) throws -> URL {
@@ -501,10 +439,10 @@ func makeTempHistoryStore(prefix: String) -> SyncHistoryStore {
         .appendingPathComponent("\(prefix)-\(UUID().uuidString).jsonl"))
 }
 
-/// Removes what a ``makeTempHistoryStore(prefix:)`` store put on disk: its file AND the `.lock`
-/// sidecar `LogFileWriter`'s trim takes beside it. Flushes first — the writer creates both on its
-/// background queue, from `init` onwards, so a remove that does not wait for it runs before they
-/// exist and the queue writes them afterwards.
+/// Removes what a ``makeTempHistoryStore(prefix:)`` store put on disk: its file and the `.lock`
+/// sidecar `LogFileWriter`'s trim takes beside it. Flushes first: the writer creates both on its
+/// background queue from `init` onwards, so a remove that doesn't wait runs before they exist and
+/// the queue writes them afterwards.
 @MainActor
 func removeHistoryStoreFiles(_ store: SyncHistoryStore) {
     store.flushToDisk()
@@ -512,11 +450,9 @@ func removeHistoryStoreFiles(_ store: SyncHistoryStore) {
     try? FileManager.default.removeItem(atPath: store.fileURL.path + ".lock")
 }
 
-/// Every set-aside a store has written beside `url`, sorted by name.
-///
-/// The kept name is unique PER EPISODE (``UnreadableSetAside``), so a test discovers the rescued
-/// files rather than assuming the single fixed slot the three stores used to share — assuming it
-/// is what let a second episode's `removeItem` delete the first episode's only copy.
+/// Every set-aside a store has written beside `url`, sorted by name. The kept name is unique per
+/// episode (``UnreadableSetAside``), so a test discovers the rescued files rather than assuming a
+/// single fixed slot.
 func setAsidesBeside(_ url: URL) -> [URL] {
     let dir = url.deletingLastPathComponent()
     let prefix = url.lastPathComponent + ".unreadable"
@@ -524,12 +460,11 @@ func setAsidesBeside(_ url: URL) -> [URL] {
     return names.filter { $0.hasPrefix(prefix) }.sorted().map { dir.appendingPathComponent($0) }
 }
 
-/// Fails `moveItem` a fixed number of times, then lets it through — the seam for "the set-aside
+/// Fails `moveItem` a fixed number of times, then lets it through: the seam for "the set-aside
 /// rename itself failed", which no arrangement of real permissions can produce while leaving the
-/// directory writable enough for the destructive write the guard has to refuse.
-///
-/// Shared by the person-tag and verdict-cache set-aside suites: both drive the same guard, and a
-/// second copy of this double is exactly the drift this module has paid for before.
+/// directory writable enough for the destructive write the guard has to refuse. Shared by the
+/// person-tag and verdict-cache set-aside suites, which drive the same guard, so the double can't
+/// drift between copies.
 final class MoveBlockedFileManager: FileManager, @unchecked Sendable {
     /// How many more `moveItem` calls fail before the obstruction "clears".
     nonisolated(unsafe) var movesToRefuse = 0
@@ -543,11 +478,10 @@ final class MoveBlockedFileManager: FileManager, @unchecked Sendable {
     }
 }
 
-/// Parks the FIRST stat the checksummer makes on a semaphore, signalling `entered` — so a
-/// test can hold a checksum pass (`autoVerifySameSizePairs`, `verifyAllWithChecksum`) mid-hash
-/// while it runs a file operation, then release the hash and observe what the pass commits.
-/// Everything else passes straight through to the real `FileManager` the fixture's temp files
-/// live on.
+/// Parks the first stat the checksummer makes, signalling `entered`, so a test can hold a checksum
+/// pass (`autoVerifySameSizePairs`, `verifyAllWithChecksum`) mid-hash while it runs a file
+/// operation, then release the hash and see what the pass commits. Everything else passes straight
+/// through to the real `FileManager` the fixture's temp files live on.
 final class FirstStatGate: FileManaging, @unchecked Sendable {
     private let inner: FileManager
     let entered = DispatchSemaphore(value: 0)
@@ -558,11 +492,10 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
 
     init(inner: FileManager) { self.inner = inner }
 
-    /// True if the parked stat gave up waiting instead of being released. The wait is bounded so
-    /// a mis-wired test fails instead of hanging, but a bound whose result is discarded turns a
-    /// hang into something worse: the hash resumes on its own and the test goes on to assert
-    /// against a pass that was never actually held. Tests `try #require(!gate.releasedByTimeout)`
-    /// after the pass, so that becomes a stated failure rather than a silent one.
+    /// True if the parked stat gave up waiting instead of being released. The wait is bounded so a
+    /// mis-wired test fails instead of hanging; a silent timeout would let the hash resume and the
+    /// test assert against a pass that was never held. Tests `try #require(!gate.releasedByTimeout)`
+    /// after the pass.
     var releasedByTimeout: Bool {
         lock.lock(); defer { lock.unlock() }
         return timedOut
@@ -577,13 +510,10 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
         }
     }
 
-    // **Both metadata entry points gate, not just one.** `gateIfFirst` fires once, so hooking both
-    // parks the pass at whichever it reaches first and asks nothing about which that is. It used to
-    // hook `fileExists(atPath:isDirectory:)` alone, which was the verifier's opening call at the
-    // time — so when the verifier collapsed its three metadata reads into one `attributesOfItem`,
-    // eleven tests across two suites stopped being held at all and failed on their 10 s bound
-    // instead. Nothing about the pass had changed; the seam had simply been pinned to a syscall
-    // rather than to the moment it names.
+    // Both metadata entry points gate, not just one. `gateIfFirst` fires once, so hooking both
+    // parks the pass at whichever it reaches first. A gate pinned to one syscall stops holding
+    // anything the moment the verifier reads metadata another way; pin it to the moment, not the
+    // call.
     func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
     func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
         gateIfFirst()
@@ -613,33 +543,27 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
 
 // MARK: - Scratch defaults suites
 
-/// Removes a throwaway defaults suite *and* its backing plist.
+/// Removes a throwaway defaults suite and its backing plist.
 ///
-/// `removePersistentDomain(forName:)` only empties the domain: cfprefsd still leaves an empty
+/// `removePersistentDomain(forName:)` only empties the domain: cfprefsd leaves an empty
 /// `~/Library/Preferences/<suite>.plist` behind, and neither `removeSuite(named:)` nor
-/// `CFPreferencesAppSynchronize` reclaims it either — all four combinations were measured on
-/// 2026-07-26 and every one left the file on disk. Because each scratch suite is named with a
-/// fresh UUID, that is one stray file per suite per run: 26,047 had accumulated across the six
-/// test targets before this was caught, at which point `defaults domains` — which enumerates the
-/// whole directory — took minutes. Unlinking the file is the only thing that actually reclaims it.
+/// `CFPreferencesAppSynchronize` reclaims it. Each scratch suite has a fresh UUID name, so that is
+/// a stray file per suite per run, and `defaults domains` enumerates the whole directory. Only
+/// unlinking the file reclaims it.
 ///
-/// **And the unlink only holds once cfprefsd has let go of the domain** (measured 2026-09-26).
-/// cfprefsd keeps its own copy of every domain a process writes and puts it back on disk on its
-/// own schedule — about every 10 s here — so an unlinked plist came back within one tick, as `{}`
-/// or with its old keys, whether the test process was still running or not: all 46 suites a run of
-/// four app-target suites wrote, and 68 across the full app target. Flushing cfprefsd's cache for
-/// the suite before the unlink is what keeps the file gone. That call is SPI — the `defaults` tool
-/// makes the same one, with the same two arguments — so it is looked up rather than linked, and an
-/// OS without it falls back to the ledger below.
+/// The unlink only holds once cfprefsd has let go of the domain: it keeps its own copy of every
+/// domain a process writes and writes it back on its own schedule (about every 10 s), so an
+/// unlinked plist returns, whether or not the test process is still running. Flushing cfprefsd's
+/// cache for the suite before the unlink keeps it gone. That call is SPI (the `defaults` tool makes
+/// the same one), so it is looked up rather than linked, and an OS without it falls back to the
+/// ledger below.
 ///
 /// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
-    // Recorded here rather than at the call sites because this is the one funnel every cleanup
-    // path — `defer` and `ScratchDefaults.deinit` — already goes through.
-    // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
-    // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
-    // three runs because nothing was there to re-delete what cfprefsd had resurrected.
+    // Recorded here, not at the call sites, because this is the one funnel every cleanup path
+    // (`defer` and `ScratchDefaults.deinit`) goes through. The `defer` sites build their suite with
+    // a plain `UserDefaults(suiteName:)`, so recording only in `ScratchDefaults` would miss them.
     scratchDefaultsLedger.record(name)
     UserDefaults.standard.removePersistentDomain(forName: name)
     UserDefaults.standard.removeSuite(named: name)
@@ -655,16 +579,12 @@ private let flushPreferencesCache =
     dlsym(dlopen(nil, RTLD_NOW), "_CFPreferencesFlushCachesForIdentifier")
         .map { unsafeBitCast($0, to: (@convention(c) (CFString, CFString) -> Void).self) }
 
-/// Finishes the cleanup that the previous test run could not.
-///
-/// `wipeDefaultsSuite` reclaims the file for the great majority of suites, but cfprefsd is a
-/// separate daemon and may write a suite's plist back out *after* the test process has exited.
-/// That race is not winnable from inside the process: an `atexit` sweep that unlinked all 34 of a
-/// Dashboard run's suites still lost it for the two whose defaults object was held past the test
-/// by an undo registration. So every suite handed to `wipeDefaultsSuite` is recorded, and the next
-/// run deletes whatever the last one left behind, which keeps the directory bounded at about one
-/// run's stragglers instead of growing without limit. The gap this cannot close is a run that dies
-/// before its cleanup runs at all: those suites are never recorded, so they are never swept.
+/// Finishes the cleanup the previous test run couldn't. cfprefsd is a separate daemon and may
+/// write a suite's plist back after the test process has exited (an undo registration holding the
+/// defaults object past the test, say), a race no in-process sweep can win. So every suite handed
+/// to `wipeDefaultsSuite` is recorded, and the next run deletes what the last one left, which keeps
+/// the directory at about one run's stragglers. A run that dies before its cleanup never records
+/// its suites; `sweepStaleScratchPlists` catches those by shape.
 let scratchDefaultsLedger = ScratchDefaultsLedger()
 
 final class ScratchDefaultsLedger: @unchecked Sendable {
@@ -687,10 +607,9 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         guard let line = "\(name)\n".data(using: .utf8) else { return }
         if let handle = FileHandle(forWritingAtPath: ledgerPath) {
             defer { try? handle.close() }
-            // **The throwing forms**: `seekToEndOfFile()` and `write(_:)` raise an Objective-C
-            // exception when the write fails, which no Swift `catch` stops — on 2026-10-25 one
-            // took a whole FileExplorer run down. A ledger line that can't be written only costs
-            // the next run's sweep that one name.
+            // The throwing forms: `seekToEndOfFile()` and `write(_:)` raise an Objective-C exception
+            // when the write fails, which no Swift `catch` stops, and it takes the whole test
+            // process down. A ledger line that can't be written only costs the next sweep one name.
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: line)
         } else {
@@ -707,24 +626,17 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: ledgerPath)
     }
 
-    /// Deletes scratch plists the ledger can never account for, matching by SHAPE rather than name.
+    /// Deletes scratch plists the ledger can never account for, matching by shape, not name. A name
+    /// reaches the ledger only when its test gets to cleanup, and most sites pair a bare
+    /// `UserDefaults(suiteName:)` with a `defer`, so a killed run (a cancelled CI job, an
+    /// interrupted `swift test`) leaves suites no later run can name. Matching by shape covers every
+    /// creation site, recorded or not.
     ///
-    /// A name only reaches the ledger when the test owning it gets to its cleanup. Most creation
-    /// sites are a bare `UserDefaults(suiteName:)` paired with a `defer`, so a run that is KILLED
-    /// — a cancelled CI job, an interrupted `swift test`, a mutation experiment stopped by hand —
-    /// leaves suites that were never recorded and that no later run can name. That is not a
-    /// theoretical gap: 3,551 had accumulated by 2026-08-03, and a cold `defaults domains`, which
-    /// enumerates this directory, had gone from ~0.1s to 2.38s. Matching by shape closes it for
-    /// every creation site at once, recorded or not.
-    ///
-    /// The age floor is what makes this safe to run while other sessions are testing — this Mac
-    /// routinely has several worktrees running suites at once, and their live suites are minutes
-    /// old at most. An hour is far past any test's lifetime, and still bounds the directory at
-    /// about one hour of stragglers rather than letting it grow without limit.
-    /// Internal, not private, so its two dangerous edges can be tested directly: a stale scratch
-    /// plist really is deleted, and a real domain with a lowercase UUID really is not. Going
-    /// through `record`'s once-per-process trigger instead would make those tests depend on
-    /// which one ran first, and pass vacuously in whichever order lost.
+    /// The age floor makes this safe while other worktrees run suites at once: their live suites
+    /// are minutes old at most, and an hour is far past any test's lifetime while still bounding the
+    /// directory. Internal, not private, so its two dangerous edges can be tested directly (a stale
+    /// scratch plist is deleted, a real domain with a lowercase UUID is not); through `record`'s
+    /// once-per-process trigger those tests would depend on which ran first.
     func sweepStaleScratchPlists() {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: preferencesDirectory) else { return }
@@ -737,22 +649,18 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
         }
     }
 
-    /// `<prefix><separator><UUID>.plist`, with the UUID in the UPPERCASE form `UUID().uuidString`
-    /// emits — which is what every scratch suite name here ends in. Both separators are in use:
-    /// `ScratchDefaults` joins with `-`, a few call sites with `.`.
-    ///
-    /// The uppercase requirement is the safety margin, not a detail: real preference domains that
-    /// carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), so they
-    /// cannot match. Loosen this to case-insensitive and the sweep starts eating real domains.
-    /// Scratch suites belonging to OTHER projects that share this machine's preferences
-    /// directory. `pdfutils` is a separate project of the owner's; its test suites leak into the
-    /// same place and are tracked separately THERE. A SyncCloud test run quietly deleting them
-    /// would be destructive to someone else's investigation of their own leak, and invisible from
-    /// this repo. Ownership is not inferable from the shape — only from the prefix — so this list
-    /// is the only thing keeping the sweep inside its own house, and it must grow whenever another
+    /// Scratch suites of other projects that share this machine's preferences directory.
+    /// `pdfutils` is a separate project of the owner's whose leaked suites are tracked there;
+    /// deleting them from a SyncCloud run would be destructive and invisible from this repo.
+    /// Ownership shows only in the prefix, not the shape, so this list must grow whenever another
     /// project starts sharing the directory.
     private static let foreignSuitePrefixes = ["pdfutils.", "PDFExportCoordinatorTests"]
 
+    /// `<prefix><separator><UUID>.plist`, with the UUID in the uppercase form `UUID().uuidString`
+    /// emits, which every scratch suite name here ends in. Both separators are in use:
+    /// `ScratchDefaults` joins with `-`, a few call sites with `.`. Uppercase is the safety margin:
+    /// real domains that carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.
+    /// 164320f2-…`), so a case-insensitive match would make the sweep delete real domains.
     static func isScratchSuitePlist(_ name: String) -> Bool {
         guard name.hasSuffix(".plist") else { return false }
         guard !foreignSuitePrefixes.contains(where: name.hasPrefix) else { return false }
@@ -767,14 +675,11 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
     }
 }
 
-/// A `UserDefaults` on a throwaway suite that cleans itself up — domain *and* plist — once its last
+/// A `UserDefaults` on a throwaway suite that cleans itself up, domain and plist, once its last
 /// reference goes away. Prefer it to a bare `UserDefaults(suiteName:)`: teardown rides on the
-/// object's lifetime rather than on a `defer` that a test added later can forget.
-///
-/// The lifetime is also what lets it outlast work the test started. A manager whose task is still
-/// running holds the suite, so that task's last write lands before the wipe instead of recreating
-/// the plist after it, which is the race a `defer` loses: 35 of the 42 plists a Settings run left
-/// on 2026-09-26 were suites a `SettingsManager` discovery pass wrote to after their test wiped.
+/// object's lifetime, not a `defer` a later test can forget. The lifetime also outlasts work the
+/// test started: a manager whose task is still running holds the suite, so the task's last write
+/// lands before the wipe rather than recreating the plist after it, the race a `defer` loses.
 final class ScratchDefaults: UserDefaults {
     let scratchSuiteName: String
 
@@ -790,31 +695,19 @@ final class ScratchDefaults: UserDefaults {
 }
 
 /// Reads the log lines one operation produced, from the on-disk log rather than
-/// `Logger.shared.entries`.
+/// `Logger.shared.entries`. `entries` can't hold a window across a multi-step operation in a
+/// parallel run: it is trimmed to the newest 1000 (`Logger.flushPendingEntries`) and every suite
+/// writes to it, so an opening marker can be evicted before the assertion reads it, and the
+/// failure then names the missing marker, as if production had stopped logging.
 ///
-/// **`entries` cannot carry a window across a multi-step operation in a parallel run.** It is
-/// trimmed to the newest 1000 (`Logger.flushPendingEntries`) and every suite in the process writes
-/// to the same array, so an opening marker written before the operation is routinely EVICTED before
-/// the assertion reads it. Measured on `main` at `140d4773`: four tests across three suites pass
-/// under `swift test --no-parallel` and fail under plain `swift test`, three of them reporting the
-/// marker itself as `nil` — the failure names the missing marker, not the missing log line, so it
-/// reads like the production code stopped logging when nothing of the sort happened.
+/// The per-process temp file the test logger writes (`Logger.defaultLogFileURL`) holds every line
+/// in call order. Other suites still interleave into it, which is why the window is delimited by a
+/// unique tag and callers should filter for a line only they could have written.
 ///
-/// The per-process temp file the test logger writes to (`Logger.defaultLogFileURL`) does not have
-/// that problem: it holds every line, in call order, at any volume a test run reaches. Other suites
-/// still interleave their lines into it — that is why the window is still delimited by a unique tag,
-/// and why callers should filter for a line only they could have written.
-///
-/// **The bytes do not arrive by themselves, and this used to assume they did.** `Logger.log` calls
-/// `logWriter.append`, which is `queue.async` on a serial queue at **`qos: .background`** — the call
-/// is synchronous, the WRITE is not, and background QoS is exactly what the scheduler starves when
-/// the machine is busy. This helper polled for the marker instead, on the belief that the append
-/// "needs no flush marker to become visible"; measured across repeated full-package serial runs,
-/// that poll expired after 250+ real polls (so: not a starved wait — five seconds of genuine
-/// asking) with BOTH markers still absent, and the test it hit moved from run to run because
-/// swift-testing randomizes order. `Logger.flushToDisk()` is `queue.sync {}`: it blocks until the
-/// writer drains AND boosts the background queue's priority to the caller's for the duration, which
-/// is the half a poll can never supply. Its own doc said so all along.
+/// The bytes don't arrive by themselves: `Logger.log` hands the write to a serial queue at
+/// `qos: .background`, which a busy machine starves, so polling for the marker can expire with the
+/// line still unwritten. `Logger.flushToDisk()` is `queue.sync {}`: it blocks until the writer
+/// drains and lends the queue the caller's priority meanwhile, which no poll can do.
 ///
 /// - Parameter tag: Something unique to this test — a `UUID().uuidString`. It goes in both markers.
 /// - Returns: The lines strictly between this window's markers, in call order.
@@ -825,10 +718,9 @@ func logLines(tag: String, during body: () async throws -> Void) async throws ->
     try await body()
     await Logger.shared.debug("log-window closes \(tag)").value
 
-    // Drain the writer, rather than waiting for a background-QoS queue to get around to it. This
-    // returns only once every append issued above has hit the file, so the read below needs no
-    // poll and cannot expire — a marker missing after this is a real absence, which is what the
-    // two `#require`s are entitled to claim.
+    // Drain the writer rather than wait for a background-QoS queue. This returns once every append
+    // above has hit the file, so the read needs no poll and can't expire: a marker missing after
+    // this is a real absence, which the two `#require`s may claim.
     Logger.shared.flushToDisk()
     let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -839,22 +731,15 @@ func logLines(tag: String, during body: () async throws -> Void) async throws ->
     return Array(lines[(opened + 1)..<closed])
 }
 
-/// The last log line containing `fragment`, read from the on-disk log.
-///
-/// The `Logger.shared.entries.last { … }` spelling this replaces is the same eviction hazard
-/// `logLines(tag:during:)` documents, one step milder: with no window to lose, it survives until the
-/// asserted line ITSELF is trimmed out of the newest 1000 — which a parallel run does, and which
-/// surfaces as `line?.contains(…) == false` rather than as anything naming the logger. Measured:
-/// `aFoldIsRefusedWhenTheKeeperNoLongerHoldsTheFilesItFolded` and both `theSingleResolve…` tests
-/// fail exactly this way under plain `swift test` and pass under `--no-parallel`.
-///
-/// Callers must still pass a fragment only they could have written — the disk log is per-process,
-/// so every suite's lines are in it.
+/// The last log line containing `fragment`, read from the on-disk log. `Logger.shared.entries`
+/// has the same eviction hazard as `logLines(tag:during:)`, milder: the asserted line itself is
+/// trimmed out of the newest 1000 in a parallel run, and the test fails as
+/// `line?.contains(…) == false`, naming nothing about the logger. Callers must still pass a
+/// fragment only they could have written, since the disk log holds every suite's lines.
 @MainActor
 func loggedLineOnDisk(containing fragment: String) async -> String? {
-    // Drained, not polled — see `logLines(tag:during:)` for why a background-QoS append cannot be
-    // waited out. The marker line goes with it: with the queue drained there is nothing to detect
-    // the arrival OF, and a marker keyed on `hashValue` was never unique anyway.
+    // Drained, not polled: see `logLines(tag:during:)` for why a background-QoS append can't be
+    // waited out. With the queue drained there is no arrival to detect, so no marker is needed.
     let url = Logger.shared.logFileURL
     Logger.shared.flushToDisk()
     let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""

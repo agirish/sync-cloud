@@ -22,7 +22,7 @@ import Foundation
     }
 
     @Test func testSyncFailedRetryabilityIsOverridable() {
-        // The bulk (syncAll) call site passes isRetryable: false — a partial-batch retry is ambiguous.
+        // The bulk (syncAll) call site passes isRetryable: false: a partial-batch retry is ambiguous.
         let error = SyncError.syncFailed(item: "a.txt", path: "/x/a.txt", reason: "boom", isRetryable: false)
         #expect(error.isRetryable == false)
     }
@@ -83,14 +83,14 @@ import Foundation
     }
 
     @Test func testRetryableWithHandlerButNoPathOffersRetryAndDismissOnly() {
-        // No path hides Reveal but must not hide Retry — e.g. a bulk failure that kept no
-        // single representative path.
+        // No path hides Reveal but must not hide Retry, e.g. a bulk failure that kept no single
+        // representative path.
         let error = SyncError(title: "Sync Failed", message: "boom", isRetryable: true)
         #expect(error.alertActions(hasRetryHandler: true) == [.retry, .dismiss])
     }
 
     @Test func testRevealHiddenWithoutPath() {
-        // No path, not retryable → only Dismiss.
+        // No path, not retryable: only Dismiss.
         #expect(Self.bareError.alertActions(hasRetryHandler: true) == [.dismiss])
     }
 

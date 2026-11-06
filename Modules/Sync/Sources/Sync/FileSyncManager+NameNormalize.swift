@@ -1,12 +1,11 @@
 import Events
 import Foundation
 
-/// Name Normalizer (X8) — the bulk counterpart to the transfer pre-flight name check. The app
-/// already knew, one file at a time and only at write, which names a provider forbids; this scans a
-/// whole subtree, lists every risky file AND folder name, and normalizes the selected ones in a
-/// single undoable pass — before they break a cloud sync. Mirrors ``FileSyncManager`` +Duplicates
-/// and +Filing: a cancellable scan Task publishing `@Published` state, an apply path routed through
-/// the serial `enqueueFileOperation` queue with ONE grouped undo.
+/// Name Normalizer: the bulk counterpart to the per-file name check at transfer. It scans a whole
+/// subtree, lists every risky file and folder name a provider forbids, and normalizes the selected
+/// ones in one undoable pass, before they break a cloud sync. Shaped like +Duplicates and +Filing:
+/// a cancellable scan publishing `@Published` state, and an apply routed through the serial
+/// `enqueueFileOperation` queue with one grouped undo.
 extension FileSyncManager {
 
     // MARK: Scan
@@ -14,15 +13,11 @@ extension FileSyncManager {
     /// Walks `root`, detects every risky name via the pure ``NameNormalizer``, and publishes them.
     /// `fileManager` is injectable for tests; production uses the manager's own.
     ///
-    /// **No longer the shipped producer.** When Rename folded into Organize the finding moved onto
-    /// the Filing pass — ``detectRiskyNames(in:root:provider:isCancelled:)`` reuses the tree that
-    /// scan already has in memory, which is the whole reason the fold was worth doing. The public
-    /// `startNameScan`/`cancelNameScan` wrappers that used to drive this had no caller left in the
-    /// app, the CLI or the tests, and have been removed rather than left as API nothing calls.
-    ///
-    /// This function stays because `NameNormalizerTests` and `PermissionDeniedScanTests` drive it
-    /// directly: it is the standalone-walk reference the Filing path mirrors, and the
-    /// permission-denied behaviour they pin here is the behaviour that path inherits.
+    /// Not the shipped producer: the app finds risky names on the Filing pass, through
+    /// ``detectRiskyNames(in:root:provider:isCancelled:)``, over the tree already in memory. Kept
+    /// because `NameNormalizerTests` and `PermissionDeniedScanTests` drive it as the
+    /// standalone-walk reference, and the permission-denied behaviour they pin is what the Filing
+    /// path inherits.
     func scanNames(root: URL, provider: CloudProvider.ProviderType, fileManager fm: FileManaging? = nil) async {
         guard !isScanningNames else { return }
         let fileManager = fm ?? self.fileManager
@@ -33,9 +28,8 @@ extension FileSyncManager {
             endScan(\.nameScanLifecycle)
         }
 
-        // Budgeted first, as a probe — same shape and reason as `buildStorageLens`, which carries
-        // the reasoning in full. This pass cannot take a budget for its answer either: a risky name
-        // it never reached is a rename never offered, which reads as "there is nothing wrong here".
+        // Budgeted first, as a probe, as in `buildStorageLens`. The answer can't be budgeted: a
+        // risky name never reached is a rename never offered, which reads as "nothing wrong here".
         let probe = NodeBudget(wholeTreeProbeBudget)
         var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
                                         maxDepth: nil, budget: probe)
@@ -51,23 +45,17 @@ extension FileSyncManager {
                                         maxDepth: nil)
             if Task.isCancelled { return }
         }
-        // A permission-denied root comes back as a single root-identity unexplored marker (same
-        // shape adoptRawTree unwraps). Feeding it to the detector would flag the unreadable root
-        // ITSELF as a rename candidate — and "Fix all" would rename a folder we can't even list
-        // (a rename only needs parent-write), dangling the pane focus and anything aimed at the
-        // old path. An unreadable root has no scannable names: publish the honest empty result.
+        // An unreadable root has no scannable names, so publish an empty result. Fed to the
+        // detector, its marker would flag the root itself (see `isUnreadableRootMarker`).
         if Self.isUnreadableRootMarker(tree, root: root) {
             riskyNames = []
             completeScan(\.nameScanLifecycle, root: root)
             Logger.shared.warning("Name normalizer: could not read \(root.lastPathComponent) — permission denied; no names scanned")
             return
         }
-        // Detect (pure, no disk) — DETACHED: the detector flattens and rule-checks the whole
-        // tree, which on a large provider blocked the main actor for the full pass. Only the
-        // @Published writes below happen back on the main actor. Staleness guard: a newer scan
-        // cancels this task (startNameScan), so the isCancelled check after the hop keeps a
-        // stale result from landing after a newer scan started (the duplicate scan uses its
-        // lifecycle epoch for the same job on its unstructured progress hops).
+        // Detached: flattening and rule-checking a large provider's tree would block the main
+        // actor for the whole pass. Only the @Published writes run back on it. The isCancelled
+        // check after the hop keeps a cancelled scan's stale result from landing.
         let risky = await Task.detached(priority: .userInitiated) {
             NameNormalizer.scan(nodes: tree, provider: provider)
         }.value
@@ -82,40 +70,24 @@ extension FileSyncManager {
         Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s), \(riskyNames.count) reported")
     }
 
-    /// True when a walk came back as nothing but the unreadable root itself.
-    ///
-    /// `buildTree` reports a permission-denied root as a single unexplored marker carrying the
-    /// root's OWN path, and the detector cannot tell that marker from a real entry — it would flag
-    /// the root's name, and "Fix all" would rename a folder we cannot even list. A rename needs
-    /// only parent-write, so it would succeed, dangling the pane focus, the configured provider
-    /// root and everything aimed at the old path.
-    ///
-    /// Shared rather than duplicated because it has now been needed twice: once by the standalone
-    /// scan, and again the moment the Filing scan started reporting names. The second caller was
-    /// written without it.
+    /// True when a walk came back as nothing but the unreadable root itself. `buildTree` reports
+    /// a permission-denied root as one unexplored marker with the root's own path, which the
+    /// detector can't tell from a real entry. It would flag the root, and "Fix all" would rename a
+    /// folder it can't list (a rename needs only parent-write), dangling the pane focus, the
+    /// provider root and everything aimed at the old path. Every name scan must check it.
     static func isUnreadableRootMarker(_ tree: [FileNode], root: URL) -> Bool {
         tree.count == 1 && tree.first?.isUnexplored == true && tree.first?.id == root.path
     }
 
-    /// Flags provider-hostile names on a tree the caller has **already walked**.
-    ///
-    /// Rename stopped being a place of its own. A name the cloud will reject is something you hit
-    /// a handful of times a year, and a tab you have to remember to visit is a check nobody runs —
-    /// so instead of asking, the Filing scan reports. It already walks the whole provider to learn
-    /// its folder taxonomy, and the detector is pure, so the names come back on that pass over a
-    /// tree that is already in memory: no second walk, no second button.
-    ///
-    /// Detached for the same reason the standalone scan was — flattening and rule-checking a whole
-    /// provider on the main actor blocked it for the full pass.
-    /// - Parameter isCancelled: the staleness check, injectable so the "publishes nothing, and
-    ///   therefore changes nothing" path can be asserted. Cancellation is otherwise a race no test
-    ///   can stage deterministically, and this invariant is about a bulk RENAME reading the wrong
-    ///   ruleset — not something to leave to a sleep and a hope.
+    /// Flags provider-hostile names on a tree the caller has already walked. The Filing scan walks
+    /// the whole provider anyway, so risky names come back on that pass with no second walk or
+    /// button. Detached, as in `scanNames`, to keep the main actor free.
+    /// - Parameter isCancelled: the staleness check, injectable so a test can assert that a stale
+    ///   scan publishes nothing. Real cancellation is a race no test can stage, and a bulk rename
+    ///   must never act on results for the wrong ruleset.
     func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType,
                           isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
-        // Same wall, same answer as the standalone scan. Reporting "1 risky name" for an
-        // unreadable provider root and then offering to rename it is the worst outcome this
-        // feature could produce.
+        // Same guard as `scanNames`: never offer to rename an unreadable provider root.
         if Self.isUnreadableRootMarker(tree, root: root) {
             riskyNames = []
             completeScan(\.nameScanLifecycle, root: root)
@@ -126,8 +98,7 @@ extension FileSyncManager {
         let risky = await Task.detached(priority: .userInitiated) {
             NameNormalizer.scan(nodes: tree, provider: provider)
         }.value
-        // The caller cancels on a newer scan; without this a stale result could land on top of a
-        // newer one, which is the same staleness guard `scanNames` carries.
+        // The caller cancels on a newer scan; this keeps a stale result from landing over it.
         if isCancelled() { return }
 
         riskyNames = reportable(risky)
@@ -151,8 +122,8 @@ extension FileSyncManager {
     /// overwrites: a name collision keeps both by uniquifying (" 2", " 3", …). All renames land as a
     /// single grouped Undo, so one ⌘Z reverts the whole pass.
     public func normalizeNames(_ selected: [RiskyName]) async {
-        // Verify All's write-exclusion guard, mirrored here (same rationale as syncFile / Filing):
-        // a rename moves an item Verify All may be hashing.
+        // Verify All's write exclusion, as in syncFile and Filing: a rename moves an item Verify
+        // All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before normalizing names")
             return
@@ -162,9 +133,8 @@ extension FileSyncManager {
         defer { isNormalizingNames = false }
 
         let fm = fileManager
-        // Apply deepest paths first so renaming a parent folder can never invalidate a child's
-        // stored absolute path before we reach the child (the child renames inside the still-named
-        // parent, then the parent folder is renamed around it).
+        // Deepest paths first, so renaming a parent never invalidates a child's stored path before
+        // the child is renamed.
         let ordered = selected.sorted { pathDepth($0.id) > pathDepth($1.id) }
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
 
@@ -205,9 +175,8 @@ extension FileSyncManager {
             return
         }
 
-        // ONE grouped undo for the whole pass. Register it SHALLOWEST-first so a ⌘Z restores a
-        // renamed parent folder before the children renamed inside it — the reverse of the
-        // deepest-first apply order — keeping nested renames fully reversible.
+        // One grouped undo for the whole pass, registered shallowest-first (the reverse of the
+        // apply order) so ⌘Z restores a parent before the children renamed inside it.
         let undoItems = result.moves.sorted { pathDepth($0.from.path) < pathDepth($1.from.path) }
         let n = result.moves.count
         registerMoveUndo(items: undoItems, actionName: "Normalize \(CountedNoun.phrase(n, "Name"))", fileManager: fm)
@@ -217,15 +186,10 @@ extension FileSyncManager {
         riskyNames.removeAll { doneSet.contains($0.id) }
 
         Logger.shared.info("Name normalizer: normalized \(n) name(s)\(result.failed > 0 ? ", \(result.failed) failed" : "")")
-        // **`undoable:` as well as the sentence**, on BOTH branches. The flag — not the prose — is
-        // what `invalidateUndoableBanner` reads to retire the offer when the undo stack moves on,
-        // and these two defaulted it to false while the text said "Press ⌘Z to undo" (the button
-        // carries the ⌘Z now, TE216). So the offer outlived the step it points at: any later
-        // operation registering its own undo left this banner standing, still offering ⌘Z, which
-        // by then reverses that operation instead. Severity is a separate axis from undoability, which is why
-        // `.warning` takes the parameter at all — the partial branch is a warning AND undoable.
-        // The registration above is unconditional on this path (`result.moves` is non-empty), so
-        // the flag is true wherever the sentence is.
+        // `undoable: true` on both branches: `invalidateUndoableBanner` reads the flag to retire
+        // the ⌘Z offer once the undo stack moves on, or the banner would offer to undo a later
+        // operation. The partial branch is a warning and still undoable; the undo above is always
+        // registered on this path.
         banner = result.failed > 0
             ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn’t be fixed",
                        undoable: true)
@@ -245,10 +209,10 @@ extension FileSyncManager {
     }
     private func pathDepth(_ path: String) -> Int { Self.componentCount(path) }
 
-    /// Flattens a walked tree into `(relativePath, absolutePath, name, isDirectory)` for EVERY node —
-    /// directories included, unlike ``flattenFiles(_:)`` / ``flattenFilesWithRelativePaths(_:prefix:)``
-    /// which emit only leaves. Each directory is emitted WITH its own relative path first, then its
-    /// children are recursed, so a risky folder name is flagged alongside the risky files inside it.
+    /// Flattens a walked tree into `(relativePath, absolutePath, name, isDirectory)` for every
+    /// node, folders included (``flattenFiles(_:)`` and
+    /// ``flattenFilesWithRelativePaths(_:prefix:)`` emit only leaves), so a risky folder name is
+    /// flagged alongside the files inside it.
     nonisolated static func flattenNodesWithRelativePaths(
         _ nodes: [FileNode], prefix: String = ""
     ) -> [(rel: String, id: String, name: String, isDirectory: Bool)] {

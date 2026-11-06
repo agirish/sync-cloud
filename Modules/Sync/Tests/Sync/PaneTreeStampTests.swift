@@ -3,15 +3,11 @@ import Foundation
 import Events
 @testable import Sync
 
-/// `PaneTree` compares only its publish stamp, never its ~40,000 nodes — that is the whole point
-/// of the type (it keeps SwiftUI's body-output comparison off a recursive `FileNode.==`). The
-/// safety of that shortcut rests entirely on ONE invariant owned by `FileSyncManager`: the pane's
-/// version counter advances on every assignment to the published tree, so a stamp can never be
-/// reused for different contents.
-///
-/// These tests pin that invariant directly. Without it, a stale tree would compare equal to a
-/// fresh one and the pane would silently stop updating — a far worse failure than the slow
-/// compare this replaced, and one no rendering test would catch.
+/// `PaneTree` compares only its publish stamp, never its tens of thousands of nodes, which keeps
+/// SwiftUI's body-output comparison off a recursive `FileNode.==`. That rests on one invariant
+/// owned by `FileSyncManager`: the version counter advances on every assignment to the published
+/// tree, so a stamp is never reused for different contents. Without it a stale tree would compare
+/// equal to a fresh one and the pane would silently stop updating, which no rendering test catches.
 @MainActor
 @Suite struct PaneTreeStampTests {
 
@@ -19,9 +15,8 @@ import Events
         FileNode(id: "/r/\(name)", name: name, isDirectory: false)
     }
 
-    /// The load-bearing invariant: every publish moves the stamp, so before ≠ after for ANY
-    /// change. Asserted through the manager's own accessor, not the raw counter, so it covers
-    /// the accessor reading the matching counter for its side.
+    /// The load-bearing invariant: every publish moves the stamp. Asserted through the manager's
+    /// accessor, not the raw counter, so it also covers the accessor reading its own side's counter.
     @Test func testEveryPublishAdvancesTheStamp() {
         let m = FileSyncManager()
 
@@ -41,9 +36,8 @@ import Events
         #expect(rEmpty != m.rightPaneTree)
     }
 
-    /// Even re-publishing an IDENTICAL array advances the stamp. This is the direction that is
-    /// safe to get "wrong" (a redundant re-render, never a missed one) — pinned so nobody later
-    /// adds an equality guard to the `didSet` and turns it into the unsafe direction.
+    /// Even republishing an identical array advances the stamp: a redundant re-render is safe, a
+    /// missed one isn't. Fails if an equality guard is added to the `didSet`.
     @Test func testRepublishingEqualContentsStillAdvancesTheStamp() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
@@ -55,18 +49,17 @@ import Events
         #expect(first != second)               // …stamp still moved
     }
 
-    /// A stamp read twice with no publish in between is the same value — the memoization this
-    /// type exists to enable. Mutation check: if `==` compared `nodes` instead of the stamp this
-    /// would still pass, so it is paired with the two tests above, which it cannot.
+    /// A stamp read twice with no publish in between is the same value, the memoization the type
+    /// exists for. An `==` over `nodes` would pass this too; the two tests above catch that.
     @Test func testStampIsStableWithoutAPublish() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
         #expect(m.leftPaneTree == m.leftPaneTree)
     }
 
-    /// The two panes keep independent counters, so a bare version is only meaningful with its
-    /// side. Nothing pairs `tree` with `otherTree` today (SwiftUI compares a property against
-    /// its own prior value), but the discriminator is what keeps that from being silently wrong.
+    /// The two panes keep independent counters, so a version means something only with its side.
+    /// SwiftUI compares a property against its own prior value, but the side keeps a cross-pane
+    /// comparison from being silently wrong.
     @Test func testSameVersionOnOppositeSidesIsNotEqual() {
         let left = PaneTree(side: .left, version: 7, nodes: [node("a")])
         let right = PaneTree(side: .right, version: 7, nodes: [node("a")])
@@ -83,9 +76,8 @@ import Events
 
     // MARK: - PaneRow
 
-    /// `PaneRow` equality is (side, version, path). Same reasoning as `PaneTree`: a path
-    /// identifies one node per published tree, and changing that node's contents requires a
-    /// republish, which moves the stamp. These pin the two directions that matter.
+    /// `PaneRow` equality is (side, version, path), as for `PaneTree`: a path names one node per
+    /// published tree, and changing that node requires a republish, which moves the stamp.
     @Test func testPaneRowDiffersWhenTheTreeWasRepublished() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
@@ -96,8 +88,8 @@ import Events
         #expect(before != after)                     // …but a newer publish
     }
 
-    /// Different paths within the SAME publish are never conflated — the case that would make a
-    /// row render its neighbour's contents.
+    /// Different paths within the same publish are never conflated, or a row would render its
+    /// neighbour's contents.
     @Test func testPaneRowDistinguishesPathsWithinOnePublish() {
         let m = FileSyncManager()
         m.leftTree = [node("a"), node("b")]
@@ -106,9 +98,9 @@ import Events
         #expect(t.rows[0] == t.rows[0])
     }
 
-    /// A folder node's `children` are deliberately NOT compared — that is the entire point, since
-    /// recursing them is what cost 2,162 ms of main thread per refresh. Safe because differing
-    /// children cannot coexist with an unchanged stamp on a real published tree.
+    /// A folder node's `children` are not compared: recursing them can cost seconds of main thread
+    /// per refresh. Safe because differing children can't coexist with an unchanged stamp on a real
+    /// published tree.
     @Test func testPaneRowIgnoresChildren() {
         let thin = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x")])
         let fat  = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x"), node("y")])
@@ -126,9 +118,8 @@ import Events
 
     // MARK: - Row projection and its cache
 
-    /// The row projection is CACHED per publish (`leftRowsCache`), which makes stale rows a real
-    /// new failure vector: a wrong cache key would pin the pane to whatever tree it first
-    /// rendered. This is the test that would catch it.
+    /// The row projection is cached per publish (`leftRowsCache`), so a wrong cache key would pin
+    /// the pane to whatever tree it first rendered.
     @Test func testRowProjectionCacheInvalidatesOnEveryRepublish() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
@@ -141,17 +132,17 @@ import Events
         #expect(m.leftPaneTree.rows.isEmpty)
     }
 
-    /// Reading twice with no publish in between must reuse the cache, not re-walk the tree — the
-    /// whole reason the cache exists (the accessor is read once per pane per render).
+    /// Reading twice with no publish in between reuses the cache rather than re-walking the tree;
+    /// the accessor is read once per pane per render.
     @Test func testRowProjectionIsStableWithoutARepublish() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
         #expect(m.leftPaneTree.rows == m.leftPaneTree.rows)
     }
 
-    /// The two panes' caches are independent: republishing one must not serve the other's rows,
-    /// and each row must carry its OWN pane's side (both counters sit at the same integer here,
-    /// which is exactly the collision `side` exists to prevent).
+    /// The two panes' caches are independent: neither serves the other's rows, and each row carries
+    /// its own pane's side. Both counters sit at the same integer here, the collision `side` exists
+    /// to prevent.
     @Test func testPanesProjectTheirOwnRowsIndependently() {
         let m = FileSyncManager()
         m.leftTree = [node("left-only")]
@@ -164,10 +155,9 @@ import Events
         #expect(m.leftPaneTree.rows[0] != m.rightPaneTree.rows[0])          // …still not conflated
     }
 
-    /// `OutlineGroup` decides whether a row gets a disclosure triangle from `children == nil` vs
-    /// `[]`. `FileNode` uses nil for a file and `[]` for an empty directory, so the projection
-    /// must preserve that distinction exactly — collapsing it would either hide a folder's
-    /// triangle or give every file one.
+    /// `OutlineGroup` gives a row a disclosure triangle from `children == nil` vs `[]`, nil for a
+    /// file and `[]` for an empty directory. Collapsing the two would hide a folder's triangle or
+    /// give every file one.
     @Test func testProjectionPreservesNilVersusEmptyChildren() {
         let file = FileNode(id: "/r/f.txt", name: "f.txt", isDirectory: false)                 // nil
         let emptyDir = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [])        // []

@@ -18,9 +18,9 @@ import Testing
 
     // MARK: - The verifier, in the direction every landing test never takes
 
-    /// `return []` from the verifier leaves every landing suite green — this is the test that
-    /// goes red: a rename whose destination is missing and whose source survived produces both
-    /// mismatch sentences, and a clean disk produces none.
+    /// A verifier that returns `[]` leaves every landing suite green, so this one must fail: a
+    /// rename whose destination is missing and whose source survived produces both mismatch
+    /// sentences, and a clean disk produces none.
     @Test func theVerifierNamesAMissingDestinationAndASurvivingSource() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -71,9 +71,8 @@ import Testing
 
     // MARK: - Inverse on disk first, at the call sites
 
-    /// The engine refuses the WHOLE landing when the ledger write fails — tested at
-    /// `applyPlan`, not at the store helper: reverting the `guard` to fire-and-forget is
-    /// exactly the mutation this goes red under, and it is the mutation nothing else caught.
+    /// The engine refuses the whole landing when the ledger write fails. Tested at `applyPlan`,
+    /// not the store helper: turning the `guard` into fire-and-forget must fail this.
     @Test @MainActor func aFailedLedgerWriteRefusesThePlanLandingBeforeAnyMove() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -133,12 +132,11 @@ import Testing
 
     // MARK: - Step 6 failing for real
 
-    /// The re-derive fails ON THE REAL PATH (the profiles root refuses the new directory), and
+    /// The re-derive fails on the real path (the profiles root refuses the new directory), and
     /// the record left behind has the exact shape the chain machinery keys on: finalised
-    /// (`summary` set, suffixed), un-repointed (`producedProfileId` nil) — and still offered by
-    /// `undoableReorganisation`, anchored on the directory it was applied under. Every prior
-    /// test of this shape built the record by hand; a drift between this branch and those
-    /// hand-built records stayed green.
+    /// (`summary` set, suffixed), un-repointed (`producedProfileId` nil), and still offered by
+    /// `undoableReorganisation`, anchored on the directory it was applied under. Driven for real
+    /// so this branch can't drift from the hand-built records other tests use.
     @Test @MainActor func aStepSixFailureStillLandsFinalisedAndUndoable() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer {
@@ -167,9 +165,9 @@ import Testing
 
     // MARK: - A walk that cannot see everything
 
-    /// An unreadable directory is UNKNOWN, never empty: the count is nil, and the engine's
-    /// `remove-empty-dir` keeps the folder with the truth — the old `return 0` default would
-    /// have trashed a folder whose contents the walk never saw.
+    /// An unreadable directory is unknown, never empty: the count is nil, and the engine's
+    /// `remove-empty-dir` keeps the folder. A `return 0` default would trash a folder whose
+    /// contents the walk never saw.
     @Test func anUnreadableFolderNeverReadsAsEmpty() throws {
         let root = try Self.scratch()
         defer {
@@ -199,9 +197,9 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: sealed.path), "kept, not trashed")
     }
 
-    /// The unlisted-file rule counts a dotted file the plan never read (review R10): a merge out
-    /// of a folder holding `.env` is refused rather than leaving it behind, split from the files
-    /// it belongs with. The control: OS noise (`.DS_Store`) alone does not stop the move.
+    /// The unlisted-file rule counts a dotted file the plan never read: a merge out of a folder
+    /// holding `.env` is refused rather than leaving it behind, split from the files it belongs
+    /// with. The control: OS noise (`.DS_Store`) alone does not stop the move.
     @Test func aDottedFileThePlanNeverListedStopsTheDrain() throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -241,17 +239,13 @@ import Testing
         #expect(world.manager.restructureStore?.applied.isEmpty == true)
     }
 
-    /// A `FileManaging` that delegates everything to the real disk but PARKS the first
-    /// `fileExists` probe on a gate — which holds a live landing open inside step 3, off the
-    /// main actor, for as long as the test needs. The gate is entered on the operation queue,
-    /// so the landing genuinely cannot finish until `release` is signalled.
+    /// A `FileManaging` that delegates to the real disk but parks the first off-main `fileExists`
+    /// probe on a gate, holding a live landing open inside step 3 until `release` is signalled.
     ///
-    /// **The thread it blocks is a COOPERATIVE-POOL one, so every test that builds one must
-    /// declare `.parksAThread`.** This said "never the pool" until 2026-09-06 and was wrong:
-    /// the landing's executor reaches its `FileManaging` seams through `enqueueFileOperation`,
-    /// which runs the operation in `Task.detached(priority: .userInitiated)` — the pool. The
-    /// name is also one letter from `GatedFileManager`, which is what kept it out of
-    /// `ParkBudgetTests.threadBlockingGates` and left both of its tests unbudgeted; see
+    /// **The thread it blocks is a cooperative-pool one, so every test that builds one must
+    /// declare `.parksAThread`.** The landing's executor reaches its seams through
+    /// `enqueueFileOperation`, which runs the operation in `Task.detached`. Listed in
+    /// `ParkBudgetTests.threadBlockingGates` (one letter from `GatedFileManager`); see
     /// `docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need".
     private final class GateFileManager: FileManaging, @unchecked Sendable {
         private let inner = FileManager.default
@@ -328,12 +322,10 @@ import Testing
         }
     }
 
-    /// The HOLD half, which the hand-set test above cannot see: delete the three
-    /// `restructureLandingInProgress = true` assignments and it stays green, because it never
-    /// runs a real landing. This one parks a live landing inside step 3 and proves the flag's
-    /// own sentence answers a second entry — the sentence matters, because the operation count
-    /// also refuses in this window, with different words; only the flag's sentence goes red
-    /// when the assignments are reverted.
+    /// The flag is held across a real landing, which the hand-set test above can't see. This parks
+    /// a live landing inside step 3 and checks a second entry gets the flag's own sentence: the
+    /// operation count also refuses in this window, in other words. Removing the
+    /// `restructureLandingInProgress = true` assignments must fail this.
     @Test(.parksAThread) @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
         let gate = GateFileManager()
         let base = try Self.scratch()
@@ -384,10 +376,9 @@ import Testing
                 "the defer must clear the flag on the way out")
     }
 
-    /// A removal landing registers no session undo of its own, so the ⌘Z stack's top would
-    /// still be the PREVIOUS landing's group — replayed into folders the removal just trashed.
-    /// The engine clears the stack instead; delete the `removeAllActions` branch and this goes
-    /// red.
+    /// A removal landing registers no session undo of its own, so the ⌘Z stack's top would still
+    /// be the previous landing's group, replayed into folders the removal just trashed. The engine
+    /// clears the stack instead; deleting the `removeAllActions` branch must fail this.
     @Test @MainActor func aRemovalLandingClearsTheSessionUndoStack() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -427,11 +418,11 @@ import Testing
         Issue.record("wait budget exhausted: \(what)")
     }
 
-    /// The handlers' side of the landing flag: the session group is LIVE while a landing
-    /// suspends (armed at step 5, then the re-derive awaits), and a ⌘Z fired into that window
-    /// used to replay the inverse concurrently with the landing's own walk — corrupting the
-    /// derived profile and wedging the ledger undo. The handlers now give up their turn while
-    /// the flag is up; delete the `undoReplayBlockedByLanding` guard and this goes red.
+    /// The handlers' side of the landing flag: the session group is live while a landing suspends
+    /// (armed at step 5, then the re-derive awaits), and a ⌘Z replayed then would race the
+    /// landing's walk, corrupting the derived profile and wedging the ledger undo. The handlers
+    /// give way while the flag is up; deleting the `undoReplayBlockedByLanding` guard must fail
+    /// this.
     @Test @MainActor func theSessionUndoHandlersGiveWayWhileALandingIsInFlight() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -458,10 +449,9 @@ import Testing
             atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
     }
 
-    /// The redo path EXECUTES — land, ⌘Z back, ⌘⇧Z forward, asserted on the disk. The redo
-    /// closure (occupied guard, item ordering) drives real moves after a destructive landing,
-    /// and every prior test stopped at `canRedo`: reverse the replay order or invert its
-    /// guards and nothing went red.
+    /// The redo path executes: land, ⌘Z back, ⌘⇧Z forward, asserted on disk. The redo closure
+    /// (occupied guard, item ordering) drives real moves after a destructive landing; reversing
+    /// its replay order or inverting its guards must fail this.
     @Test @MainActor func theSessionRedoReplaysTheLandingOnDisk() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -489,8 +479,8 @@ import Testing
         #expect(undo.canUndo, "the redo re-arms its own undo")
     }
 
-    /// The engine-level refusal sentences that had no driver: an unknown manifest, and a
-    /// survey that moved on after the landing (a Setup walk activated another profile).
+    /// The engine-level undo refusals: an unknown manifest, and a survey that moved on after the
+    /// landing (a Setup walk activated another profile).
     @Test @MainActor func theUndoRefusesAnUnknownManifestAndAMovedSurvey() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -588,21 +578,16 @@ import Testing
 
     // MARK: - A profile that does not say which folder it describes
 
-    /// **Every landing refuses a profile that records no folder, rather than acting under `~`.**
+    /// Every landing refuses a profile that records no folder, rather than acting under `~`. A file
+    /// without `root` decodes as `~`, so a nil-root check alone would let it through: the scaffold
+    /// would create folders under home, a plan would move whatever shares a name there, "make the
+    /// survey catch up" would walk all of home, and the re-derive would write `"~"` into its
+    /// profile. A root still relative once `~` is expanded resolves against the working directory,
+    /// and is refused the same way, as Refresh refuses both.
     ///
-    /// A file without `root` decodes as `~`, and the guard asked `filingFolderProfile?.root ==
-    /// nil` — true only with no profile at all. So a hand-built profile without the field reached
-    /// every landing: the scaffold created folders under the home folder, a plan moved whatever
-    /// shared a name with the surveyed tree there (`~/Projects` is real on this Mac), "make the
-    /// survey catch up" walked the whole home folder with no size prompt, and the re-derive wrote
-    /// `"~"` into the profile it produced, which turned the guess into the record. A root that is
-    /// still relative once `~` is expanded resolves against the working directory, and is refused
-    /// the same way — as Refresh refuses both.
-    ///
-    /// Driven through all four landings, because a guard is one deleted call away from guarding
-    /// nothing. **The fixture keeps a regression off the real home folder:** there is no profiles
-    /// directory, so a landing that skipped the guard stops at its own "No folder survey is
-    /// loaded." before any walk or move — a different sentence, so it still goes red — and the
+    /// Driven through all four landings. The fixture keeps a regression off the real home folder:
+    /// with no profiles directory, a landing that skipped the guard stops at "No folder survey is
+    /// loaded." (a different sentence, so it still fails) before any walk or move, and the
     /// scaffold's subject is a folder no home holds, so its create-without-intermediates fails.
     @Test(arguments: [#"{"profileId": "t", "folders": []}"#,
                       #"{"profileId": "t", "root": "Documents", "folders": []}"#])

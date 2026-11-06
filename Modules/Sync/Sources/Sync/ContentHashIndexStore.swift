@@ -4,25 +4,22 @@ import Foundation
 /// One persisted digest: the ``ContentHashKey`` fields, the hash, when it was recorded, and when a
 /// lookup last used it.
 ///
-/// `mtime` stays a `TimeInterval` rather than being quantized the way ``FilingVerdictKey`` does it.
-/// The reason is that this field must reproduce a key built at hashing time from
-/// `attributesOfItem[.modificationDate]`, so any rounding here would make every reloaded entry miss
-/// the very lookups it exists to serve. That is only safe because `Double` round-trips JSON
-/// exactly — verified against 200 000 realistic sub-millisecond mtimes through both `JSONEncoder`
-/// and `JSONSerialization`, zero bit-pattern mismatches — which is precisely the guarantee the
-/// verdict cache could not rely on, because there the key is *constructed* rather than reproduced.
+/// `mtime` stays an unrounded `TimeInterval`, unlike ``FilingVerdictKey``'s: it must reproduce the
+/// key built at hashing time from `attributesOfItem[.modificationDate]`, and any rounding would make
+/// every reloaded entry miss. Safe because `Double` round-trips JSON exactly, which holds for a
+/// reproduced key but not for the verdict cache's constructed one.
 public struct ContentHashRecord: Codable, Sendable, Equatable {
     public let path: String
     public let mtime: TimeInterval
     public let size: Int
     public let hex: String
     public let storedAt: Date
-    /// ``ContentHashKey/fileNumber`` and ``ContentHashKey/statusChanged`` (FR59); absent for a
-    /// key the disk could not answer them for, and in a record written before they existed.
+    /// ``ContentHashKey/fileNumber`` and ``ContentHashKey/statusChanged``; absent for a key the disk
+    /// couldn't answer them for, and in an older record.
     public let fileNumber: UInt64?
     public let statusChanged: TimeInterval?
-    /// When a lookup last used this digest — what ``ContentHashCache/maxEntryAge`` counts from.
-    /// Absent in a record written before it existed, which then counts from `storedAt`.
+    /// When a lookup last used this digest, which ``ContentHashCache/maxEntryAge`` counts from.
+    /// Absent in an older record, which then counts from `storedAt`.
     public let lastUsed: Date?
 
     public init(path: String, mtime: TimeInterval, size: Int, hex: String, storedAt: Date,
@@ -39,29 +36,18 @@ public struct ContentHashRecord: Codable, Sendable, Equatable {
     }
 }
 
-/// The on-disk half of ``ContentHashCache`` — where the index lives, and reading/writing it.
-///
-/// Deliberately its own store rather than a generalization of ``FilingVerdictStore``, which has the
-/// same shape. Two is not yet a pattern, and separate write queues are the more correct arrangement
-/// here anyway: this index is orders of magnitude larger than the verdict cache, and funnelling
-/// both through one queue would make a small verdict write wait behind a multi-megabyte one.
+/// The on-disk half of ``ContentHashCache``: where the index lives, and reading and writing it.
+/// Its own store, not shared with ``FilingVerdictStore``, so a small verdict write never waits on
+/// its queue behind this far larger index.
 public enum ContentHashIndexStore {
 
-    /// Bumped when the record shape changes. A file from another schema is discarded rather than
-    /// migrated — every entry is reconstructible by re-hashing, so a migration would be permanent
-    /// code in exchange for one avoided re-scan.
+    /// Bumped when the record shape changes. A file from another schema is discarded, not migrated:
+    /// every entry can be rebuilt by re-hashing.
     ///
-    /// **Not bumped for FR59's two new fields, deliberately.** They decode as absent from an older
-    /// file, and an entry keyed without them can never match the key a real file is now looked up
-    /// by (its `stat` always answers them), so an old byte-hash entry is never served — nothing
-    /// uses it, so it ages out under ``ContentHashCache/maxEntryAge``, as an edited file's old
-    /// record always has (readers already take the newest record per path). The fingerprint
-    /// index's keys carry the two fields as well (`fingerprintCacheKey`), so its old entries age
-    /// out the same way, one PDF parse per document on the first scan after.
-    ///
-    /// **Nor for `lastUsed`, for the same reason**: it decodes as absent from an older file and
-    /// counts from `storedAt` there, and an older build reading a newer file ignores it and ages
-    /// entries out by `storedAt`, as it always did.
+    /// Adding an optional field needs no bump. `fileNumber`, `statusChanged` and `lastUsed` decode as
+    /// absent from an older file; an entry keyed without the identity fields never matches a real
+    /// file's key, so it is never served and ages out under ``ContentHashCache/maxEntryAge``. An
+    /// older build reading a newer file ignores the new fields.
     public static let currentSchema = 1
 
     /// `~/Library/Application Support/SyncCloud/content-hash-index.json`. Alongside the verdict
@@ -75,19 +61,18 @@ public enum ContentHashIndexStore {
     /// `~/Library/Application Support/SyncCloud/content-fingerprint-index.json` — the same records
     /// holding ``ContentFingerprint`` digests, for ``ContentHashCache/sharedFingerprints``.
     ///
-    /// Its own file, so a change to ``ContentFingerprint/scheme`` can be answered by deleting this
-    /// one and nothing else — and since an entry lives while it is used, deleting it is the ONLY
-    /// answer: an unchanged file keeps being served its old-scheme digest for as long as scans
-    /// keep finding it. See ``ContentFingerprint/scheme``.
+    /// Its own file, so a change to ``ContentFingerprint/scheme`` is answered by deleting this one
+    /// alone. It must be deleted: entries live while used, so an unchanged file would keep its
+    /// old-scheme digest for good.
     public static func defaultFingerprintURL(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }
         return support.appendingPathComponent("SyncCloud/content-fingerprint-index.json")
     }
 
-    /// `~/Library/Application Support/SyncCloud/content-textless-index.json` — the documents read
-    /// and found too little text in, for ``ContentHashCache/sharedTextless``. Its own file so no
-    /// build that predates it ever reads a negative as a digest; see there.
+    /// `~/Library/Application Support/SyncCloud/content-textless-index.json`: documents found to
+    /// have too little text, for ``ContentHashCache/sharedTextless``. Its own file so no older build
+    /// reads a negative as a digest; see there.
     public static func defaultTextlessURL(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }
@@ -114,12 +99,9 @@ public enum ContentHashIndexStore {
     /// Serializes writes so a later, larger snapshot cannot be overtaken by an earlier one.
     private static let writeQueue = DispatchQueue(label: "com.synccloud.content-hash-index")
 
-    /// Encodes and writes off the calling thread.
-    ///
-    /// The encode is the expensive half here, not the write: at the entry cap this is on the order
-    /// of a hundred thousand records, and doing that on the actor would stall every hasher waiting
-    /// on it. Nothing awaits the result — the in-memory cache is authoritative for this launch, and
-    /// a write lost to a quit costs re-hashing, not correctness.
+    /// Encodes and writes off the calling thread. The encode is the costly half (up to a hundred
+    /// thousand records) and would stall every hasher on the actor. Nothing awaits it: the in-memory
+    /// cache is authoritative, and a write lost to a quit costs re-hashing, not correctness.
     public static func saveInBackground(_ records: [ContentHashRecord], to url: URL) {
         writeQueue.async {
             do {
@@ -134,22 +116,16 @@ public enum ContentHashIndexStore {
         }
     }
 
-    /// Bytes the index occupies on disk, or nil when there is no file yet.
-    ///
-    /// A `stat`, deliberately, not a decode: this answers "what is SyncCloud storing", which is a
-    /// question about the file rather than about its contents, and the entry count would cost a
-    /// full parse of the largest thing this app writes to say something less useful.
+    /// Bytes the index occupies on disk, or nil when there is no file yet. A `stat`, not a decode:
+    /// it answers what SyncCloud stores, and an entry count would cost a full parse.
     public static func sizeOnDisk(at url: URL, fileManager: FileManager = .default) -> Int? {
         (try? fileManager.attributesOfItem(atPath: url.path))?[.size].flatMap { $0 as? NSNumber }?.intValue
     }
 
-    /// Deletes the index file. Serialized with the writes, so a save already queued cannot land
-    /// after the delete and resurrect it.
-    ///
-    /// **Not the whole of forgetting.** ``ContentHashCache`` holds this session's digests in
-    /// memory and would write them straight back on its next `save()`, so the user-facing erase is
-    /// ``ContentHashCache/forgetPersistedIndex()``, which drops both halves. This is the disk half
-    /// alone and exists for that method to call.
+    /// Deletes the index file. Serialized with the writes, so a save already queued can't land after
+    /// the delete and resurrect it. Only the disk half: the user-facing erase is
+    /// ``ContentHashCache/forgetPersistedIndex()``, since the cache would write its in-memory
+    /// digests straight back.
     static func deleteInBackground(at url: URL) {
         writeQueue.async {
             do {
@@ -162,11 +138,10 @@ public enum ContentHashIndexStore {
         }
     }
 
-    /// Blocks until queued writes finish — see ``FilingVerdictStore/waitForPendingWrites()`` for
-    /// why a barrier rather than a wait-and-hope. **Never call it on the main actor**: it parks
-    /// the calling thread behind whatever is queued, which here can be a multi-megabyte encode.
-    /// Tests call it from their own context; the one production caller (Settings' Clear) hops to
-    /// a detached task first.
+    /// Blocks until queued writes finish, as a barrier (see
+    /// ``FilingVerdictStore/waitForPendingWrites()``). **Never call it on the main actor**: it parks
+    /// the thread behind whatever is queued, which can be a multi-megabyte encode. Settings' Clear,
+    /// the one production caller, hops to a detached task first.
     public static func waitForPendingWrites() {
         writeQueue.sync {}
     }

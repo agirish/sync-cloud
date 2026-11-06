@@ -4,12 +4,10 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// **The two survey verbs that did not do what they said**, driven through the manager the card
-/// calls — `FilingResurveyTests.makeTree()`'s four documents and profile `t`.
-///
-/// *Resume now* sat beside "Resumes on its own" and cleared only the person's own Pause, which was
-/// not set: the next poll asked the machine again and the survey stayed paused. *Start over* ran
-/// the start path, which adopts the progress on disk — so it resumed, exactly as Resume did.
+/// The survey card's verbs, and stopping a reading for a new profile, driven through the manager
+/// the card calls, on `FilingResurveyTests.makeTree()`'s four documents and profile `t`.
+/// *Resume now* must read through the machine's pause, not just clear the person's own; *Start
+/// over* must discard the progress, not adopt it as the start path does.
 ///
 /// The pause polls once a second (`documentSurveyEnvironment`'s `whilePaused`), so the waits here
 /// are bounded deadlines on a condition, never sleeps that decide the verdict
@@ -26,8 +24,8 @@ import EventsTestSupport
         return condition()
     }
 
-    /// The run, in a task the test can wait on with a deadline — a run that never resumes must
-    /// fail here, not hang the suite.
+    /// The run, in a task the test can wait on with a deadline: a run that never resumes must fail
+    /// here, not hang the suite.
     private final class Running {
         var finished = false
         var task: Task<Void, Never>?
@@ -51,8 +49,8 @@ import EventsTestSupport
 
     // MARK: - Resume now
 
-    /// **The bug, as the person met it:** paused because the Mac is running hot, *Resume now*
-    /// clicked — and nothing read. It now reads through the heat until the run is done.
+    /// Paused because the Mac is running hot, *Resume now* reads through the heat until the run is
+    /// done.
     @Test func resumeNowReadsThroughAPauseTheMachineAskedFor() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -72,8 +70,8 @@ import EventsTestSupport
         await finish(manager, running)
     }
 
-    /// **A cause that was not in force at the click still pauses.** The waiver is for what the
-    /// person saw — a display that sleeps afterwards stops the reading as it always did.
+    /// A cause not in force at the click still pauses. The waiver covers what the person saw; a
+    /// display that sleeps afterwards stops the reading as usual.
     @Test func resumeNowDoesNotWaiveACauseThatArrivesLater() async throws {
         let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -96,9 +94,9 @@ import EventsTestSupport
         await finish(manager, running)
     }
 
-    /// **Resume after the person's own Pause undoes that Pause and nothing more.** A machine reason
-    /// standing behind it was never on the card, so it is not waived on their behalf — the card
-    /// now shows it, with its own *Resume now*.
+    /// Resume after the person's own Pause undoes that Pause and nothing more. A machine reason
+    /// behind it was never on the card, so it isn't waived; the card shows it next, with its own
+    /// *Resume now*.
     @Test func resumeAfterAPauseDoesNotWaiveTheMachinesReason() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -135,9 +133,8 @@ import EventsTestSupport
             id: plan.profileId, in: profiles)
     }
 
-    /// **Start over reads every document again**, where the start path alone — what the button
-    /// ran — adopts the progress and opens only the two left. Both halves here, so the control
-    /// shows the fixture really is resumable.
+    /// Start over reads every document again, where the plain start path adopts the progress and
+    /// opens only the two left. The control shows the fixture really is resumable.
     @Test func startOverReadsEveryDocumentAgain() async throws {
         let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -166,9 +163,8 @@ import EventsTestSupport
                                 + "progress at 2 of 4"))
     }
 
-    /// **Progress that cannot be removed starts nothing**, since a run started beside it would
-    /// adopt it — resuming, the thing not asked for. A directory where the file should be cannot
-    /// be removed as one.
+    /// Start over starts nothing if it can't remove the progress, since a run beside it would adopt
+    /// it and resume, which wasn't asked for. Here the profile folder is made read-only.
     @Test func startOverThatCannotClearTheProgressStartsNothing() async throws {
         let (manager, docs, profiles, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -188,9 +184,9 @@ import EventsTestSupport
 
     // MARK: - A profile written while a reading runs (review M4)
 
-    /// **A stop made for a new profile waits for the run to end, and keeps what it read.** Setup's
-    /// Save writes the new profile straight after, and that write carries the progress across — so
-    /// the run must be over, its progress on disk, before the call returns.
+    /// A stop made for a new profile waits for the run to end, and keeps what it read. Setup's Save
+    /// writes the new profile straight after, carrying the progress across, so the run must be
+    /// over and its progress on disk before the call returns.
     @Test func aStopForANewProfileWaitsForTheRunToEnd() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -215,8 +211,8 @@ import EventsTestSupport
                 "the progress was not on disk for the new profile to carry")
     }
 
-    /// **Beside a hand-built profile nothing is stopped**: the write cannot replace it, so the
-    /// reading of it is still the reading of the profile in use.
+    /// Beside a hand-built profile nothing is stopped: the write can't replace it, so the reading is
+    /// still of the profile in use.
     @Test func aReadingOfAHandBuiltProfileIsNotStopped() async throws {
         let (manager, docs, profiles, _, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -236,7 +232,7 @@ import EventsTestSupport
         await finish(manager, running)
     }
 
-    /// **A plan made for a profile since replaced is not run** — it would read into the old one.
+    /// A plan made for a profile since replaced is not run: it would read into the old one.
     @Test func aPlanForAReplacedProfileIsNotRun() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -250,8 +246,8 @@ import EventsTestSupport
         #expect(reads.paths.isEmpty, "the plan for profile \(plan.profileId) read into it")
     }
 
-    /// **A reading the person paused carries on paused.** The run that carries it into the new
-    /// profile started reading at once, through a Pause nobody took back.
+    /// A reading the person paused carries on paused: the run that carries it into the new profile
+    /// must not read through a Pause nobody took back.
     @Test func aReadingPausedByThePersonCarriesOnPaused() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -289,8 +285,8 @@ import EventsTestSupport
         #expect(report.isComplete, "a Pause carried once paused a later run too")
     }
 
-    /// **Nothing is stopped while a reorganization lands**: the write refuses then, so the reading
-    /// would stop for a Save that writes nothing, and its restart be refused for the same landing.
+    /// Nothing is stopped while a reorganization lands: the write refuses then, so the reading would
+    /// stop for a Save that writes nothing, and its restart be refused for the same landing.
     @Test func aReadingIsNotStoppedForASaveALandingRefuses() async throws {
         let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -321,9 +317,8 @@ import EventsTestSupport
         return running
     }
 
-    /// **A Save of another folder carries no Pause forward.** The reading it stopped is not
-    /// carried on, so a later run of that folder — Resume, Start over — started paused, and
-    /// nobody had paused it.
+    /// A Save of another folder carries no Pause forward. The reading it stopped is not carried on,
+    /// so a carried Pause would start a later run of that folder paused when nobody had paused it.
     @Test(.timeLimit(.minutes(1)))
     func aSaveOfAnotherFolderCarriesNoPause() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
@@ -341,8 +336,8 @@ import EventsTestSupport
         #expect(report.isComplete, "the later run started paused (\(reads.paths.count) read)")
     }
 
-    /// **A carried Pause is taken by the next run to start, even one refused before it reads**,
-    /// so it cannot wait for a later run nobody paused.
+    /// A carried Pause is taken by the next run to start, even one refused before it reads, so it
+    /// can't wait for a later run nobody paused.
     @Test(.timeLimit(.minutes(1)))
     func aCarriedPauseIsTakenByARefusedRun() async throws {
         let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
@@ -364,9 +359,9 @@ import EventsTestSupport
         #expect(report.isComplete, "a Pause carried for a refused run paused the next one")
     }
 
-    /// **The wait for a stop is bounded, and a run that outlasts it reads on.** A stop lands
-    /// between documents; a document whose text never came held the Save — and the sheet, whose
-    /// Back waits on it — for good.
+    /// The wait for a stop is bounded, and a run that outlasts it reads on. A stop lands between
+    /// documents, so a document whose text never comes would otherwise hold the Save, and the
+    /// sheet whose Back waits on it, for good.
     @Test(.timeLimit(.minutes(1)))
     func aStopThatDoesNotLandInTimeLeavesTheRunReading() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()
@@ -402,10 +397,10 @@ import EventsTestSupport
         #expect(report.isComplete, "the stop was not withdrawn: the run ended at \(report.stoppedAt ?? -1)")
     }
 
-    /// **A profile write is refused while the documents are being read into the profile it would
-    /// replace.** A Refresh holds the survey's lifecycle with no run to stop, and it wrote what it
-    /// learned into the replaced profile when it finished. Beside a hand-built profile the write
-    /// replaces nothing, and goes ahead.
+    /// A profile write is refused while documents are being read into the profile it would
+    /// replace. A Refresh holds the survey's lifecycle with no run to stop, and would write what it
+    /// learned into the replaced profile. Beside a hand-built profile the write replaces nothing,
+    /// and goes ahead.
     @Test func aWriteIsRefusedWhileARefreshReadsIntoTheProfileItWouldReplace() async throws {
         let (manager, docs, profiles, _, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -434,9 +429,9 @@ import EventsTestSupport
         manager.endScan(\.filingSurveyLifecycle)
     }
 
-    /// **A Save the moment a run starts finds it, and stops it before it reads.** The run took its
-    /// handle only after adopting the checkpoint — an await — so a Save in between found no run to
-    /// stop, and the run then read into the profile the Save replaced.
+    /// A Save the moment a run starts finds it and stops it before it reads. If the run took its
+    /// handle only after adopting the checkpoint (an await), a Save in between would find no run
+    /// to stop, and the run would read into the profile the Save replaced.
     @Test(.timeLimit(.minutes(1)))
     func aSaveAsARunStartsFindsItBeforeItReads() async throws {
         let (manager, docs, _, reads, root) = try FilingResurveyTests.makeTree()

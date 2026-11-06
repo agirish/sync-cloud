@@ -90,18 +90,12 @@ import Testing
 
     // MARK: The decode memo
 
-    /// **A second read is answered from memory, not from the file.**
-    ///
-    /// `restoreStorageLens` is reached from six triggers, and its "nothing is displayed yet" guard
-    /// is not the bound it looks like: for a root with no saved snapshot nothing is EVER displayed,
-    /// so every pane move and every workspace switch re-read the file and ran two `JSONDecoder`
-    /// passes over every saved root, on the main actor.
-    ///
-    /// Proved by taking read permission away without touching either half of the stamp — the
-    /// modification date and the size are unchanged by a `chmod` — so an answer that still names
-    /// the snapshot can only have come from the memo. The positive control at the end is what makes
-    /// that an argument rather than an assumption: with the memo dropped, the very same call over
-    /// the very same file answers empty.
+    /// A second read is answered from memory, not the file. `restoreStorageLens` has several
+    /// triggers, and its "nothing displayed yet" guard never engages for a root with no saved
+    /// snapshot, so without the memo every pane move would re-decode every saved root on the main
+    /// actor. Proved by removing read permission, which leaves the stamp (date and size) unchanged:
+    /// an answer that still names the snapshot came from the memo. The control at the end drops the
+    /// memo and the same call answers empty.
     @Test func aSecondLoadIsAnsweredFromTheMemoRatherThanTheFile() throws {
         let url = try storeURL("memo")
         defer {
@@ -125,13 +119,10 @@ import Testing
                 "the file is still readable, so the check above proved nothing about the memo")
     }
 
-    /// **A save invalidates it, without anyone having to say so.** The memo is keyed on the file's
-    /// modification date and size, and `write(_:to:)` is atomic — the replacement carries a fresh
-    /// date — so a background save that lands after a read cannot be served the previous contents.
-    ///
-    /// The two payloads differ by one digit, so the file's SIZE is unchanged and only the
-    /// modification date separates them: a memo keyed on path and size alone still fails here,
-    /// which a fixture with obviously different reports would not have caught.
+    /// A save invalidates the memo unprompted. The memo is keyed on the file's modification date and
+    /// size, and `write(_:to:)` is atomic, so the replacement carries a fresh date. The two payloads
+    /// differ by one digit, so the size is unchanged and only the date separates them: a memo keyed
+    /// on path and size alone fails here.
     @Test func aSaveInvalidatesTheMemoWithoutBeingTold() throws {
         let url = try storeURL("memo-invalidate")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -150,9 +141,8 @@ import Testing
                 "the memo outlived the write that replaced the file underneath it")
     }
 
-    /// And the absent case memoises too — which is the one that mattered. A root nobody has
-    /// analysed leaves nothing on screen, so the "already showing something" guard never engages
-    /// and the read repeats for the life of the session.
+    /// The absent case memoises too, and matters most: a root nobody has analysed shows nothing, so
+    /// the "already showing something" guard never engages and the read would repeat all session.
     @Test func anAbsentFileMemoisesAndStillNoticesOneAppearing() throws {
         let url = try storeURL("memo-absent")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -199,9 +189,8 @@ import Testing
 
     @MainActor
     @Test func restoringStampsTheORIGINALScanTimeNotTheReloadTime() async throws {
-        // The freshness marker exists to say how old the READING is. Stamping it at reload would
-        // make every relaunch claim the numbers were current, which is the one thing restoring
-        // must not do.
+        // The freshness marker says how old the reading is. Stamping it at reload would make every
+        // relaunch claim the numbers were current.
         let url = try storeURL("stamp")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let longAgo = Date(timeIntervalSince1970: 1_700_000_000)
@@ -232,8 +221,8 @@ import Testing
         let manager = FileSyncManager()
         manager.storageLensStoreURL = url
         await manager.buildStorageLens(root: root)                     // fresh results on screen
-        // The build saves in the background; awaited so the write cannot land after the `defer`
-        // has removed the store's folder, and recreate it.
+        // The build saves in the background; awaited so the write can't land after the `defer`
+        // has removed the store's folder and recreate it.
         StorageLensStore.waitForPendingWrites()
         let fresh = try #require(manager.storageLensReport)
 
@@ -244,8 +233,8 @@ import Testing
 
     @MainActor
     @Test func withNoStoreURLNothingIsSavedOrRestored() async throws {
-        // The default for the CLI and every existing Storage test — and the reason none of them
-        // reach the real file.
+        // The default for the CLI and every other Storage test, which is why none of them reach the
+        // real file.
         let root = try makeCanonicalTempRoot(prefix: "StorageRestoreNoURL")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
@@ -263,8 +252,7 @@ import Testing
     @MainActor
     @Test func aProviderSwitchClearsTheScreenButKeepsTheSavedReport() async throws {
         // `clearStorageLens` runs on an ordinary provider switch. Deleting the saved snapshot there
-        // would make restoring nearly useless — you would lose the other provider's report every
-        // time you glanced at this one.
+        // would lose the other provider's report every time you glanced at this one.
         let root = try makeCanonicalTempRoot(prefix: "StorageRestoreSwitch")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try storeURL("switch")
@@ -304,11 +292,9 @@ import Testing
 
     @MainActor
     @Test func forgettingEverythingLeavesNoFileBehind() async throws {
-        // The Settings readout asks what this store OCCUPIES, and it has to be able to answer
-        // "nothing" after a Clear. `write` used to encode an empty payload for an empty list, so a
-        // cleared store left 27 bytes of `{"schema":1,"snapshots":[]}` on disk — invisible to
-        // `load` (which answers `[]` either way) but not to a size readout, where it showed as a
-        // Clear that had not worked, next to a Clear button still offering to do it again.
+        // The Settings readout asks what this store occupies, and must answer "nothing" after a
+        // Clear. An empty list writes no file: even `{"schema":1,"snapshots":[]}` reads as `[]` to
+        // `load` but shows in a size readout as a Clear that hadn't worked.
         let root = try makeCanonicalTempRoot(prefix: "StorageRestoreForgetAll")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try storeURL("forget-all")
@@ -351,13 +337,13 @@ import Testing
     }
 }
 
-/// Regressions found in the audit of the caching work.
+/// Forget-all and provider switches clear every saved and displayed Storage result.
 @Suite struct StorageLensAuditTests {
 
     @MainActor
     @Test func forgettingEverythingClearsAllRootsNotJustOne() async throws {
-        // `forgetStoredStorageLens()` with no argument is the forget-all path, and it is the one
-        // an "erase saved data" affordance would call — so it must not quietly clear a single root.
+        // `forgetStoredStorageLens()` with no argument is the forget-all path, which an "erase saved
+        // data" control would call, so it must not quietly clear a single root.
         let url = try makeCanonicalTempRoot(prefix: "StorageAuditForgetAll")
             .appendingPathComponent("storage-lens.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -384,10 +370,9 @@ import Testing
 
     @MainActor
     @Test func aProviderSwitchClearsTheStorageReport() async throws {
-        // `clearLensResultsForProviderSwitch` documents itself as every lens result belonging to
-        // the provider being switched away from — and Storage, the fifth lens, was never added.
-        // The previous account's report stayed on screen with its folder chip naming a root the
-        // window no longer showed, and restoring now hands it a freshness marker vouching for it.
+        // `clearLensResultsForProviderSwitch` clears every lens result belonging to the provider
+        // being left, Storage included. Otherwise the previous account's report stays on screen with
+        // a folder chip naming a root the window no longer shows, under a freshness marker.
         let root = try makeCanonicalTempRoot(prefix: "StorageAuditSwitch")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("a"),

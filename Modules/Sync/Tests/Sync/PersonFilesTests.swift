@@ -2,15 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// "All of Daughter's files" — the folder and filename channels, and the discipline that keeps the
-/// second one from claiming half the household.
-///
-/// **Measured against the real corpus before these fixtures were written.** Attributing on any
-/// name match at all gave Dad 204 files "elsewhere" against 3 in his own folders, because `elder`
-/// is his first name, his wife's surname and both sons' surname. Requiring a phrase or a token
-/// unique to him takes that to 10, and Father — whose unique set is *empty*, since his first
-/// name is three other people's surname — from 290 to 111. That is the same discipline that took
-/// the router's over-attribution from 36 to 0, and it is the reason these fixtures exist.
+/// "All of Daughter's files": the folder and filename channels, and the rule that keeps the
+/// filename channel from claiming half the household. A name attributes only as a phrase or a token
+/// unique to one person. On the real corpus, where one word is a first name to one person and a
+/// surname to three others, any match at all files hundreds of documents under the wrong person.
 @Suite struct PersonFilesTests {
 
     // MARK: Fixtures — a household whose names overlap the way the real one does
@@ -49,9 +44,8 @@ import Foundation
     // MARK: The resolver that did not exist
 
     @Test func theNearestPersonFolderWins() {
-        // `Immigration/OCI/Mother/Daughter` is Daughter's folder inside her mother's. Attributing its
-        // contents to Mother because her folder is also an ancestor is exactly the over-attribution
-        // the registry work removed, arriving by a different route.
+        // `Immigration/OCI/Mother/Daughter` is Daughter's folder inside her mother's. Its contents
+        // must not go to Mother just because her folder is also an ancestor.
         let p = Self.profile([("Immigration", nil),
                               ("Immigration/OCI", nil),
                               ("Immigration/OCI/Mother", "Mother"),
@@ -60,7 +54,7 @@ import Foundation
                                    registry: Self.registry) == "daughter")
         #expect(PersonFiles.person(forPath: "Immigration/OCI/Mother", profile: p,
                                    registry: Self.registry) == "mother")
-        // A document three levels below the axis still resolves — the whole point of the walk.
+        // A document three levels below the axis still resolves: the point of the walk.
         #expect(PersonFiles.person(forPath: "Immigration/OCI/Mother/Daughter/Scans/2024", profile: p,
                                    registry: Self.registry) == "daughter")
         // And a folder under no one's returns nobody rather than the nearest guess.
@@ -88,9 +82,8 @@ import Foundation
     }
 
     @Test func aFileInsideHerOwnFolderIsNotAlsoAMisfiling() throws {
-        // `Family/Daughter/Daughter - passport.pdf` matches her name AND sits in her folder. Counting it
-        // in both channels would put a correctly-filed document on the candidate-misfilings list,
-        // which is the one list that has to stay worth reading.
+        // `Family/Daughter/Daughter - passport.pdf` matches her name and sits in her folder. Counted
+        // in both channels, a correctly filed document would land on the candidate-misfilings list.
         let p = Self.profile([("Family", nil), ("Family/Daughter", "Daughter")])
         let c = Self.corpus(["Family/Daughter/Daughter - passport.pdf"])
         let set = try PersonFiles.gather(personId: "daughter", corpus: c, profile: p, registry: Self.registry)
@@ -99,10 +92,8 @@ import Foundation
     }
 
     @Test func foldersAreOrderedBySizeThenByNameForStability() throws {
-        // The ordering had no test at all, and the expression implementing it looked like the
-        // classic swapped-operands bug (it was not — but a sort nobody asserts is a sort nobody
-        // can safely rewrite). Equal counts are the half that was invisible: without a tie the
-        // name comparison never runs.
+        // The comparator looks like a swapped-operands bug but isn't, so it is pinned before anyone
+        // "fixes" it. Equal counts are needed, or the name comparison never runs.
         let p = Self.profile([("F", nil), ("F/Beta", "Daughter"), ("F/Alpha", "Daughter"),
                               ("F/Big", "Daughter")])
         let c = Self.corpus(["F/Big/1.pdf", "F/Big/2.pdf", "F/Beta/1.pdf", "F/Alpha/1.pdf"])
@@ -115,8 +106,8 @@ import Foundation
     // MARK: The discipline — a shared word never attributes on its own
 
     @Test func aSharedSurnameDoesNotMakeAFileDads() throws {
-        // **The 204-to-10 case.** `Granny Elder - CV.pdf` is Mum's; `elder` is her surname. A
-        // bare shared token must not claim it — and the phrase must claim it for HER.
+        // `Granny Elder - CV.pdf` is Mum's; `elder` is her surname. A bare shared token must not
+        // claim it, and the phrase must claim it for her.
         let p = Self.profile([("Family", nil), ("Family/Granny", "Granny")])
         let c = Self.corpus(["Shared/Granny Elder - CV.pdf"])
         let dad = try PersonFiles.gather(personId: "elder", corpus: c, profile: p, registry: Self.registry)
@@ -127,20 +118,15 @@ import Foundation
     }
 
     @Test func aBareSharedWordAttributesToNobody() throws {
-        // **The rule the corpus is named for, and the one my first fixtures did not reach.**
-        // `Granny Elder - CV.pdf` is caught a step earlier — the phrase matcher consumes the
-        // surname into her full name, so Dad never matches at all and the strength gate is never
-        // asked. The gate only speaks when a shared word appears with NO phrase around it, which
-        // is what most of the real corpus's 204 false rows looked like: `Elder - 2021`, a folder
-        // and a year.
-        //
-        // Mutation-checked: with the gate accepting every match, this is the test that fails.
+        // The strength gate itself. In `Granny Elder - CV.pdf` the phrase matcher consumes the
+        // surname first, so the gate is never asked; it decides only when a shared word appears
+        // with no phrase around it, like `Elder - 2021`. Must fail if the gate accepts every match.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Elder - 2021 travel.pdf"])
         let dad = try PersonFiles.gather(personId: "elder", corpus: c, profile: p, registry: Self.registry)
         #expect(dad.elsewhere.isEmpty,
                 "a bare shared word attributed the file — `elder` is also two other people's surname")
-        // The same word inside HIS full name does attribute, or the rule above is just "never".
+        // The same word inside his full name does attribute, or the rule above is just "never".
         let named = Self.corpus(["Shared/Elder Forebear - 2021 travel.pdf"])
         let byPhrase = try PersonFiles.gather(personId: "elder", corpus: named, profile: p,
                                           registry: Self.registry)
@@ -148,8 +134,8 @@ import Foundation
     }
 
     @Test func aPhraseSpendsTheSharedWordOnTheRightPerson() throws {
-        // "Daughter Father" is hers, and the surname is consumed doing it, so it is not also her
-        // father's. Both directions, because a rule that attributed to neither would pass one half.
+        // "Daughter Father" is hers, and the surname is consumed doing it, so it isn't also her
+        // father's. Both directions, since a rule that attributed to neither would pass one half.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Daughter Father - OCI.pdf"])
         let hers = try PersonFiles.gather(personId: "daughter", corpus: c, profile: p, registry: Self.registry)
@@ -159,9 +145,8 @@ import Foundation
     }
 
     @Test func aUniqueTokenAttributesOnItsOwn() throws {
-        // The other half of `isStrong`. `maiden` names exactly one person, so it does not need a
-        // phrase — without this the rule would only ever accept full names and the feature would
-        // miss most of what it should find.
+        // The other half of `isStrong`: `maiden` names exactly one person, so it needs no phrase.
+        // A rule that only accepted full names would miss most of what it should find.
         let p = Self.profile([("Shared", nil)])
         let c = Self.corpus(["Shared/Maiden - lease.pdf"])
         let set = try PersonFiles.gather(personId: "mother", corpus: c, profile: p, registry: Self.registry)
@@ -180,17 +165,14 @@ import Foundation
     // MARK: Cancellation
 
     @Test func aCancelledGatherStopsInsteadOfFinishing() async throws {
-        // Enough documents that the sweep crosses its cancellation stride — the check is
-        // deliberately coarse (one per 256 documents), so a corpus smaller than the stride
-        // never observes the flag and the sweep legitimately runs to completion.
+        // Enough documents to cross the cancellation stride (one check per 256 documents); a
+        // smaller corpus never observes the flag and legitimately runs to completion.
         let p = Self.profile([("Family", nil), ("Family/Daughter", "Daughter")])
         let c = Self.corpus((0..<600).map { "Family/Daughter/doc-\($0).pdf" })
         let registry = Self.registry
         let worker = Task.detached { () throws -> PersonFileSet in
-            // Bounded wait for the cancel below. The cancel is unconditionally issued right
-            // after this task is created, so the loop terminates; the pass cap turns a broken
-            // cancellation flag into a diagnosable failure (gather runs uncancelled and the
-            // #expect below reports "did not throw") rather than a hang.
+            // Bounded wait for the cancel below, which is always issued. The pass cap turns a
+            // broken cancellation flag into a "did not throw" failure rather than a hang.
             var passes = 0
             while !Task.isCancelled, passes < 5_000 {
                 passes += 1

@@ -9,8 +9,8 @@ import Testing
     static let household = PersonRegistry(people: [
         Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
         Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
-        // Deliberately WITHOUT "Granny Elder" — she is the person the sweep has something to learn
-        // about, and the fixture mirrors the state Uncle's record was actually in.
+        // Deliberately without "Granny Elder": she is the person the sweep has something to learn
+        // about.
         Person(id: "granny", displayName: "Granny", aliases: ["Mom"]),
     ])
 
@@ -28,8 +28,7 @@ import Testing
 
     // MARK: - What it learns
 
-    /// **The case this exists for**, and the one that produced Uncle's full name by hand: her
-    /// documents keep saying a form her record does not have.
+    /// The case this exists for: her documents keep saying a form her record doesn't have.
     @Test func aRecurringNameFormIsSuggested() throws {
         let files = ["Family/Granny": ["Granny Elder - Old.pdf", "Granny Elder - 2015.pdf"],
                      "Immigration/Passport/Granny": ["Granny Elder passport.pdf"]]
@@ -39,21 +38,20 @@ import Testing
         #expect(s.personId == "granny")
         #expect(s.form == "Granny Elder", "offered in the tree's own spelling")
         #expect(s.occurrences == 3)
-        // Stable across runs — the evidence shown must not depend on dictionary order.
+        // Stable across runs: the evidence shown must not depend on dictionary order.
         #expect(s.exampleFile == "Granny Elder - 2015.pdf")
     }
 
-    /// **One file is an anecdote.** A single occurrence is not a naming habit, and suggesting from
-    /// it would surface every typo in the tree.
+    /// One file is an anecdote, not a naming habit; suggesting from it would surface every typo in
+    /// the tree.
     @Test func aFormUsedOnceIsNotSuggested() {
         let files = ["Family/Granny": ["Granny Elder - Old.pdf"]]
         #expect(PersonNameLearning.suggestions(registry: Self.household, profile: Self.profile(),
                                                fileNames: files).isEmpty)
     }
 
-    /// **The noise this shape exists to refuse**, all of it taken from the real tree. Every one of
-    /// these recurs, and none is a name: the words around the person are document vocabulary, and
-    /// a rule that keyed on recurrence alone would offer all of them.
+    /// The noise this rule exists to refuse, shaped like the real tree's. Each recurs and none is a
+    /// name: the words around the person are document vocabulary, which recurrence would offer.
     @Test func documentVocabularyIsNeverMistakenForAName() {
         let files = ["Family/Granny": ["Bio Pages GRANNY.pdf", "Bio Pages GRANNY copy.pdf"],
                      "School/Daughter": ["Daughter OCI.pdf", "Daughter OCI 2.pdf",
@@ -73,8 +71,8 @@ import Testing
                                                fileNames: files).isEmpty)
     }
 
-    /// **A run must start with one of THEIR words.** Without that, a document in Daughter's folder
-    /// naming her father offers "Father …" as a name for *her*.
+    /// A run must start with one of their words, or a document in Daughter's folder naming her
+    /// father offers "Father …" as a name for her.
     @Test func aRunNotStartingWithTheirNameIsNotTheirs() {
         let files = ["School/Daughter": ["Report for Father Elder.pdf",
                                       "Letter for Father Elder.pdf"]]
@@ -83,10 +81,9 @@ import Testing
         #expect(found.isEmpty, "attributed her father's name to Daughter: \(found.map(\.form))")
     }
 
-    /// **The lead-word guard on its own.** "Father Granny" is nobody's recorded form, so the
-    /// already-claimed check cannot refuse it — only the rule that a form must lead with what the
-    /// household calls *this* person can. Without it, `father` reaching Daughter through her own
-    /// full name hands her a run that starts with her father's name.
+    /// The lead-word guard on its own. "Father Granny" is nobody's recorded form, so only the rule
+    /// that a form must lead with what the household calls this person refuses it. Without it,
+    /// `father`, one of Daughter's words through her full name, would hand her the run.
     @Test func aRunLeadingWithAWordFromTheirFullNameIsNotTheirs() {
         let files = ["School/Daughter": ["Father Granny - deed.pdf", "Father Granny - deed 2.pdf"]]
         let found = PersonNameLearning.suggestions(registry: Self.household, profile: Self.profile(),
@@ -94,14 +91,13 @@ import Testing
         #expect(found.isEmpty, "led with her father's name and was offered to Daughter: \(found.map(\.form))")
     }
 
-    /// **The already-claimed guard on its own.** Two people share a given name — which is ordinary
-    /// in a family — so a run in the second's folder can lead with *his* word and still be the
-    /// first's whole name. Only knowing the form is already somebody's refuses it.
+    /// The already-claimed guard on its own. Two people can share a given name, so a run in the
+    /// second's folder can lead with his word and still be the first's whole name. Only knowing
+    /// the form is already somebody's refuses it.
     @Test func aFormThatIsAlreadySomebodyElsesIsNotOfferedToANamesake() {
-        // The nephew is "Elder Rao" — a distinct display name, so his folder's axis RESOLVES.
-        // The first draft gave both people the bare name "Elder", which made the axis value
-        // ambiguous, so the folder was skipped before any guard ran and the test passed proving
-        // nothing.
+        // The nephew is "Elder Rao", a distinct display name, so his folder's axis resolves. Two
+        // bare "Elder"s would make the axis ambiguous, and the folder would be skipped before any
+        // guard ran.
         let twoElders = PersonRegistry(people: [
             Person(id: "elder", displayName: "Elder", fullNames: ["Elder Forebear"]),
             Person(id: "elder-rao", displayName: "Elder Rao"),
@@ -114,8 +110,8 @@ import Testing
                                                           axes: ["person": "Elder Rao"])
         let profile = FolderProfile(profileId: "t", root: "~", folders: folders,
                                     personTokens: ["elder", "rao"])
-        // Non-vacuity: the fixture must actually reach the rule. A run made of his own words IS
-        // offered, which proves the folder was read and the guards were consulted.
+        // Non-vacuity: a run made of his own words is offered, so the folder was read and the
+        // guards consulted.
         let reachable = PersonNameLearning.suggestions(
             registry: twoElders, profile: profile,
             fileNames: ["Family/Elder Rao": ["Elder Rao Forebear - a.pdf",
@@ -139,7 +135,7 @@ import Testing
                                                fileNames: files, dismissed: [s.id]).isEmpty)
     }
 
-    /// Only the folders that are somebody's are read — a document in a shared folder teaches
+    /// Only the folders that are somebody's are read: a document in a shared folder teaches
     /// nothing about whose name is whose.
     @Test func filesOutsideAPersonsFoldersAreIgnored() {
         let files = ["Home/Utilities": ["Granny Elder - bill.pdf", "Granny Elder - bill 2.pdf"]]
@@ -160,8 +156,8 @@ import Testing
         return FilingMemory(profileId: "t", salt: salt, folders: entries)
     }
 
-    /// **The tier that gives a scan an owner.** Its name says nothing and its text names nobody,
-    /// but the passport number on it has only ever been filed into Granny's folder.
+    /// The tier that gives a scan an owner: its name and text name nobody, but the passport number
+    /// on it has only ever been filed into Granny's folder.
     @Test func anIdentifierAttributesANamelessScan() {
         let memory = Self.memory(["Immigration/Passport/Granny": ["z1234567"],
                                   "School/Daughter": ["a9876543"]])
@@ -174,8 +170,8 @@ import Testing
         #expect(named == ["granny"])
     }
 
-    /// **An identifier never overrides a name.** It is the strongest evidence in a document nobody
-    /// labelled, and the most surprising to be filed by — so it is consulted last.
+    /// An identifier never overrides a name. It is the strongest evidence in a document nobody
+    /// labelled, but the most surprising to be filed by, so it is consulted last.
     @Test func aNameOutranksAnIdentifier() {
         let memory = Self.memory(["Immigration/Passport/Granny": ["z1234567"]])
         let identity = PersonIdentityIndex.make(registry: Self.household, profile: Self.profile(),
@@ -187,8 +183,8 @@ import Testing
         #expect(byName == ["daughter"])
     }
 
-    /// **An identifier two people share is nobody's.** A household account number would otherwise
-    /// file every joint statement into whichever of them sorted first.
+    /// An identifier two people share is nobody's, or a household account number would file every
+    /// joint statement into whichever of them sorted first.
     @Test func anIdentifierTwoPeopleShareIsDropped() {
         let memory = Self.memory(["Family/Granny": ["j5550000"], "School/Daughter": ["j5550000"]])
         let identity = PersonIdentityIndex.make(registry: Self.household, profile: Self.profile(),
@@ -200,15 +196,10 @@ import Testing
 
     // MARK: - Un-learning a misfile
 
-    /// **The whole point of the correction, and why it has to act before the single-owner filter.**
-    ///
-    /// Granny's passport number is in her folder eleven times and, once the scan is misfiled, in
-    /// Daughter's once. Two claimants, so the index drops it: the number that identified her best now
-    /// identifies nobody, and pressing "not Daughter's" changed nothing at all — the index is rebuilt
-    /// from the tree as surveyed and took no tags.
-    ///
-    /// Withdrawing Daughter's claim hands the identifier back to Granny rather than merely blanking
-    /// it, which is what a correction ought to buy.
+    /// Rejecting a misfile hands the identifier back to its real owner, which is why the correction
+    /// acts before the single-owner filter. A misfiled scan gives Granny's passport number a second
+    /// claimant, so the index drops it; withdrawing Daughter's claim gives it back to Granny rather
+    /// than leaving it blank.
     @Test func rejectingAMisfileHandsTheIdentifierBackToItsRealOwner() {
         let memory = Self.memory(["Immigration/Passport/Granny": ["z1234567"],
                                   "School/Daughter": ["z1234567"]])
@@ -236,8 +227,8 @@ import Testing
                                          identity: repaired) == ["granny"])
     }
 
-    /// And the plain direction: an identifier the index gave to the wrong person alone stops being
-    /// theirs, rather than being handed to somebody the tree never claimed it for.
+    /// The plain direction: an identifier only the wrong person held stops being theirs, and isn't
+    /// handed to somebody the tree never claimed it for.
     @Test func rejectingAnIdentifierNobodyElseClaimsLeavesItUnowned() {
         let memory = Self.memory(["School/Daughter": ["z1234567"]])
         let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
@@ -254,8 +245,8 @@ import Testing
         #expect(index.isEmpty)
     }
 
-    /// **A confirmation is not a claim.** "Yes, this is Granny's" on a joint statement must not
-    /// hand her a household account number the tree never gave her alone.
+    /// A confirmation is not a claim: "Yes, this is Granny's" on a joint statement must not hand
+    /// her a household account number the tree never gave her alone.
     @Test func aConfirmationWithdrawsNothing() {
         let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
             "Family/Granny/Statement.pdf": FilingCorpusDocument(
@@ -280,8 +271,8 @@ import Testing
         #expect(PersonIdentityIndex.rejectedIdentifiers(tags: tags, corpus: corpus, salt: "s").isEmpty)
     }
 
-    /// A fingerprint-keyed rejection reaches the corpus through the path it was recorded at — the
-    /// corpus has no fingerprints, so without that a durable verdict would translate to nothing.
+    /// A fingerprint-keyed rejection reaches the corpus through the path it was recorded at, since
+    /// the corpus has no fingerprints.
     @Test func aFingerprintKeyedRejectionStillFindsItsDocument() {
         let corpus = FilingCorpus(profileId: "t", salt: "s", documents: [
             "School/Daughter/Scan.pdf": FilingCorpusDocument(
@@ -303,12 +294,9 @@ import Testing
     }
 }
 
-/// **The two sides of the name-learning comparison split words the same way.**
-///
-/// The learner cut filenames on Unicode letters and numbers; the matcher cuts ASCII-only runs. For
-/// a roster holding a non-ASCII name the guard that stops one person being offered another's name
-/// was comparing keys built by different splitters — it could never match, so the run was rejected.
-/// Conservative, and therefore silent.
+/// The learner and the matcher split words the same way. The guard that stops one person being
+/// offered another's name compares keys from both; built by different splitters, they could never
+/// match for a non-ASCII name, and every such run would be silently rejected.
 @Suite struct PersonNameTokenizerTests {
 
     @Test func theLearnerAndTheMatcherAgreeOnANonASCIIName() {
@@ -317,13 +305,13 @@ import Testing
                 "two splitters: \(written) vs \(PersonRegistry.words("José García - passport"))")
     }
 
-    /// Still the tree's own spelling, which is the whole reason the helper exists — a suggestion is
-    /// offered as the filename wrote it, not lowercased by the matcher.
+    /// Still the tree's own spelling, which is why the helper exists: a suggestion is offered as the
+    /// filename wrote it, not lowercased.
     @Test func theSpellingIsTheFilesOwn() {
         #expect(PersonNameLearning.spelledWords("Granny Elder - CV") == ["Granny", "Elder", "CV"])
     }
 
-    /// And plain ASCII is unchanged, so this alignment moved nothing that already worked.
+    /// Plain ASCII splits into the expected words, digits and extension included.
     @Test func anASCIINameSplitsExactlyAsBefore() {
         #expect(PersonNameLearning.spelledWords("Mother I Maiden 2015.pdf")
                 == ["Mother", "I", "Maiden", "2015", "pdf"])

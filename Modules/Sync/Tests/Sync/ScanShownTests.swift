@@ -3,17 +3,14 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A Compare scan is shown as running only once it has run long enough to be worth showing.**
+/// A Compare scan is shown as running only once it has run long enough to be worth showing.
+/// Compare's busy surfaces (its card, its count pill, the panes' Stop rung) read `isScanShown`, not
+/// `isScanning`: scans of two cached walks often finish in a few hundred ms, and each would flash
+/// all three to "scanning" and straight back.
 ///
-/// Compare's busy surfaces (its card, its count pill, the panes' Stop rung) used to read
-/// `isScanning` directly. Scans of two cached walks finish in 120–400 ms on the user's own pairs, so
-/// every one of them flipped all three to "scanning" and straight back: a flash, reported alongside
-/// the pane's stacked spinners on 2026-10-03. `isScanShown` is what those surfaces read now.
-///
-/// **No clock in these tests.** The wait is `scanShownWait`, and each test ends it by hand, so the
-/// order "scan ended, then the wait ended" (or the reverse) is a fact of the test rather than a race.
-/// A first version raced a real one-second wait against a two-file scan, and on a loaded full-package
-/// run the scan alone took longer than the wait.
+/// No clock in these tests. The wait is `scanShownWait`, and each test ends it by hand, so the order
+/// "scan ended, then the wait ended" (or the reverse) is a fact of the test rather than a race. A
+/// real wait raced against a small scan loses under a loaded full-package run.
 @MainActor
 @Suite struct ScanShownTests {
 
@@ -54,7 +51,7 @@ import Testing
         #expect(FileSyncManager.defaultScanShownAfter == .milliseconds(750))
     }
 
-    /// **A scan still running when the wait ends is shown, and stops being shown when it ends.**
+    /// A scan still running when the wait ends is shown, and stops being shown when it ends.
     /// The scan parks in its walk, so it is running however slowly this machine gets to the check.
     @Test(.parksAThread) func aScanStillRunningWhenTheWaitEndsIsShownUntilItEnds() async throws {
         let mockFM = try disk()
@@ -82,9 +79,9 @@ import Testing
         #expect(!manager.isScanShown, "the scan ended and is still shown as running")
     }
 
-    /// **A scan that ends inside the wait is never shown — not during it, and not when the wait
-    /// ends afterwards.** Every value `isScanShown` publishes is recorded, so a rise that came and
-    /// went between two looks is still caught.
+    /// A scan that ends inside the wait is never shown, not during it and not when the wait ends
+    /// afterwards. Every value `isScanShown` publishes is recorded, so a rise that came and went
+    /// between two looks is still caught.
     @Test func aScanThatEndsInsideTheWaitIsNeverShown() async throws {
         let manager = FileSyncManager(fileManager: try disk())
         let latch = Latch()

@@ -25,19 +25,14 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                               registry: registry, jurisdictionValues: jurisdictions)
 }
 
-/// ``FolderSurveyBuilder`` over synthetic trees — one fixture per rule, each shaped so that the
-/// rule and its fallback answer *differently*.
-///
-/// That last part is the standing trap here: `role`'s fallback is `.destination` and every axis's
-/// fallback is *absent*, so a fixture expecting either would pass with the rule deleted. Every
-/// expectation below is paired with the sibling that proves the rule fired — a `container` beside a
-/// `destination`, a `person` axis beside a folder that has none.
+/// ``FolderSurveyBuilder`` over synthetic trees, one fixture per rule, each shaped so the rule and
+/// its fallback answer differently. `role` falls back to `.destination` and every axis to absent,
+/// so a fixture expecting either would pass with the rule deleted; each expectation is paired with
+/// a sibling that proves the rule fired.
 @Suite struct FolderSurveyBuilderTests {
 
-    /// Whole-line comments removed, so a source scan counts what the file DOES rather than what its
-    /// prose says about it. The same shape `PaneTabWiringTests` uses, and for the same reason: a
-    /// scan that reads its own subject's documentation fails the moment somebody explains the rule
-    /// it is enforcing.
+    /// Whole-line comments removed, so a source scan counts what the file does, not what its prose
+    /// says about it (as in `PaneTabWiringTests`).
     private static func codeOnly(_ source: String) -> String {
         source.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -64,8 +59,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.folders["Box/.hidden"] == nil)
     }
 
-    /// A package is one document (review R3): counted as a file in its folder, and its insides
-    /// never surveyed — a finding about `Song.key/Data` would plan a move of a document's insides.
+    /// A package is one document: counted as a file in its folder, its insides never surveyed, or a
+    /// finding about `Song.key/Data` would plan a move of a document's insides.
     @Test func aPackageIsADocumentAndItsInsidesAreNotSurveyed() throws {
         let package = FileNode(id: "/x/Song.key", name: "Song.key", isDirectory: true,
                                children: [dir("Data", [dir("Media", [file("a.png")])])],
@@ -128,9 +123,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         }
     }
 
-    /// Role reads the folder's **own** name; `acceptsNewFiles` reads the whole path. Measured: role
-    /// on the whole path costs 0.6 points of agreement, because a year folder under `TODO` is still
-    /// a year folder.
+    /// Role reads the folder's own name; `acceptsNewFiles` reads the whole path. A year folder under
+    /// `TODO` is still a year folder (role on the whole path measured 0.6 points worse).
     @Test func aFolderInsideAnInboxKeepsItsOwnRoleAndLosesItsPermission() {
         let profile = build([dir("TODO", [dir("2023", [file("a.pdf")]),
                                           dir("Bank", [file("b.pdf")])])])
@@ -187,30 +181,20 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - naming is refused on purpose
 
-    /// **This one cannot be shaped the way the rest of the suite is, and the reason is worth stating
-    /// rather than papering over.** Every other fixture here pairs a rule with a fallback that
-    /// answers differently. `naming` has no rule at all: `FolderSurveyBuilder.entry` writes the
-    /// literal `naming: nil`, so *no* tree makes it answer anything else, and a fixture asserting
-    /// `nil` could not fail whatever it walked. The two halves below are what can be made to fail,
-    /// and between them they hold the claim:
-    ///
-    /// - the assertion **discriminates** — the same predicate over a hand-built profile, where the
-    ///   field really does carry a convention, is false. `nil` from the builder is therefore an
-    ///   abstention rather than a field that is nil by construction;
-    /// - the builder has **exactly one** writer of the field and it is that literal, so a detector
-    ///   added later fails this test instead of shipping a silent guess.
+    /// The builder never guesses a naming convention. `naming` has no rule, just the literal
+    /// `naming: nil`, so no fixture asserting `nil` could fail. What can fail instead: the same
+    /// predicate is false over a hand-built profile that carries a convention, and the builder has
+    /// exactly one writer of the field, that literal, so a detector added later fails here.
     @Test func namingIsNeverGuessed() throws {
-        // Files sharing an obvious convention — the exact shape a detector would claim. The builder
-        // still says nothing, because a wrong convention makes the rename pass propose renames
-        // toward a convention nobody has.
+        // Files sharing an obvious convention, the shape a detector would claim. A wrong convention
+        // would make the rename pass propose renames toward it.
         let profile = build([dir("Payslips", [file("01. Jan 2024.pdf"), file("02. Feb 2024.pdf"),
                                               file("03. Mar 2024.pdf")])])
         #expect(profile.folders["Payslips"]?.naming == nil)
         #expect(profile.folders.values.allSatisfy { $0.naming == nil })
 
-        // The control. A hand-built profile is the OTHER producer of these entries — it records
-        // judgements a walk cannot make, `naming` among them — so this is the on-disk shape, decoded
-        // the way the store reads it, not a struct built by hand around the decoder.
+        // The control: a hand-built profile, the other producer of these entries, records `naming`.
+        // Decoded from the on-disk shape the way the store reads it.
         let handBuilt = """
         {"profileId": "test", "root": "~/Documents", "folders": [
           {"path": "Payslips", "role": "destination", "naming": "ordinal-month",
@@ -222,17 +206,14 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(!hand.folders.values.allSatisfy { $0.naming == nil },
                 "the `allSatisfy` above is vacuous — it holds even of a profile that names one")
 
-        // And nobody has quietly added a guesser: one writer, and it is the abstention.
+        // Nobody has added a guesser: one writer, and it is the abstention.
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Sync/FolderSurveyBuilder.swift")
         let code = try String(contentsOf: url, encoding: .utf8)
         #expect(code.contains("public enum FolderSurveyBuilder"),
                 "this is not the builder — the scan below is vacuous")
-        // Comments stripped first. This scan counts an occurrence of `naming:`, and the file it
-        // reads is heavily commented — so prose that merely mentions the field ("`naming:` is the
-        // abstention") would fail it for saying so, which this repo has tripped over before. The
-        // rule is about what the builder WRITES.
+        // Comments stripped first, so prose that mentions `naming:` doesn't count as a writer.
         let writers = Self.codeOnly(code).components(separatedBy: "naming:").count - 1
         #expect(writers == 1, """
                 the builder writes `naming:` \(writers) times — it used to be the one abstention, \
@@ -287,9 +268,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.folders["Grandparent/Parent/Child"]?.anchors == ["parent", "child"])
     }
 
-    /// The token rule is `[a-z][a-z0-9&+-]{2,}` and it keeps compounds whole — which is exactly
-    /// where it parts company with `FilingRouter.tokenize`. Both sides pinned, so a later
-    /// "unification" of the two fails here first.
+    /// The token rule is `[a-z][a-z0-9&+-]{2,}` and keeps compounds whole, unlike
+    /// `FilingRouter.tokenize`. Both sides pinned, so merging the two fails here.
     @Test func theAnchorTokenizerKeepsCompoundsThatTheRoutersOneShatters() {
         #expect(FolderSurveyBuilder.anchorWords("PG&E Parents-in-Law") == ["pg&e", "parents-in-law"])
         #expect(FolderSurveyBuilder.anchorWords("2026-report") == ["report"])
@@ -393,13 +373,9 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - The two year keys are one axis
 
-    /// **A path carrying both styles keeps both axes**, exactly as the hand-built profile does —
-    /// four folders on the reference tree record a `year` and a `fiscalYear` together, because both
-    /// are true of them. The builder must not drop either, or the ground truth's 100% year agreement
-    /// goes with it.
-    ///
-    /// Which of the two a *consumer* answers with is ``FolderProfileEntry/yearKey``'s business, and
-    /// is asserted in `theDeeperYearComponentIsTheOneAFolderAnswersWith`.
+    /// A path carrying both styles keeps both axes, as the hand-built profile does for four folders
+    /// on the reference tree. Dropping either loses the ground truth's 100% year agreement. Which one
+    /// a consumer answers with is ``FolderProfileEntry/yearKey``'s business (next test).
     @Test func bothYearAxesSurviveWhenAPathCarriesBoth() {
         let profile = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
         let deep = profile.folders["H-1B/2016-2019/2016"]
@@ -407,8 +383,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(deep?.axes["fiscalYear"] == "2016-2019",
                 "the ancestor's fiscal span was dropped — the hand-built profile keeps it")
 
-        // The control: with only one style in the path, only that key is set — so the assertion
-        // above cannot be passing by setting both keys everywhere.
+        // The control: with one style in the path only that key is set, so the above isn't passing
+        // by setting both everywhere.
         let plain = build([dir("Finance", [dir("2023", [file("a.pdf")]),
                                            dir("2013-2014", [file("b.pdf")])])])
         #expect(plain.folders["Finance/2023"]?.axes["year"] == "2023")
@@ -417,17 +393,10 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(plain.folders["Finance/2013-2014"]?.axes["year"] == nil)
     }
 
-    /// **The deeper of the two year components is the one the folder answers with.**
-    ///
-    /// `yearKey` used to read `axes["year"] ?? axes["fiscalYear"]`, a fixed precedence that answers
-    /// with whichever key is named first rather than with the folder the value describes. On the
-    /// reference tree's four both-axes folders it is right by luck — the bare year is deeper there,
-    /// and the first arm returns it. Reverse the nesting, as an Indian fiscal folder under a
-    /// calendar-year parent does, and the ancestor wins: `FilingRouter.foldersByYear` files the
-    /// folder under the wrong year and `RenamePlanner` questions documents that are correctly filed.
-    ///
-    /// Both directions are asserted, and the first is the one that pins the real tree's behaviour
-    /// as unchanged.
+    /// The deeper of the two year components is the one the folder answers with. A fixed precedence
+    /// would let an ancestor win when a fiscal folder sits under a calendar-year parent, and
+    /// `FilingRouter.foldersByYear` would file it under the wrong year. Both nestings are asserted;
+    /// the first is the reference tree's.
     @Test func theDeeperYearComponentIsTheOneAFolderAnswersWith() {
         let bareDeeper = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
         #expect(bareDeeper.folders["H-1B/2016-2019/2016"]?.yearKey == "2016",
@@ -445,13 +414,9 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(plain.folders["Finance"]?.yearKey == nil)
     }
 
-    /// **The depth scan runs only when both values are components of the path**, and this is the
-    /// case that proves it — a shape the builder cannot produce but the offline Python builder can,
-    /// since it records axes as facts rather than as literal components.
-    ///
-    /// Without the guard the scan would find only one of the two and answer with it, silently
-    /// changing `yearKey` for such an entry. With it, the old precedence stands, which is what makes
-    /// the change a strict refinement rather than a new rule for profiles nobody re-measured.
+    /// The depth scan runs only when both values are path components. The builder can't produce
+    /// this shape, but the offline Python builder can, since it records axes as facts. Here the
+    /// plain `year`-first precedence stands, so such profiles keep their answer.
     @Test func anAxisThatIsNotAPathComponentKeepsTheOldPrecedence() {
         let entry = FolderProfileEntry(path: "Finance/Chase", role: nil, naming: nil, anchors: [],
                                        acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0,
@@ -459,8 +424,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(entry.yearKey == "2015",
                 "the depth scan ran on a path containing neither value and changed the answer")
 
-        // One value present as a component and the other not: still the old precedence, because a
-        // scan that matched only one would be answering a depth question it cannot see.
+        // One value a component and the other not: still `year` first, since a scan matching only
+        // one can't answer a depth question.
         let half = FolderProfileEntry(path: "Finance/2014-2015", role: nil, naming: nil, anchors: [],
                                       acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0,
                                       axes: ["year": "2015", "fiscalYear": "2014-2015"])
@@ -469,18 +434,9 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - A hand-edited roster cannot take the survey down with it
 
-    /// `people.json` is hand-edited and nothing upstream rejects a repeated id.
-    ///
-    /// ``PersonRegistry`` loads such a file without complaint — its own init just overwrites — and
-    /// so does every other consumer. This builder used to be the exception: it fed
-    /// `Dictionary(uniqueKeysWithValues:)`, which traps on a duplicate key, so a copy-pasted person
-    /// block whose id was not changed killed the process inside the detached task the survey runs
-    /// in. The survey has to survive the file, and last-wins matches what the registry itself does
-    /// with the same input.
-    /// The registry keeps the *last* entry's tokens for a repeated id — its own dictionaries
-    /// overwrite — so the surviving display name is what the axis reports. Asserted here because it
-    /// is what makes "last wins" in the builder the right choice rather than an arbitrary one: the
-    /// two now agree about which of the two records answers for that id.
+    /// `people.json` is hand-edited, and nothing upstream rejects a repeated id. The survey must
+    /// survive one rather than trap on a duplicate dictionary key in its detached task. The builder
+    /// keeps the last record, as ``PersonRegistry`` does, so the axis reports that display name.
     @Test func aDuplicatedPersonIdSurveysRatherThanTrapping() {
         let duplicated = PersonRegistry(people: [
             Person(id: "granny", displayName: "Granny", fullNames: [], aliases: []),
@@ -494,23 +450,10 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                 "a folder naming nobody must not inherit a person")
     }
 
-    /// **What a duplicated id does to the roster, pinned rather than assumed — and it changed.**
-    ///
-    /// This test used to record an asymmetry: the registry kept no single record, so
-    /// `tokensByPerson` was overwritten by the last while `phraseList` accumulated both, and a
-    /// folder named for the dropped record stayed a `person-bucket` whose `axes.person` would not
-    /// resolve. It ended with an instruction — if the dropped name ever resolves differently, the
-    /// registry has changed and this needs re-checking. It has: `PersonRegistry.init` now collapses
-    /// a repeated id to one record before building anything.
-    ///
-    /// **The trade this now makes, stated so the next reader sees it too.** The roster is no longer
-    /// a superset. A folder named only for a dropped record is not recognised as a person-bucket at
-    /// all — the old comment called that the worse direction, and on the old behaviour it would have
-    /// been, because the file still described two people. It no longer does: one id is one person,
-    /// the file's last entry is that person, and `PeopleStore` warns at load that the earlier
-    /// entries were dropped and their names will not resolve. The folder going unrecognised is the
-    /// visible half of a fact the user has been told, rather than a silent divergence between two
-    /// halves of the same registry.
+    /// What a duplicated id does to the roster. `PersonRegistry.init` collapses a repeated id to its
+    /// last record, so a folder named only for a dropped record is not a person bucket at all. That
+    /// is intended: one id is one person, and `PeopleStore` warns at load that the earlier entries
+    /// were dropped and their names won't resolve.
     @Test func aDuplicatedIdResolvesOnlyTheRecordTheRegistryKept() {
         let duplicated = PersonRegistry(people: [
             Person(id: "m", displayName: "Granny", fullNames: [], aliases: []),
@@ -528,8 +471,7 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                 "a folder named only for the DROPPED record is still read as somebody's bucket")
         #expect(dropped?.axes["person"] == nil)
 
-        // The surviving record resolves on both, which is what keeps the line above meaningful:
-        // the roster still recognises the person it kept.
+        // The surviving record still resolves on both, which keeps the line above meaningful.
         #expect(profile.folders["Mukti"]?.role == .personBucket)
         #expect(profile.folders["Mukti"]?.axes["person"] == "Mukti")
         // And a folder naming nobody is untouched by any of it.
@@ -539,16 +481,10 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - Vocabularies that must not drift from the code that owns them
 
-    /// The month list is derived from ``OrdinalMonthName``'s tables rather than retyped, so a
-    /// spelling added to the renamer's vocabulary reaches anchor suppression too. This pins that the
-    /// derivation still covers what the hand-written list covered, and that `sept` — measured as a
-    /// keeper on the reference tree — is still absent from it.
-    /// **Checked against an independent literal, not against the tables it is derived from.** The
-    /// obvious form of this test — assert every entry of `monthAbbreviations` and `monthFullNames`
-    /// is in `monthWords` — is `Set(A+B).contains(each of A+B)`, which is true of any derivation
-    /// from those two tables including a broken one, and would have been the only check left after
-    /// the hand-written list it replaced was deleted. So the list it replaced is restored here, as
-    /// the expected value: the measured vocabulary, spelled out, on the other side of the equals.
+    /// The month list is derived from ``OrdinalMonthName``'s tables, so a spelling the renamer adds
+    /// reaches anchor suppression too. Checked against an independent literal, the measured
+    /// vocabulary: checked against its own source tables, any derivation would pass. `sept`, a
+    /// measured keeper on the reference tree, must stay out.
     @Test func theMonthVocabularyTracksTheRenamer() {
         let measured: Set<String> = [
             "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
@@ -559,14 +495,13 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
                 "the derived month list stopped matching the one measured on the reference tree")
         #expect(!FolderSurveyBuilder.monthWords.contains("sept"),
                 "`sept` is a measured keeper — deriving the list must not quietly add it")
-        // Lowercasing is applied to both tables and is load-bearing: the tokens this set is matched
-        // against are always lowercased, so an uppercase entry would suppress nothing.
+        // The tokens matched against this set are lowercased, so an uppercase entry would suppress
+        // nothing.
         #expect(FolderSurveyBuilder.monthWords.allSatisfy { $0 == $0.lowercased() })
     }
 
-    /// Which name forms count as a person folder comes from ``Person/nameForms``, the same union the
-    /// registry matches on. Spelled out separately, a new form source reaches one and not the other,
-    /// and a folder starts matching for the person axis while failing to count as a person bucket.
+    /// Person-folder names come from ``Person/nameForms``, the union the registry matches on.
+    /// Spelled out separately, a new form could match the person axis but not count as a bucket.
     @Test func aPersonBucketIsRecognisedByEveryFormTheRegistryMatches() {
         let profile = build([dir("Mother Maiden", [file("a.pdf")]), dir("Mom", [file("b.pdf")]),
                              dir("Receipts", [file("c.pdf")])])

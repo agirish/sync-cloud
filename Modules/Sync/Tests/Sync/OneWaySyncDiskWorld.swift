@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 @testable import Sync
 
-/// A scratch iCloud parent, Dropbox account and staging folder for RD67's file-writing tests,
-/// under a temp root of its own: no test touches the real iCloud or Dropbox.
+/// A scratch iCloud parent, Dropbox account and staging folder for one-way sync's file-writing
+/// tests, under a temp root of its own: no test touches the real iCloud or Dropbox.
 ///
 /// Dropbox files are written with the tracking flag (`UF_TRACKED`) set, as Dropbox sets it on
 /// every file, so they carry a document ID the tests can follow through a replace.

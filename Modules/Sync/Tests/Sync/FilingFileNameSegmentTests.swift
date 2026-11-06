@@ -2,14 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// `FilingEngine.looksLikeAFileName` — the rule that strips a trailing *document* off a verdict's
+/// `FilingEngine.looksLikeAFileName`, the rule that strips a trailing *document* off a verdict's
 /// destination, so `Immigration/OCI/Son/eOCI.pdf` files into `Immigration/OCI/Son`.
 ///
-/// It had no test. Its condition was `$0.isASCII && $0.isLetter || $0.isNumber`, which Swift reads
-/// as `($0.isASCII && $0.isLetter) || $0.isNumber` — so `isNumber` was asked without the ASCII
-/// guard and any non-ASCII digit qualified. Every extension in the shipped fixtures agrees under
-/// both spellings, so the whole suite stayed green either way: these are the cases that separate
-/// them.
+/// Its condition must group as `$0.isASCII && ($0.isLetter || $0.isNumber)`: ungrouped, Swift
+/// reads it as `($0.isASCII && $0.isLetter) || $0.isNumber`, and any non-ASCII digit qualifies.
+/// Ordinary extensions agree under both, so these are the cases that separate them.
 @Suite struct FilingFileNameSegmentTests {
 
     /// What the rule is for, and must keep doing.
@@ -28,10 +26,10 @@ import Testing
         #expect(!FilingEngine.looksLikeAFileName("Immigration"))
     }
 
-    /// **The precedence case.** A non-ASCII digit after the final dot is not an extension, and the
-    /// rule's own doc says 1–5 *ASCII* alphanumerics. With the operators mis-grouped these all
-    /// answered true, and a real folder — Devanagari, Arabic-Indic, fullwidth or a Roman numeral —
-    /// would have been stripped off the destination and the document filed one level up.
+    /// The precedence case. A non-ASCII digit after the final dot is not an extension; the rule's
+    /// own doc says 1–5 *ASCII* alphanumerics. Mis-grouped, these all answer true, and a real
+    /// folder (Devanagari, Arabic-Indic, fullwidth or a Roman numeral) would be stripped off the
+    /// destination and the document filed one level up.
     @Test func aNonAsciiDigitIsNotAnExtension() {
         for segment in ["Taxes.٢٠٢٥", "Bills.２０２５", "Notes.Ⅷ", "Chai.½", "Records.१२"] {
             #expect(!FilingEngine.looksLikeAFileName(segment),

@@ -5,15 +5,15 @@ public enum CollisionResolution: Sendable {
     case replace
     case keepBoth
     case skip
-    /// Folder onto folder only, and only where the collision says `offersMerge` (RD23): keep
-    /// everything already in the destination, add what is missing, and resolve each child that
-    /// collides on its own. A path that never offers it treats it as `.skip`, the safe answer.
+    /// Folder onto folder only, where the collision says `offersMerge`: keep everything already in
+    /// the destination, add what is missing, and resolve each colliding child on its own. A path
+    /// that never offers it treats it as `.skip`, the safe answer.
     case merge
 }
 
 /// What each answer to a folder collision would do to the destination, counted before the prompt
-/// opens so the alert can say it (RD23). Counts entries that are not folders; `.DS_Store` is left
-/// out of both, because a merge keeps the destination's own and never asks about it.
+/// opens so the alert can say it. Counts entries that are not folders; `.DS_Store` is left out of
+/// both, because a merge keeps the destination's own and never asks about it.
 public struct FolderMergePreview: Sendable, Equatable {
     /// Items only in the existing folder: what Replace sends to the Trash and Merge keeps.
     public let destinationOnlyCount: Int
@@ -26,10 +26,9 @@ public struct FolderMergePreview: Sendable, Equatable {
     }
 }
 
-/// Everything a collision prompt needs to say WHAT collided and WHERE — the bare file name
-/// alone can't tell the user which copy of "Resume.docx" is being written over which.
-/// Grown as a struct (not more closure parameters) so the resolver seams stop churning
-/// every test stub each time the prompt learns a new fact.
+/// Everything a collision prompt needs to say what collided and where: the file name alone can't
+/// tell the user which "Resume.docx" is being written over which. A struct, not more closure
+/// parameters, so a new fact doesn't change every resolver stub in the tests.
 public struct FileCollision: Sendable {
     /// Absolute path of the item being copied or moved.
     public let sourcePath: String
@@ -47,19 +46,17 @@ public struct FileCollision: Sendable {
     /// offered, or a tree too large to count before the alert opens. Nil is said as a sentence
     /// without numbers, never as a guess.
     public let mergePreview: FolderMergePreview?
-    /// True for the folder a pane opens at, carried onto the folder the other pane opens at (B5):
-    /// Merge is the only answer on offer, because Replace or Keep Both would put it over, or beside,
+    /// True for the folder a pane opens at, carried onto the folder the other pane opens at: Merge
+    /// is the only answer on offer, because Replace or Keep Both would put it over, or beside,
     /// everything that pane shows. Any other answer is refused, never carried out.
     public let mergeOnly: Bool
-    /// A sentence saying the file about to be replaced is the NEWER one, or nil. Set only by a
-    /// copy the user sent against the engine's suggestion (a row's Copy to … item, review E4):
-    /// the suggestion always copies newer over older, so the other way overwrites the newer file,
-    /// and the prompt otherwise read exactly as it does for an ordinary replace.
+    /// A sentence saying the file about to be replaced is the newer one, or nil. Set only by a copy
+    /// the user sent against the engine's suggestion (a row's Copy to … item), which overwrites the
+    /// newer file; without it the prompt would read like an ordinary replace.
     public let newerDestinationNote: String?
 
-    /// Name of the colliding item. Computed, not stored, so no future initializer or
-    /// decoding path can ever set it inconsistently with `destinationPath` — the alert
-    /// title must always name the same file the Replacing: line shows.
+    /// Name of the colliding item. Computed, so it can never disagree with `destinationPath`: the
+    /// alert title must name the same file the Replacing: line shows.
     public var fileName: String {
         (destinationPath as NSString).lastPathComponent
     }
@@ -130,12 +127,11 @@ public struct TransferSummary: Sendable {
     /// Absolute path of the folder the items come from (the first item's parent for
     /// mixed-folder selections — representative, not exhaustive).
     public let sourceDirectory: String
-    /// Absolute path of the folder the items land in (the first item's derived target parent for
-    /// mixed-folder selections — representative, not exhaustive, exactly like `sourceDirectory`).
-    /// Deliberately NOT the destination root: a cross-pane transfer re-roots each item's relative
-    /// path, so the root is shallower than the folder anything nested actually lands in.
+    /// Absolute path of the folder the items land in (the first item's target parent for
+    /// mixed-folder selections, like `sourceDirectory`). Not the destination root: a cross-pane
+    /// transfer re-roots each item's relative path, so nested items land deeper than the root.
     public let destinationDirectory: String
-    /// `FileCollision.newerDestinationNote`, for the confirmation asked before it (review E4).
+    /// `FileCollision.newerDestinationNote`, for the confirmation asked before it.
     public let newerDestinationNote: String?
 
     public init(isMove: Bool, itemCount: Int, firstItemName: String, sourceDirectory: String, destinationDirectory: String,

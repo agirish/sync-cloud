@@ -2,16 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A money store that cannot be read must not be written over.**
-///
-/// `entries()` and `totals()` answered "zero" both for "nothing recorded yet" and for a payload
-/// they could not decode, and `record` then wrote that zero back. One unreadable value therefore
-/// erased the lifetime total, re-armed the $5 lifetime cap from scratch, and made the erasure
-/// permanent — with Settings showing $0.00 lifetime and nothing to say why.
-///
-/// The asymmetry is what makes it a defect rather than an oversight: the CAP side of this same
-/// feature is carefully defended against exactly this, because `totalBudgetCap` distinguishes an
-/// absent key from a stored 0 and says so in a comment. The SPENT side was not.
+/// A money store that can't be read must not be written over. If an undecodable payload read as
+/// zero and `record` wrote that back, one bad value would permanently erase the lifetime total and
+/// re-arm the $5 lifetime cap, with Settings showing $0.00 and no reason. The spent side must tell
+/// unreadable from absent, as `totalBudgetCap` does for the cap.
 @Suite struct FilingSpendPreservationTests {
 
     private func suite() -> (UserDefaults, String) {
@@ -53,7 +47,7 @@ import Testing
         #expect(defaults.data(forKey: FilingSpendStore.historyKey + ".unreadable") == corrupt)
     }
 
-    /// And the ordinary path still accumulates — the refusal must not be "spend stopped recording".
+    /// The ordinary path still accumulates: the refusal must not become "spend stopped recording".
     @Test func aReadableStoreStillAccumulates() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
@@ -83,9 +77,8 @@ import Testing
         #expect(FilingSpendStore.isUnreadable(defaults: defaults))
     }
 
-    /// **Adding one field must not throw on every existing user's data**, which is the trigger the
-    /// audit named: the fields decoded non-optionally, unlike every neighbouring store in the
-    /// module. A payload written before `unpricedScans` existed still decodes.
+    /// Adding a field must not throw on existing data: a payload without `unpricedScans` still
+    /// decodes, as loaded.
     @Test func anOlderTotalsPayloadStillDecodes() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
@@ -99,8 +92,8 @@ import Testing
                 "an older payload must read as loaded, not as unreadable")
     }
 
-    /// An entry written before `costUnpriced` existed decodes too — a throw there would empty the
-    /// history the monthly cap is summed from.
+    /// An entry without `costUnpriced` decodes too; a throw would empty the history the monthly cap
+    /// is summed from.
     @Test func anOlderHistoryPayloadStillDecodes() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }
@@ -114,8 +107,8 @@ import Testing
         #expect(entries.first?.costUnpriced == false)
     }
 
-    /// **An unpriced scan is counted as unpriced, not as free.** The post-flight path coerced an
-    /// unknown model's nil cost to $0.00 while the pre-flight path reported it honestly.
+    /// An unpriced scan is counted as unpriced, not as free: an unknown model's nil cost isn't
+    /// $0.00, so lifetime spend is marked as a floor.
     @Test func anUnpricedScanIsCountedSeparately() throws {
         let (defaults, name) = suite()
         defer { wipeDefaultsSuite(name) }

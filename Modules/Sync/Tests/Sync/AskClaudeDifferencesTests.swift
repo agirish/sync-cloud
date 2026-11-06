@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Compare's differences as Ask Claude reads them (TE261).
+/// Compare's differences as Ask Claude reads them.
 @Suite struct AskClaudeDifferencesTests {
 
     private let now = Date(timeIntervalSince1970: 1_792_000_000)

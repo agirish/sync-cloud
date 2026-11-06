@@ -28,7 +28,7 @@ public struct OneWaySyncChangeScope: Sendable {
     var excluded: [OneWaySyncSide: Set<String>] = [.iCloud: [], .dropbox: []]
 
     /// Keyed by each side's `nameKey`. A refused file counts as recorded as it was refused, on
-    /// both sides: it stays skipped until it changes in iCloud (ES). A file you stopped syncing
+    /// both sides: it stays skipped until it changes in iCloud. A file you stopped syncing
     /// never counts.
     public init(record: OneWaySyncRecord, exclusions: OneWaySyncExclusions, iCloudParent: String, dropboxParent: String) {
         self.iCloudParent = iCloudParent
@@ -86,8 +86,8 @@ public struct OneWaySyncChangeScope: Sendable {
     }
 }
 
-/// **Decision FV: how many items changed in the synced folders since the last completed Sync
-/// Now** — the number the pill shows beside *Sync Now*. It suggests a sync; it never runs one.
+/// How many items changed in the synced folders since the last completed Sync Now: the number
+/// the pill shows beside *Sync Now*. It suggests a sync; it never runs one.
 ///
 /// The folder watcher says where something happened; the record decides whether it is a change.
 /// An item counts while, read from disk, it differs from what the record holds: a file of another
@@ -100,17 +100,17 @@ public struct OneWaySyncChangeScope: Sendable {
 /// - Each item counts once however often it changes: events are joined by path, inode and
 ///   document ID, so a rename (old path, new path) or an app's safe save is one item. A file and a
 ///   folder are each an item.
-/// - Not counted at all: attribute-only changes (FU: an opened stamp, quarantine, tags), names the
+/// - Not counted at all: attribute-only changes (an opened stamp, quarantine, tags), names the
 ///   sync never lists, symlinks, live libraries, iCloud packages holding a symlink, files you
-///   stopped syncing; a change inside a
-///   package counts as the package. This process's own changes count — they are your edits in
-///   SyncCloud's panes. On a side the sync or Reverse is writing to (``holdOwnWrites(on:until:)``)
-///   they are held, and judged against the record once the hold ends: what the pass recorded
-///   doesn't count, what no pass recorded (one that stopped early, or never ran) does.
+///   stopped syncing; a change inside a package counts as the package.
+/// - This process's own changes count: they are your edits in SyncCloud's panes. On a side the
+///   sync or Reverse is writing to (``holdOwnWrites(on:until:)``) they are held, and judged against
+///   the record once the hold ends: what the pass recorded doesn't count, what no pass recorded
+///   (one that stopped early, or never ran) does.
 /// - When FSEvents can't say what changed (its history lost, events dropped, a synced folder
 ///   itself moved), or past ``limit`` items, the count is unknown: *Changes may be waiting*.
 /// - Not seen: an edit that keeps a file's size and date, which Sync Now still catches by its
-///   change time (ET); the change time also moves when iCloud downloads or offloads a file.
+///   change time; the change time also moves when iCloud downloads or offloads a file.
 ///
 /// Saved when it changes, so a relaunch starts from the count it left and the watcher's replay
 /// adds what happened while SyncCloud was closed. Thread-safe: the watcher's queue notes batches;
@@ -480,7 +480,7 @@ extension OneWaySyncRunResult {
     /// What this pass left for a later one, as paths from the parents: steps that didn't go through
     /// (stopped, still changing in Dropbox, Dropbox full), deletions still inside their 30 minutes
     /// (`record` is the one the pass saved), and folders not fully listed. A change there still
-    /// counts after the pass (FV).
+    /// counts after the pass.
     public func leftForLater(record: OneWaySyncRecord) -> [String] {
         var paths = look.plan.steps.indices.filter { !outcomes[$0].counts }.flatMap { OneWaySyncRun.dropboxPaths(of: look.plan.steps[$0].action) }
         for file in record.files where file.iCloudGoneSince != nil { paths += [file.iCloudPath, file.dropboxPath] }

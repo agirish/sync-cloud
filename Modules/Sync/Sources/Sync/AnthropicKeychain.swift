@@ -19,32 +19,24 @@ public enum AnthropicKeychain {
     }
 
     /// Stores (or replaces) the key. An empty string deletes it.
-    /// - Returns: The status of the write — `SecItemUpdate`'s over an existing item, `SecItemAdd`'s
-    ///   when there was none; `errSecSuccess` on a real write. Returned rather than
-    ///   discarded because a keychain write genuinely can fail (locked or denied keychain, an MDM
-    ///   policy), and swallowing that left the user believing a key was saved that was not: the
-    ///   next scan then found no key and quietly fell back to the on-device model with nothing
-    ///   anywhere to explain it. Deleting an existing key by passing "" reports success.
+    /// - Returns: The write's status: `SecItemUpdate`'s over an existing item, `SecItemAdd`'s when
+    ///   there was none. A keychain write can fail (locked or denied keychain, an MDM policy), and
+    ///   swallowing that would let the user believe a key was saved while scans quietly fall back
+    ///   to the on-device model. Deleting by passing "" reports success.
     ///
-    /// **Replaced in place, never deleted first (FR58).** This used to delete the item and then add
-    /// the new one, so an add the Keychain refused after a delete it allowed left NO key — the old
-    /// one gone and the new one not written — and the Settings row then cleared the field the new
-    /// one was typed in. An update is one write: refused, it leaves the old key exactly as it was.
+    /// Replaced in place, **never deleted first**: a delete then a refused add would leave no key
+    /// at all. A refused update leaves the old key exactly as it was.
     @discardableResult
     public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { delete(from: store); return errSecSuccess }
         let secret: [String: Any] = [kSecValueData as String: Data(trimmed.utf8)]
-        // **The update changes the secret and nothing else** (E10). These queries carry no
-        // `kSecUseDataProtectionKeychain`, so on macOS the item lives in the file-based keychain,
-        // which guards items with ACLs rather than the data-protection classes `kSecAttrAccessible`
-        // names (TN3137 describes the two implementations). What `SecItemUpdate` does when asked
-        // to CHANGE that attribute on a file-based item is not documented, and Apple DTS reports
-        // `errSecParam` for `kSecAttrAccessControl`, another data-protection attribute, sent to
-        // the file-based keychain. The update is the one write FR58 relies on, so it carries only
-        // `kSecValueData` and leaves the item's accessibility as the add set it. The add keeps the
-        // attribute: a create states it once. Checked against a fake only — the tests never touch
-        // the real login keychain.
+        // The update changes the secret and nothing else. Without
+        // `kSecUseDataProtectionKeychain` the item lives in the file-based keychain, which uses
+        // ACLs, not the data-protection classes `kSecAttrAccessible` names (TN3137). Changing that
+        // attribute there via `SecItemUpdate` is undocumented and may fail with `errSecParam`, so
+        // only the add sets it. Checked against a fake only; the tests never touch the real
+        // login keychain.
         defer { NotificationCenter.default.post(name: didChange, object: nil) }
         let updated = store.update(baseQuery(), attributes: secret)
         guard updated == errSecItemNotFound else { return updated }
@@ -52,21 +44,17 @@ public enum AnthropicKeychain {
             .merging([kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { _, new in new })
     }
 
-    /// What a read of the stored key found — the difference `read(from:)`'s `nil` cannot express.
-    ///
-    /// "No key was ever configured" and "a key exists but the keychain would not hand it over
-    /// right now" (a locked keychain returns `errSecInteractionNotAllowed`, a denied prompt
-    /// `errSecAuthFailed`, an MDM policy its own status) are the same `nil` to a caller, so the
-    /// app silently fell back to the on-device model as though the user had never opted in —
-    /// exactly the invisible failure ``store(_:in:)`` returns its status to avoid.
+    /// What a read of the stored key found, which `read(from:)`'s `nil` can't express: "no key
+    /// configured" versus "a key exists but the keychain won't hand it over now" (locked,
+    /// `errSecInteractionNotAllowed`; denied, `errSecAuthFailed`; or an MDM policy). Without it the
+    /// app would fall back to the on-device model as though the user had never opted in.
     public enum ReadOutcome: Equatable, Sendable {
         /// A usable key is stored.
         case found(String)
-        /// Nothing is stored (or what is stored is empty) — the user has not configured a key.
+        /// Nothing is stored, or it is empty: the user has not configured a key.
         case notConfigured
-        /// The keychain refused or could not decode the item. A key may well be there; this
-        /// says only that it cannot be used right now, so callers can say so instead of
-        /// reporting "no key". Carries the raw `OSStatus` for the log/diagnostics.
+        /// The keychain refused or couldn't decode the item. A key may be there but can't be used
+        /// now, so callers say that instead of "no key". Carries the raw `OSStatus` for the log.
         case unreadable(OSStatus)
 
         /// The key when one was readable, matching ``AnthropicKeychain/read(from:)``.
@@ -76,16 +64,14 @@ public enum AnthropicKeychain {
         }
     }
 
-    /// The stored key, or nil when none is set — kept as the simple spelling every existing
-    /// caller uses. Callers that must distinguish "never configured" from "temporarily
-    /// unreadable" use ``readOutcome(from:)``.
+    /// The stored key, or nil when none is set. Callers that must tell "never configured" from
+    /// "unreadable right now" use ``readOutcome(from:)``.
     public static func read(from store: KeychainStore = SecItemKeychainStore()) -> String? {
         readOutcome(from: store).key
     }
 
-    /// ``read(from:)`` with the reason attached. A non-success status is also logged here (once,
-    /// at the seam every read goes through) so the failure is on the record even for callers that
-    /// only take the `String?`.
+    /// ``read(from:)`` with the reason attached. A failure is logged here, the seam every read goes
+    /// through, so it is on record even for callers that only take the `String?`.
     public static func readOutcome(from store: KeychainStore = SecItemKeychainStore()) -> ReadOutcome {
         var query = baseQuery()
         query[kSecReturnData as String] = true
@@ -98,32 +84,28 @@ public enum AnthropicKeychain {
         }
         guard let data = result as? Data, !data.isEmpty else { return .notConfigured }
         guard let key = String(data: data, encoding: .utf8), !key.isEmpty else {
-            // The item is there but its bytes are not a key — corrupt, or written by something
-            // else under this service/account. Reporting "not configured" would invite the user
-            // to "re-enter" a key that is already present and would keep failing.
+            // The item is there but its bytes are not a key (corrupt, or written by something
+            // else). "Not configured" would have the user re-enter a key that is already present.
             log("Anthropic API key: the stored Keychain item is not decodable text (\(data.count) byte(s)) — it cannot be used; re-save the key to replace it")
             return .unreadable(errSecDecode)
         }
         return .found(key)
     }
 
-    /// Logs synchronously: `Logger.warning` is `nonisolated` and enqueues before it returns, so
-    /// the line is queued when the read does. A `Task { @MainActor in … }` hop here enqueued it
-    /// only after the call returned, which a `LogCapture` read could miss (see `docs/flaky-tests.md`).
+    /// Logs synchronously: `Logger.warning` is `nonisolated` and enqueues before it returns. A
+    /// `Task { @MainActor in … }` hop would enqueue it after the call returned, where a
+    /// `LogCapture` read could miss it (`docs/flaky-tests.md`).
     private static func log(_ message: String) {
         Logger.shared.warning(message)
     }
 
     /// Removes the stored key.
     /// - Returns: The `SecItemDelete` status. `errSecItemNotFound` means there was nothing to
-    ///   remove, which is success as far as any caller is concerned.
+    ///   remove, which is success to any caller.
     ///
-    /// Returned for the same reason ``store(_:in:)`` returns its own, and the failure it exposes
-    /// is the worse of the two: a delete can be refused (locked keychain, denied prompt, an MDM
-    /// policy) exactly as a write can, and a UI that reports "no key" on an unverified delete tells
-    /// the user their API key is gone while it is still in the Keychain — where it reappears at the
-    /// next launch and keeps being usable in the meantime. Callers that act on the outcome should
-    /// confirm with ``isConfigured``, which answers without asking for the secret.
+    /// A delete can be refused like a write, and a UI that says "no key" after an unverified delete
+    /// tells the user the key is gone while it is still in the Keychain and still usable. Callers
+    /// that act on the outcome confirm with ``isConfigured``, which never asks for the secret.
     @discardableResult
     public static func delete(from store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let status = store.delete(baseQuery())
@@ -134,36 +116,27 @@ public enum AnthropicKeychain {
         return status
     }
 
-    /// True when a non-empty, *readable* key is stored.
-    ///
-    /// This reads the secret, so on a locked or ACL-guarded item it can raise the Keychain
-    /// access prompt. That is the right answer for callers about to use the key — a scan that
-    /// cannot read it has no key as far as it is concerned — but it is the wrong question for
-    /// anything that only wants to say "a key is saved". Those callers want ``isConfigured``.
+    /// True when a non-empty, *readable* key is stored. It reads the secret, so it can raise the
+    /// Keychain prompt: right for callers about to use the key, wrong for anything that only wants
+    /// to say "a key is saved". Those use ``isConfigured``.
     public static var hasKey: Bool { hasKey(in: SecItemKeychainStore()) }
 
     /// `hasKey` against an injected store (the testable spelling of the property above).
     public static func hasKey(in store: KeychainStore) -> Bool { read(from: store) != nil }
 
-    /// Whether a key item exists at all — **without decrypting it**, so it never raises the
-    /// Keychain password prompt.
+    /// Whether a key item exists at all, **without decrypting it**, so it never raises the
+    /// Keychain password prompt. `kSecReturnData` is what makes the Keychain check the ACL and ask;
+    /// an attributes-only match reads metadata only. Use it to show "Key saved".
     ///
-    /// `kSecReturnData` is what makes the Keychain evaluate the item's ACL and, if it isn't
-    /// satisfied, ask the user. An attributes-only match answers "is something stored here?"
-    /// from the item's metadata and never touches the secret. Settings opened the old Tidy tab
-    /// straight into ``hasKey`` to decide whether to print "Key saved to Keychain.", so merely
-    /// *looking at* the tab demanded the password for a key nobody had asked to use.
-    ///
-    /// The trade is that this cannot tell a usable key from one the Keychain would refuse, or
-    /// from a corrupt item. Never route a cloud call on it — `hasKey` is the question there,
-    /// and it is already gated behind the cloud toggle so it only asks when the key is wanted.
+    /// It can't tell a usable key from a refused or corrupt one. **Never** route a cloud call on
+    /// it: `hasKey` is the question there, gated behind the cloud toggle so it asks only when
+    /// the key is wanted.
     public static var isConfigured: Bool { isConfigured(in: SecItemKeychainStore()) }
 
     /// ``isConfigured`` against an injected store.
     public static func isConfigured(in store: KeychainStore) -> Bool {
         var query = baseQuery()
-        // Attributes, deliberately NOT data. See above: adding `kSecReturnData` here would
-        // reintroduce the prompt this exists to avoid.
+        // Attributes, not data: `kSecReturnData` here would raise the prompt this avoids.
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         return store.copyMatching(query).status == errSecSuccess

@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins `syncFile`'s return value — the "did the operation actually run" signal the guided
-/// review records outcomes from. This must stay truthful independent of the differences list:
-/// the post-operation rescan regenerates row UUIDs, so list-based inference lies mid-session.
+/// Pins `syncFile`'s return value, the "did the operation run" signal the guided review records
+/// outcomes from. It must stay truthful independent of the differences list: the post-operation
+/// rescan regenerates row UUIDs, so inferring from the list is wrong mid-session.
 @Suite struct SyncFileOutcomeTests {
 
     /// A manager over a mock disk with `/src/test.txt` present and the collision seams stubbed
@@ -50,7 +50,7 @@ import Foundation
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(succeeded)
-        // The replace went through the trash-backup path, as ever.
+        // The replace went through the trash-backup path.
         #expect(mockFM.trashedPaths.count == 1)
     }
 
@@ -78,8 +78,8 @@ import Foundation
     }
 
     /// A rescan mid-review regenerates every row UUID; syncing a value captured before it must
-    /// still clear the (re-idd) live row on success — id-only removal would ghost it until the
-    /// next rescan.
+    /// still clear the re-id'd live row on success, or id-only removal would leave a ghost row
+    /// until the next rescan.
     @MainActor
     @Test func staleIdSuccessStillRemovesTheMatchingLiveRow() async throws {
         let (manager, mockFM, diff) = try makeFixture()
@@ -99,13 +99,13 @@ import Foundation
         #expect(succeeded)
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
-        // The stale id marked in-flight at entry must not leak: a leaked id would refuse
-        // pane swaps and Verify All forever after the successful sync.
+        // The stale id marked in-flight at entry must not leak, or it would refuse pane swaps and
+        // Verify All forever after.
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
-    /// Same stale-id scenario through the BULK path — Copy Remaining hands syncAll a frozen
-    /// subset whose UUIDs can predate a rescan.
+    /// The same stale-id case through the bulk path: Copy Remaining hands syncAll a frozen subset
+    /// whose UUIDs can predate a rescan.
     @MainActor
     @Test func syncAllWithStaleSubsetStillClearsTheMatchingLiveRows() async throws {
         let (manager, mockFM, diff) = try makeFixture()
@@ -127,10 +127,9 @@ import Foundation
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
-    /// Keep-both with a re-idd live row: returns true AND removes the row even though the
-    /// original destination still differs — the copy landed at a unique sibling, and the
-    /// operation's own rescan re-adds whatever still differs. Pins both halves of the
-    /// review-outcome contract so neither can silently flip.
+    /// Keep-both with a re-id'd live row returns true and removes the row though the original
+    /// destination still differs: the copy landed at a unique sibling, and the operation's own
+    /// rescan re-adds whatever still differs. Pins both halves of the review-outcome contract.
     @MainActor
     @Test func keepBothWithStaleIdReturnsTrueAndRemovesTheRow() async throws {
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
@@ -152,7 +151,7 @@ import Foundation
         #expect(mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/test") && $0 != "/dst/test.txt" })
     }
 
-    /// The path-matching fallback must not swallow OTHER rows: same path but the opposite
+    /// The path-matching fallback must not swallow other rows: the same path in the opposite
     /// direction is a different pending copy and stays.
     @MainActor
     @Test func matchingRemovalLeavesOppositeDirectionRowsAlone() async throws {

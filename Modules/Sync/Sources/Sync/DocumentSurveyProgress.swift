@@ -1,26 +1,20 @@
 import Foundation
 
-/// Why a running survey is not reading right now.
-///
-/// **A typed value rather than a sentence, and that is decision 2.** The card greys its bar, swaps
-/// its verb and changes its wording per reason; deciding any of that by asking whether a status
-/// string starts with "Paused" would be the view parsing the app's own copy, which a later edit
-/// breaks silently. `ScanLifecycle` carries `status` as a `String` and nothing else, which is
-/// exactly why the survey does not use it for this.
+/// Why a running survey is not reading right now. A typed value, not a status string: the card
+/// greys its bar and changes its verb and wording per reason, and parsing the app's own copy would
+/// break silently on the next edit. That is why the survey doesn't use `ScanLifecycle`'s `status`.
 public enum DocumentSurveyPause: Sendable, Equatable {
     /// The person pressed Pause. The only reason that does not clear itself.
     case user
-    /// The display went to sleep. **Not politeness — iCloud materialisation stalls with the display
-    /// off**, so without naming this the card shows a number that stopped moving, which reads as a
-    /// hang. The survey is not the thing that stopped.
+    /// The display went to sleep. **iCloud stops handing files over with the display off**, so
+    /// without this the card's count would stall and read as a hang.
     case displayAsleep
     /// The Mac is running hot.
     case thermal
     /// Low Power Mode is on.
     case lowPower
-    /// Something the user is waiting on needs the machine, or the PDF lane. `subject` is what to
-    /// name on the card — "Duplicates", "a verification" — in the user's vocabulary, not the
-    /// lifecycle's.
+    /// Something the user is waiting on needs the machine or the PDF lane. `subject` is what the
+    /// card names ("Duplicates", "a verification"), in the user's words.
     case yielding(to: String)
 
     /// Whether this clears on its own. Only ``user`` does not, and the card's verb depends on it:
@@ -30,9 +24,9 @@ public enum DocumentSurveyPause: Sendable, Equatable {
         return true
     }
 
-    /// The card's sentence. Here rather than in the view for the reason
-    /// ``FileSyncManager/FilingSurveyReport/summary`` is: the words and the state they describe
-    /// have to move together, and a test in this module can read them.
+    /// The card's sentence. Here rather than in the view, as for
+    /// ``FileSyncManager/FilingSurveyReport/summary``, so the words move with the state and tests
+    /// can read them.
     public var sentence: String {
         switch self {
         case .user:
@@ -51,16 +45,13 @@ public enum DocumentSurveyPause: Sendable, Equatable {
 
 /// Where a document survey has got to, as something a card can draw.
 ///
-/// **Its own type rather than fields on ``ScanLifecycle`` — decision 2, second half.** Six
-/// lifecycles share that struct and five of them have nothing that can pause and no denominator to
-/// count against; giving all six `isPaused`, `completed` and `total` would move every test that
-/// constructs or compares one, for a feature that is not theirs. The lifecycle still owns
-/// *running / has-completed / root*, which is what it has always meant. This owns the fraction.
+/// Its own type, not fields on ``ScanLifecycle``: the other lifecycles sharing that struct can't
+/// pause and have no denominator. The lifecycle keeps running, has-completed and root; this owns
+/// the fraction.
 ///
-/// **The counts are integers because ``ProgressPublishGate`` takes integers.** That is not a
-/// convenience: a per-document write to a `@Published` property re-evaluates the window's whole
-/// root view, so 7,558 documents is 7,558 full re-renders. The gate turns that into about 101, and
-/// it can only do so given `completed` and `total` — which a status string does not have.
+/// The counts are integers because ``ProgressPublishGate`` needs them: each write to a `@Published`
+/// property re-renders the window's root view, so a per-document write would re-render once per
+/// document. The gate cuts that to about a hundred.
 public struct DocumentSurveyProgress: Sendable, Equatable {
 
     public enum Phase: Sendable, Equatable {
@@ -68,13 +59,11 @@ public struct DocumentSurveyProgress: Sendable, Equatable {
         case reading
         /// Not reading, for a reason the card names.
         case paused(DocumentSurveyPause)
-        /// Every document decided; merging, rebuilding the memory and writing.
-        ///
-        /// **Its own phase because it is minutes of work after the last document**, and a card
-        /// reporting *7,558 of 7,558* that then sits there looks hung. The three steps it covers
-        /// are the ones ``FilingSurvey/merge(corpus:tree:read:)``,
+        /// Every document decided; merging, rebuilding the memory and writing. Its own phase
+        /// because that takes minutes, and a card sitting at *7,558 of 7,558* looks hung. Covers
+        /// ``FilingSurvey/merge(corpus:tree:read:)``,
         /// ``FilingSurvey/buildMemory(corpus:folderModified:profileId:)`` and
-        /// ``FilingSurveyStore/write(corpus:memory:previousMemory:id:in:root:now:)`` do.
+        /// ``FilingSurveyStore/write(corpus:memory:previousMemory:id:in:root:now:)``.
         case finishing
     }
 
@@ -84,15 +73,11 @@ public struct DocumentSurveyProgress: Sendable, Equatable {
     /// The folder the current document sits in, for the card's *reading Health/Medical/Kaiser*.
     /// Nil while finishing, and nil when there is nothing to name.
     public let currentFolder: String?
-    /// When the run first started reading — the *original* start, carried across a resume, so the
-    /// card can say how long this survey has taken rather than how long this sitting has.
+    /// When the run first started reading, carried across a resume, so the card can say how long
+    /// the survey has taken, not this sitting.
     public let startedAt: Date
-    /// Seconds actually spent reading, **excluding every pause**.
-    ///
-    /// **The ETA is derived from this and not from wall-clock elapsed, which is the whole reason
-    /// the field exists.** A survey paused overnight has fourteen hours of elapsed time and eleven
-    /// minutes of work; dividing the first by the documents read would tell the user the remaining
-    /// 4,687 documents need eight days. The number that predicts is time spent reading.
+    /// Seconds actually spent reading, excluding every pause. The ETA comes from this, not wall-clock
+    /// time: after a pause overnight, elapsed time would predict days for minutes of work.
     public let readingSeconds: TimeInterval
 
     public init(completed: Int, total: Int, phase: Phase, currentFolder: String? = nil,
@@ -123,13 +108,9 @@ public struct DocumentSurveyProgress: Sendable, Equatable {
 
     /// Seconds still to go, or nil when there is not enough evidence to say.
     ///
-    /// **Withheld rather than guessed for the first stretch.** A rate taken from three documents is
-    /// noise, and an ETA that opens at "14 minutes", jumps to "4 hours" and settles at "1 h 50" is
-    /// worse than no ETA at all — it teaches the reader that the number means nothing. The floor is
-    /// deliberately generous: 50 documents is under a minute of a three-hour run.
-    ///
-    /// Nil also while finishing: that phase is not the reading rate's business and has no
-    /// denominator of its own.
+    /// Withheld for the first stretch: a rate from a few documents is noise, and an ETA that jumps
+    /// around teaches the reader it means nothing. 50 documents is under a minute of a long run.
+    /// Also nil while finishing, which the reading rate can't predict.
     public static let minimumSampleForETA = 50
 
     public var estimatedSecondsRemaining: TimeInterval? {

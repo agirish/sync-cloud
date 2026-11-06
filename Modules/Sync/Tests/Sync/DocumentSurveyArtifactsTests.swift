@@ -4,11 +4,9 @@ import Testing
 
 /// What a finished document survey leaves on disk, and whether the *next* pass can read it.
 ///
-/// **The claim worth testing is not "the new path works" — it is that the new path and the
-/// established one agree.** `resurveyFilingMemory` has built these two artifacts since it was
-/// written; `runDocumentSurvey` now builds them too, from the same three functions, for the case
-/// that pass cannot handle. Two producers of one file format is exactly where a difference hides,
-/// and the difference that matters is not in the bytes a reader would notice.
+/// `resurveyFilingMemory` and `runDocumentSurvey` both build these two artifacts, from the same
+/// three functions. Two producers of one format is where a difference hides, so the claim tested
+/// is that they agree, including in fields a reader wouldn't notice.
 @Suite struct DocumentSurveyArtifactsTests {
 
     private func makeDir() throws -> URL {
@@ -45,13 +43,10 @@ import Testing
         return out
     }
 
-    /// **The regression this suite was written for.** `buildMemory` writes `folderModified` into
-    /// every entry from the walk's folder mtimes, and `staleFolders` compares that against the
-    /// folder's mtime to decide what the next incremental survey re-reads. An earlier draft of the
-    /// driver handed it an empty `folders` map — so every entry got `nil`, every folder compared
-    /// unequal, and the first `resurveyFilingMemory` after a three-hour survey would have re-read
-    /// the entire tree. Nothing fails when that happens. It is simply slow, permanently, and the
-    /// only symptom is a survey that never gets cheaper.
+    /// `buildMemory` writes each entry's `folderModified` from the walk's folder mtimes, and
+    /// `staleFolders` compares it with the folder's mtime to decide what the next incremental
+    /// survey re-reads. Handed an empty `folders` map, every folder compares unequal and the next
+    /// `resurveyFilingMemory` re-reads the whole tree. Nothing fails; it is just slow, permanently.
     @Test func everyLearnedFolderCarriesTheWalksModificationTime() {
         let tree = tree()
         let salt = "abcd"
@@ -83,8 +78,7 @@ import Testing
         #expect(FilingSurvey.staleFolders(tree: tree, memory: good).isEmpty,
                 "the next incremental survey would re-read folders this one just read")
 
-        // The negative control, which is what makes the assertion above mean something: drop the
-        // folder stamps and every folder comes back stale.
+        // The negative control: drop the folder stamps and every folder comes back stale.
         let bad = FilingSurvey.buildMemory(corpus: corpus, folderModified: [:], profileId: "p")
         #expect(!FilingSurvey.staleFolders(tree: tree, memory: bad).isEmpty,
                 "dropping the walk's folder stamps changed nothing — this test cannot fail")
@@ -147,7 +141,7 @@ import Testing
     }
 
     /// A corpus this build writes carries `kind`, and the checkpoint beside it is still invisible
-    /// to the corpus reader — the Stage 1 invariant, restated where a real write happens.
+    /// to the corpus reader: the checkpoint invariant, checked where a real write happens.
     @Test func aWrittenCorpusIsStillNotConfusableWithProgress() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }

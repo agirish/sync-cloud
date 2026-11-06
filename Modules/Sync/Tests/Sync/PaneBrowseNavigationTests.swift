@@ -3,21 +3,20 @@ import Foundation
 import Events
 @testable import Sync
 
-/// `‹` and `›` serve two stacks now: the column stack first, then the pane's focus history. That
-/// unification is the whole reason the arrows work in a narrow pane, where the single column
-/// replaces its contents and Back is the only way out.
+/// `‹` and `›` serve two stacks: the column stack first, then the pane's focus history. That is
+/// what makes the arrows work in a narrow pane, where the single column replaces its contents and
+/// Back is the only way out.
 ///
-/// The risk it introduces is precise: browsing must never reach the *focus* history, because a
-/// focus change reloads the tree and re-runs the scan for a different subfolder. A Back that fell
-/// through too eagerly would re-scope the comparison when the user only meant to step out of a
-/// folder. These tests pin the order, the fall-through, and the boundary between them.
+/// Browsing must not reach the focus history early: a focus change reloads the tree and re-runs
+/// the scan, so a Back that fell through too eagerly would re-scope the comparison when the user
+/// only meant to step out of a folder. These tests pin the order and the boundary.
 @MainActor
 @Suite struct PaneBrowseNavigationTests {
 
     // MARK: - Order: columns before history
 
-    /// The core rule. A pane three columns deep with focus history behind it must unwind the
-    /// columns first — they are the more recent navigation.
+    /// A pane three columns deep with focus history behind it unwinds the columns first: they are
+    /// the more recent navigation.
     @Test func testBackUnwindsColumnsBeforeTouchingFocusHistory() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Documents", isLeft: true)
@@ -44,8 +43,8 @@ import Events
         #expect(m.canGoBack(isLeft: true, drawsColumns: true) == false)
 
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
-        // Nothing was re-rooted, so the focus history is still empty — the arrow must light up
-        // anyway or push navigation has no way back.
+        // Nothing was re-rooted, so the focus history is empty; the arrow must light up anyway or
+        // push navigation has no way back.
         #expect(m.leftHistory.canGoBack == false)
         #expect(m.canGoBack(isLeft: true, drawsColumns: true) == true)
     }
@@ -119,10 +118,9 @@ import Events
         #expect(m.rightBrowsePath.isEmpty)
     }
 
-    /// **The reported bug, at the layer that caused it.** Changing the source on one pane closed
-    /// the columns the user had open on the other. The switched pane's stack names folders under a
-    /// root it is leaving, so it is meaningless; the sibling's names folders in a tree that is
-    /// still on screen.
+    /// Changing the source on one pane must not close the other pane's open columns. The switched
+    /// pane's stack names folders under a root it is leaving; the sibling's names folders still on
+    /// screen.
     @Test func testRetargetPaneClearsOnlyItsOwnStack() {
         let m = FileSyncManager()
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
@@ -160,8 +158,8 @@ import Events
 
     @Test func testPruneDropsAStackIntoADeletedFolder() {
         let m = FileSyncManager()
-        // The pane's tree is LOADED — which is now a precondition of pruning at all, and which
-        // every real republish satisfies by definition. See the test below for why.
+        // The pane's tree is loaded: a precondition of pruning, which every real republish meets.
+        // The test below says why.
         m.lastLoadedLeftFocusPath = ""
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.leftBrowsePath.drill(into: "Gone", atDepth: 1)
@@ -174,17 +172,10 @@ import Events
         #expect(m.leftBrowsePath.currentDirectory(treeRoot: "/r") == "/r/Documents")
     }
 
-    /// **A dropped tree is not an answer about which folders exist.**
-    ///
-    /// `invalidateComparisonState` clears both trees synchronously, so anything that re-points a
-    /// pane publishes an empty tree one view update before the reload refills it. The republish
-    /// prune fires on that empty publish, and against an empty tree every stack prunes to the root.
-    ///
-    /// This is what put the pane back at its root on **every browse-tab switch, in every
-    /// workspace**: the switch restores the outgoing tab's column stack, then the prune flattened
-    /// it before the tree the stack belongs to had loaded. Reported from the running app after the
-    /// feature shipped — no test saw it, because the whole chain only exists once the manager, the
-    /// host's `onChange` and a real reload are wired together.
+    /// A dropped tree is not an answer about which folders exist. `invalidateComparisonState`
+    /// clears both trees synchronously, so re-pointing a pane publishes an empty tree one view
+    /// update before the reload refills it. Pruning against that would flatten every stack to the
+    /// root, so every browse-tab switch would lose the restored tab's columns.
     @Test func testAStackSurvivesAPublishFromATreeThatIsNotLoadedYet() {
         let m = FileSyncManager()
         m.lastLoadedLeftFocusPath = ""
@@ -201,14 +192,10 @@ import Events
                 "the column stack was pruned against a tree that had been dropped, not against one that says the folders are gone")
     }
 
-    /// **The shallow-tree half, which is the one that shipped a second wrong answer.**
-    ///
-    /// Progressive loading publishes the root's children with nothing under them before the deep
-    /// walk finishes, and that publish sets `lastLoadedFocusPath` like any other. Guarding on the
-    /// marker alone therefore still prunes — against a tree exactly one level deep — so the stack
-    /// collapsed to its FIRST component rather than to the root. Reported from the running app as
-    /// "the tab name changes back to the top level parent dir", which is precisely a stack of
-    /// depth 1, and is why `pruneSelection`'s guard has always had two halves.
+    /// The shallow-tree half. Progressive loading publishes the root's children with nothing under
+    /// them before the deep walk finishes, and that publish sets `lastLoadedFocusPath` too. Guarding
+    /// on the marker alone would prune against a one-level tree and cut the stack to its first
+    /// component, so the guard also checks loading, as `pruneSelection`'s does.
     @Test func testAStackSurvivesTheShallowTreeProgressiveLoadingPublishesFirst() {
         let m = FileSyncManager()
         m.lastLoadedLeftFocusPath = ""
@@ -226,9 +213,8 @@ import Events
                 "the stack was cut to its first component by a tree that is still loading")
     }
 
-    /// The other half, so the guard cannot be widened into "never prune": a tree that is loaded and
-    /// genuinely empty — every folder deleted — still collapses the stack, because that IS an
-    /// answer about which folders exist.
+    /// So the guard can't widen into "never prune": a loaded, genuinely empty tree still collapses
+    /// the stack, because that is an answer about which folders exist.
     @Test func testALoadedButEmptyTreeStillCollapsesTheStack() {
         let m = FileSyncManager()
         m.lastLoadedLeftFocusPath = ""
@@ -243,12 +229,9 @@ import Events
 
     // MARK: - The single-source rail shares the left pane's column stack
 
-    // The rail renders through the left pane's state — focus, selection, history AND browse path —
-    // so a column stack built in Organize is still there when the user switches to Compare. That is
-    // deliberate continuity, but until now nothing pinned WHICH half of it is deliberate: the stack
-    // survives only while it still describes real folders in the tree the pane actually has. These
-    // three tests fix that boundary, so a future change to the rail cannot quietly turn shared
-    // continuity into a stack pointing at the wrong tree.
+    // The rail renders through the left pane's state (focus, selection, history and browse path),
+    // so a column stack built in Organize is still there in Compare. It survives only while it
+    // describes real folders in the tree the pane has; these three tests pin that boundary.
 
     /// Continuity: no re-root, so the stack the rail built is the stack Compare shows.
     @Test func testTheRailsColumnStackSurvivesIntoCompareWhenTheRootIsUnchanged() {
@@ -257,15 +240,15 @@ import Events
         m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
         m.leftBrowsePath.drill(into: "2025", atDepth: 1)
 
-        // Switching surfaces re-asserts the same focus. `focusOn` guards on an unchanged relative
-        // path and returns BEFORE its reset, which is exactly what preserves the stack.
+        // Switching surfaces re-asserts the same focus. `focusOn` returns on an unchanged relative
+        // path before its reset, which is what preserves the stack.
         m.focusOn(relativePath: "Inbox", isLeft: true)
 
         #expect(m.leftBrowsePath.components == ["Receipts", "2025"])
     }
 
-    /// …but a lens that re-roots the rail is a different scope, and the stack must NOT ride along:
-    /// its component names were resolved against a tree that no longer applies.
+    /// …but a lens that re-roots the rail is a different scope, and the stack must not ride along:
+    /// its names were resolved against a tree that no longer applies.
     @Test func testARailReRootDropsTheColumnStack() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Inbox", isLeft: true)
@@ -304,8 +287,8 @@ import Events
         m.goBack(isLeft: true, drawsColumns: true)
         #expect(m.ignoredPaths == ["noisy.log"], "a column pop is not a scope change")
 
-        // A real scope change still clears them, so the distinction is doing work rather than
-        // this assertion passing because nothing ever clears.
+        // A real scope change still clears them, so the assertion above isn't passing because
+        // nothing ever clears.
         m.focusOn(relativePath: "Documents", isLeft: true)
         #expect(m.ignoredPaths.isEmpty)
     }

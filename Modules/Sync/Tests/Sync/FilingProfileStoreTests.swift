@@ -18,9 +18,8 @@ import Testing
         }
     }
 
-    /// The on-disk shape, written by the generator that produced the real artifact. Decoding is the
-    /// only contract between a Python builder and this module, so the fixture is written the way the
-    /// builder writes it — including the two-element token arrays and the axis aliases.
+    /// The on-disk shape, as the Python builder writes it, including the two-element token arrays
+    /// and the axis aliases: decoding is the only contract between the builder and this module.
     static let profileJSON = """
     {"profileId":"father","root":"~/Documents",
      "axes":{"person":{"values":["Father","Mother"],"aliases":{"Mom":"Granny"}}},
@@ -58,10 +57,10 @@ import Testing
         #expect(year.role == .yearBucket)
         #expect(year.yearKey == "2023")
         #expect(year.anchors == ["income", "tax"])
-        // Aliases are the same person under two names — `Family/Mom` is Immigration's `Granny`.
+        // Aliases are the same person under two names: `Family/Mom` is Immigration's `Granny`.
         #expect(loaded.profile.personTokens.isSuperset(of: ["father", "mother", "mom", "granny"]))
-        // And the PAIRING survives decode, which is the half that used to be thrown away: without
-        // it nothing downstream can tell that those are one person rather than two.
+        // The pairing survives decode too; without it nothing downstream can tell they are one
+        // person.
         #expect(loaded.profile.personAliases["mom"] == "granny")
 
         let entry = try #require(loaded.memory?.folders["Finance/US/Income Tax/2023"])
@@ -70,9 +69,9 @@ import Testing
         #expect(entry.idHashes.first?.token == "3437e15c04d360ef")
     }
 
-    /// **A year hidden inside a descriptive name.** `IRS Docs - 2024` sits beside the bare-year
-    /// folders and the survey recorded no `year` axis for it, so without the name fallback it lands
-    /// in a different family and is never compared with the years it belongs to.
+    /// A year inside a descriptive name. `IRS Docs - 2024` sits beside the bare-year folders with no
+    /// `year` axis, so without the name fallback it lands in another family and is never compared
+    /// with the years it belongs to.
     @Test func aYearInTheNameIsFoundWhenTheAxisIsMissing() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -99,7 +98,7 @@ import Testing
         #expect(p.acceptsNewFiles("Finance/US/Income Tax/2023"))
     }
 
-    /// A missing memory is ordinary, not a fault — the profile alone still routes.
+    /// A missing memory is ordinary, not a fault: the profile alone still routes.
     @Test func aMissingMemoryStillYieldsAProfile() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -119,10 +118,8 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
     }
 
-    /// **A future schema is refused, not half-read.** The store's own doc claimed this and only
-    /// `profiles.json` was ever checked, so an artifact with a new shape would have been decoded
-    /// field-by-field into a mostly empty value and used — the silent wrong answer this store
-    /// exists to avoid.
+    /// A future schema is refused, not half-read: decoded field by field, a new shape would become
+    /// a mostly empty value that gets used, a silent wrong answer.
     @Test func aForeignSchemaIsRefusedRatherThanHalfRead() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -131,17 +128,13 @@ import Testing
                                                           with: "\"schemaVersion\":99")
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: future)
         #expect(FilingProfileStore.memory(id: "father", in: dir) == nil)
-        // and the same file at the current schema still reads, or the test above proves nothing
+        // Control: the same file at the current schema still reads.
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: Self.memoryJSON)
         #expect(FilingProfileStore.memory(id: "father", in: dir) != nil)
     }
 
-    /// **The hash format is the contract with the builder that wrote the file.** A change here does
-    /// not fail — it silently stops every identifier matching — so it is pinned against a literal
-    /// computed independently: `sha256("abc123" + "1892")[0..<16]`.
-    /// `people.json` is read when it is there, and it is what supplies the full names — the forms
-    /// a survey of folder names cannot know, and the only thing that makes "Daughter Father"
-    /// attributable to one person.
+    /// `people.json` is read when present and supplies the full names, which a survey of folder
+    /// names can't know and which make "Daughter Father" attributable to one person.
     @Test func aPeopleFileIsReadAndSuppliesTheFullNames() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -166,8 +159,8 @@ import Testing
         #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["granny"])
     }
 
-    /// With no `people.json` the registry is seeded from the profile's own axis — so the alias fix
-    /// lands on a tree that has only ever been surveyed, without anyone writing a file.
+    /// With no `people.json` the registry is seeded from the profile's own axis, so aliases work on
+    /// a tree that has only been surveyed.
     @Test func withNoPeopleFileTheRegistryIsSeededFromTheProfile() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -180,8 +173,8 @@ import Testing
         #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["granny"])
     }
 
-    /// The fingerprint moves when the roster does — it is mixed into every verdict cache key, and
-    /// a changed roster changes the shortlist every file is asked about.
+    /// The fingerprint moves when the roster does: it is mixed into every verdict cache key, and a
+    /// changed roster changes the shortlist every file is asked about.
     @Test func theFingerprintMovesWhenThePeopleFileChanges() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -194,10 +187,9 @@ import Testing
         #expect(FilingProfileStore.fingerprint(id: "father", in: dir) != before)
     }
 
-    /// **An exists-but-unreadable people.json makes the fingerprint UNAVAILABLE, not silently
-    /// different.** Omitting the component minted a digest that can never recur once the file is
-    /// fixed — every paid verdict recorded under it becomes permanently unreachable, the exact
-    /// failure `PeopleStore.savedRevision`'s doc says must be prevented.
+    /// A people.json that exists but can't be read makes the fingerprint unavailable, not
+    /// different. A digest without it could never recur once the file is fixed, so every paid
+    /// verdict recorded under it would be unreachable (see `PeopleStore.savedRevision`).
     @Test func anUnreadablePeopleFileMakesTheFingerprintUnavailable() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
@@ -228,48 +220,37 @@ import Testing
         #expect(digest != "", "the present artifacts were not digested")
     }
 
+    /// The hash format is the contract with the builder. A change wouldn't fail, it would silently
+    /// stop every identifier matching, so it is pinned against an independently computed literal:
+    /// `sha256("abc123" + "1892")[0..<16]`.
     @Test func theIdentifierHashMatchesTheBuilder() {
         #expect(FilingMemory.hash("1892", salt: "abc123") == "3437e15c04d360ef")
         #expect(FilingMemory.hash("kaiser", salt: "s") == "3529b1a559fe505a")
     }
 }
 
-/// Decodes the artifacts actually on this machine. Skipped — visibly — where they do not exist,
-/// rather than passing vacuously: this is the only check that the Swift decoder agrees with the
-/// Python generator on 2,096 folders of real data.
+/// Decodes the artifacts on this machine, the only check that the Swift decoder agrees with the
+/// Python generator on real data. Skipped visibly where they don't exist, rather than passing
+/// vacuously.
 @Suite(.enabled(if: FilingProfileStore.defaultDirectory().map {
     FileManager.default.fileExists(atPath: $0.appendingPathComponent("profiles.json").path)
 } ?? false, "no filing profile on this machine"))
 struct RealFilingProfileTests {
 
-    /// **The claim that the registry is an improvement, measured rather than argued — and the
-    /// measurement is not the one I first reached for.**
-    ///
-    /// Every already-filed document is a labelled example: the folder it sits in *is* the right
-    /// answer. The obvious metric is therefore *false vetoes* — a rule refusing the folder the
-    /// document actually lives in — and on this corpus the two rules are **identical at 3 of
-    /// 1,375**. All three are `Family/Daughter/Events/Baby Shower/`, documents named for the parents
-    /// inside the child's event folder; no amount of name intelligence resolves that, because the
-    /// folder is Daughter's for a reason the filename cannot state.
-    ///
-    /// What the registry actually fixes is **over-attribution**: `Granny Elder - Resume.pdf` names
-    /// one person, and the token rule reports two, because `elder` is her surname and his given
-    /// name. The token rule does that to **36** of the same 1,375. Every one is a document the veto
-    /// would let into the wrong person's folder — the protection failing open, which is exactly the
-    /// failure that is invisible in use — and, since the router penalises a folder whose person the
-    /// document does not name, 36 files scoring against a family member they have nothing to do
-    /// with. So that is the number this test holds.
-    ///
-    /// Skipped where the corpus is absent (a survey artifact, not something the app writes), and it
-    /// prints both numbers so a regression reads as a number rather than a boolean.
+    /// Measures the registry against the token rule on the real corpus, where each filed document's
+    /// folder is the right answer. False vetoes (refusing the document's own folder) must not rise.
+    /// The number held is over-attribution: `Granny Elder - Resume.pdf` names one person, but the
+    /// token rule reads two because `elder` is her surname and his given name (36 of 1,375 here).
+    /// Each such file can slip into the wrong person's folder, unseen. Skipped where the corpus is
+    /// absent; prints both numbers so a regression reads as a number.
     @Test func theRegistryRefusesFewerCorrectFoldersThanTheTokenRule() throws {
         let dir = try #require(FilingProfileStore.defaultDirectory())
         let loaded = try #require(FilingProfileStore.active(in: dir))
         let corpusURL = dir.appendingPathComponent("\(loaded.profile.profileId)/filing-corpus.json")
         try #require(FileManager.default.fileExists(atPath: corpusURL.path),
                      "no filing corpus on this machine")
-        // Only the keys are needed — the paths. Each document's value carries tokens and counters
-        // of mixed shape, so it is decoded as opaque JSON rather than modelled.
+        // Only the keys (the paths) are needed; the values are of mixed shape, so the file is read as
+        // opaque JSON.
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: corpusURL))
         let documents = try #require((raw as? [String: Any])?["documents"] as? [String: Any])
 
@@ -301,8 +282,7 @@ struct RealFilingProfileTests {
         #expect(considered > 100, "too few person-filed documents to measure (\(considered))")
         #expect(newFalseVetoes <= oldFalseVetoes,
                 "the registry refuses MORE correct folders than the token rule — \(summary)")
-        // The rule this change is actually for. A document naming one person must not be read as
-        // naming two; 36 of this corpus were, every one of them a shared given-name-as-surname.
+        // The point of the registry: a document naming one person must not be read as naming two.
         #expect(newOverAttributed < oldOverAttributed / 2,
                 "phrase matching did not reduce over-attribution — \(summary)")
         print("Person attribution \(summary)")
@@ -317,17 +297,14 @@ struct RealFilingProfileTests {
         #expect(!memory.salt.isEmpty)
         #expect(memory.folders.count > 500)
 
-        // **The two artifacts are snapshots, and they can be taken at different times.** This
-        // machine's memory was rebuilt after `Immigration/` was reorganised on 6 Aug; the profile
-        // was not, so the memory names folders the profile has never seen. That has to *degrade*,
-        // not break — the path rule still answers for them and the router simply has no axes to
-        // reason with. A large divergence would mean the two describe different trees.
+        // The two artifacts are snapshots that can be taken at different times, so the memory may
+        // name folders the profile has never seen. That must degrade, not break: the path rule still
+        // answers and the router has no axes for them. A large divergence means different trees.
         let unknown = memory.folders.keys.filter { loaded.profile.folders[$0] == nil }
         let drift = Double(unknown.count) / Double(memory.folders.count)
         #expect(drift < 0.05, "memory and profile disagree on \(unknown.count) folders — re-survey")
         for folder in unknown {
-            // Answering at all is the requirement; an unknown folder must not become a destination
-            // just because the profile cannot vouch for it.
+            // An unknown folder must still get an answer, and the path rule decides it.
             #expect(loaded.profile.acceptsNewFiles(folder) != FolderProfile.isInboxPath(folder))
         }
 
@@ -339,15 +316,11 @@ struct RealFilingProfileTests {
     }
 }
 
-/// **Identity was read from one place and written from another.**
-///
-/// Everything is read from `profiles/<activeProfileId>/`, named by `profiles.json`. The app then
-/// built the roster and the tag store from `profile.profileId` — a field INSIDE the artifact that
-/// decodes to `"default"` when absent, which nothing rejects. Omit it and reads come from `work/`
-/// while the first roster edit writes to `default/`, where nothing reads it; the fingerprint hashes
-/// that same empty directory, so every cached classification is keyed against artifacts not in use.
-/// The same split appears on a directory rename, which the docs present as the way to add a second
-/// tree.
+/// A profile's identity is the folder it was loaded from (`profiles/<activeProfileId>/`), not the
+/// `profileId` field inside it, which decodes to `"default"` when absent and goes stale on a folder
+/// rename. Built from the field, roster edits would be written where nothing reads them, and the
+/// fingerprint would hash an empty folder, keying every cached verdict against artifacts not in
+/// use.
 @Suite struct FilingProfileIdentityTests {
 
     private func makeProfiles(activeId: String, folderId: String?) throws -> URL {
@@ -371,14 +344,14 @@ struct RealFilingProfileTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let loaded = try #require(FilingProfileStore.active(in: dir))
-        // The premise: the field really did decode to something else, or this proves nothing.
+        // Premise: the field really did decode to something else.
         #expect(loaded.profile.profileId == "default",
                 "the fixture stopped reproducing the split")
         #expect(loaded.id == "work",
                 "the id every store is built from is still the field inside the file")
     }
 
-    /// And when they agree — the ordinary case — nothing changes.
+    /// When they agree, the ordinary case, nothing changes.
     @Test func anAgreeingProfileLoadsUnderItsOwnId() throws {
         let dir = try makeProfiles(activeId: "father", folderId: "father")
         defer { try? FileManager.default.removeItem(at: dir) }

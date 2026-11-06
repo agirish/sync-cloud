@@ -2,23 +2,16 @@ import Foundation
 
 // MARK: - Result model
 
-/// How sure Filing is about a suggested home.
-///
-/// `Codable` so a verdict survives in ``FilingVerdictCache`` across launches. The raw values are
-/// therefore persisted — append new cases rather than renaming existing ones, exactly as
-/// `LiquidGlassHue` does for the same reason.
+/// How sure Filing is about a suggested home. `Codable` so a verdict survives in
+/// ``FilingVerdictCache`` across launches, which persists the raw values: append new cases, never
+/// rename existing ones.
 public enum FilingConfidence: String, Codable, Sendable, Equatable, Comparable {
     case low, medium, high
 
-    /// The ordering `Comparable` is built on — **exhaustive, with no `default:` and no final
-    /// `else`**, so appending a case is a build error here rather than a silent `0`.
-    ///
-    /// This was `self == .high ? 2 : (self == .medium ? 1 : 0)`. A ternary chain has no arm for a
-    /// case it does not name: a fourth confidence would have ranked 0, identical to `.low`, and
-    /// every comparison built on it — the batch gate that decides which cards "File all confident"
-    /// acts on, the sort that puts surer answers first — would have read the new case as the least
-    /// sure one. The header two lines up already says to APPEND new cases, which is precisely the
-    /// change this shape could not survive.
+    /// The ordering `Comparable` is built on: **exhaustive, with no `default:` and no final
+    /// `else`**, so appending a case is a build error here. A fallback arm would rank a new case as
+    /// `.low`, and every comparison built on it (the "File all confident" batch gate, the sort that
+    /// puts surer answers first) would read it as the least sure.
     var rank: Int {
         switch self {
         case .low: return 0
@@ -39,42 +32,34 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// Human-readable "why this home" reasons.
     public let reasons: [String]
     /// Trailing path segments that don't exist yet and would be created on apply (e.g. ["Tesla",
-    /// "Insurance"]). Empty when the whole path already exists.
+    /// "Insurance"]). Empty when the whole path exists.
     public let newSegments: [String]
-    /// True when the deciding signal came from the file's *contents* (F2), not its name. Such
-    /// matches are excluded from the blind "File recommended" batch — reading a word out of a
-    /// document is a less checkable signal than a filename, and that batch moves files nobody has
-    /// looked at.
-    ///
-    /// The blind-batch exclusion is what this flag is FOR, and it holds for every content-derived
-    /// home. The confidence *cap* is narrower: it binds the heuristic content path
-    /// (``Evidence/content``) and not the router's measured margin (``Evidence/measuredContent``),
-    /// which is priced rather than claimed — so `.high` together with `fromContent` is a state the
-    /// router builds on every home it names, and only the heuristic path cannot reach.
+    /// True when the deciding signal came from the file's contents, not its name. Such homes are
+    /// kept out of the blind "File recommended" batch: a word read from a document is less
+    /// checkable than a filename, and that batch moves files nobody has looked at. The confidence
+    /// cap is narrower: it binds the heuristic path (``Evidence/content``), not the router's
+    /// measured margin (``Evidence/measuredContent``), so `.high` with `fromContent` is normal for
+    /// router homes.
     public let fromContent: Bool
-    /// True when this destination came from a remembered rule the user taught (F3). Ranked ahead of
-    /// heuristic matches of equal confidence — an explicit correction outranks a guess.
+    /// True when this destination came from a remembered rule the user taught. Ranked ahead of
+    /// heuristic matches of equal confidence: an explicit correction outranks a guess.
     public let remembered: Bool
-    /// True when an intelligent backend (on-device LLM / cloud) chose this destination by reasoning
-    /// about the folder taxonomy and the file's contents, rather than keyword overlap.
+    /// True when an intelligent backend (on-device LLM or cloud) chose this destination by
+    /// reasoning about the taxonomy and the file's contents, rather than keyword overlap.
     public let fromAI: Bool
-    /// For a content-derived match (F2), the specific evidence word *read from the file* that
-    /// decided this home (display-ready, e.g. "Invoice") — nil for a filename match. Lets the card
-    /// surface content evidence distinctly (a highlight chip) so the stronger signal is legible,
-    /// not indistinguishable from a plain name match.
+    /// For a content match, the evidence word read from the file that decided this home
+    /// (display-ready, e.g. "Invoice"); nil for a filename match. Lets the card show content
+    /// evidence as a highlight chip, distinct from a plain name match.
     public let evidenceToken: String?
-    /// How many files already in the destination share the matched signal — neighbor corroboration
+    /// How many files already in the destination share the matched signal: neighbour corroboration
     /// for a content match ("N similar files already in the target"). 0 when unknown or none.
     public let neighborMatches: Int
     /// What the file would be **called** once it lands here, when this folder names its files by a
-    /// convention and the file's own name gives up its date — `04. Apr 2025.pdf` for a
-    /// `DetailedBillApr2025.pdf` heading into a `NN. Mon YYYY` folder. nil ⇒ it keeps its name.
-    ///
-    /// It hangs off the DESTINATION rather than off the suggestion because the answer *is* a
-    /// property of the destination: the slot a file takes is the folder's to decide, and "Try
-    /// another" moves the file to a folder that numbers its files differently, or not at all. A
-    /// name stored one level up would keep saying `04. Apr 2025.pdf` after the user sent the file
-    /// somewhere that has never numbered anything.
+    /// convention and the file's name yields its date: `04. Apr 2025.pdf` for a
+    /// `DetailedBillApr2025.pdf` heading into a `NN. Mon YYYY` folder. nil means it keeps its name.
+    /// On the destination, not the suggestion, because the name is the folder's to decide: after
+    /// "Try another" a name stored one level up would still say `04. Apr 2025.pdf` in a folder that
+    /// numbers nothing.
     public let proposedName: String?
 
     public var isNew: Bool { !newSegments.isEmpty }
@@ -92,36 +77,32 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.proposedName = proposedName
     }
 
-    /// Where a destination's deciding evidence came from — the input to
+    /// Where a destination's deciding evidence came from: the input to
     /// ``init(path:base:evidence:reasons:newSegments:remembered:evidenceToken:neighborMatches:proposedName:)``,
     /// the one construction path that applies the content-derived confidence cap.
     public enum Evidence: Sendable, Equatable {
         /// The filename, metadata, or an existing folder's own name. The claim stands as made.
         case name
-        /// Read out of the file's *contents* by keyword overlap (a taxonomy hit, a remembered or
-        /// automation rule, a universal rule). Capped at `.medium`: reading a common word out of a
-        /// document is a weaker signal than a filename — and `fromContent` keeps the match out of
-        /// the blind "File recommended" batch besides.
+        /// Read from the file's contents by keyword overlap (a taxonomy hit, a remembered or
+        /// automation rule, a universal rule). Capped at `.medium`: a common word in a document is
+        /// weaker than a filename. `fromContent` also keeps it out of the blind batch.
         case content
-        /// Read out of the file's contents, but priced by the router's *calibrated margin* — the
-        /// one content-derived signal whose confidence is measured rather than claimed (right
-        /// 92.9% of the time when it reports high), so the cap does not apply. Still
-        /// `fromContent`, so still never in the blind batch.
+        /// Read from the file's contents but priced by the router's calibrated margin, the one
+        /// content-derived signal whose confidence is measured, not claimed (right about 93% of the
+        /// time when it reports high), so the cap doesn't apply. Still `fromContent`, so never in
+        /// the blind batch.
         case measuredContent
     }
 
     /// The one place the content-derived confidence cap lives. Every heuristic construction site
     /// (taxonomy match, remembered rule, automation, universal rule, router home) builds its
-    /// confidence through here rather than spelling `min(base, .medium)` — or, worse, a
-    /// `.medium`/`.high` overwrite that only agrees with the cap while base happens to be `.high` —
-    /// for itself.
+    /// confidence here rather than spelling `min(base, .medium)` for itself.
     ///
     /// The deliberate exception is the `fromAI` site,
-    /// `FilingEngine.destination(from:providerRoot:existingRelative:fileName:)` — a code span, not
-    /// a doc link, because that method is internal and this initializer is public, so the link
-    /// could not resolve for anyone reading the public documentation. A backend's verdict keeps
-    /// the confidence it claimed there, and the `fromAI` flag (not a demotion) is what keeps it
-    /// out of the blind batch.
+    /// `FilingEngine.destination(from:providerRoot:existingRelative:fileName:)` (a code span: it is
+    /// internal and this is public, so a link wouldn't resolve). A backend's verdict keeps the
+    /// confidence it claimed, and the `fromAI` flag, not a demotion, keeps it out of the blind
+    /// batch.
     public init(path: String, base: FilingConfidence, evidence: Evidence, reasons: [String],
                 newSegments: [String], remembered: Bool = false, evidenceToken: String? = nil,
                 neighborMatches: Int = 0, proposedName: String? = nil) {
@@ -133,20 +114,17 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                   proposedName: proposedName)
     }
 
-    /// This folder named twice — one candidate carrying both claims. The higher-confidence
-    /// candidate is the WINNER (a tie keeps `self`, the earlier-constructed candidate) and its
-    /// claim stands: confidence, new segments, evidence token, neighbor count, proposed name.
-    /// Reasons union, so both stories about the folder survive.
+    /// This folder named twice: one candidate carrying both claims. The higher-confidence candidate
+    /// wins (a tie keeps `self`, the earlier one) and its claim stands: confidence, new segments,
+    /// evidence token, neighbour count, proposed name. Reasons union, so both stories survive.
     ///
     /// Provenance merges two ways, on purpose:
-    /// - `remembered` and `fromAI` merge by OR — "the user taught this" and "a model chose this"
-    ///   are facts about either claimant that stay true of the merged candidate.
-    /// - `fromContent` follows the WINNER, deliberately not OR. The flag documents the *deciding*
-    ///   signal (see its declaration), and the confidence kept is the winner's: OR-ing it would
-    ///   pair the winner's `.high` with a flag the LOSER earned — the very state the capped
-    ///   construction path refuses to build for a heuristic content match — and would let a weak
-    ///   content candidate that happens to name the same folder knock a legitimate filename home
-    ///   out of the blind batch. Pinned by
+    /// - `remembered` and `fromAI` merge by OR: "the user taught this" and "a model chose this" stay
+    ///   true of the merged candidate.
+    /// - `fromContent` follows the winner, not OR. It names the deciding signal, and the confidence
+    ///   kept is the winner's; OR would pair the winner's `.high` with the loser's flag (a state the
+    ///   capped construction path refuses to build) and let a weak content match on the same folder
+    ///   push a legitimate filename home out of the blind batch. Pinned by
     ///   `FilingProvenancePinTests/sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance`.
     func merging(_ other: FilingDestination) -> FilingDestination {
         let winner = other.confidence > confidence ? other : self
@@ -161,22 +139,15 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  proposedName: winner.proposedName)
     }
 
-    /// A copy of this destination with its final folder renamed — for a NEW folder the user edits
-    /// before accepting it.
-    ///
-    /// Only meaningful when ``isNew``: renaming a folder that already exists would not rename
-    /// anything, it would name a DIFFERENT folder and quietly propose creating it. So a destination
-    /// that creates nothing returns itself, and the caller cannot turn "file into this" into
-    /// "create that" by accident.
+    /// A copy of this destination with its final folder renamed, for a new folder the user edits
+    /// before accepting it. Only meaningful when ``isNew``: renaming an existing folder would name
+    /// a different folder and quietly propose creating it, so a destination that creates nothing
+    /// returns itself.
     public func renamingNewFolder(to name: String) -> FilingDestination {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        // **The shared predicate, not a second list.** This checked `/`, `.`, `..` and empty and
-        // stopped there, so a `:` typed into the card's "Create as" field reached
-        // `createDirectory` — and Finder maps `:` to `/` per HFS+ semantics, so the folder it makes
-        // is not the one the name shows. `validateItemName` is documented as "shared by the engine
-        // and the UI prompts" and already covers that character and NUL; every other new-folder
-        // path in the app goes through it. Two hand-maintained lists is how one of them drifts,
-        // and this is the one that had.
+        // **The shared predicate, not a second list.** `validateItemName` is shared by the engine
+        // and the UI prompts and covers `:` (Finder maps it to `/`, so the folder made wouldn't be
+        // the one shown) and NUL. A hand-maintained list here would drift from it.
         guard !newSegments.isEmpty, FileSyncManager.validateItemName(trimmed) == nil else {
             return self
         }
@@ -188,8 +159,9 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  proposedName: proposedName)
     }
 
-    /// A copy of this destination at a different confidence — for capping a claim the evidence
-    /// behind it cannot support (see ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``).
+    /// A copy of this destination at a different confidence, for capping a claim its evidence can't
+    /// support (see
+    /// ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``).
     public func withConfidence(_ c: FilingConfidence) -> FilingDestination {
         FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
                           fromContent: fromContent, remembered: remembered, fromAI: fromAI,
@@ -208,7 +180,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
 
 /// A loose file and its ranked suggested homes.
 public struct FilingSuggestion: Identifiable, Sendable, Equatable {
-    /// Absolute path of the loose file — its identity.
+    /// Absolute path of the loose file: its identity.
     public let id: String
     public var filePath: String { id }
     public let fileName: String
@@ -216,45 +188,40 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public let modificationDate: Date?
     /// Ranked destinations, best first. Empty when nothing confident fits ("no confident home").
     public let candidates: [FilingDestination]
-    /// Absolute path of the provider root this file lives under, when known — lets the UI render the
-    /// destination breadcrumb provider-relative (e.g. "iCloud › Documents › …") instead of leaking
-    /// the `/Users/<you>` home prefix. nil ⇒ the UI tilde-abbreviates instead.
+    /// Absolute path of the provider root this file lives under, when known, so the UI can render
+    /// the breadcrumb provider-relative ("iCloud › Documents › …") instead of leaking the
+    /// `/Users/<you>` prefix. nil means the UI tilde-abbreviates.
     public let providerRoot: String?
-    /// Provider-relative folders that already hold **this same document**, by content — the PDF text
-    /// fingerprint where there is one and the byte hash otherwise.
-    ///
-    /// Empty is the ordinary case and the default, so a caller that knows nothing about duplicates
-    /// builds exactly the suggestion it always did.
+    /// Provider-relative folders that already hold **this same document**, by content: the PDF text
+    /// fingerprint where there is one, else the byte hash. Empty is the ordinary case and the
+    /// default.
     public let alreadyFiledAt: [String]
     /// The file as the scan found it, read through the same `ItemIdentity.snapshot` the move
-    /// re-reads it with (FR45). The card is an answer about THIS file; by the time it is applied —
-    /// minutes later, in a queue the user steps through — something else may sit at the path: a
-    /// re-download under the same name, an edited copy saved over it. `performFiling` refuses a
-    /// file whose identity has drifted rather than move a stranger into a folder chosen for the
-    /// original. nil ⇒ not recorded ⇒ no check, exactly as before, for a suggestion built by hand.
+    /// re-reads it with. By the time a card is applied, minutes later, something else may sit at
+    /// the path (a re-download, an edited copy saved over it), so `performFiling` refuses a file
+    /// whose identity has drifted rather than move a stranger into a folder chosen for the
+    /// original. nil means no check, for a suggestion built by hand.
     public let sourceIdentity: ItemIdentity?
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
     public var isAlreadyFiled: Bool { !alreadyFiledAt.isEmpty }
-    /// The rename the card offers alongside the move, or nil when the best home does not name its
+    /// The rename the card offers alongside the move, or nil when the best home doesn't name its
     /// files by a convention this pass can read.
     public var proposedName: String? { best?.proposedName }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
-    /// Eligible for the blind "File recommended" batch: a confident home derived from the filename
-    /// (not content, not the LLM). Content-derived and AI homes still show a per-file "File here"
-    /// but aren't auto-filed — a weaker/less-verifiable signal shouldn't move files unseen (the
-    /// on-device model can be confidently wrong).
+    /// Eligible for the blind "File recommended" batch: a `.high` home derived from the filename
+    /// (not content, not the LLM). Content and AI homes still get a per-file "File here" but aren't
+    /// auto-filed: a less verifiable signal shouldn't move files unseen, and the on-device model
+    /// can be confidently wrong.
     ///
-    /// **A document the tree already holds is never in the blind batch.** The batch files without
-    /// the user looking, and the one thing they cannot review afterwards is a second copy they did
-    /// not know was a copy: it lands under a name of its own, in a folder that legitimately fits,
-    /// and nothing about it says it is a duplicate. Filing it is not undone by moving it back.
+    /// **A document the tree already holds is never in the blind batch.** The user couldn't review
+    /// a second copy they didn't know was one: it lands under its own name in a folder that fits,
+    /// and nothing marks it as a duplicate.
     ///
-    /// **High only (GS).** It took Medium too, and Medium is where a one-shared-word match now sits
-    /// — `Health/Medical/India` for a FedEx invoice on "india" — along with every other claim the
-    /// card itself calls unsure. Measured on the household's filed documents, a Medium home is
-    /// right 57% of the time and a High one 85%; only the second is one to move unseen.
+    /// **High only.** Medium is where a one-shared-word match sits (`Health/Medical/India` for a
+    /// FedEx invoice on "india"); measured on filed documents, Medium is right 57% of the time and
+    /// High 85%, and only High is safe to move unseen.
     public var isBatchEligible: Bool {
         best?.confidence == .high && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
     }
@@ -280,7 +247,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                          sourceIdentity: sourceIdentity)
     }
 
-    /// A copy of this suggestion recording what the scan found at its path (FR45).
+    /// A copy of this suggestion recording what the scan found at its path.
     public func recordingSource(_ identity: ItemIdentity?) -> FilingSuggestion {
         FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
                          modificationDate: modificationDate, candidates: candidates,
@@ -288,24 +255,13 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                          sourceIdentity: identity)
     }
 
-    /// The same document with a **new list of homes** — and everything else about it intact.
-    ///
-    /// The one way to re-answer a suggestion. Four places do it — a verdict promotion, a route, a
-    /// re-ask, a rename re-naming — and every one was rebuilding the value member by member, so
-    /// none of them carried `alreadyFiledAt`.
-    ///
-    /// **Two of the four could actually lose it**, which is worth stating precisely rather than
-    /// counting call sites as defects: the marker is produced by `markingAlreadyFiled` at the very
-    /// end of the scan, and `route`/`namingSuggestions` both run before that (and `readScan` hands
-    /// `route` a deliberately blank suggestion), so neither ever held a marker to drop. The two
-    /// that did are `applyVerdicts` reached from a refine and `replaceFilingSuggestion` behind
-    /// "Try another": refine a marked list or press that button, and `isAlreadyFiled` flipped back
-    /// to false. The card lost the one warning that stops a second copy being filed — and losing
-    /// it is not undone by moving the file back, because the copy lands under a name of its own in
-    /// a folder that fits. Unifying all four is still right; only the count of defects is two.
-    ///
-    /// A rebuild that wants to drop the marker has to say so; the default is to keep what was
-    /// learned about the document, since none of these callers learned anything to the contrary.
+    /// The same document with a **new list of homes**, and everything else intact. The one way to
+    /// re-answer a suggestion: a verdict promotion, a route, a re-ask and a rename all go through
+    /// it. Rebuilding member by member drops `alreadyFiledAt`, which matters after
+    /// `markingAlreadyFiled` has run (a refine's `applyVerdicts`, "Try another"'s
+    /// `replaceFilingSuggestion`): the card would lose the one warning that stops a second copy
+    /// being filed, which moving the file back can't undo. A rebuild that wants to drop the marker
+    /// must say so.
     public func replacingCandidates(_ candidates: [FilingDestination]) -> FilingSuggestion {
         FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
                          modificationDate: modificationDate, candidates: candidates,
@@ -318,12 +274,12 @@ public struct FilingOptions: Sendable {
     public var maxCandidates: Int
     public var minFileSize: Int
     public var ignoredNames: Set<String>
-    /// Whether the provider's volume distinguishes `Inbox` from `inbox`, used when deciding that a
-    /// candidate folder is the file's own parent (`PathBoundary.namesSameDirectory`). Defaults to
-    /// FALSE — the macOS default, and the safe direction: over-matching only withholds a
-    /// suggestion to move a file where it already is, while under-matching offers one whose apply
-    /// path would rename the file in place. (`generateUniqueURL`'s like-named parameter defaults
-    /// the other way because there the conservative answer is the opposite one.)
+    /// Whether the provider's volume distinguishes `Inbox` from `inbox`, used to decide that a
+    /// candidate is the file's own parent (`PathBoundary.namesSameDirectory`). Defaults to false,
+    /// the macOS default and the safe direction: over-matching only withholds a move to where the
+    /// file already is, while under-matching would offer one whose apply renames the file in place.
+    /// (`generateUniqueURL`'s like-named parameter defaults the other way, for the opposite
+    /// reason.)
     public var caseSensitiveVolume: Bool
 
     public init(maxCandidates: Int = 3, minFileSize: Int = 0,
@@ -342,36 +298,35 @@ public struct FilingOptions: Sendable {
 
 // MARK: - Engine
 
-/// Suggests where loose files belong within a single provider, using only on-device signals:
-/// filenames, extensions, file dates, and the user's *own* existing folders (learned taxonomy)
-/// plus a small set of universal rules. Pure and deterministic — no content reading, no network.
+/// Suggests where loose files belong within one provider, from on-device signals only: filenames,
+/// extensions, file dates, the user's own folders (learned taxonomy) and a few universal rules.
+/// Pure and deterministic: no content reading, no network.
 public enum FilingEngine {
 
     /// - Parameters:
     ///   - looseFiles: The files to find homes for (the direct files of the picked folder).
-    ///   - taxonomy: The provider's folder tree, used to learn where things go and to know which
-    ///     folders already exist (so new sub-paths are proposed relative to them, never invented
-    ///     from nothing).
-    ///   - providerRoot: Absolute path of the provider root — the only place a brand-new top-level
+    ///   - taxonomy: The provider's folder tree, used to learn where things go and which folders
+    ///     exist, so new sub-paths are proposed under them, never invented from nothing.
+    ///   - providerRoot: Absolute path of the provider root, the only place a brand-new top-level
     ///     folder (e.g. "Photos") may be proposed.
     ///   - options: Tuning.
     /// - Returns: One suggestion per loose file, in input order.
-    /// - Parameter contentTokens: Optional per-file tokens extracted from the file's *contents*
-    ///   (entities/keywords from PDF text, OCR, etc.), merged with the filename tokens so a file
-    ///   whose name says nothing can still find a home. Empty for the filename-only (F1) pass.
-    /// - Parameter rules: Remembered filing rules (F3) — token-set → folder mappings the user
-    ///   taught by correcting past suggestions. A rule that matches ranks ahead of the heuristics.
-    ///   Legacy: pre-migration stores only; migrated installs pass `automations` instead.
-    /// - Parameter automations: The user's automation rules. An enabled, runnable automation that
-    ///   matches a file steers its suggestion exactly like a remembered rule: user-taught, so it
-    ///   ranks ahead of the heuristics (capped to medium when the match needed the file's content).
+    /// - Parameter contentTokens: Optional per-file tokens from the file's contents (PDF text, OCR),
+    ///   merged with the filename tokens so a file whose name says nothing can still find a home.
+    ///   Empty for the filename-only pass.
+    /// - Parameter rules: Remembered filing rules, token-set → folder mappings the user taught by
+    ///   correcting past suggestions; a match ranks ahead of the heuristics. Pre-migration stores
+    ///   only; migrated installs pass `automations`.
+    /// - Parameter automations: The user's automation rules. An enabled, runnable one that matches
+    ///   steers the suggestion like a remembered rule, ranking ahead of the heuristics (capped to
+    ///   medium when the match needed the file's content).
     /// - Parameter providerName: Resolves `{provider}` in an automation's destination template.
-    /// - Parameter automationSnippets: Per-file lowercased text excerpts, extracted up front for the
-    ///   files where a content-reading automation could match — the SAME text the Automations
-    ///   preview evaluates, so a rule gives one answer on both surfaces.
+    /// - Parameter automationSnippets: Per-file lowercased excerpts for files a content-reading
+    ///   automation could match: the same text the Automations preview evaluates, so a rule gives one
+    ///   answer on both surfaces.
     /// - Parameter now: Injectable clock for the automations' date conditions and `{year}` tokens.
-    /// - Parameter rejectedByFile: Per-file absolute folder paths the user has rejected — dropped
-    ///   from that file's candidates so a "no, not there" is never re-suggested.
+    /// - Parameter rejectedByFile: Per-file absolute folder paths the user rejected, dropped from that
+    ///   file's candidates so a "no, not there" is never re-suggested.
     public static func suggest(
         looseFiles: [FileNode],
         taxonomy: [FileNode],
@@ -379,8 +334,8 @@ public enum FilingEngine {
         contentTokens: [String: Set<String>] = [:],
         rules: [FilingRule] = [],
         automations: [AutomationRule] = [],
-        /// The household, so a `personIs` rule and a `{person}` destination can resolve. nil ⇒
-        /// person rules never match, which is the behaviour before people existed.
+        /// The household, so a `personIs` rule and a `{person}` destination can resolve. nil means
+        /// person rules never match.
         registry: PersonRegistry? = nil,
         identity: PersonIdentityIndex? = nil,
         providerName: String? = nil,
@@ -398,19 +353,19 @@ public enum FilingEngine {
                 rejectedByFile: rejectedByFile, rejectedWords: rejectedWords, options: options)
     }
 
-    /// What ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``
-    /// learns from the taxonomy before it looks at a single file: every folder's profile, and the
-    /// set of folders that exist.
-    ///
-    /// **Learned once per scan, not once per call.** It tokenizes every folder name and every file
-    /// name in the tree — 12,581 folders on a real one — and a scan suggests twice, once from
-    /// names and once more with the pages read. Nothing in it depends on the loose files.
+    /// What
+    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
+    /// learns from the taxonomy before it looks at a file: every folder's profile, and the set of
+    /// folders that exist. Learned once per scan, not per call: it tokenizes every folder and file
+    /// name in the tree (thousands), a scan suggests twice, and nothing in it depends on the loose
+    /// files.
     public struct LearnedTaxonomy: Sendable {
         let profiles: [FolderProfile]
         let existingPaths: Set<String>
     }
 
-    /// Learns `taxonomy`, for ``suggest(looseFiles:learned:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``.
+    /// Learns `taxonomy`, for
+    /// ``suggest(looseFiles:learned:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``.
     /// Only `options.ignoredNames` is read, so it must be the options the suggestions use.
     public static func learnTaxonomy(_ taxonomy: [FileNode], providerRoot: String,
                                      options: FilingOptions) -> LearnedTaxonomy {
@@ -422,8 +377,8 @@ public enum FilingEngine {
         return LearnedTaxonomy(profiles: profiles, existingPaths: existingPaths)
     }
 
-    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:options:)``
-    /// against a taxonomy already learned — see ``LearnedTaxonomy``.
+    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
+    /// against a taxonomy already learned; see ``LearnedTaxonomy``.
     public static func suggest(
         looseFiles: [FileNode],
         learned: LearnedTaxonomy,
@@ -442,13 +397,12 @@ public enum FilingEngine {
     ) -> [FilingSuggestion] {
         let profiles = learned.profiles
         let existingPaths = learned.existingPaths
-        // Folders that already file by year — a parent of some `…/2024`. Once per scan, not per file.
+        // Folders that already file by year (a parent of some `…/2024`), once per scan.
         let filesByYear = Set(existingPaths.compactMap { path -> String? in
             isYear((path as NSString).lastPathComponent) ? (path as NSString).deletingLastPathComponent : nil
         })
-        // Which rules are allowed to act does not depend on the file, so it is decided once for
-        // the scan rather than once per loose file — the shared eligibility bar, one array.
-        // A rule taught for another survey's tree is inert here (TE286), as an absolute one is.
+        // Which rules may act doesn't depend on the file, so it is decided once per scan. A rule
+        // taught for another survey's tree is inert here, as an absolute one is.
         let actingAutomations = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot) }
 
         return looseFiles.compactMap { file -> FilingSuggestion? in
@@ -460,11 +414,10 @@ public enum FilingEngine {
             let content = contentTokens[file.id] ?? []
             let tokens = nameToks.union(content)
             let ext = (file.name as NSString).pathExtension.lowercased()
-            // The year segment of rule destinations (Receipts/<year>, Taxes/<year>, …): a single
-            // plausible year in the FILENAME names the document's own year and wins over the
-            // modification date, which is merely when the bytes last changed — a 2023 tax form
-            // downloaded in 2024 belongs in Taxes/2023, not Taxes/2024. Zero or multiple filename
-            // years (a "2021-2022" range says nothing definite) fall back to mtime.
+            // The year segment of rule destinations (Receipts/<year>, Taxes/<year>): a single
+            // plausible year in the filename names the document's own year and beats the
+            // modification date, so a 2023 tax form downloaded in 2024 goes to Taxes/2023. Zero or
+            // several filename years (a "2021-2022" range) fall back to mtime.
             let year = filenameYear(in: nameToks) ?? yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
@@ -484,18 +437,17 @@ public enum FilingEngine {
                                          profiles: profiles, existingPaths: existingPaths,
                                          filesByYear: filesByYear, providerRoot: providerRoot)
 
-            // A file already sitting in a suggested folder shouldn't be told to move to where it is.
-            // Case-folded on a case-insensitive volume: a rule destination spelled in a different
-            // case names the same folder there, and offering it would put the file on a path whose
-            // apply step renames it in place.
+            // A file already in a suggested folder shouldn't be told to move to where it is.
+            // Case-folded on a case-insensitive volume, where a differently cased destination names
+            // the same folder and its apply would rename the file in place.
             let selfParent = (file.id as NSString).deletingLastPathComponent
             candidates.removeAll {
                 PathBoundary.namesSameDirectory($0.path, selfParent, caseSensitive: options.caseSensitiveVolume)
             }
 
-            // Drop rejected folders from the full pool BEFORE ranking+capping, so a valid deeper
-            // candidate isn't lost: removing after the cap could strip the top pick and leave the
-            // file with fewer (or no) homes even though a good one existed just past the cap.
+            // Drop rejected folders from the full pool before ranking and capping: removing after
+            // the cap could strip the top pick and leave fewer homes, or none, though a good one
+            // sat past the cap.
             var pool = candidates
             if let rejected = rejectedByFile[file.id], !rejected.isEmpty {
                 pool.removeAll { rejected.contains($0.path) }
@@ -517,8 +469,8 @@ public enum FilingEngine {
         let nameTokens: Set<String>
         /// Tokens from the names of files directly inside (weaker signal).
         let contentTokens: Set<String>
-        /// For each content token, how many files directly inside carry it — the count behind
-        /// "N similar files already in the target".
+        /// For each content token, how many files directly inside carry it: the count behind "N
+        /// similar files already in the target".
         let contentTokenFileCounts: [String: Int]
     }
 
@@ -526,8 +478,8 @@ public enum FilingEngine {
         _ node: FileNode, ancestorTokens: Set<String>,
         into profiles: inout [FolderProfile], paths: inout Set<String>, options: FilingOptions
     ) {
-        // A package (`Budget 2025.numbers`) is a document, so neither it nor anything inside it is
-        // a home (FR3). `performFiling` refuses one as a destination whatever route named it.
+        // A package (`Budget 2025.numbers`) is a document, so neither it nor anything inside is a
+        // home. `performFiling` refuses one as a destination whatever route named it.
         guard node.isDirectory, !node.isPackage, !options.ignoredNames.contains(node.name) else { return }
         paths.insert(node.id)
 
@@ -550,8 +502,8 @@ public enum FilingEngine {
     }
 
     /// Existing folders whose profile overlaps the file's tokens, as ranked destinations.
-    /// `rejectedWords` maps a folder's absolute path to the words the user has said are no reason
-    /// for it (GU); a match on that folder resting on those words alone is not offered.
+    /// `rejectedWords` maps a folder's absolute path to words the user said are no reason for it; a
+    /// match on that folder resting on those words alone is not offered.
     private static func taxonomyCandidates(tokens: Set<String>, nameTokens: Set<String>,
                                            contentTokens: Set<String>, profiles: [FolderProfile],
                                            rejectedWords: [String: Set<String>] = [:],
@@ -561,40 +513,33 @@ public enum FilingEngine {
         for p in profiles {
             let nameHits = tokens.intersection(p.nameTokens)
             let contentHits = tokens.intersection(p.contentTokens).subtracting(nameHits)
-            // A bare year names WHICH same-year folder, not WHAT category — matching a year-named
-            // folder on the year alone must never stand up a high-confidence, batch-eligible home,
-            // or the blind "File recommended" batch would move e.g. "2024-tax-return.pdf" into
-            // whichever `…/2024` folder sorts first. Only non-year hits carry category strength;
-            // the year still rides along in the displayed reason below.
+            // A bare year names which same-year folder, not what category, so a year alone must
+            // never make a `.high`, batch-eligible home (or the blind batch would move
+            // "2024-tax-return.pdf" into whichever `…/2024` sorts first). Only non-year hits carry
+            // category strength; the year still shows in the reason.
             let categoryNameHits = nameHits.filter { !isYear($0) }
             let categoryContentHits = contentHits.filter { !isYear($0) }
             let score = categoryNameHits.count * 3 + categoryContentHits.count
             guard score >= 3 else { continue }   // a real folder-name hit, or ≥3 content hits
             let hitSet = nameHits.union(contentHits)
             let hits = hitSet.sorted().prefix(3).joined(separator: ", ")
-            // Content-derived when the deciding (non-year) tokens are NOT in the filename — a year
-            // shared between the filename and the folder must not make a content match look
-            // name-derived (and thus batch-eligible). Compare the category hits to the real
-            // filename tokens, so a token in BOTH name and content counts as from the name.
+            // Content-derived when the deciding non-year tokens aren't in the filename, so a year
+            // shared by filename and folder can't make a content match look name-derived (and
+            // batch-eligible). A token in both name and content counts as from the name.
             let categoryHits = categoryNameHits.union(categoryContentHits)
             if let refused = rejectedWords[p.path], categoryHits.isSubset(of: refused) { continue }
             let fromContent = categoryHits.isDisjoint(with: nameTokens) && !categoryHits.isDisjoint(with: contentTokens)
-            // **One shared word is a lead, not a home (GS).** A folder name's single word, with
-            // nothing else in common, was `.high` — so `Duplicate Files Report - Sep 2026.md` led
-            // with `Immigration/Reference/H-1B Policy Posts – Sep 2025` on "sep", and a FedEx
-            // invoice with `Health/Medical/India` on "india", both batch-eligible. High needs the
-            // folder's name AND a second word the file shares with it or with the files already
-            // in it; one word alone stays Medium, where the survey and Refine can displace it.
-            //
-            // Counted in the file's own WORDS: "FedEx" tokenizes to `fed` and `ex`, and two halves of
-            // one word are still one word — `FedEx invoice.pdf` against `Purchases/US/FedEx`.
+            // **One shared word is a lead, not a home.** A single folder-name word with nothing
+            // else in common would lead `Duplicate Files Report - Sep 2026.md` to an immigration
+            // folder on "sep". High needs the folder's name and a second word shared with it or its
+            // files; one word stays Medium, where the survey and Refine can displace it. Counted in
+            // the file's own words: "FedEx" tokenizes to `fed` and `ex`, still one word.
             let wordsHit = words.filter { !$0.isDisjoint(with: categoryHits) }.count
                 + categoryHits.subtracting(words.reduce(into: Set<String>()) { $0.formUnion($1) }).count
             let base: FilingConfidence = !categoryNameHits.isEmpty && wordsHit >= 2 ? .high : .medium
             if fromContent {
-                // Surface the single strongest evidence word (prefer a sibling-content hit, which
-                // carries a neighbor count) plus how many files already in the target share it —
-                // legible corroboration a plain name match can't offer.
+                // Show the single strongest evidence word (preferring a sibling-content hit, which
+                // has a neighbour count) and how many files in the target share it.
                 let evidenceRaw = contentHits.sorted().first ?? nameHits.sorted().first ?? hitSet.sorted().first ?? ""
                 let neighbors = p.contentTokenFileCounts[evidenceRaw] ?? 0
                 let reason = neighbors > 0
@@ -614,9 +559,9 @@ public enum FilingEngine {
 
     // MARK: Remembered rules (F3)
 
-    /// Destinations from remembered rules whose trigger tokens are all present in the file. A rule
-    /// match is high confidence (the user taught it) — unless the match rests only on content
-    /// tokens, which is capped to medium like any other content-derived signal.
+    /// Destinations from remembered rules whose trigger tokens are all in the file. High confidence
+    /// (the user taught it), unless the match rests only on content tokens, which caps it to medium
+    /// like any content signal.
     private static func rememberedCandidates(
         rules: [FilingRule], tokens: Set<String>, nameTokens: Set<String>,
         contentTokens: Set<String>, existingPaths: Set<String>
@@ -644,16 +589,11 @@ public enum FilingEngine {
 
     // MARK: Automation rules (steering)
 
-    /// Destinations from the user's automations, as suggestion candidates. An enabled, runnable
-    /// automation whose conditions hold for the file steers the suggestion the way a remembered
-    /// rule always did: the user wrote it, so it's high confidence — capped to medium when the
-    /// match needed the file's *content* (same cap every content-derived signal gets, which also
-    /// keeps it out of the blind batch apply). A rule whose destination resolves outside this
-    /// provider is inert here, exactly like the old provider-scoped remembered rules.
-    ///
-    /// Takes the already-narrowed ``AutomationRuleSet`` rather than the raw rules: eligibility is
-    /// a property of the rules, not of the file, so the scan decides it once instead of once per
-    /// loose file.
+    /// Destinations from the user's automations. An enabled, runnable automation whose conditions
+    /// hold steers the suggestion as a remembered rule does: user-written, so high confidence,
+    /// capped to medium when the match needed the file's content (which also keeps it out of the
+    /// blind batch). A rule whose destination resolves outside this provider is inert here. Takes
+    /// the already-narrowed ``AutomationRuleSet``, since eligibility doesn't depend on the file.
     private static func automationCandidates(
         automations: AutomationRuleSet, file: FileNode, contentTokens: Set<String>, snippet: String?,
         providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date,
@@ -662,8 +602,8 @@ public enum FilingEngine {
         guard !automations.isEmpty else { return [] }
         let facts = automationFacts(for: file, contentTokens: contentTokens, snippet: snippet,
                                     registry: registry, identity: identity)
-        // The same facts with the content stripped — a rule that only matches WITH content is a
-        // content-derived signal (medium confidence, "read from the file" note, no blind batch).
+        // The same facts without content: a rule that matches only with content is a
+        // content-derived signal (medium, "read from the file", no blind batch).
         var nameOnlyFacts = facts
         nameOnlyFacts.contentTokens = []
         nameOnlyFacts.snippet = nil
@@ -697,10 +637,10 @@ public enum FilingEngine {
     }
 
     /// Where a matched rule files this file, absolute, inside `providerRoot`; nil when it resolves
-    /// nowhere there. A `{travel-month}` segment takes the spelling of a month folder already there
-    /// (decision HI). When page 1 wasn't read, or names no date, a rule whose folder it names files
-    /// into the part before that token, flagged `needsPage`: Travel/Trips/IN-US for a ticket only in
-    /// the cloud, until Download and Read finds the month.
+    /// nowhere there. A `{travel-month}` segment takes the spelling of a month folder already
+    /// there. When page 1 wasn't read, or names no date, it files into the part before that token,
+    /// flagged `needsPage`: Travel/Trips/IN-US for a cloud-only ticket, until Download and Read
+    /// finds the month.
     public static func ruleDestination(_ rule: AutomationRule, facts: AutomationFileFacts, providerRoot: String,
                                        providerName: String?, now: Date,
                                        children: (String) -> [String]) -> (path: String, needsPage: Bool)? {
@@ -733,10 +673,10 @@ public enum FilingEngine {
         }
     }
 
-    /// The evaluator facts for a loose file in an Organize scan. Shared with the manager's
-    /// content-gating pass so both build identical inputs. `snippet` (when a content-reading rule
-    /// warranted extracting it) also supplies the content tokens, tokenized exactly as the
-    /// Automations preview tokenizes its excerpt — one rule, one answer on both surfaces.
+    /// The evaluator facts for a loose file in an Organize scan, shared with the manager's
+    /// content-gating pass so both build identical inputs. `snippet`, when present, also supplies
+    /// the content tokens, tokenized as the Automations preview tokenizes its excerpt: one rule,
+    /// one answer on both surfaces.
     static func automationFacts(for file: FileNode, contentTokens: Set<String> = [],
                                 snippet: String? = nil,
                                 registry: PersonRegistry? = nil,
@@ -749,22 +689,20 @@ public enum FilingEngine {
             sizeBytes: file.fileSize ?? 0,
             modificationDate: file.modificationDate,
             isDirectory: file.isDirectory,
-            // Lowercased HERE, the one choke point on the scan path: the facts contract says
-            // "already lowercased" but the Organize scan hands over the extractor's raw text
-            // (the dry-run lowercases its own) — and `contentContains` matches case-sensitively
-            // against a lowercased needle, so raw "Invoice" never matched "invoice" in the scan
-            // while the Automations preview said it would. nameTokens lowercases internally, so
-            // the derived contentTokens are unchanged either way.
+            // Lowercased here, the one choke point on the scan path: the facts contract says
+            // "already lowercased", the scan hands over raw extractor text, and `contentContains`
+            // compares against a lowercased needle, so "Invoice" would never match "invoice".
+            // `nameTokens` lowercases internally, so the derived tokens don't change.
             snippet: snippet?.lowercased(),
             contentTokens: snippet.map { nameTokens($0) } ?? contentTokens)
             .attributing(registry, identity: identity)
     }
 
-    /// Whether a matched rule's evidence is content-derived — which caps it to medium and keeps it
-    /// out of the blind batch. For the learned single-`mentionsAll` shape this is the EXACT test
-    /// the legacy remembered rules used (content-derived only when NO trigger word is in the
-    /// filename), so a migrated rule keeps its batch behavior; a general multi-condition rule is
-    /// content-derived whenever it would not match on the name/metadata alone (conservative).
+    /// Whether a matched rule's evidence is content-derived, which caps it to medium and keeps it
+    /// out of the blind batch. For the learned single-`mentionsAll` shape this is the legacy
+    /// remembered rules' exact test (content-derived only when no trigger word is in the filename),
+    /// so a migrated rule keeps its batch behaviour; any other rule is content-derived whenever it
+    /// wouldn't match on name and metadata alone.
     private static func ruleMatchIsContentDerived(
         _ rule: AutomationRule, facts: AutomationFileFacts, nameOnlyFacts: AutomationFileFacts, now: Date
     ) -> Bool {
@@ -775,9 +713,9 @@ public enum FilingEngine {
         return !AutomationEvaluator.matches(rule, nameOnlyFacts, now: now)
     }
 
-    /// The trailing segments of an absolute path that don't yet exist (would be recreated on apply);
-    /// empty when the whole path already exists. Lets a remembered folder that was since deleted be
-    /// re-proposed with NEW tags rather than silently failing.
+    /// The trailing segments of an absolute path that don't exist yet (created on apply); empty
+    /// when the whole path exists. Lets a remembered folder deleted since be re-proposed as new
+    /// rather than silently failing.
     static func missingSegments(of path: String, existingPaths: Set<String>) -> [String] {
         if existingPaths.contains(path) { return [] }
         var current = ""
@@ -786,11 +724,9 @@ public enum FilingEngine {
             current += "/" + seg
             segments.append((current, String(seg)))
         }
-        // The missing tail is everything after the LONGEST prefix that exists. Latching at the
-        // first non-existing prefix instead would mark every segment from the filesystem root:
-        // `existingPaths` holds the provider root and its walked folders, never the root's own
-        // ancestors ("/Users", …), so for a real multi-segment provider root the first prefix
-        // always misses and a deleted remembered folder would flag the whole path as NEW.
+        // The missing tail is everything after the longest prefix that exists. `existingPaths`
+        // holds the provider root and its walked folders, never the root's own ancestors
+        // ("/Users"), so latching at the first missing prefix would mark the whole path new.
         let lastExisting = segments.lastIndex { existingPaths.contains($0.prefix) }
         let missingStart = lastExisting.map { $0 + 1 } ?? 0
         return segments[missingStart...].map { $0.seg }
@@ -805,17 +741,15 @@ public enum FilingEngine {
     ) -> [FilingDestination] {
         var out: [FilingDestination] = []
         // **"Filed by year" is a claim about the tree, so the tree has to make it.** These rules
-        // name a `<year>` folder under whatever receipts or taxes folder exists, and were High
-        // whether or not that folder files by year: `Mint Order - 2026.pdf` led with a NEW
-        // `Purchases/2026` in a `Purchases` that sorts by country and vendor (`US/Amazon`,
-        // `IN/…`) and holds no year at all. Where the folder already keeps a year, the claim
-        // stands; where it does not, it is a proposal for a new shape, at Medium.
+        // name a `<year>` folder under the receipts or taxes folder; where that folder already
+        // keeps years the claim stands, and where it doesn't (a `Purchases` sorted by country and
+        // vendor) it is a proposal for a new shape, at Medium.
         func byYear(_ anchor: String, _ base: FilingConfidence) -> FilingConfidence {
             filesByYear.contains(anchor) ? base : min(base, .medium)
         }
-        // A signal is "from content" when none of its tokens appear in the filename. Content-derived
-        // matches are capped to medium (a common word in a document is weaker than a filename) and
-        // get a "(read from the file)" note, which also keeps them out of the blind batch apply.
+        // A signal is "from content" when none of its tokens are in the filename. Such matches are
+        // capped to medium and get a "(read from the file)" note, which also keeps them out of the
+        // blind batch.
         func rule(_ anchor: String, _ segs: [String], _ base: FilingConfidence, _ reason: String, signal: Set<String>) {
             let fc = signal.isDisjoint(with: nameTokens) && !signal.isDisjoint(with: contentTokens)
             out.append(under(anchor, segs, existingPaths, base: base,
@@ -856,8 +790,8 @@ public enum FilingEngine {
         }
 
         // Tax documents → <Taxes>/<year> or <Finance|Documents>/Taxes/<year>. Form numbers like
-        // 1099/1040 are bare digits (stripped from filename tokens), so also sniff the raw name —
-        // when they're in the NAME the match is a name signal (not content).
+        // 1099/1040 are bare digits, stripped from filename tokens, so the raw name is sniffed too;
+        // found there, the match is a name signal.
         let taxSig = tokens.intersection(taxTokens)
         let taxFromName = nameLower.contains("1099") || nameLower.contains("1040")
         if !taxSig.isEmpty || taxFromName, let year {
@@ -879,8 +813,8 @@ public enum FilingEngine {
         return out
     }
 
-    /// Builds a destination under an EXISTING anchor folder, appending segments and marking which
-    /// are new (don't yet exist).
+    /// Builds a destination under an existing anchor folder, appending segments and marking which
+    /// are new.
     private static func under(_ anchor: String, _ segments: [String], _ existingPaths: Set<String>,
                              base: FilingConfidence, evidence: FilingDestination.Evidence,
                              _ reason: String) -> FilingDestination {
@@ -910,7 +844,7 @@ public enum FilingEngine {
     private static func rank(_ candidates: [FilingDestination], limit: Int) -> [FilingDestination] {
         var byPath: [String: FilingDestination] = [:]
         for c in candidates {
-            // The merge discipline lives on FilingDestination.merging — one owner, documented there.
+            // The merge rules live on `FilingDestination.merging`.
             byPath[c.path] = byPath[c.path]?.merging(c) ?? c
         }
         return byPath.values.sorted { a, b in
@@ -918,8 +852,8 @@ public enum FilingEngine {
             if a.remembered != b.remembered { return a.remembered }      // a correction you taught outranks a guess
             if a.isNew != b.isNew { return !a.isNew }                    // prefer existing folders
             if a.newSegments.count != b.newSegments.count { return a.newSegments.count < b.newSegments.count }
-            // Among equally-good matches, prefer the shallower, more general folder — so a generic
-            // doc lands in top-level /Insurance, not a nested namesake like /Health/Insurance.
+            // Among equally good matches, prefer the shallower, more general folder, so a generic
+            // document lands in top-level /Insurance, not a nested namesake like /Health/Insurance.
             let da = a.path.split(separator: "/").count, db = b.path.split(separator: "/").count
             if da != db { return da < db }
             return a.path.localizedStandardCompare(b.path) == .orderedAscending
@@ -928,14 +862,12 @@ public enum FilingEngine {
 
     // MARK: Tokenization
 
-    /// Tokens from a filename (extension stripped). Camera-sequence stems (IMG_2023, DSC_1995,
-    /// PXL 0421, GOPR0042) drop their year-shaped digits: the number is a shot counter, not a
-    /// year, and letting it through filed IMG_2023.jpg (shot in 2026) into Photos/2023 — at high
-    /// confidence and batch-eligible. Applied to the RAW stem before tokenization, because the
-    /// tokens alone can't tell IMG_2023 from a genuine "2023" ("img" is a stopword, so both
-    /// reduce to the bare year token). This is the one shared entry point for filename tokens,
-    /// so the heuristic year, the automations' `{year}` template (which derives its filename
-    /// year from these tokens), and `mentionsAll` matching all agree.
+    /// Tokens from a filename, extension stripped. Camera-sequence stems (IMG_2023, DSC_1995, PXL
+    /// 0421, GOPR0042) drop their year-shaped digits: the number is a shot counter, and keeping it
+    /// would file IMG_2023.jpg shot in 2026 into Photos/2023 at high confidence. Applied to the raw
+    /// stem, because the tokens can't tell IMG_2023 from a real "2023" ("img" is a stopword). The
+    /// one shared entry point for filename tokens, so the heuristic year, the automations' `{year}`
+    /// and `mentionsAll` matching agree.
     public static func fileTokens(_ fileName: String) -> Set<String> {
         let stem = (fileName as NSString).deletingPathExtension
         let tokens = nameTokens(stem)
@@ -943,21 +875,18 @@ public enum FilingEngine {
         return tokens.filter { !isYear($0) }
     }
 
-    /// Whether a raw filename stem is a camera/phone sequence name — a known device prefix plus
-    /// a 3–6 digit shot counter and nothing else. "Wedding 2023" is NOT one: its year is real.
-    ///
-    /// GoPro prefixes are pinned to the exact shapes the cameras write — GOPR + 4-digit file
-    /// number (GOPR0001.MP4), or GP/GH/GX/GS + 2-digit chapter + 4-digit file number
-    /// (GP010001, GH010001, GX010001, GS010001), no separator. The old `gopr\w*` alternative
-    /// backtracked through arbitrary words, so a hand-named "gopro_hawaii_2023.mp4" counted as
-    /// a camera sequence and its REAL 2023 lost both year filing and "mentions 2023" matching.
+    /// Whether a raw filename stem is a camera or phone sequence name: a known device prefix plus a
+    /// 3–6 digit shot counter and nothing else. "Wedding 2023" is not one: its year is real. GoPro
+    /// prefixes are pinned to the exact shapes the cameras write (GOPR + 4-digit file number, or
+    /// GP/GH/GX/GS + 2-digit chapter + 4-digit number, no separator), so a hand-named
+    /// "gopro_hawaii_2023.mp4" keeps its real year.
     static func isCameraSequenceStem(_ stem: String) -> Bool {
         stem.range(of: #"^(?:(?:img|dsc|dscn|dscf|dcim|pxl|mvimg)[_ -]?\d{3,6}|gopr\d{4}|(?:gp|gh|gx|gs)\d{6})$"#,
                    options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    /// The union of every category vocabulary — the keywords a content extractor should surface
-    /// from a document (insurers, vendors, banks, tax terms, vehicle brands) so the rules fire.
+    /// The union of every category vocabulary: the keywords a content extractor should surface from
+    /// a document (insurers, vendors, banks, tax terms, vehicle brands) so the rules fire.
     public static let categoryKeywords: Set<String> =
         insuranceTokens.union(receiptTokens).union(taxTokens).union(statementTokens).union(vehicleBrands)
 
@@ -994,11 +923,10 @@ public enum FilingEngine {
         return n >= 1900 && n <= 2099
     }
 
-    /// The single PLAUSIBLE year named by the filename's tokens, or nil. Plausible narrows
-    /// ``isYear``'s 1900–2099 token span to 1990...(current year + 1) — old scans and next
-    /// year's pre-dated statements are real; "2098" in a filename is not a filing year.
-    /// Requires exactly one such token: several ("FY2021-2022 report") name no single year.
-    /// `now` is injectable for deterministic tests.
+    /// The single plausible year named by the filename's tokens, or nil. Plausible narrows
+    /// ``isYear``'s 1900–2099 span to 1990 through next year: old scans and pre-dated statements
+    /// are real, "2098" is not a filing year. Exactly one such token is required; several
+    /// ("FY2021-2022 report") name no single year. `now` is injectable for tests.
     static func filenameYear(in nameTokens: Set<String>, now: Date = Date()) -> String? {
         let currentYear = Calendar(identifier: .gregorian).component(.year, from: now)
         let plausible = nameTokens.filter { token in
@@ -1015,30 +943,31 @@ public enum FilingEngine {
 
     // MARK: Remembered-rule construction (F3)
 
-    /// Whether a rule can be learned from this filename at all — true when the name yields at least
-    /// one salient (non-year) token. A file whose name says nothing (e.g. "scan0012.pdf") can't seed
-    /// a rule, so the UI shouldn't offer to remember it.
+    /// Whether a rule can be learned from this filename at all: true when the name yields at least
+    /// one salient (non-year) token. A name that says nothing ("scan0012.pdf") can't seed a rule,
+    /// so the UI shouldn't offer to remember it.
     public static func canRemember(fileName: String) -> Bool {
         fileTokens(fileName).contains { !isYear($0) }
     }
 
-    /// The filename's salient (non-year) tokens, sorted — the signature used to remember a rejection
+    /// The filename's salient (non-year) tokens, sorted: the signature a rejection is remembered
+    /// by,
     /// so it generalizes to files with the same distinctive words.
     public static func salientTokens(ofFileNamed fileName: String) -> [String] {
         fileTokens(fileName).filter { !isYear($0) }.sorted()
     }
 
-    /// The file name's words, each as the tokens it yields — so a camelCase word split into two
-    /// tokens (`FedEx` → `fed`, `ex`) can still be counted as the one word it is.
+    /// The file name's words, each as the tokens it yields, so a camelCase word split in two
+    /// (`FedEx` → `fed`, `ex`) still counts as one word.
     static func wordGroups(_ fileName: String) -> [Set<String>] {
         let stem = (fileName as NSString).deletingPathExtension
         return stem.split(whereSeparator: { !($0.isLetter || $0.isNumber) })
             .map { nameTokens(String($0)) }.filter { $0.count > 1 }
     }
 
-    /// The non-year words a file's name shares with a folder's path below `providerRoot` — what a
-    /// keyword match on that folder rests on, and so what rejecting it teaches (GU). Tokenized as
-    /// ``taxonomyCandidates`` tokenizes, so the words recorded are the words it will compare.
+    /// The non-year words a file's name shares with a folder's path below `providerRoot`: what a
+    /// keyword match on that folder rests on, and so what rejecting it teaches. Tokenized as
+    /// ``taxonomyCandidates`` tokenizes, so the recorded words are the ones it compares.
     public static func sharedNameWords(fileName: String, folderPath: String,
                                        providerRoot: String) -> Set<String> {
         let relative = PathBoundary.relativize(folderPath, under: providerRoot) ?? folderPath
@@ -1048,10 +977,10 @@ public enum FilingEngine {
     }
 
     /// Builds a remembered rule from a correction: the file the user just filed and where they put
-    /// it. The trigger prefers the *distinctive anchor* — tokens the filename shares with the
-    /// destination's own folder names (e.g. "tesla" in a `…/Tesla/Insurance` path) — so the rule
-    /// generalizes ("the next Tesla document") without keying on incidental words. Falls back to the
-    /// file's salient tokens when there's no shared anchor. Returns nil when nothing usable remains.
+    /// it. The trigger prefers the distinctive anchor, tokens the filename shares with the
+    /// destination's folder names ("tesla" in `…/Tesla/Insurance`), so the rule generalizes without
+    /// keying on incidental words. Falls back to the file's salient tokens; nil when nothing usable
+    /// remains.
     public static func rule(forFileNamed fileName: String, contentTokens: Set<String> = [],
                             filedInto destinationPath: String) -> FilingRule? {
         let salientName = fileTokens(fileName).filter { !isYear($0) }
@@ -1084,27 +1013,25 @@ public enum FilingEngine {
     ]
     static let insuranceTokens: Set<String> = ["insurance", "policy", "coverage", "geico", "allstate", "progressive"]
     static let receiptTokens: Set<String> = ["receipt", "invoice", "order", "purchase", "amazon", "billing", "bill"]
-    // 1099/1040 are useful as *content* tokens (the filename path also sniffs them raw, since the
-    // tokenizer strips bare numbers from filenames).
-    // "return" was dropped — too ambiguous in document body text (product returns, etc.).
+    // 1099/1040 are useful as content tokens (the filename path also sniffs them raw, since the
+    // tokenizer strips bare numbers). "return" is left out: too ambiguous in body text.
     static let taxTokens: Set<String> = ["tax", "taxes", "1099", "1040", "irs"]
     static let statementTokens: Set<String> = ["statement", "bank", "chase", "amex", "visa", "mastercard", "wells", "fargo"]
 
     // MARK: Intelligent classification (overlay)
 
-    /// Folder paths relative to the provider root — the taxonomy handed to a classifier. Built
-    /// structurally from node names (not by string-stripping the root) so it's immune to symlink
-    /// prefix differences like /var vs /private/var. Shallowest first, capped so a huge tree can't
-    /// blow the model's context (deep leaves drop first).
+    /// Folder paths relative to the provider root: the taxonomy handed to a classifier. Built from
+    /// node names, not by stripping the root, so symlink prefixes like /var vs /private/var can't
+    /// differ. Shallowest first, capped so a huge tree can't overflow the model's context.
     public static func relativeFolderPaths(of taxonomy: [FileNode], limit: Int = 250) -> [String] {
         shallowestFirst(unorderedRelativeFolderPaths(of: taxonomy)) {
             $0.localizedStandardCompare($1) == .orderedAscending
         }.prefix(limit).map { $0 }
     }
 
-    /// Every folder ``relativeFolderPaths(of:limit:)`` lists with no limit, as a set — without the
-    /// sort, which a set throws away. That sort calls `localizedStandardCompare` on every
-    /// comparison, and on a 12,000-folder tree it was most of what building this set cost.
+    /// Every folder ``relativeFolderPaths(of:limit:)`` lists, unlimited, as a set and without the
+    /// sort: `localizedStandardCompare` on every comparison would dominate the cost on a large
+    /// tree.
     public static func relativeFolderPathSet(of taxonomy: [FileNode]) -> Set<String> {
         Set(unorderedRelativeFolderPaths(of: taxonomy))
     }
@@ -1123,15 +1050,11 @@ public enum FilingEngine {
         return out
     }
 
-    /// `paths` shallowest first, ties broken by `inOrder` — the order the folder list above and a
-    /// survey's reading plan are kept in.
-    ///
-    /// **Each path's depth is counted once, not on every comparison.** The comparator this replaces
-    /// split both paths into components each time it was asked, so a sort of n paths split
-    /// 2·n·log n of them: 560 ms for an 11,024-document survey plan, on the main thread. Depth is
-    /// still `split(separator: "/").count` — empty components dropped, grapheme-aware — and the
-    /// comparisons are the same, so the order is the same to the byte. That matters beyond tidiness:
-    /// a resumed document survey compares the plan it saved with the one it plans now.
+    /// `paths` shallowest first, ties broken by `inOrder`: the order of the folder list above and
+    /// of a survey's reading plan. Each path's depth is counted once, not per comparison, which
+    /// would split every path again on each compare (hundreds of milliseconds on the main thread
+    /// for a large plan). The order must stay byte-identical: a resumed document survey compares
+    /// the plan it saved with the one it plans now.
     static func shallowestFirst(_ paths: [String],
                                 then inOrder: (String, String) -> Bool) -> [String] {
         paths.map { ($0, $0.split(separator: "/").count) }
@@ -1139,22 +1062,17 @@ public enum FilingEngine {
             .map(\.0)
     }
 
-    /// The folder menu a classifier is allowed to answer with — the folders the router already
-    /// thinks are plausible, then the shallow structural list to fill what's left.
+    /// The folder menu a classifier may answer with: the folders the router already finds
+    /// plausible, then the shallow structural list to fill the rest.
     ///
-    /// **The cap is a token budget, not a preference for shallow folders**, and spending it by depth
-    /// is how a confident wrong answer gets produced. `relativeFolderPaths` orders shallowest-first
-    /// and drops deep leaves; on a real 5,012-folder tree the cut lands at depth 3, so a visa foil
-    /// belonging in `Immigration/Visa/US/H-1B Visa/2024-2026` (1,344th by that order) was never in
-    /// the prompt at all — nor was any folder under `Visa/US`. The model picked the best of what it
-    /// could see, `Immigration/Form I-94/Father` at 205th, and wrote a confident sentence about a
-    /// name match that does not exist. It was not wrong about the folders it was shown; it was
-    /// shown the wrong folders.
+    /// **The cap is a token budget, not a preference for shallow folders.** Spent by depth alone,
+    /// it cuts a large tree at depth 3, so a document whose home is a deep leaf is never in the
+    /// prompt, and the model confidently picks the best of the wrong folders it was shown.
     ///
-    /// `reservedForFallback` keeps room for the shallow skeleton so the model still sees the shape
-    /// of the tree — a menu of nothing but deep leaves reads as a flat list of unrelated paths, and
-    /// the "propose a new subfolder under an existing parent" rule needs parents in view. Any budget
-    /// the fallback doesn't use goes back to `preferred`.
+    /// `reservedForFallback` keeps room for the shallow skeleton so the model still sees the tree's
+    /// shape: deep leaves alone read as unrelated paths, and "propose a new subfolder under an
+    /// existing parent" needs parents in view. Budget the fallback doesn't use goes back to
+    /// `preferred`.
     public static func classifierFolders(preferred: [String], fallback: [String],
                                          limit: Int = 250, reservedForFallback: Int = 100) -> [String] {
         guard limit > 0 else { return [] }
@@ -1171,10 +1089,9 @@ public enum FilingEngine {
         return out
     }
 
-    /// Overlays classifier verdicts onto heuristic suggestions: for any file the classifier gave a
-    /// usable home, that destination leads (heuristic candidates stay as alternates). Files without
-    /// a verdict keep their heuristic suggestion untouched — so a backend that declines never makes
-    /// things worse than the keyword engine alone.
+    /// Overlays classifier verdicts onto heuristic suggestions: where the classifier gave a usable
+    /// home, it leads and the heuristic candidates stay as alternates. Files without a verdict keep
+    /// their heuristic suggestion, so a declining backend never does worse than the keyword engine.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      taxonomy: [FileNode], providerRoot: String,
                                      nameProvider: CloudProvider.ProviderType? = nil,
@@ -1187,13 +1104,12 @@ public enum FilingEngine {
                                      pageSamples: [String: String] = [:],
                                      identity: PersonIdentityIndex? = nil,
                                      onVeto: ((PersonVetoRefusal) -> Void)? = nil) -> [FilingSuggestion] {
-        // The early-out belongs HERE as well as in the overload, because the taxonomy walk below
-        // happens on the way in. Deriving the folder set first and letting the other one return
-        // early is a full recursive walk of the provider — tens of thousands of nodes on a real
-        // account — to build a set nothing then reads. Not a rare path either: a machine without
-        // Apple Intelligence gets `[:]` from the classifier on every single scan.
+        // The early-out belongs here as well as in the overload, because the taxonomy walk below
+        // happens on the way in: a full recursive walk of the provider to build a set nothing
+        // reads. Common: a Mac without Apple Intelligence gets `[:]` from the classifier on every
+        // scan.
         guard !verdicts.isEmpty else { return suggestions }
-        // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
+        // Relative folder set for new-vs-existing marking, symlink-proof (see relativeFolderPaths).
         return applyVerdicts(verdicts, to: suggestions,
                              existingRelative: relativeFolderPathSet(of: taxonomy),
                              providerRoot: providerRoot, nameProvider: nameProvider,
@@ -1204,45 +1120,31 @@ public enum FilingEngine {
                              identity: identity, onVeto: onVeto)
     }
 
-    /// The same overlay against an already-derived folder set, for callers that have one and no
-    /// tree — the refine pass, which reasons against the taxonomy the scan cached rather than
-    /// re-walking a provider that can be tens of thousands of nodes.
+    /// Which of the files handed to the classifier were judged **without their text**: the set
+    /// every `contentBlind` rule in `applyVerdicts` asks about.
     ///
-    /// `existingRelative` is what marks a destination's trailing segments new-vs-existing, so it
-    /// must be the **uncapped** set: passing the capped list the classifier was given would label
-    /// a real folder beyond the cap as one to create, and the apply path would then be asked to
-    /// create a folder that already exists.
+    /// **"We read it and got nothing", never "we didn't read."** A scan with reading off, or on a
+    /// Mac with no extractor, hands every file over by name; penalising the model for that would
+    /// leave those installs with no intelligent suggestions and tell the user nothing true.
+    /// Blindness is a fact about the document (a scan with no text layer), so it is asserted only
+    /// when there was a reader. A cache hit follows the same rule: the key records the file, not
+    /// what was read.
     ///
-    /// `contentBlind` names the files the classifier was asked about **without the file's text**. A
-    /// verdict for one of those must not demote a home the router derived from that very text: the
-    /// model answered from strictly less information, and the confidence it reports is its own
-    /// opinion of a guess. A visa foil went out as a bare filename and came back `High` for
-    /// `Immigration/Form I-94/Father`, which outranked the `Medium` the router had earned by
-    /// reading `CHENNAI (MADRAS) … Visa Type/Class R H1B` off page 1.
-    /// Which of the files handed to the classifier were judged **without their text** — the set
-    /// every `contentBlind` rule below is asked about.
-    ///
-    /// **"We read it and got nothing", never "we did not read."** The two look identical at the
-    /// call site and are not the same claim: a scan with reading switched off, or one on a machine
-    /// with no extractor, hands EVERY file over on its name. Penalising the model for that would
-    /// leave those installs with no intelligent suggestions at all — while telling the user nothing
-    /// true, since nobody looked. Blindness is a fact about the *document* (a scan with no text
-    /// layer), so it is only asserted when there was a reader to be blind despite.
-    ///
-    /// A cache hit counts as read-or-not by the same rule: the verdict it replays was produced from
-    /// whatever that earlier pass could see, and the key records the file, not what was read.
-    ///
-    /// **One expression, called twice.** This rule was written out at both call sites — the scan in
-    /// `FileSyncManager+Filing` and the refine pass in `FileSyncManager+FilingRefine` — with the
-    /// same three-line comment above each. Two copies that currently agree are not a guarantee that
-    /// they will, and neither copy was reachable from a test: every suite passed `contentBlind:`
-    /// explicitly, so the derivation had no coverage at all while the rules it feeds had plenty.
+    /// One expression, called from both the scan (`FileSyncManager+Filing`) and the refine pass
+    /// (`FileSyncManager+FilingRefine`), so the two can't drift and the derivation is testable.
     public static func contentBlindFiles(handedOver: [String], read: Set<String>,
                                          hadReader: Bool) -> Set<String> {
         guard hadReader else { return [] }
         return Set(handedOver).subtracting(read)
     }
 
+    /// The same overlay against an already-derived folder set, for callers with one and no tree:
+    /// the refine pass reasons against the taxonomy the scan cached instead of re-walking the
+    /// provider. `existingRelative` marks segments new or existing, so it must be the **uncapped**
+    /// set: the capped list the classifier saw would label a real folder past the cap as one to
+    /// create. `contentBlind` names files the classifier saw **without their text**; a verdict for
+    /// one must not demote a home the router read out of that text, since the model answered from
+    /// strictly less.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
                                      existingRelative: Set<String>, providerRoot: String,
                                      nameProvider: CloudProvider.ProviderType? = nil,
@@ -1265,124 +1167,89 @@ public enum FilingEngine {
                                             nameProvider: nameProvider)
             else { return s }
             if rejectedByFile[s.filePath]?.contains(rawDest.path) == true { return s }   // model re-picked a rejected folder
-            // Strictly less information cannot override more. Not a confidence comparison — a
-            // blind verdict at any confidence loses to a home that was read out of the document.
+            // Strictly less information can't override more. Not a confidence comparison: a blind
+            // verdict at any confidence loses to a home read out of the document.
             if contentBlind.contains(s.filePath), s.best?.fromContent == true { return s }
-            // **A backend that has not seen the document may not invent a folder for it.** Naming
-            // an existing folder from a filename is a guess the user can check at a glance; naming
-            // one that does not exist yet asks them to accept a new shape for their tree on the
-            // same evidence. `DetailedBillApr2025.pdf` came back as a High-confidence
-            // `Finance/US/Accounts/DetailedBillApr2025.pdf` — two folders to create, from seven
-            // characters of filename, for a file whose siblings sit in an existing folder.
+            // **A backend that hasn't seen the document may not invent a folder for it.** Naming an
+            // existing folder from a filename is a guess the user can check at a glance; naming a
+            // new one asks them to accept a new shape for their tree on the same thin evidence.
             if contentBlind.contains(s.filePath), !rawDest.newSegments.isEmpty { return s }
-            // **The model re-ranks the router's shortlist; it does not get to answer past it.**
-            //
-            // It is handed that shortlist and told to copy a path from the list, so an existing
-            // folder that is not on it is not a re-ranking — it is a different answer, arrived at
-            // by a backend whose confidence is not a comparable quantity. Measured the hard way:
-            // the same visa foil, the same code, three scans in one afternoon returned
-            // `Visa/US/H-1B Visa/2024-2026` (right), then
-            // `Authorization/H-1B/2019-2022/Petition/Supporting Documents`, then
-            // `Authorization/H-1B/2024-2026/Petition` — all three `.high`. The router's own margin,
-            // by contrast, is calibrated: it is right 92.9% of the time when it reports high.
-            //
-            // So the arbitration is no longer confidence against confidence. A verdict inside the
-            // shortlist reorders a set the router already vouched for, and leads on the rule below.
-            // One outside it stays as an alternate, and the router's home — the measured signal —
-            // keeps the card. Gated on there BEING a shortlist: with no artifacts loaded the router
-            // never ran, there is nothing to re-rank against, and the model is the only answer
-            // there is. A proposed NEW folder is exempt for the same reason — it cannot be on a
-            // list of folders that exist — and is governed by the two rules above instead.
+            // **The model re-ranks the router's shortlist; it doesn't get to answer past it.** It
+            // is told to copy a path from that list, so an existing folder not on it is a different
+            // answer from a backend whose confidence isn't comparable (the same document can come
+            // back `.high` for three different folders on three scans). The router's margin is
+            // calibrated: right about 93% of the time when it reports high. So a verdict inside the
+            // shortlist reorders a set the router vouched for, and leads by the rule below; one
+            // outside stays an alternate and the router's home keeps the card. Only when there is a
+            // shortlist: with no artifacts loaded the router never ran and the model is the only
+            // answer. A proposed new folder can't be on a list of existing folders, so it is
+            // governed by the two rules above instead.
             if let shortlist = routerShortlists[s.filePath], !shortlist.isEmpty,
                rawDest.newSegments.isEmpty, s.best != nil,
                !shortlist.contains(Self.relative(rawDest.path, under: providerRoot)) {
                 return s
             }
-            // **The model may re-rank the shortlist, but not past a folder's own copy stash.**
+            // **The model may re-rank the shortlist, but not past a folder's own copy stash.** The
+            // router demotes a satellite below its home (``SatelliteFolders``), so a verdict naming
+            // the satellite is inside the shortlist and the rule above lets it through; a payslip
+            // would land among a petition packet's copies instead of the salary folder holding the
+            // originals.
             //
-            // The router already demotes a satellite below its home (see ``SatelliteFolders``), so
-            // the shortlist handed over has the home first — and a verdict naming the satellite is
-            // inside the shortlist, which is exactly the case the rule above lets through. Measured
-            // on the reported case: asked where `Payslip_2026-06-15.pdf` belonged, the backend
-            // answered `…/Petition/Supporting Documents/pay_statements` at High confidence, four
-            // copies of January and February payslips whose originals are the ten files in
-            // `Work/EMP/Compensation/Salary Statements/2026`.
-            //
-            // Stated once here rather than by pre-filtering the shortlist, because the shortlist is
-            // also what the model is *shown*, and a satellite is a perfectly good answer when its
-            // home is not on the table — a document really can belong in a petition packet.
-            //
-            // Asked of the suggestion's OWN candidates rather than of `routerShortlists`, and that
-            // is load-bearing rather than tidy: the refine pass ranks its own shortlists and passed
-            // none here until GT, so a rule keyed on them would have been silently off on the one
-            // pass that reaches the cloud model — the pass that produced the wrong answer this was
-            // written for. The candidates are on both paths by construction.
+            // Checked here rather than by pre-filtering the shortlist, because the shortlist is
+            // also what the model is shown, and a satellite is a good answer when its home isn't on
+            // the table. Asked of the suggestion's own candidates, not `routerShortlists`, because
+            // the candidates exist on every path, the refine pass included.
             if let homes = satelliteHomes[Self.relative(rawDest.path, under: providerRoot)] {
                 let onTheCard = Set(s.candidates.map { Self.relative($0.path, under: providerRoot) })
                 if !homes.isDisjoint(with: onTheCard) { return s }
             }
-            // **A backend that has not read the document cannot report high confidence.** It saw a
-            // filename; that is a `.low` claim however sure the model says it is, and the badge on
-            // the card is what the user reads before accepting a home. Four of one real inbox's
-            // PDFs extract zero characters — they are scans with no text layer — and every one came
-            // back `.high`.
+            // **A backend that hasn't read the document can't report high confidence.** It saw a
+            // filename, a `.low` claim however sure the model says it is, and the card's badge is
+            // what the user reads before accepting a home. Scans with no text layer are the usual
+            // case.
             let dest = contentBlind.contains(s.filePath) && rawDest.confidence != .low
                 ? rawDest.withConfidence(.low)
                 : rawDest
-            // **A document that names a person does not go in a different person's folder.**
+            // **A document that names a person doesn't go in a different person's folder.** Filing
+            // one family member's document into another's is the error least likely to be noticed
+            // and most annoying to undo, so it gets a hard rule.
             //
-            // Opus, asked where `Daughter OCI.pdf` belonged, answered
-            // `Immigration/OCI/Son/Application` — the wrong child, in the wrong person's folder,
-            // while `Immigration/OCI/Daughter` exists, holds `Daughter - eOCI.pdf`, and is what the
-            // router ranked first. Of every error this arc produced, filing one family member's
-            // document into another's is the one worth a hard rule: it is the least likely to be
-            // noticed and the most annoying to undo.
+            // Asked of the profile's person axis, not the words in the path: path text misreads a
+            // folder like `Health/Medical/Travel/Elder - 2021`, which the profile records as a trip
+            // with no person. Measured on the corpus, a filed document's own folder contradicts its
+            // filename's person for well under 1% of documents.
             //
-            // Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the
-            // 756 corpus documents whose filename names a known person, the gold folder's
-            // `axes.person` is a different person for **3** of them (0.40%) — all one baby-shower
-            // folder under `Family/Daughter/Events`. Testing the path text instead would fire on 15,
-            // because `Health/Medical/Travel/Elder - 2021` reads as Elder's folder while the
-            // profile correctly records it as a trip with no person axis at all.
+            // Resolved through the ``PersonRegistry`` when there is one. A flat token comparison
+            // reads `Mom - passport.pdf` against a folder whose axis says `granny` as a
+            // contradiction, since it doesn't know they are one person; the registry also matches
+            // names as phrases, so `Daughter Father - OCI.pdf` names Daughter alone.
             //
-            // Resolved through the ``PersonRegistry`` when there is one, and the difference is
-            // what the registry exists for. The token comparison below it reads `Mom -
-            // passport.pdf` against a folder whose axis says `granny` as a CONTRADICTION — the
-            // veto fired against the correct folder, because the flattened token set knew both
-            // words but not that they are one person. The registry also matches names as phrases,
-            // so `Daughter Father - OCI.pdf` names Daughter alone rather than Daughter-and-her-father.
-            //
-            // The filename outranks the page: a filename is the user's own label, a page-1
-            // mention is testimony (a sponsor's affidavit prints the sponsor, not the applicant).
-            // Only a file whose name names nobody consults the page it was read from — that is
-            // what protects `Scan 2026-08-02.pdf`, which the filename-only rule never could.
+            // The filename outranks the page: a filename is the user's own label, a page-1 mention
+            // is testimony (a sponsor's affidavit prints the sponsor, not the applicant). Only a
+            // file whose name names nobody consults its page, which is what protects `Scan
+            // 2026-08-02.pdf`.
             if let refusal = personVeto(fileName: s.fileName, destination: rawDest.path,
                                         providerRoot: providerRoot, profile: profile,
                                         registry: registry, identity: identity,
                                         pageSample: pageSamples[s.filePath]) {
-                // Reported, not just refused. The veto's whole job is to make a wrong suggestion
-                // not happen, so it working perfectly is indistinguishable from it not existing —
-                // this is the only way the user ever learns it did something. A closure rather
-                // than a returned tally: `applyVerdicts` is a pure map over suggestions and stays
-                // one, and every existing caller keeps working without passing anything.
-                //
-                // `refusal` is nil-but-refused for the unresolvable-axis case, which is why the
-                // rule returns an optional REFUSAL and a separate `refuses` answer — see the rule.
+                // Reported, not just refused: a veto that works is otherwise indistinguishable from
+                // one that doesn't exist. A closure rather than a returned tally, so
+                // `applyVerdicts` stays a pure map and existing callers pass nothing.
+                // `refusal.reported` is nil for the unresolvable-axis case, which still refuses;
+                // see the rule.
                 if let reported = refusal.reported { onVeto?(reported) }
                 return s
             }
-            // A verdict only LEADS when it's at least as confident as the current best home.
-            // Otherwise a low-confidence model guess would demote a strong filename/rule match —
-            // and, because the promoted candidate is `fromAI`, drop the file out of the blind
-            // "File recommended" batch. When the model is less sure than the heuristic, keep the
-            // heuristic home untouched (its alternates already include what the model might pick).
+            // A verdict leads only when it is at least as confident as the current best home.
+            // Otherwise a low-confidence guess would demote a strong filename or rule match and,
+            // being `fromAI`, drop the file from the blind batch. When the model is less sure, keep
+            // the heuristic home (its alternates already include what the model might pick).
             //
-            // **Except a paid answer the survey vouched for (GT).** On Refine, a verdict that names
-            // one of the router's own shortlisted folders is a re-ranking of homes the measured
-            // signal already proposed, by the backend the user chose to pay for — and requiring it
-            // to out-confide a keyword engine's claimed High is what let `Health/Medical/India`
-            // survive Opus on the word "india". It leads when it read the document and is at least
-            // Medium; anything else keeps the confidence rule. A taught home returned above.
+            // **Except a paid answer the survey vouched for.** On Refine, a verdict naming one of
+            // the router's shortlisted folders re-ranks homes the measured signal proposed, from
+            // the backend the user chose to pay for; it shouldn't have to out-confide a keyword
+            // engine's claimed High. It leads when it read the document and is at least Medium. A
+            // taught home returned above.
             let vouched = shortlistVerdictsLead && !contentBlind.contains(s.filePath)
                 && dest.confidence >= .medium
                 && routerShortlists[s.filePath]?.contains(Self.relative(rawDest.path, under: providerRoot)) == true
@@ -1392,67 +1259,38 @@ public enum FilingEngine {
         }
     }
 
-    /// **Every home on every card, through the cross-person rule — whatever proposed it.**
+    /// **Every home on every card, through the cross-person rule, whatever proposed it.**
+    /// `applyVerdicts` and "Try another" only check backend verdicts, and the router's own
+    /// protection is a score penalty, a preference rather than a refusal. On a Mac without Apple
+    /// Intelligence the classifier returns `[:]`, so without this sweep no card would ever pass the
+    /// rule.
     ///
-    /// The rule was reachable only from a backend verdict: `applyVerdicts` consulted it before
-    /// promoting one, and "Try another" before accepting one. Both of those are the *model's*
-    /// answers, and when the rule fires there it declines the model and restores the home the
-    /// heuristics or the router had already put on the card — **which nothing had ever tested.**
-    /// The router's own protection is a −3.0 score penalty, a preference, not a refusal.
+    /// Measured on a real tree before it was written, since a refusal on every card can lose
+    /// correct homes too: among hundreds of documents whose filename names one person, it refused
+    /// the leading home on about a fifth, never the folder the user had filed it in, and never left
+    /// a card with no home. A tree with many folders like `Family/Daughter/Events/Baby Shower`
+    /// (Daughter's folder, holding `Mother's Baby Shower.docx`) would pay a fraction of a percent
+    /// of person-named cards.
     ///
-    /// So on a machine with no Apple Intelligence — where the classifier returns `[:]`, every
-    /// `applyVerdicts` short-circuits on the empty dictionary, and every card therefore shows a
-    /// router or keyword home — the rule was reachable on no card at all. That is the default
-    /// install, not a corner.
+    /// **A home the user taught is exempt**, as in `applyVerdicts`' first line: `remembered` marks
+    /// a learned rule or an automation the user wrote, an instruction rather than a guess, and an
+    /// automation resolving `{person}` through this registry would otherwise be refused by it.
+    /// Reported once per card, for the highest-ranked refusal.
     ///
-    /// **Measured on the household's own tree before it was written**, because a refusal that runs
-    /// on every card can lose correct homes as easily as wrong ones. Taking the 821 distinctly-named
-    /// corpus documents whose filename names exactly one person, staging each as a loose file and
-    /// running the keyword engine against the real 3,013-folder taxonomy:
-    ///
-    /// | | cards |
-    /// |---|---|
-    /// | with a home at all | 821 |
-    /// | whose LEADING home this refuses | 156 |
-    /// | …where that home was the folder the user themselves had filed it in | **0** |
-    /// | left with no surviving home | **0** |
-    ///
-    /// The refusals are the error the rule was written for, at scale: `Granny Elder - 2015.pdf`
-    /// and six more of Granny's CVs led with `Family/Elder`, and eighteen of Father's HDFC
-    /// statements led there too — his father's folder, on the strength of the surname.
-    ///
-    /// One cost is worth stating rather than rounding to zero: three corpus documents *do* sit in a
-    /// folder whose person axis contradicts their filename — `Mother's Baby Shower.docx` and two
-    /// siblings, under `Family/Daughter/Events/Baby Shower`, which is Daughter's folder and correctly so.
-    /// Nothing suggested that folder for them in the measurement above, so no card actually lost it;
-    /// a tree with more folders like it would pay 0.4% of person-named cards for the 19% it protects.
-    ///
-    /// **A home the user taught is exempt**, matching `applyVerdicts`' own first line. `remembered`
-    /// marks both a learned rule and an automation the user wrote, and either is an instruction
-    /// rather than a guess — an automation whose destination resolves `{person}` through this very
-    /// registry would otherwise be refused by it.
-    ///
-    /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
-    /// have seen, and a file whose every candidate is someone else's folder is one event, not four.
-    ///
-    /// **This widens a known open defect, and that is worth stating rather than discovering.**
-    /// `attribution`'s last tier reads an identifier out of the page through ``PersonIdentityIndex``,
-    /// which is rebuilt from the tree as surveyed and takes no correction: a document misfiled once
-    /// into the wrong person's folder teaches that person's identifiers, and the rule then refuses
-    /// to file later scans of it into the right one. Before this, that could only decline a backend
-    /// verdict; now it can strip a router home. The tier is kept anyway — dropping it here would
-    /// make the sweep answer differently from `applyVerdicts` about the same file, which is the
-    /// drift every one of these rules exists to prevent — and it stays narrow, since a page is only
-    /// consulted for a file whose own name names nobody and identifiers only for a page that names
-    /// nobody either. The fix belongs in the index, not here.
+    /// **Known gap:** `attribution`'s last tier reads an identifier off the page through
+    /// ``PersonIdentityIndex``, which is rebuilt from the tree as surveyed and takes no correction,
+    /// so a document misfiled once teaches the wrong person's identifiers and this rule then
+    /// refuses the right folder for later scans; here that can strip a router home. Kept so this
+    /// sweep and `applyVerdicts` answer alike, and narrow (a page is consulted only when the name
+    /// names nobody, identifiers only when the page names nobody). The fix belongs in the index.
     public static func refusingCrossPersonHomes(
         _ suggestions: [FilingSuggestion], providerRoot: String,
         profile: Sync.FolderProfile?, registry: PersonRegistry?,
         identity: PersonIdentityIndex? = nil, pageSamples: [String: String] = [:],
         onVeto: ((PersonVetoRefusal) -> Void)? = nil
     ) -> [FilingSuggestion] {
-        // No profile ⇒ no folder has a person axis ⇒ the rule cannot fire. Stated here as well as
-        // inside `personVeto` so a scan on a tree that was never surveyed does no per-candidate work.
+        // No profile means no folder has a person axis, so the rule can't fire. Checked here as
+        // well as inside the veto so a scan on an unsurveyed tree does no per-candidate work.
         guard profile != nil else { return suggestions }
         return suggestions.map { s in
             guard !s.candidates.isEmpty else { return s }
@@ -1475,47 +1313,28 @@ public enum FilingEngine {
         }
     }
 
-    /// The outcome of the cross-person rule: a refusal, carrying the report when there is one.
-    ///
-    /// Two shapes, because the protection has two: a registry-resolved contradiction knows both
-    /// people by name and is worth telling the user about, while an axis value the registry cannot
-    /// resolve falls back to token comparison and has no names to report. Both refuse.
+    /// The outcome of the cross-person rule: a refusal, carrying the report when there is one. A
+    /// registry-resolved contradiction knows both people by name and is worth telling the user; an
+    /// axis value the registry can't resolve falls back to tokens and has no names to report. Both
+    /// refuse.
     struct PersonVeto {
         let reported: PersonVetoRefusal?
     }
 
-    /// **A document that names a person does not go in a different person's folder.**
+    /// **A document that names a person doesn't go in a different person's folder.** Filing one
+    /// family member's document into another's is the error least likely to be noticed and most
+    /// annoying to undo, so it gets a hard rule.
     ///
-    /// Opus, asked where `Daughter OCI.pdf` belonged, answered `Immigration/OCI/Son/Application` —
-    /// the wrong child, in the wrong person's folder, while `Immigration/OCI/Daughter` exists, holds
-    /// `Daughter - eOCI.pdf`, and is what the router ranked first. Of every error this arc produced,
-    /// filing one family member's document into another's is the one worth a hard rule: it is the
-    /// least likely to be noticed and the most annoying to undo.
+    /// Asked of the profile's person axis, not the words in the path, which would misread a folder
+    /// like `Health/Medical/Travel/Elder - 2021` (a trip, with no person axis). Resolved through
+    /// the ``PersonRegistry`` when there is one, so `Mom` and `granny` can be one person and
+    /// `Daughter Father - OCI.pdf` names Daughter alone. The filename outranks the page: a filename
+    /// is the user's own label, a page-1 mention is testimony (a sponsor's affidavit prints the
+    /// sponsor). Only a file whose name names nobody consults its page, which protects `Scan
+    /// 2026-08-02.pdf`.
     ///
-    /// Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the 756
-    /// corpus documents whose filename names a known person, the gold folder's `axes.person` is a
-    /// different person for **3** of them (0.40%) — all one baby-shower folder under
-    /// `Family/Daughter/Events`. Testing the path text instead would fire on 15, because
-    /// `Health/Medical/Travel/Elder - 2021` reads as Elder's folder while the profile correctly
-    /// records it as a trip with no person axis at all.
-    ///
-    /// Resolved through the ``PersonRegistry`` when there is one, and the difference is what the
-    /// registry exists for. The token comparison below it reads `Mom - passport.pdf` against a
-    /// folder whose axis says `granny` as a CONTRADICTION — the veto fired against the correct
-    /// folder, because the flattened token set knew both words but not that they are one person.
-    /// The registry also matches names as phrases, so `Daughter Father - OCI.pdf` names Daughter alone
-    /// rather than Daughter-and-her-father.
-    ///
-    /// The filename outranks the page: a filename is the user's own label, a page-1 mention is
-    /// testimony (a sponsor's affidavit prints the sponsor, not the applicant). Only a file whose
-    /// name names nobody consults the page it was read from — that is what protects
-    /// `Scan 2026-08-02.pdf`, which the filename-only rule never could.
-    ///
-    /// **A named member rather than a block inside `applyVerdicts`**, because it was one and the
-    /// other paid path did not have it: "Try another" resolves its `.refine` verdict straight
-    /// through `destination(from:)`, so a re-ask could file exactly the document this rule exists
-    /// to protect into exactly the folder it exists to refuse. A rule that lives in one caller is
-    /// a rule the next caller does not get.
+    /// A named member, not a block inside `applyVerdicts`, so every paid path gets it: "Try
+    /// another" resolves its `.refine` verdict straight through `destination(from:)`.
     static func personVeto(fileName: String, destination: String, providerRoot: String,
                            profile: Sync.FolderProfile?, registry: PersonRegistry?,
                            identity: PersonIdentityIndex?, pageSample: String?) -> PersonVeto? {
@@ -1524,8 +1343,8 @@ public enum FilingEngine {
                   of: Self.relative(destination, under: providerRoot), in: profile)
         else { return nil }
         if let registry, let destPerson = registry.person(forAxisValue: destPersonRaw) {
-            // The precedence rule lives in `attribute` — shared with the `personIs` rule
-            // condition, so the two cannot answer "whose document is this" differently.
+            // The precedence rule lives in `attribute`, shared with the `personIs` rule condition,
+            // so the two can't answer "whose document is this" differently.
             let named = registry.attribute(fileName: fileName, pageSample: pageSample,
                                            identity: identity)
             guard !named.isEmpty, !named.contains(destPerson) else { return nil }
@@ -1540,32 +1359,15 @@ public enum FilingEngine {
         return PersonVeto(reported: nil)
     }
 
-    /// The person axis owning `relative` — its own, or the nearest ancestor's.
-    ///
-    /// **The walk is what makes the rule reach a folder that does not exist yet, which was every
-    /// destination it most needed to refuse.** The lookup here was an exact one into
-    /// `profile.folders`, and a profile describes the folders that DO exist — so a
-    /// `proposesNewFolder: true` destination missed it and returned `nil`, skipping the veto
-    /// entirely. `Immigration/OCI/Son/Application` missed even while its parent sat in the
-    /// profile carrying `axes.person = Son`, which is exactly the answer the rule's own doc
-    /// cites Opus giving for `Daughter OCI.pdf`.
+    /// The person axis owning `relative`: its own, or the nearest ancestor's. The walk lets the
+    /// rule reach a folder that doesn't exist yet: a profile describes only existing folders, so an
+    /// exact lookup would skip the veto for every `proposesNewFolder` destination, such as a new
+    /// `Immigration/OCI/Son/Application` for `Daughter OCI.pdf`.
     ///
     /// **Nearest ancestor, not outermost**, so a new folder under Daughter's own folder stays hers
-    /// even though Son's sits beside it under a shared parent. The most specific claim available
-    /// is the one that describes the destination.
-    ///
-    /// **Measured against the real corpus before it was written, because widening a refusal risks
-    /// refusing correct answers.** Over the household's own 11,829-document corpus, taking the 679
-    /// whose filename names exactly one known person and asking whether the rule would fire against
-    /// their GOLD folder — the placement the user themselves made, so any fire is a false one:
-    ///
-    ///     exact lookup     4 fires   0.59%
-    ///     ancestor walk    4 fires   0.59%     zero new false vetoes
-    ///
-    /// The walk never reached past a folder's own axis to contradict a correct placement, because a
-    /// document sitting in a person-less subfolder of a person's folder is that person's document.
-    /// What it adds is protection for the 463 person-owned folders' unborn children, where there
-    /// was none.
+    /// even when Son's sits beside it under a shared parent. Measured on the corpus against each
+    /// document's own folder, the walk adds no false vetoes over the exact lookup: a document in a
+    /// person-less subfolder of a person's folder is that person's.
     static func owningPerson(of relative: String, in profile: Sync.FolderProfile) -> String? {
         var parts = relative.split(separator: "/").map(String.init)
         while !parts.isEmpty {
@@ -1577,7 +1379,7 @@ public enum FilingEngine {
         return nil
     }
 
-    /// Whether a path segment is a file name rather than a folder name — 1–5 ASCII alphanumerics
+    /// Whether a path segment is a file name rather than a folder name: 1–5 ASCII alphanumerics
     /// after a final dot. See ``destination(from:providerRoot:existingRelative:fileName:)``.
     static func looksLikeAFileName(_ segment: String) -> Bool {
         guard let dot = segment.lastIndex(of: "."), dot != segment.startIndex else { return false }
@@ -1594,19 +1396,18 @@ public enum FilingEngine {
     }
 
     /// Turns a verdict into an absolute destination, sanitizing the model's path (strip whitespace
-    /// and slashes, drop any provider-root prefix it echoed back, reject empties, absolute escapes,
-    /// and `..`/`.` traversal) and marking which trailing folders are new. nil ⇒ nothing usable.
-    ///
-    /// `nameProvider` is the ruleset a NEW folder's name is held to — the destination provider's,
-    /// as the scan's risky-name pass uses it. nil applies `validateItemName` alone.
+    /// and slashes, drop an echoed provider-root prefix, reject empties, absolute escapes and
+    /// `..`/`.` traversal) and marking which trailing folders are new. nil means nothing usable.
+    /// `nameProvider` is the ruleset a new folder's name is held to, the destination provider's as
+    /// the scan's risky-name pass uses it; nil applies `validateItemName` alone.
     static func destination(from verdict: FilingVerdict, providerRoot: String,
                             existingRelative: Set<String>,
                             fileName: String = "",
                             nameProvider: CloudProvider.ProviderType? = nil) -> FilingDestination? {
         var rel = verdict.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Strip an echoed provider-root prefix only on a PATH-COMPONENT boundary, so a sibling that
-        // merely shares a string prefix (root "/Users/x/Docs", verdict "/Users/x/DocsArchive/Foo")
-        // isn't rewritten into a subfolder ("/Users/x/Docs/Archive/Foo") — a misfile.
+        // Strip an echoed provider-root prefix only on a path-component boundary, so a sibling
+        // sharing a string prefix (root "/Users/x/Docs", verdict "/Users/x/DocsArchive/Foo") isn't
+        // rewritten into a subfolder ("/Users/x/Docs/Archive/Foo"), a misfile.
         if rel == providerRoot {
             rel = ""
         } else if rel.hasPrefix(providerRoot + "/") {
@@ -1616,34 +1417,21 @@ public enum FilingEngine {
         var segments = rel.split(separator: "/").map(String.init)
         guard !segments.isEmpty, !segments.contains(".."), !segments.contains(".") else { return nil }
 
-        // **A folder is never the file itself, extension and all.** Models answer "where does this
-        // go?" with the full path *including the file* often enough to matter, and the result is a
-        // proposal to create a folder called `DetailedBillApr2025.pdf` and put
-        // `DetailedBillApr2025.pdf` inside it — which the card renders as an ordinary destination.
-        // Drop that segment and keep the parent, which is what the answer meant.
-        //
-        // Matched against the WHOLE file name, never its stem. `tesla.pdf` → `Vehicles/Tesla` is a
-        // perfectly good new folder named for the vendor, and a stem test would quietly delete it;
-        // that case is a shipped test, and it is what caught this the first time it was written too
-        // broadly. A trailing segment carrying the file's own extension is the narrow case that is
-        // never a folder.
+        // **A folder is never the file itself, extension and all.** Models often answer with the
+        // full path including the file, which would propose a folder called
+        // `DetailedBillApr2025.pdf` holding that file. Drop the segment and keep the parent.
+        // Matched against the whole file name, never its stem: `tesla.pdf` → `Vehicles/Tesla` is a
+        // good new folder named for the vendor, and a shipped test pins it.
         if !fileName.isEmpty, let last = segments.last,
            last.compare(fileName, options: .caseInsensitive) == .orderedSame {
             segments.removeLast()
         }
-        // **And not any other file's name either.** The rule above matched only the incoming file,
-        // which is the case that was in front of me; the general one is that a path segment
-        // carrying a file extension is a file. Asked where `Son - eOCI.pdf` goes, the model
-        // answered `Immigration/OCI/Son/eOCI.pdf` — the name of the PEER document already filed
-        // there — and the apply path duly created a folder called `eOCI.pdf` and moved the file
-        // into it. Trimming it lands on `Immigration/OCI/Son`, which is where it belongs and
-        // what the model was reaching for.
-        //
-        // Only ever applied to a segment that would be CREATED: a folder that already exists is
-        // the user's, whatever it is called. And "carries an extension" is deliberately narrow —
-        // a dot is not enough, or `U.S. Passport` and `Dr. Smith` would lose their last word. The
-        // test is 1–5 ASCII alphanumerics after the final dot, which `pdf` and `jpeg` pass and no
-        // real folder name in the surveyed tree does.
+        // **Nor any other file's name.** A segment carrying a file extension is a file: a model
+        // naming a peer already filed there (`Immigration/OCI/Son/eOCI.pdf` for `Son - eOCI.pdf`)
+        // would create a folder called `eOCI.pdf`. Trimmed, it lands on `Immigration/OCI/Son`. Only
+        // for a segment that would be created (an existing folder is the user's, whatever its
+        // name), and narrow: 1–5 ASCII alphanumerics after the final dot, so `U.S. Passport` and
+        // `Dr. Smith` keep their last word.
         if let last = segments.last, looksLikeAFileName(last),
            !existingRelative.contains(segments.joined(separator: "/")) {
             segments.removeLast()
@@ -1661,26 +1449,20 @@ public enum FilingEngine {
                 newSegments.append(seg)
             }
         }
-        // **An undeclared new folder is an invention, not a proposal.** Both schemas let a backend
-        // answer with a folder that does not exist — that is how a genuinely new destination gets
-        // offered — and it now has to SAY so. When it did not, a path that turns out not to exist is
-        // a segment the model composed rather than chose, so the existing prefix is the answer and
-        // the rest is dropped. `Immigration/OCI/Son/eOCI.pdf` becomes `Immigration/OCI/Son`.
+        // **An undeclared new folder is an invention, not a proposal.** A backend must say
+        // `proposesNewFolder` to offer a folder that doesn't exist; otherwise the missing segments
+        // are ones it composed, so the existing prefix is the answer and the rest is dropped.
         if !verdict.proposesNewFolder, !newSegments.isEmpty {
             segments.removeLast(newSegments.count)
             newSegments = []
             guard !segments.isEmpty else { return nil }
         }
-        // **A folder the model names into being has to be a name the folder can have (FR47).**
-        // The user-typed "Create as" path goes through `validateItemName`; a model's answer went
-        // straight to `createDirectory`, so `Taxes: 2025` was created — and Finder shows a `:` as
-        // `/`, so the folder is not the one the card named — and `Acme Inc.` was created on
-        // Dropbox and OneDrive, which refuse to sync a name ending in a period, leaving the filed
-        // document local-only under a success banner. Each segment this would CREATE is held to
-        // the shared predicate and to the destination provider's rules; a folder that already
-        // exists is the user's, whatever it is called. The candidate is dropped, not repaired:
-        // a sanitized name is a folder nobody proposed, and the card still offers "Choose a
-        // folder…" for the user to name one.
+        // **A folder the model names into being must be a name the folder can have.** Each segment
+        // this would create is held to `validateItemName` (as a user-typed "Create as" is) and to
+        // the destination provider's rules: `Taxes: 2025` shows in Finder as `Taxes/ 2025`, and
+        // `Acme Inc.` won't sync on Dropbox or OneDrive, leaving the document local-only under a
+        // success banner. The candidate is dropped, not repaired: a sanitized name is a folder
+        // nobody proposed, and the card still offers "Choose a folder…".
         for seg in newSegments {
             if FileSyncManager.validateItemName(seg) != nil { return nil }
             if let nameProvider, ProviderNameRules.violation(name: seg, provider: nameProvider) != nil {

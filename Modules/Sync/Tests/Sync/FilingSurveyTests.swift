@@ -2,10 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The re-survey's rules. Every one of these fails *silently* when it breaks — a folder that keeps
-/// recommending itself for a document that left it, a weight computed on the wrong denominator, a
-/// hash that stops matching — so each is pinned against a case where the wrong answer is still a
-/// perfectly well-formed memory.
+/// The re-survey's rules. Each fails silently when it breaks (a folder still recommending itself
+/// for a document that left, a weight on the wrong denominator, a hash that stops matching), so
+/// each is pinned against a case where the wrong answer is still a well-formed memory.
 @Suite struct FilingSurveyTests {
 
     // MARK: - Fixtures
@@ -49,7 +48,7 @@ import Testing
     }
 
     /// A folder the walk stopped at has children nobody looked at, so its mtime must not be recorded
-    /// as having vouched for them — the next survey would skip it for good.
+    /// as vouching for them, or the next survey would skip it for good.
     @Test func flattenRefusesToStampAnUnexploredFolder() {
         var capped = Self.folder("Deep", modified: 999, [])
         capped.isUnexplored = true
@@ -57,9 +56,9 @@ import Testing
         #expect(tree.folders == ["Home": 111])
     }
 
-    /// The other half of the same fact: a folder the walk stopped at is *recorded* as unexplored,
-    /// not merely skipped. Without the record, "nobody looked here" and "these are gone" are the
-    /// same reading — see `aDocumentUnderAnUnwalkedFolderIsNotDropped`.
+    /// A folder the walk stopped at is recorded as unexplored, not merely skipped, so "nobody looked
+    /// here" reads differently from "these are gone" (see
+    /// `aDocumentUnderAnUnwalkedFolderIsNotDropped`).
     @Test func flattenRemembersWhichFoldersItCouldNotEnter() {
         var capped = Self.folder("Deep", modified: 999, [])
         capped.isUnexplored = true
@@ -67,7 +66,7 @@ import Testing
         #expect(tree.unexplored == ["Home/Deep"])
         #expect(tree.wasNotWalked("Home/Deep/tax return.pdf"))
         #expect(!tree.wasNotWalked("Home/bill.pdf"), "a walked branch must not be excused")
-        // Prefix matching is on path SEGMENTS: a sibling that merely starts with the same letters
+        // Prefix matching is on path segments: a sibling that merely starts with the same letters
         // was walked, and excusing it would keep documents that really are gone.
         #expect(!tree.wasNotWalked("Home/Deeper/x.pdf"))
     }
@@ -83,8 +82,8 @@ import Testing
         #expect(FilingSurvey.staleFolders(tree: tree, memory: memory) == ["Work", "New"])
     }
 
-    /// An entry from a build that never stamped anything reads as stale rather than as current —
-    /// otherwise upgrading to a stamping builder would freeze the tree in place.
+    /// An unstamped entry reads as stale, not current, or memory from a non-stamping builder would
+    /// freeze the tree in place.
     @Test func anUnstampedEntryIsStale() {
         let memory = FilingMemory(profileId: "t", salt: Self.salt,
                                   folders: ["Home": FilingMemoryEntry(docs: 2, anchors: [], idHashes: [])])
@@ -105,7 +104,7 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing) == ["F/edited.pdf", "F/new.pdf"])
     }
 
-    /// The whole point, stated as a number: an untouched tree costs no reads at all.
+    /// An untouched tree costs no reads at all.
     @Test func anUnchangedTreeReadsNothing() {
         let tree = FilingSurvey.Tree(folders: ["F": 1], documents: [
             "F/a.pdf": FilingSurvey.Stamp(size: 10, modified: 100), "F/b.pdf": FilingSurvey.Stamp(size: 20, modified: 200),
@@ -115,8 +114,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing).isEmpty)
     }
 
-    /// A type the app cannot read is not queued for reading — the alternative is opening it every
-    /// survey, failing, and recording a blank over tokens the offline generator produced.
+    /// A type the app can't read is not queued, or every survey would open it, fail, and record a
+    /// blank over the offline generator's tokens.
     @Test func unreadableTypesAreNeverQueued() {
         let tree = FilingSurvey.Tree(folders: ["F": 1],
                                      documents: ["F/deck.pptx": FilingSurvey.Stamp(size: 1, modified: 1)])
@@ -136,10 +135,9 @@ import Testing
 
     // MARK: - Scope
 
-    /// **A survey extends a corpus; it does not decide what the corpus should have been.** A branch
-    /// nothing was ever surveyed in stays out — on the real tree that is `Claude/`, 554 readable
-    /// files of project notes the offline survey deliberately skipped, which the app cannot tell
-    /// from a leaf destination by looking at the profile.
+    /// A survey extends a corpus; it doesn't decide what the corpus should have been. A branch
+    /// nothing was ever surveyed in stays out: the offline survey may have skipped it on purpose
+    /// (project notes, say), and the profile can't tell that from a leaf destination.
     @Test func aBranchNothingWasEverSurveyedInStaysOut() {
         let existing = Self.corpus(["Home/Utilities/PG&E/2024/jan.pdf": Self.doc(["pge"])])
         let tree = FilingSurvey.Tree(folders: ["Home": 1, "Claude": 1], documents: [
@@ -149,8 +147,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing).isEmpty)
     }
 
-    /// The other half, and the reason scope is closed *upwards*: a folder created today under a
-    /// branch that has been surveyed is exactly what this feature exists to learn.
+    /// The other half, and why scope is closed upwards: a folder created today under a surveyed
+    /// branch is exactly what the survey should learn.
     @Test func aNewFolderUnderASurveyedBranchIsInScope() {
         let existing = Self.corpus(["Home/Utilities/PG&E/2024/jan.pdf": Self.doc(["pge"])])
         let tree = FilingSurvey.Tree(folders: ["Home": 1], documents: [
@@ -160,8 +158,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: existing) == ["Home/Xfinity/2026/march.pdf"])
     }
 
-    /// A memory with no corpus still bounds the region — the state of any machine whose artifacts
-    /// were installed before this existed.
+    /// A memory with no corpus still bounds the region, as on a machine whose artifacts have no
+    /// corpus yet.
     @Test func theMemoryAloneBoundsTheRegion() {
         let memory = FilingMemory(profileId: "t", salt: Self.salt, folders: [
             "Home/Utilities/PG&E/2024": FilingMemoryEntry(docs: 2, anchors: [], idHashes: []),
@@ -173,8 +171,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: nil, memory: memory) == ["Home/new.pdf"])
     }
 
-    /// A machine with nothing to extend reads everything — the only thing a first survey could
-    /// sensibly do, and the case where an empty region must not mean an empty scope.
+    /// A machine with nothing to extend reads everything: for a first survey, an empty region must
+    /// not mean an empty scope.
     @Test func aMachineWithNoArtifactsSurveysTheWholeTree() {
         let tree = FilingSurvey.Tree(folders: ["Anywhere": 1],
                                      documents: ["Anywhere/a.pdf": FilingSurvey.Stamp(size: 5, modified: 5)])
@@ -195,9 +193,9 @@ import Testing
         #expect(after.documents["Docs/Inbox/bill.pdf"] == nil)
     }
 
-    /// **Two** documents left wearing the same stamp and **one** arrived: whichever of the two it
-    /// is, half the time the wrong one's content lands in the new folder. Two files sharing a size
-    /// to the byte and an mtime to the second cannot be told apart, so neither is guessed at.
+    /// Two documents left wearing the same stamp and one arrived. Files sharing a size to the byte
+    /// and an mtime to the second can't be told apart, so neither is guessed at; half the time the
+    /// guess would be wrong.
     @Test func twoDeparturesMatchingOneArrivalAreRefused() {
         let before = Self.corpus(["Docs/Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500),
                                   "Docs/Inbox/b.pdf": Self.doc(["beta"], size: 77, modified: 500)])
@@ -207,9 +205,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Docs/Home/x.pdf"])
     }
 
-    /// The other half of ambiguity, and the half that is easy to leave untested: **one** document
-    /// left, **two** arrived wearing its stamp. Matching it to either one attributes its content to
-    /// a folder it may never have been in — and picks which by whichever path hashed first.
+    /// The other ambiguity: one document left, two arrived wearing its stamp. Matching either would
+    /// attribute its content to a folder it may never have been in, chosen by hash order.
     @Test func oneDepartureMatchingTwoArrivalsIsAlsoRefused() {
         let before = Self.corpus(["Docs/Inbox/scan.pdf": Self.doc(["kaiser"], size: 77, modified: 500)])
         let tree = FilingSurvey.Tree(folders: ["Home": 1], documents: [
@@ -220,9 +217,8 @@ import Testing
         #expect(FilingSurvey.documentsToRead(tree: tree, corpus: before) == ["Docs/Finance/b.pdf", "Docs/Health/a.pdf"])
     }
 
-    /// A stamp is a coincidence, not an identity. Two documents of different types that happen to
-    /// share one are not the same document — a page of tokens from a PDF has no business being
-    /// attributed to an image.
+    /// A stamp is a coincidence, not an identity: documents of different types sharing one are not
+    /// the same document.
     @Test func aStampMatchAcrossTypesIsNotAMove() {
         let before = Self.corpus(["Docs/Inbox/a.pdf": Self.doc(["alpha"], size: 77, modified: 500)])
         let tree = FilingSurvey.Tree(folders: ["Docs": 1],
@@ -230,8 +226,8 @@ import Testing
         #expect(FilingSurvey.relocations(tree: tree, corpus: before).isEmpty)
     }
 
-    /// Every filing move is a departure from somewhere. A corpus that only grows keeps the folder a
-    /// document left recommending itself for it.
+    /// Every filing move is a departure from somewhere. A corpus that only grew would keep the
+    /// folder a document left recommending itself for it.
     @Test func aDocumentThatLeftStopsCountingTowardsItsOldFolder() {
         let before = Self.corpus(["Old/gone.pdf": Self.doc(["kaiser"], size: 5, modified: 5),
                                   "Old/stays.pdf": Self.doc(["kaiser"], size: 6, modified: 6)])
@@ -243,10 +239,9 @@ import Testing
         #expect(memory.folders["Old"]?.docs == 1)
     }
 
-    /// **The drop rule must fire on evidence of departure, never on absence of coverage.** One
-    /// permission-denied folder contributes nothing to `tree.documents`, so before this every
-    /// document under it read as deleted and was erased from the corpus — months of page-1 reads,
-    /// gone on a pass that reports "0 documents read".
+    /// The drop rule fires on evidence of departure, never on absence of coverage. A
+    /// permission-denied folder contributes nothing to `tree.documents`, and treating that as
+    /// deletion would erase months of page-1 reads on a pass reporting "0 documents read".
     @Test func aDocumentUnderAnUnwalkedFolderIsNotDropped() {
         let before = Self.corpus(["Locked/deed.pdf": Self.doc(["grant"], size: 5, modified: 5),
                                   "Open/gone.pdf": Self.doc(["kaiser"], size: 6, modified: 6),
@@ -260,21 +255,16 @@ import Testing
         let after = FilingSurvey.merge(corpus: before, tree: tree, read: [:])
 
         #expect(after.documents.keys.sorted() == ["Locked/deed.pdf", "Open/stays.pdf"])
-        // Both directions in one fixture: the unwalked branch is kept AND the real departure from
-        // the walked branch is still dropped. A guard that simply stopped dropping would pass the
-        // first half and fail here.
+        // Both directions: the unwalked branch is kept and the real departure from the walked
+        // branch is still dropped, so a guard that stopped dropping fails here.
         #expect(after.documents["Open/gone.pdf"] == nil,
                 "a document the walk looked for and did not find must still be dropped")
     }
 
-    /// **An unseen document must not be readable as a move.** `merge` keeps a document under a
-    /// folder the walk could not enter; `relocations` used to count that same document among the
-    /// lost, so a coincidental stamp match against a genuinely new file recorded a relocation —
-    /// and merge then wrote the document at BOTH paths, letting one document's tokens count
-    /// towards two folders.
-    ///
-    /// The fixture is the ordinary way to produce that stamp match: copy a file out of a folder
-    /// (a copy keeps size, and a preserving copy keeps mtime), then lose read access to the folder.
+    /// An unseen document is not a move. `merge` keeps a document under a folder the walk couldn't
+    /// enter, so `relocations` must not count it as lost, or a stamp match with a new file would
+    /// write it at both paths and count its tokens towards two folders. The fixture is the ordinary
+    /// way to get that match: copy a file out (keeping size and mtime), then lose access.
     @Test func aDocumentInAnUnwalkedFolderIsNotMistakenForAMove() {
         let stamp = FilingSurvey.Stamp(size: 5, modified: 5)
         let before = Self.corpus(["Locked/deed.pdf": Self.doc(["grant"], size: 5, modified: 5)])
@@ -291,8 +281,8 @@ import Testing
                 "the document was duplicated into two folders: \(after.documents.keys.sorted())")
     }
 
-    /// The other direction, so the guard above cannot be a blanket "never relocate": a document the
-    /// walk DID look for and did not find still follows its stamp to the file's new home.
+    /// The other direction, so the guard isn't "never relocate": a document the walk looked for and
+    /// didn't find still follows its stamp to its new home.
     @Test func aDocumentTheWalkLookedForStillFollowsItsMove() {
         let stamp = FilingSurvey.Stamp(size: 5, modified: 5)
         let before = Self.corpus(["Old/deed.pdf": Self.doc(["grant"], size: 5, modified: 5)])
@@ -304,9 +294,8 @@ import Testing
         #expect(after.documents.keys.sorted() == ["Archive/deed.pdf"])
     }
 
-    /// An empty walk is the whole-root version of the same mistake, and the one that erases
-    /// everything at once. `merge` alone cannot tell it from a tree wiped clean, which is why the
-    /// survey refuses before reaching here — this pins what `merge` does if it ever does arrive.
+    /// An empty walk is the whole-root version, erasing everything at once. The survey refuses
+    /// before reaching `merge`; this pins what `merge` does if one ever arrives.
     @Test func anEmptyWalkUnderAnUnexploredRootKeepsTheWholeCorpus() {
         let before = Self.corpus(["A/one.pdf": Self.doc(["x"], size: 1, modified: 1),
                                   "B/two.pdf": Self.doc(["y"], size: 2, modified: 2)])
@@ -361,8 +350,8 @@ import Testing
         #expect(!anchors.contains("common"))
     }
 
-    /// A token seen in exactly one of a folder's documents is usually extraction noise, and noise
-    /// takes the *highest* rarity precisely because it occurs nowhere else.
+    /// A token seen in only one of a folder's documents is usually extraction noise, and noise
+    /// takes the highest rarity because it occurs nowhere else.
     @Test func aOnceSeenTokenIsDroppedOnceAFolderHasEnoughDocuments() {
         var documents: [String: FilingCorpusDocument] = [:]
         for i in 0..<3 { documents["F/\(i).pdf"] = Self.doc(["pge"], size: i, modified: i) }
@@ -375,8 +364,8 @@ import Testing
         #expect(!anchors.contains("d9x"))
     }
 
-    /// Under three documents there is no recurrence to require, so a folder with one filed document
-    /// still learns from it — the case that matters most for a folder created yesterday.
+    /// Under three documents there is no recurrence to require, so a folder with one filed document,
+    /// such as one created yesterday, still learns from it.
     @Test func aBrandNewFolderWithOneDocumentStillLearns() {
         var documents = ["New/first.pdf": Self.doc(["xfinity", "internet"])]
         for i in 0..<8 { documents["Old\(i)/x.pdf"] = Self.doc(["unrelated\(i)"], size: i, modified: i) }
@@ -404,9 +393,8 @@ import Testing
         #expect(memory.folders["F"]?.docs == 1)
     }
 
-    /// What is stored is the plain rarity, not the score the ordering used — the router weighs how
-    /// much a token discriminates, and reading back the selection score would double-count the
-    /// folder's own volume.
+    /// The stored weight is the plain rarity, not the selection score: the router weighs how much a
+    /// token discriminates, and the selection score would double-count the folder's volume.
     @Test func theStoredWeightIsRarityNotTheSelectionScore() {
         var documents: [String: FilingCorpusDocument] = [:]
         for i in 0..<4 { documents["F/\(i).pdf"] = Self.doc(["kaiser"], size: i, modified: i) }
@@ -417,10 +405,9 @@ import Testing
         #expect(kaiser?.weight == 1.39)
     }
 
-    /// **Recurrence is recorded, and survives being written out.** It is optional *by position*, so
-    /// a writer that stops emitting it produces a file that still decodes perfectly and quietly takes
-    /// the rule proposer back to keying on the rarest word instead of the recurring one — no error,
-    /// anywhere. A token in three of a folder's four documents reads back as 0.75.
+    /// Recurrence is recorded and survives a round trip. It is optional by position, so a writer
+    /// that drops it still decodes cleanly while the rule proposer silently keys on the rarest word
+    /// instead of the recurring one. A token in three of four documents reads back as 0.75.
     @Test func recurrenceIsBuiltAndSurvivesTheRoundTrip() throws {
         var documents: [String: FilingCorpusDocument] = [:]
         for i in 0..<4 { documents["F/\(i).pdf"] = Self.doc(i < 3 ? ["autopay", "tmobile"] : ["tmobile"],
@@ -436,8 +423,8 @@ import Testing
         #expect(read == memory.folders)
     }
 
-    /// The router hashes a candidate file's identifiers with the memory's salt and compares for
-    /// equality. A memory built under a different salt matches nothing — silently.
+    /// The router hashes a file's identifiers with the memory's salt and compares for equality, so a
+    /// memory built under a different salt silently matches nothing.
     @Test func identifiersSurviveTheRoundTripToTheRouter() {
         var documents = ["F/eob.pdf": Self.doc(["kaiser"], ids: ["mrn4471902"])]
         for i in 0..<8 { documents["G\(i)/x.pdf"] = Self.doc(["unrelated\(i)"], size: i, modified: i) }
@@ -446,7 +433,7 @@ import Testing
         #expect(stored.contains(memory.hash("mrn4471902")))
     }
 
-    /// Two runs over the same corpus must produce the same file, or every survey looks like a change
+    /// Two runs over the same corpus produce the same memory, or every survey looks like a change
     /// and throws away the verdict cache.
     @Test func theBuildIsDeterministic() {
         var documents: [String: FilingCorpusDocument] = [:]
@@ -459,8 +446,8 @@ import Testing
                 == FilingSurvey.buildMemory(corpus: c, folderModified: [:]))
     }
 
-    /// Caps are what keep the file to a few megabytes; they are also the boundary where a
-    /// tie-breaking difference would show up as a different set of anchors.
+    /// Caps keep the file to a few megabytes, and are where a tie-breaking difference would show up
+    /// as a different set of anchors.
     @Test func anchorsAndIdentifiersAreCapped() {
         var anchors: [String] = [], ids: [String] = []
         for i in 0..<60 { anchors.append("word\(i)a"); ids.append("id\(i)9999") }

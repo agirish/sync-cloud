@@ -32,8 +32,8 @@ import Testing
         #expect(route?.isReady == true)
     }
 
-    /// Two folders with equal claim leave the file unsure, and unsure is shown as unsure rather
-    /// than as a guess — the margin is the whole point of ranking rather than picking a maximum.
+    /// Two folders with equal claim leave the file unsure, shown as unsure rather than as a guess:
+    /// the margin is why routes are ranked rather than picked by maximum.
     @Test func twoEquallyGoodDestinationsAreNotAnAnswer() {
         let routes = Self.routes(folders: ["Home/Insurance", "Work/Insurance"],
                                  loose: ["insurance.pdf"])
@@ -66,8 +66,8 @@ import Testing
         #expect(routes.first?.home != "TODO")
     }
 
-    /// Every loose file gets a row, including the ones with no answer — the screen's count is the
-    /// root's own file count, so a file that silently dropped out would leave the two disagreeing.
+    /// Every loose file gets a row, even with no answer: the screen's count is the root's own file
+    /// count, and a file that dropped out would make the two disagree.
     @Test func everyLooseFileGetsARow() {
         let routes = Self.routes(folders: ["Finance/Bank Statements"],
                                  loose: ["a.pdf", "b.txt", "c.jpg", "bank statement.pdf"])

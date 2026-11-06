@@ -35,7 +35,7 @@ public struct OneWaySyncArrivals: Equatable, Sendable {
             !OneWaySyncPath.name(path).hasPrefix(OneWaySyncPlanner.temporaryNamePrefix)
                 && syncedFolders.contains { OneWaySyncDisk.isWithin(path, $0) }
         }
-        // Not attribute-only changes (FU): an opened stamp, quarantine, a tag, Dropbox marking an
+        // Not attribute-only changes: an opened stamp, quarantine, a tag, Dropbox marking an
         // upload. They change nothing a write could land on stale.
         let changed = Set(batch.events.filter { !$0.isOwn && !$0.change.isOnlyExtendedAttributes && inside($0.path) }.map(\.path))
         let rescanned = batch.rescans.contains { rescan in
@@ -85,12 +85,12 @@ public struct OneWaySyncArrivals: Equatable, Sendable {
     }
 }
 
-/// **Dropbox caught up** (decision DI): SyncCloud writes into Dropbox only once the Dropbox app is
+/// Dropbox caught up: SyncCloud writes into Dropbox only once the Dropbox app is
 /// running, has run for 5 minutes since it started or the Mac woke, and nothing is still arriving
 /// in the synced folders. Dropbox's changes from elsewhere reach this Mac only while the app runs,
 /// so before then Dropbox's copy here may be behind and a write could land on a stale file.
 ///
-/// Reads RD68's one status model (`CloudAppStatusModel`) for whether the app runs, so one-way sync
+/// Reads the one status model (`CloudAppStatusModel`) for whether the app runs, so one-way sync
 /// and the panes never disagree about it.
 public enum OneWaySyncDropboxGate {
     public static let runningFor: TimeInterval = 5 * 60
@@ -110,10 +110,10 @@ public enum OneWaySyncDropboxGate {
 
     /// What stops the whole sync with a row under *Needs you*.
     public enum Stop: Equatable, Sendable {
-        /// Missing for `CloudAppStatusModel.notRunningGrace`, the same 5 minutes RD68 waits.
+        /// Missing for `CloudAppStatusModel.notRunningGrace`, 5 minutes.
         case dropboxNotRunning(since: Date)
         case dropboxNeverQuiet(since: Date)
-        /// A file SyncCloud put in the Dropbox parent still not uploaded after RD68's 30 minutes.
+        /// A file SyncCloud put in the Dropbox parent still not uploaded after 30 minutes.
         case dropboxNotUploading(since: Date)
     }
 

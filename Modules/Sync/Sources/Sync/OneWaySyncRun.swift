@@ -25,11 +25,11 @@ public struct OneWaySyncLook: Sendable {
         }.map(\.path)
     }
 
-    /// The numbers the first run's preview shows (CZ).
+    /// The numbers the first run's preview shows.
     public var summary: OneWaySyncSummary { OneWaySyncSummary(self) }
 
     /// What Now lists as skipped: what the lister left out, and files whose copy Dropbox refused
-    /// and that are unchanged in iCloud since (ES), by their iCloud path.
+    /// and that are unchanged in iCloud since, by their iCloud path.
     public var skipped: [OneWaySyncSkippedItem] {
         iCloud.skipped + plan.waits.compactMap { wait in
             guard wait.reason == .refusedByDropbox, case .file(let iCloudPath?, _) = wait.subject else { return nil }
@@ -171,9 +171,10 @@ extension OneWaySyncRunResult {
     }
 }
 
-/// **RD67's pass: look, then apply.** Lists both sides, plans, reads the contents the plan asks
-/// for and plans again; then applies the plan through `OneWaySyncWriter`, ticking History off step
-/// by step, waits for Dropbox to report the uploads, and saves the record both sides now agree on.
+/// One one-way sync pass: look, then apply. Lists both sides, plans, reads the contents the plan
+/// asks for and plans again; then applies the plan through `OneWaySyncWriter`, ticking History off
+/// step by step, waits for Dropbox to report the uploads, and saves the record both sides now agree
+/// on.
 ///
 /// Blocking: every call reads or writes the disk. The caller runs it off the main thread; the
 /// apply hops onto its own queue for the writes, so the cooperative pool never waits on a disk.
@@ -388,7 +389,7 @@ public enum OneWaySyncRun {
         }
         var outcomes = applied.outcomes
         // Files moved one by one out of a folder iCloud no longer has (its rename couldn't be one
-        // move): the folder they left goes, once nothing at all is left in it (31 Oct).
+        // move): the folder they left goes, once nothing at all is left in it.
         let emptied = await onWriteQueue {
             removeFoldersLeftEmpty(plan, outcomes: applied.outcomes, iCloud: look.pass.iCloud, dropboxParent: writer.places.dropboxParent)
         }
@@ -462,7 +463,7 @@ public enum OneWaySyncRun {
                 var recorded = step.record.flatMap { byKey[$0] }
                 if case .removed(let path) = outcomes[index] { recorded = removedByPath[path] }
                 if recorded == nil, case .moveInDropbox(_, let to) = step.action { recorded = byICloudPath[OneWaySyncSide.iCloud.nameKey(to)] }
-                // A file copied in: Reverse moves it back where it came from (EU).
+                // A file copied in: Reverse moves it back where it came from.
                 if recorded == nil, case .copy(let from, _, _) = step.action { recorded = byICloudPath[OneWaySyncSide.iCloud.nameKey(from)] }
                 guard let recorded else { continue }
                 let keptAt: String?
@@ -471,7 +472,7 @@ public enum OneWaySyncRun {
             }
         }
 
-        // Where iCloud's other files are now: the next pass tells a file moved in by it (EU).
+        // Where iCloud's other files are now: the next pass tells a file moved in by it.
         // A file moved in whose copy didn't land keeps where it came from, for the pass that copies it.
         var outside = OneWaySyncOutsideFiles(listing: look.pass.iCloud)
         for (index, step) in plan.steps.enumerated() where !outcomes[index].counts {
@@ -532,7 +533,7 @@ public enum OneWaySyncRun {
     /// What reading the pending uploads again found.
     public struct PendingCheck: Sendable {
         public var record: OneWaySyncRecord
-        /// Copies Dropbox now says it won't take, by their iCloud path: listed as skipped (ES).
+        /// Copies Dropbox now says it won't take, by their iCloud path: listed as skipped.
         public var refused: [String] = []
         /// Uploaded since, or no longer SyncCloud's copy: nothing more to hear.
         public var settled = 0
@@ -540,10 +541,10 @@ public enum OneWaySyncRun {
         public var stillFull = false
     }
 
-    /// **The uploads a pass didn't hear about, read again before the next one looks** (31 Oct). A
-    /// copy refused since leaves the record's synced files for its refusals, as one refused at once
-    /// does (ES); one uploaded, gone, or changed since leaves the list; one Dropbox still reports
-    /// full stops the pass. One not answering yet stays, for a day.
+    /// The uploads a pass didn't hear about, read again before the next one looks. A copy refused
+    /// since leaves the record's synced files for its refusals, as one refused at once does; one
+    /// uploaded, gone, or changed since leaves the list; one Dropbox still reports full stops the
+    /// pass. One not answering yet stays, for a day.
     public static func recheckPending(
         _ record: OneWaySyncRecord, dropboxParent: URL, now: Date,
         confirm: @Sendable ([String]) async -> [String: OneWaySyncUploadOutcome] = {

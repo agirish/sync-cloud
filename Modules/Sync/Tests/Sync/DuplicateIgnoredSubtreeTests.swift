@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The duplicate scan never uses what sits under an ignored name — `.git`, `node_modules`,
-/// `.build` — because `DuplicateFinder.collect` stops at the name. It used to hash, fingerprint and
-/// link-check those subtrees anyway: a repository's objects were read for digests nothing could
-/// group, every PDF in `node_modules` was parsed, and their hard links (a local clone shares its
-/// objects that way) were counted in the scan's "outside duplicate detection" note.
+/// The duplicate scan never uses what sits under an ignored name (`.git`, `node_modules`,
+/// `.build`), because `DuplicateFinder.collect` stops at the name, so it must not hash,
+/// fingerprint or link-check those subtrees either: no digests nothing can group, no parsed PDFs,
+/// and no hard links (a local clone shares its objects that way) in the "outside duplicate
+/// detection" note.
 @Suite struct DuplicateIgnoredSubtreeTests {
 
     @MainActor

@@ -4,13 +4,9 @@ import Foundation
 
 @Suite struct SwapPanesTests {
 
-    /// The focused side is a per-side fact like the selections and histories beside it, so it has
-    /// to travel with them: the pane the user was working in is now the other one, and a focused
-    /// side left behind aims ⌘F, ⌘[ and ⇧⌘N at the pane their content just left.
-    ///
-    /// It lives on the manager rather than on the view precisely so this cannot be forgotten. As
-    /// view `@State` it was one line in `swapPanesAction` away from being dropped, with no test
-    /// that could reach the omission — deleting that line left the whole suite green.
+    /// The focused side is a per-side fact like the selections and histories beside it, so it
+    /// travels with them; left behind, it would aim ⌘F, ⌘[ and ⇧⌘N at the pane their content just
+    /// left. It lives on the manager, not in view `@State`, so the swap can't forget it untested.
     @MainActor
     @Test func testSwapPanesCarriesTheFocusedSide() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -19,14 +15,13 @@ import Foundation
         manager.swapPanes()
         #expect(manager.focusedPaneSide == .left)
 
-        // ...and back, so the swap is its own inverse here too.
+        // ...and back: the swap is its own inverse here too.
         manager.swapPanes()
         #expect(manager.focusedPaneSide == .right)
     }
 
-    /// Implicit focus has nothing to swap. Materialising a side here would OVERRIDE the fallback,
-    /// which reads the selection — and the selection is what `swapPanes` has just moved, so it
-    /// already carries the right answer.
+    /// Implicit focus has nothing to swap. Materialising a side would override the fallback, which
+    /// reads the selection, and `swapPanes` has already moved the selection to the right answer.
     @MainActor
     @Test func testSwapPanesLeavesImplicitFocusImplicit() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -36,13 +31,11 @@ import Foundation
         #expect(manager.focusedPaneSide == nil)
     }
 
-    /// **A swap invalidates every column listing in flight**, because each one names a side.
-    ///
-    /// `ColumnGraftKey` carries `isLeft`, and after a swap that side names the OTHER pane's tree.
-    /// Left alone the published set inverts the one distinction it exists to draw: the column that
-    /// really is being read says "Can't be read", and the pane that is not says it is being read.
-    /// Mirroring the keys instead was the other candidate and is worse — the listing itself was
-    /// taken for a pane that has moved, so there is nothing correct left to say about it.
+    /// A swap invalidates every column listing in flight, because each one names a side.
+    /// `ColumnGraftKey` carries `isLeft`, which after a swap names the other pane's tree, so the
+    /// published set would invert: the column really being read says "Can't be read", and the pane
+    /// that isn't says it is. Mirroring the keys is worse: the listing was taken for a pane that
+    /// has moved, so there is nothing correct left to say about it.
     @MainActor
     @Test func testSwapPanesDropsColumnListingsInFlight() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -59,10 +52,10 @@ import Foundation
         #expect(manager.columnGraftsInFlightPaths(isLeft: false).isEmpty)
     }
 
-    /// The generation is what stops a listing already off the main actor grafting into the pane its
-    /// captured `isLeft` now names. Asserted separately from the set above because the two failures
-    /// are different: an un-cleared set draws a wrong caption, a missed generation writes one
-    /// pane's directory listing into the other pane's tree.
+    /// The generation stops a listing already off the main actor grafting into the pane its
+    /// captured `isLeft` now names. Asserted separately from the set above because the failures
+    /// differ: an uncleared set draws a wrong caption, a missed generation writes one pane's
+    /// listing into the other pane's tree.
     @MainActor
     @Test func testSwapPanesAdvancesThePaneOrientationGeneration() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -71,8 +64,8 @@ import Foundation
         manager.swapPanes()
         #expect(manager.paneOrientationGeneration == before + 1)
 
-        // A refused swap must NOT advance it: an in-flight listing is still about the orientation
-        // it was started in, and dropping its answer would cost a column its fill for nothing.
+        // A refused swap must not advance it: an in-flight listing still matches the orientation
+        // it started in, and dropping its answer would cost a column its fill for nothing.
         manager.activeFileOperationsCount = 1
         #expect(manager.swapPanes() == false)
         #expect(manager.paneOrientationGeneration == before + 1)
@@ -109,7 +102,7 @@ import Foundation
         #expect(manager.leftRelativePath == manager.leftHistory.current)
         #expect(manager.rightRelativePath == manager.rightHistory.current)
 
-        // Swapping again is an exact inverse — the original arrangement is restored.
+        // Swapping again is an exact inverse: the original arrangement is restored.
         manager.swapPanes()
         #expect(manager.leftRelativePath == leftRelBefore)
         #expect(manager.rightRelativePath == rightRelBefore)
@@ -139,10 +132,10 @@ import Foundation
         )
     }
 
-    /// Pin: the swap remaps every difference in the same synchronous update that flips the
-    /// pane state — no observer can see swapped pane labels over rows whose paths, arrows,
-    /// or actions still point the pre-swap way (that misdirection copied files in the
-    /// direction opposite to the arrows shown, and Replace overwrote unintended files).
+    /// The swap remaps every difference in the same synchronous update that flips the pane state,
+    /// so no observer sees swapped pane labels over rows whose paths, arrows or actions still point
+    /// the old way. That mismatch would copy files against the arrows shown, and Replace would
+    /// overwrite the wrong files.
     @MainActor
     @Test func testSwapPanesRemapsDifferencesAtomically() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -165,9 +158,9 @@ import Foundation
         }
     }
 
-    /// Pin: trees, item counts, focus bookkeeping, and loading flags all trade sides with the
-    /// labels — pre-fix the swapped headers sat over unswapped trees until the rescan landed,
-    /// and context-menu copy/move on those stale rows resolved against the wrong roots.
+    /// Trees, item counts, focus bookkeeping and loading flags all trade sides with the labels;
+    /// otherwise swapped headers sit over unswapped trees until the rescan, and copy or move from
+    /// those rows' context menus resolves against the wrong roots.
     @MainActor
     @Test func testSwapPanesExchangesTreesCountsAndLoadBookkeeping() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -196,17 +189,11 @@ import Foundation
         #expect(manager.isLoadingRightTree == true)
     }
 
-    /// Pin: checksum-verified-identical ids survive the swap (content equality is symmetric
-    /// and `mirrored()` preserves ids — the verified rows must not resurface), while the
-    /// pending copy-identical offer is dropped (its captured rows and left→right wording
-    /// are pre-swap).
-    /// **The coverage claim is side-labelled, so it swaps with the sources it is read beside.**
-    ///
-    /// `partialComparisonMessage` pairs `lastScanCoverage.left` with `lastScanProviders.left`. That
-    /// pair is mirrored here; if the coverage is not, the banner does not merely go stale — it
-    /// names the source that WAS read in full and stays silent about the one that was not. The rows
-    /// survive a swap (they are mirrored, not cleared), so the banner survives with them and there
-    /// is no rescan to correct it.
+    /// The coverage claim is side-labelled, so it swaps with the sources it is read beside.
+    /// `partialComparisonMessage` pairs `lastScanCoverage.left` with `lastScanProviders.left`, which
+    /// the swap mirrors; unmirrored coverage would make the banner name the source that was read
+    /// in full and say nothing of the one that wasn't. The rows survive a swap (mirrored, not
+    /// cleared), so the banner survives with them and no rescan corrects it.
     @MainActor
     @Test func testSwapPanesMirrorsTheScanCoverageWithTheProviders() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -222,7 +209,7 @@ import Foundation
         #expect(manager.lastScanCoverage == PartialComparison(left: true, right: false))
     }
 
-    /// A complete comparison stays complete through a swap — the mirror must not invent a partial
+    /// A complete comparison stays complete through a swap: the mirror must not invent a partial
     /// side out of two falses.
     @MainActor
     @Test func testSwapPanesLeavesACompleteComparisonComplete() async throws {
@@ -232,6 +219,9 @@ import Foundation
         #expect(manager.lastScanCoverage.isComplete)
     }
 
+    /// Checksum-verified ids survive the swap (content equality is symmetric and `mirrored()` keeps
+    /// ids, so verified rows must not resurface), while the pending copy-identical offer is dropped:
+    /// its captured rows and left→right wording are pre-swap.
     @MainActor
     @Test func testSwapPanesKeepsVerifiedIdsButDropsPendingCopyOffer() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -246,10 +236,9 @@ import Foundation
         #expect(manager.verifiedIdenticalForCopy == nil)
     }
 
-    /// Pin: the swap is refused while file operations are in flight — those operations
-    /// captured pre-swap paths and directions, and remapping the rows under them would show
-    /// arrows that no longer match what the running operation does. The caller keeps the
-    /// provider ids put when the swap reports refusal.
+    /// The swap is refused while file operations are in flight: they captured pre-swap paths and
+    /// directions, and remapped rows would show arrows that don't match what is running. The caller
+    /// keeps the provider ids put when the swap reports refusal.
     @MainActor
     @Test func testSwapPanesRefusedWhileOperationsInFlight() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -278,9 +267,9 @@ import Foundation
         #expect(manager.rightRelativePath == "docs")
     }
 
-    /// Pin: the swap is also refused while Verify All is running — a run completing after the
-    /// swap would publish a `verifiedIdenticalForCopy` offer built from pre-swap differences,
-    /// and the follow-up copy would run in the pre-swap direction under mismatched labels.
+    /// The swap is also refused while Verify All runs: a run finishing after the swap would
+    /// publish a `verifiedIdenticalForCopy` offer built from pre-swap differences, and the copy
+    /// would run the old direction under swapped labels.
     @MainActor
     @Test func testSwapPanesRefusedWhileVerifyAllInFlight() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -291,7 +280,7 @@ import Foundation
 
         manager.isVerifyAllRunning = true
         #expect(!manager.swapPanes())
-        // (Field comparison — banner equality includes a per-publish id.)
+        // Fields compared, since banner equality includes a per-publish id.
         #expect(manager.banner?.message == "Can’t swap panes while an operation is running")
         #expect(manager.banner?.severity == .warning)
         // Nothing moved during the refusal.
@@ -304,16 +293,13 @@ import Foundation
         #expect(manager.rightRelativePath == "docs")
     }
 
-    /// Pin: a provider switch (`retargetPane`) drops the differences and the SWITCHED pane's tree
-    /// synchronously — rows scanned against the old roots must not stay clickable while the new
-    /// provider loads — and resets `hasScanned` so the empty list reads "No Scan Performed", never
-    /// a false "Everything is in sync".
-    ///
-    /// **And leaves the other pane's tree exactly where it was**, which is the half this test grew.
-    /// A comparison belongs to the pair, so it goes; a tree belongs to one pane, and the sibling's
-    /// is a walk of a root this switch did not touch. Dropping it put a spinner over a pane the
-    /// user had not been near and — because the drop republishes an empty tree one view update
-    /// ahead of the reload — flattened the column stack standing in it (`pruneBrowsePath`).
+    /// A provider switch (`retargetPane`) drops the differences and the switched pane's tree
+    /// synchronously, so rows scanned against the old roots aren't clickable while the new provider
+    /// loads, and resets `hasScanned` so the empty list reads "No Scan Performed", never a false
+    /// "Everything is in sync". It leaves the other pane's tree where it was: a comparison belongs
+    /// to the pair, a tree to one pane. Dropping the sibling's tree would put a spinner over a pane
+    /// the user hadn't touched and, since the empty tree republishes a view update ahead of the
+    /// reload, flatten its column stack (`pruneBrowsePath`).
     @MainActor
     @Test func testRetargetPaneClearsTheComparisonAndOnlyItsOwnTree() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -354,15 +340,13 @@ import Foundation
                 "the untouched pane was marked unloaded, so the next republish prunes its columns against an empty tree")
     }
 
-    /// Pin: `mirrored()` is an exact involution, and description mirroring flips only the
-    /// side-relative phrase — provider names travel with their files and stay untouched, and
-    /// direction-free descriptions pass through unchanged.
+    /// `mirrored()` is an exact involution, and description mirroring flips only the side-relative
+    /// phrase: provider names travel with their files, and direction-free descriptions pass
+    /// through unchanged.
     @Test func testMirroredNameConflictKeepsQuotedNamesVerbatim() async throws {
-        // A .nameConflict description quotes both leaf names PRECISELY (its whole purpose is
-        // showing exact spellings), and provider names travel with their files through a swap —
-        // the text is side-neutral by construction. The blanket "on right"→"on left" rewrite
-        // mangled any quoted file name containing those phrases: the one row type built to
-        // show exact names displayed names that don't exist.
+        // A .nameConflict description quotes both leaf names exactly (that is its purpose), and
+        // provider names travel with their files, so the text is side-neutral. A blanket
+        // "on right"→"on left" rewrite would mangle a quoted name containing those words.
         let description = ProviderNameRules.nameConflictDescription(
             leftName: "essay on right.txt", leftProvider: "iCloud",
             rightName: "essay on right.txt.", rightProvider: "Dropbox")
@@ -385,8 +369,8 @@ import Foundation
             == "iCloud file is newer")
         #expect(FileDifference.mirroredDescription("Sizes differ") == "Sizes differ")
 
-        // FR8's note quotes a link inside the folder by its exact path: the side phrase outside the
-        // quotes turns, the path does not — and the path's own words do not choose the direction.
+        // A link note quotes a path inside the folder exactly: the side phrase outside the quotes
+        // turns, the path doesn't, and the path's own words don't choose the direction.
         #expect(FileDifference.mirroredDescription(
             "Folder missing on right (iCloud) — “Docs/notes on left” inside it is a link, so a copy would carry the link")
             == "Folder missing on left (iCloud) — “Docs/notes on left” inside it is a link, so a copy would carry the link")

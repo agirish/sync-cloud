@@ -3,7 +3,7 @@ import Testing
 @testable import Sync
 
 /// One process writes, and one Mac: the lock in Application Support, the launch gate, and the
-/// marker in Dropbox — here a scratch folder standing in for the Dropbox parent.
+/// marker in Dropbox (here a scratch folder standing in for the Dropbox parent).
 @Suite struct OneWaySyncWritersTests {
 
     // MARK: One process

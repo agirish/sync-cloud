@@ -2,10 +2,10 @@ import Events
 import Foundation
 import UniformTypeIdentifiers
 
-/// Filing — suggests where loose files belong within one provider and moves them there. Loose
-/// files come from a folder the user points at; destinations can be anywhere in the provider
-/// (learned from the existing folder tree). Moves reuse the same safe-move + Undo path as every
-/// other file operation.
+/// Filing: suggests where loose files belong within one provider and moves them there. Loose files
+/// come from a folder the user points at; destinations can be anywhere in the provider, learned
+/// from the existing folder tree. Moves reuse the safe-move and Undo path of every other file
+/// operation.
 extension FileSyncManager {
 
     /// Aggregate numbers for the Filing results view.
@@ -25,19 +25,19 @@ extension FileSyncManager {
                              withConfidentHome: confident, needNewFolders: needFolders)
     }
 
-    /// The phase a running Filing scan is in. Suggestions are published once, at the very end of the
-    /// scan, so the results stay empty while phases 2–3 (on-device content + intelligent homes) keep
-    /// refining. Surfacing the phase — and, for the slow later passes, "suggestions still improving" —
-    /// through `filingScanLifecycle.status` keeps the scanning view from reading as finished before it is. This
-    /// is additive: it only shapes the status string, it doesn't change what the scan does.
+    /// The phase a running Filing scan is in. Suggestions are published once, at the end, so the
+    /// results stay empty while phases 2–3 (on-device content, intelligent homes) keep refining.
+    /// Showing the phase, and "suggestions still improving" for the slow later passes, through
+    /// `filingScanLifecycle.status` keeps the scanning view from reading as finished too early. It
+    /// shapes only the status string, not what the scan does.
     public enum FilingScanPhase: Sendable, Equatable {
-        /// Phase 1 — reading the loose files in the picked folder.
+        /// Phase 1: reading the loose files in the picked folder.
         case scanningFolder(String)
-        /// Phase 1 — walking the provider to learn its folder taxonomy.
+        /// Phase 1: walking the provider to learn its folder taxonomy.
         case learningFolders
-        /// Phase 2 — reading document contents on-device for files with no confident home.
+        /// Phase 2: reading document contents on-device for files with no confident home.
         case readingContent(Int)
-        /// Phase 3 — the intelligent classifier reasoning about the best homes.
+        /// Phase 3: the intelligent classifier reasoning about the best homes.
         case findingHomes
         /// A single-file "Try another" re-ask (not part of the initial scan's phase sequence).
         case lookingForDifferent
@@ -58,10 +58,9 @@ extension FileSyncManager {
             }
         }
 
-        /// How the phase is named when a scan reports where it stopped. Deliberately not
-        /// ``status``: that is a progress line written to be read mid-scan ("Phase 2 · reading 3
-        /// documents — suggestions still improving"), and it reads as a claim about the future in
-        /// a log sentence about a scan that has already given up.
+        /// How the phase is named when a scan reports where it stopped. Not ``status``: that is a
+        /// progress line for mid-scan ("… suggestions still improving"), which reads as a claim
+        /// about the future in a log sentence about a scan that has given up.
         var logLabel: String {
             switch self {
             case .scanningFolder(let name): return "scanning \(name)"
@@ -79,12 +78,11 @@ extension FileSyncManager {
     /// `{provider}` token in automation destinations that steer the suggestions.
     ///
     /// `nameProvider` is the ruleset the same pass checks names against (see
-    /// ``detectRiskyNames(in:root:provider:)``). Optional so callers that only want suggestions —
-    /// the CLI, tests — opt out rather than being forced to name a provider they don't have.
-    /// `ignoringCache` is the "Rescan (ignore cache)" path: it skips READING cached verdicts, so
-    /// every file is put back to the backend, while still WRITING the fresh answers so the next
-    /// ordinary scan benefits. That asymmetry is the point — the user asked for a fresh opinion,
-    /// not for the cache to be turned off.
+    /// ``detectRiskyNames(in:root:provider:)``). Optional so callers that only want suggestions
+    /// (the CLI, tests) needn't name a provider they don't have. `ignoringCache` is the "Rescan
+    /// (ignore cache)" path: it skips reading cached verdicts, so every file goes back to the
+    /// backend, but still writes the fresh answers so the next ordinary scan benefits. The user
+    /// asked for a fresh opinion, not for the cache to be turned off.
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
                                            ignoringCache: Bool = false,
@@ -92,10 +90,9 @@ extension FileSyncManager {
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             guard let self else {
-                // The third way a started scan can produce nothing, and the only one that leaves
-                // no trace inside the scan itself: `restartedScanTask` waits for the previous
-                // scan to unwind before running this one, so a manager torn down in that window
-                // takes the scan with it.
+                // A started scan can also produce nothing this way, with no trace inside the scan:
+                // `restartedScanTask` waits for the previous scan to unwind first, so a manager
+                // torn down in that window takes the scan with it.
                 Logger.shared.info("Filing: scan of \(folder.lastPathComponent) dropped before it "
                     + "began — the sync manager went away while the previous scan was unwinding")
                 return
@@ -112,20 +109,15 @@ extension FileSyncManager {
 
     /// Re-runs the Filing scan on lens open, when `folder` is exactly what the last completed
     /// scan covered. Consent and idempotence work as in
-    /// ``autoRescanDuplicatesIfEligible(root:options:)`` — a remembered target, then
-    /// `hasSuggestedFiling` / `isSuggestingFiles` / the per-target latch against the callers'
+    /// ``autoRescanDuplicatesIfEligible(root:options:)``: a remembered target, then
+    /// `hasSuggestedFiling`, `isSuggestingFiles` and the per-target latch against the callers'
     /// overlapping triggers.
     ///
-    /// **There is no money question here, and none inside the scan either.** There was, in two
-    /// places: a pre-flight that walked the folder and probed the verdict cache to predict
-    /// whether the scan would reach the paid backend, and a second, exact stop at the
-    /// classification phase. Both existed because a scan *could* spend, so an auto-started one
-    /// had to be talked out of it. A scan can no longer spend at all —
-    /// ``FilingClassifierTier/free`` is the only tier it classifies at, and the cloud backend is
-    /// reachable only from the refine pass, which is a click. Predicting a route the scan cannot
-    /// take is not a weaker version of that guarantee, it is a different and worse one: the
-    /// prediction has to agree with the router, and where it didn't (cloud on, no readable key)
-    /// it raised a payment dialog for a scan that was always going to be free.
+    /// No money question here or inside the scan: a scan classifies only at
+    /// ``FilingClassifierTier/free``, and the cloud backend is reachable only from the refine pass,
+    /// which is a click. Predicting the route instead would be worse, since the prediction must
+    /// agree with the router, and where it doesn't (cloud on, no readable key) it would raise a
+    /// payment dialog for a scan that was always free.
     ///
     /// Returns whether a scan was started, for tests.
     @discardableResult
@@ -145,39 +137,32 @@ extension FileSyncManager {
         return true
     }
 
-    /// Whether the app's own router says a ``FilingClassifierTier/free`` classification would
-    /// reach a paid backend — which would mean the app is not honouring the tier.
+    /// Whether the app's own router says a ``FilingClassifierTier/free`` classification would reach
+    /// a paid backend, which would mean the app isn't honouring the tier.
     ///
-    /// The free pass's guarantee is structural: it passes `.free`, and the app routes `.free` to
-    /// the on-device model. This asks the app to state that, rather than assuming it. The one
-    /// line in the app's wiring that maps tier → backend is the whole of the guarantee, and
-    /// nothing in this module compiles against it; if it ever stops being true, the honest
-    /// outcome is a scan with no classification phase and a loud log line, not a silent bill.
+    /// The free pass's guarantee is structural: it passes `.free`, and the app routes `.free` to the
+    /// on-device model. This asks the app to state that rather than assuming it, since the one line
+    /// of wiring that maps tier to backend is the whole guarantee and nothing in this module
+    /// compiles against it. If it ever stops being true, the honest outcome is a scan with no
+    /// classification phase and a loud log line, not a silent bill.
     ///
-    /// With no app resolver (the CLI, tests) the answer is no by construction —
-    /// ``configuredFilingBackendIdentity(for:)`` returns the on-device identity for `.free`
-    /// unconditionally.
+    /// With no app resolver (the CLI, tests) the answer is no by construction:
+    /// ``configuredFilingBackendIdentity(for:)`` returns the on-device identity for `.free`.
     var freePassWouldReachAPaidBackend: Bool { filingRoutesToCloud(.free) }
 
     /// Whether a classification at `tier` will reach the paid backend.
     ///
-    /// **The single answer to the money question, asked by everything that needs it** — the
-    /// free-pass misroute check above, the spend guardrail, and the Refine button's label. Three
-    /// call sites that must agree, so they read one function rather than three predicates that
-    /// happen to line up today.
+    /// The single answer to the money question, for everything that asks it: the free-pass
+    /// misroute check above, the spend guardrail and the Refine button's label. Keyed on the
+    /// resolved route, not the cloud setting, because the two disagree in an ordinary state
+    /// (cloud on, no readable Keychain key, so the router downgrades to on-device), and a check on
+    /// the setting would raise a payment dialog for a free pass. Safe because the app's classifier
+    /// uses the same router with the same inputs: if this says on-device, the call can't be billed.
     ///
-    /// That is the whole lesson of the auto-rescan bug this feature replaced: the guard read the
-    /// resolved ROUTE while `cloudSpendAllows` returned early on the cloud SETTING, and in the
-    /// ordinary state where the two disagree — cloud switched on, no readable Keychain key, so the
-    /// app's router reports the on-device downgrade — a free pass raised a payment dialog. Keying
-    /// every consumer on the route is safe *because the app's classifier uses the same router with
-    /// the same inputs*: if this says on-device, the call that follows cannot be billed.
-    ///
-    /// **An `if let` on the closure, never `filingBackendIdentity?(tier) ?? …`** — optional
-    /// chaining flattens, and a closure that RETURNED nil would be indistinguishable from one
-    /// never set. nil means "the app cannot vouch for which backend will run", and for a money
-    /// gate the safe reading of "don't know" is to fall back on what settings configure — i.e. to
-    /// ask — rather than to assume free and spend silently.
+    /// An `if let` on the closure, never `filingBackendIdentity?(tier) ?? …`: optional chaining
+    /// flattens, so a closure that returned nil would look unset. nil means "the app can't vouch
+    /// for which backend will run", and for a money gate the safe reading is to fall back on what
+    /// settings configure, and so ask, rather than assume free and spend silently.
     func filingRoutesToCloud(_ tier: FilingClassifierTier) -> Bool {
         if let resolveBackend = filingBackendIdentity, let identity = resolveBackend(tier) {
             return identity.hasPrefix("cloud:")
@@ -185,30 +170,28 @@ extension FileSyncManager {
         return configuredFilingBackendIdentity(for: tier).hasPrefix("cloud:")
     }
 
-    /// Whether to offer the cloud Refine button at all — the UI's question, before it decides
-    /// between "Refine N with Opus" and the "set up Claude" invitation.
+    /// Whether to offer the cloud Refine button at all: the UI's question, before it picks between
+    /// "Refine N with Opus" and the "set up Claude" invitation.
     ///
-    /// Not the toggle: with cloud switched on and nothing stored, a toggle-based answer promises a
-    /// model the router will not use, and the pass comes back "no better homes found" having asked
-    /// nothing. The invitation is the honest control there — it opens Settings ▸ Intelligence, which is
-    /// where the missing key goes.
+    /// Not the toggle: with cloud on and no key stored, the toggle would promise a model the router
+    /// won't use, and the pass would report "no better homes found" having asked nothing. The
+    /// invitation is the honest control there; it opens Settings ▸ Intelligence, where the key goes.
     ///
-    /// **Not the real route either, and that is the point of ``filingCloudRefineConfigured``.**
-    /// This is read on every render of the Organize toolbar; resolving the route means decrypting
-    /// the Keychain item, which can raise the password prompt — while the user types. The cheap
-    /// seam answers "is a key stored", the route stays for the money decisions, and the narrow
-    /// gap between them (stored but unreadable) is reported by the refine banner rather than
-    /// silently believed.
+    /// Not the real route either (hence ``filingCloudRefineConfigured``): this is read on every
+    /// render of the Organize toolbar, and resolving the route decrypts the Keychain item, which
+    /// can raise the password prompt while the user types. The cheap seam answers "is a key
+    /// stored", the route decides money, and the gap between them (stored but unreadable) is
+    /// reported by the refine banner rather than silently believed.
     public var filingCloudRefineAvailable: Bool {
         guard filingUsesCloud else { return false }
         if let configured = filingCloudRefineConfigured { return configured() }
         return filingRoutesToCloud(.refine)
     }
 
-    /// True when the user has asked for Claude but the router will not reach it — a key that is
-    /// stored yet unreadable. The one state where ``filingCloudRefineAvailable`` and the real
-    /// route disagree, named here so the refine pass can say so instead of quietly running
-    /// on-device under a button that promised Opus.
+    /// True when the user asked for Claude but the router won't reach it: a key stored yet
+    /// unreadable. The one state where ``filingCloudRefineAvailable`` and the real route disagree,
+    /// so the refine pass can say so rather than quietly run on-device under a button that
+    /// promised Opus.
     var filingCloudRefineIsDowngraded: Bool {
         filingUsesCloud && !filingRoutesToCloud(.refine)
     }
@@ -216,28 +199,22 @@ extension FileSyncManager {
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
     ///
-    /// **This is the free pass, all of it.** Phases 1–3 run at ``FilingClassifierTier/free``, so
-    /// the whole scan — started by a click or automatically on lens open — costs nothing and can
-    /// raise no spend prompt. The paid backend is reached only by ``refineFilingSuggestions(_:)``,
-    /// which acts on the results this publishes. That is why there is no `autoFreeOnly` here and
-    /// no cost pre-flight anywhere in the body: "free" is not a mode this scan can be asked to run
-    /// in, it is the only mode it has.
+    /// This is the free pass, all of it. Phases 1–3 run at ``FilingClassifierTier/free``, so the
+    /// whole scan, started by a click or on lens open, costs nothing and raises no spend prompt.
+    /// The paid backend is reached only by ``refineFilingSuggestions(_:)``, acting on the results
+    /// this publishes, so there is no cost pre-flight here: free is the only mode the scan has.
     ///
-    /// **Every way out of this function says so.** The body is a sequence of `await`s punctuated
-    /// by cancellation checks, and each of those used to be a bare `return`: a scan could be
-    /// started, announced by ``autoRescanFilingIfEligible(folder:providerRoot:providerName:nameProvider:options:)``,
-    /// and then abandoned without writing a line, leaving "ran and found nothing"
-    /// indistinguishable from "never ran" in the log — the same conflation
-    /// ``OrganizeOverviewState`` splits `clean` from `notScanned` to avoid. Rather than a log
-    /// line at each `return` — there are sixteen, and the seventeenth to be added would not have
-    /// one — the reporting hangs off the `defer` that already runs on every path, and names the
-    /// phase the scan died in. A new cancellation check is covered the moment it is written.
+    /// Every way out of this function says so. The body is a run of `await`s and cancellation
+    /// checks, and a silent `return` would leave "ran and found nothing" indistinguishable from
+    /// "never ran" in the log (the conflation ``OrganizeOverviewState`` splits `clean` from
+    /// `notScanned` to avoid). The reporting hangs off the `defer` that runs on every path and
+    /// names the phase the scan stopped in, so a new cancellation check is covered as it is written.
     ///
-    /// **`reportsTreeFindings` is false when `providerRoot` is not the source the other lenses
-    /// describe** (TE287): loose files in Home ▸ Downloads filed into Documents in iCloud. The walk
-    /// of `providerRoot` is still the taxonomy, but its risky names and rename plans are about
-    /// iCloud, and published under the Home folder source they would answer Names and Renames for
-    /// a tree that source does not show. So neither is run, and whatever they last said stands.
+    /// `reportsTreeFindings` is false when `providerRoot` isn't the source the other lenses
+    /// describe, as when loose files in Home ▸ Downloads are filed into Documents in iCloud. The
+    /// walk of `providerRoot` is still the taxonomy, but its risky names and rename plans are about
+    /// iCloud, and published under the Home source they would answer Names and Renames for a tree
+    /// that source doesn't show. So neither runs, and whatever they last said stands.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
         nameProvider: CloudProvider.ProviderType? = nil, ignoringCache: Bool = false,
@@ -245,28 +222,27 @@ extension FileSyncManager {
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else {
-            // Before `beginScan`, so this one exit is outside the `defer`'s reach and reports
-            // itself. Not a failure: the running scan covers the same ground.
+            // Before `beginScan`, so this exit is outside the `defer`'s reach and reports itself.
+            // Not a failure: the running scan covers the same ground.
             Logger.shared.info("Filing: scan of \(folder.lastPathComponent) not started — "
                 + "a Filing scan is already running")
             return
         }
         let fileManager = fm ?? self.fileManager
-        // Ask the provider's own volume how it folds case, so the engine's "already in this
-        // folder" test agrees with what `performFiling` will actually do on that disk. Callers
-        // that pin the option themselves (tests) keep their answer.
+        // Ask the provider's own volume how it folds case, so the engine's "already in this folder"
+        // test agrees with what `performFiling` will do on that disk. Callers that pin the option
+        // themselves (tests) keep their answer.
         var options = options
         if !options.caseSensitiveVolume {
             options.caseSensitiveVolume = Self.volumeSupportsCaseSensitiveNames(for: providerRoot)
         }
         let epoch = beginScan(\.filingScanLifecycle,
                               status: FilingScanPhase.scanningFolder(folder.lastPathComponent).status)
-        // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
+        // Start warming the AI backend now, so its cold start overlaps the walk and content phases.
         if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
-        // The phase the scan is currently in, mirrored here so the `defer` can name where it
-        // stopped. Kept in step with the published status by `enter` below rather than by hand:
-        // the lifecycle's own status is cleared by `endScan`, and reading it back would also put
-        // a user-facing progress line into a log sentence it does not fit.
+        // The phase the scan is in, mirrored so the `defer` can name where it stopped. Kept in step
+        // with the published status by `enter` below: `endScan` clears the lifecycle's own status,
+        // and a user-facing progress line doesn't fit in a log sentence anyway.
         var phase = FilingScanPhase.scanningFolder(folder.lastPathComponent)
         func enter(_ next: FilingScanPhase) {
             phase = next
@@ -283,19 +259,19 @@ extension FileSyncManager {
             endScan(\.filingScanLifecycle)
         }
 
-        // Loose files = the direct files sitting in the picked folder (not its subfolders).
+        // Loose files: the direct files sitting in the picked folder, not its subfolders.
         let looseTree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
         let looseFiles = looseTree.filter { !$0.isDirectory }
         if Task.isCancelled { return }
-        // Which of them are only in the cloud (GJ): the extractor will not open those, so their
-        // cards are placed by name and say so. Published with the results below.
+        // Which of them are only in the cloud: the extractor won't open those, so their cards are
+        // placed by name and say so. Published with the results below.
         let notDownloaded = await Self.cloudOnlyPaths(looseFiles.map { $0.id }, statFlags: filingStatFlags)
         if Task.isCancelled { return }
 
         enter(.learningFolders)
-        // Budgeted first, as a probe — see `buildStorageLens`. A taxonomy missing the folders the
-        // walk never reached does not fail; it quietly suggests the wrong home, which is the most
-        // expensive way for this pass to be wrong.
+        // Budgeted first, as a probe (see `buildStorageLens`). A taxonomy missing folders the walk
+        // never reached doesn't fail; it quietly suggests the wrong home, the most expensive way
+        // for this pass to be wrong.
         let taxonomyProbe = NodeBudget(wholeTreeProbeBudget)
         var taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name,
                                             fileManager: fileManager, maxDepth: nil, budget: taxonomyProbe)
@@ -312,36 +288,34 @@ extension FileSyncManager {
             if Task.isCancelled { return }
         }
 
-        // Names, on the pass that is already here. This walk covers the whole provider — the same
-        // ground the standalone Rename scan used to cover — so folding the check in loses no
-        // coverage, only the trip. Published before the suggestions so the finding is on screen
-        // as soon as it is known rather than waiting on classification.
+        // Names, on the pass that is already here. This walk covers the whole provider, so folding
+        // the check in loses no coverage, only a trip. Published before the suggestions so the
+        // finding is on screen as soon as it is known, not after classification.
         if reportsTreeFindings, let nameProvider {
             await detectRiskyNames(in: taxonomy, root: providerRoot, provider: nameProvider)
             if Task.isCancelled { return }
         }
 
-        // The rename backlog, on the same walk and for the same reason. `RenamePlanner` is pure and
-        // reads the folder profile rather than the disk, so this costs one traversal of a tree that
-        // is already in memory — no second walk, and no tab to remember to visit.
+        // The rename backlog, on the same walk for the same reason. `RenamePlanner` is pure and reads
+        // the folder profile, not the disk, so this costs one traversal of a tree already in memory.
         if reportsTreeFindings {
             await detectRenamePlans(in: taxonomy, root: providerRoot)
             if Task.isCancelled { return }
         }
 
         // The user's rules steer the suggestions. Automations are the one rule system; the legacy
-        // remembered-rule store (F3) is consulted only until the one-time migration into
-        // Automations has run, so an un-migrated install (tests, CLI) behaves exactly as before.
+        // remembered-rule store is consulted only until the one-time migration into Automations has
+        // run, so an un-migrated install (tests, CLI) behaves as before.
         ensureAutomationRulesLoaded()
         let automations = automationRules
         let rules = filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey)
             ? [] : filingRules(under: providerRoot)
         let scanClock = Date()
 
-        // Rules that read the file's text get it here, with the same gating the Automations
-        // preview uses: only files where a content condition could still FLIP an enabled rule's
-        // outcome are read. This keeps the two surfaces in agreement — a rule that matches a file
-        // in the lens preview matches it here — at zero cost when no rule reads content.
+        // Rules that read the file's text get it here, gated as the Automations preview gates it:
+        // only files where a content condition could still flip an enabled rule's outcome are read.
+        // So a rule that matches a file in the lens preview matches it here, at no cost when no rule
+        // reads content.
         var automationSnippets: [String: String] = [:]
         let actingRules = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot.path) }
         if filingReadsContents, let extractor = filingSnippetExtractor, actingRules.readsContent {
@@ -356,12 +330,12 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
             }
         }
-        // Rejected folders per file — a "Try another" earlier said "not there"; never re-suggest it.
+        // Rejected folders per file: a "Try another" earlier said "not there"; never re-suggest it.
         let scopedRejections = filingRejections(under: providerRoot)
         var rejectedByFile: [String: Set<String>] = [:]
         for f in looseFiles {
-            // Token-keyed persisted rejections plus this session's path-keyed ones — the latter are
-            // the only record for token-less filenames, which can't persist a rejection.
+            // Token-keyed persisted rejections plus this session's path-keyed ones, the only record
+            // for token-less filenames, which can't persist a rejection.
             let paths = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
                 .union(filingSessionRejections[f.id] ?? [])
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
@@ -369,8 +343,8 @@ extension FileSyncManager {
         let rejectedWords = filingRejectedWords(under: providerRoot)
         // What the taxonomy says, worked out once and off the main actor: the classifier's capped
         // folder list, the uncapped set, and every folder's profile. Sorting and tokenizing a
-        // 12,000-folder tree held the window for most of a second, and the profiles were rebuilt
-        // for each of the scan's two `suggest` calls.
+        // 12,000-folder tree can hold the window for most of a second, and both of the scan's
+        // `suggest` calls share the profiles.
         let providerRootPath = providerRoot.path
         let walkedTaxonomy = taxonomy
         let scanOptions = options
@@ -385,15 +359,14 @@ extension FileSyncManager {
         filingLastProviderRoot = providerRoot.path
         filingLastNameProvider = nameProvider
         filingLastTaxonomyFolders = taxonomyFolders
-        // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
+        // Uncapped set for new-vs-existing marking on a re-ask (the main path's limit: .max).
         filingLastExistingFolders = existingFolders
-        // The router reasons over the UNCAPPED folder set: the classifier's cap exists to bound
-        // token cost, and this pass sends nothing anywhere, so capping it would hide real
-        // destinations for no benefit.
+        // The router reasons over the uncapped folder set: the classifier's cap bounds token cost,
+        // and this pass sends nothing anywhere, so capping would hide real destinations for nothing.
         prepareFilingRouter(destinations: filingLastExistingFolders, providerRoot: providerRoot.path)
 
-        // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
-        // Off the main actor, against the taxonomy learned above; every input is a value.
+        // Phase 1: filename, metadata, your taxonomy and your rules (not published yet). Off the
+        // main actor, against the taxonomy learned above; every input is a value.
         let registry = filingPersonRegistry
         let personIdentity = filingPersonIdentity
         let snippetsForRules = automationSnippets
@@ -410,12 +383,11 @@ extension FileSyncManager {
                                  options: scanOptions)
         }.value
         if Task.isCancelled { return }
-        // **What each card is about, recorded once phase 1 has built the cards (FR45)** — after
-        // the walk and before any page is read. `performFiling` re-reads it before the move and
-        // refuses a file that has changed since: the path alone says only that something is
-        // there. One stat per loose file, off the main actor — the same read the move makes, so a
-        // file nobody touched compares equal by construction. Kept by path in `scanIdentities`,
-        // because phase 2's re-suggest builds every card afresh and must hand each one back.
+        // What each card is about, recorded once phase 1 has built the cards, after the walk and
+        // before any page is read. `performFiling` re-reads it before the move and refuses a file
+        // changed since, since the path alone says only that something is there. One stat per file,
+        // off the main actor, the same read the move makes, so an untouched file compares equal.
+        // Kept by path in `scanIdentities`, because phase 2's re-suggest rebuilds every card.
         let identityInput = suggestions
         let identityDisk = fileManager
         suggestions = await Task.detached(priority: .userInitiated) {
@@ -428,28 +400,20 @@ extension FileSyncManager {
         let scanIdentities = Dictionary(suggestions.map { ($0.id, $0.sourceIdentity) },
                                         uniquingKeysWith: { first, _ in first })
 
-        // Phase 2 — for the files with no confident home, read their contents on-device and
+        // Phase 2: for the files with no confident home, read their contents on-device and
         // re-suggest with those tokens merged in.
         //
-        // **A page is read once and shared.** Tokens are a pure function of the extracted text, so
-        // when the router is also going to want that text, the text is what gets read and the
-        // tokens are derived from it. Reading the file twice — once for tokens, once for the
-        // router — doubled the most expensive work in the scan, and PDF extraction is that work.
+        // A page is read once and shared. Tokens are a pure function of the extracted text, so when
+        // the router also wants the text, the text is read and the tokens derived from it; reading
+        // twice would double the scan's most expensive work, PDF extraction.
         var routerSnippets: [String: String] = [:]
         if filingReadsContents, let extractor = filingContentExtractor {
-            // **Every file a backend will be asked about, not only the homeless ones.**
-            //
-            // The old set was `!hasConfidentHome`, which made sense when a page was read only to
-            // improve a suggestion that had nothing. It stopped making sense once that page also
-            // feeds the router and the classifier's folder menu: a file the keyword engine placed
-            // confidently was then classified from its filename alone, against a menu that
-            // described everything except it. A T-Mobile bill named `DetailedBillApr2025.pdf` came
-            // back as a NEW `Finance/US/Accounts` — while the router, given the page, ranks
-            // `Home/Utilities/T-Mobile/2025` first out of 4,967 folders. Eleven of that scan's
-            // thirteen files were in the confident-home set and none of them were ever read.
-            //
-            // The extra reads are bounded by what is actually being classified, and a file that
-            // was going to be read anyway is read once — see `extractSnippets` reuse below.
+            // Every file a backend will be asked about, not only the homeless ones: the page also
+            // feeds the router and the classifier's folder menu, so a file the keyword engine
+            // placed confidently would otherwise be classified from its filename alone, against a
+            // menu describing everything but it (a phone bill offered a new `Finance/US/Accounts`
+            // while the router, given the page, ranks its real `T-Mobile/2025` folder first). The
+            // extra reads are bounded by what is being classified, and each file is read once.
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             let willClassify = filingUsesAI && filingClassifier != nil && !freePassWouldReachAPaidBackend
             let readSet = willClassify
@@ -467,22 +431,20 @@ extension FileSyncManager {
                     routerSnippets = await Self.extractSnippets(for: readSet.map { $0.filePath },
                                                                using: snippetExtractor)
                     if Task.isCancelled { return }
-                    // A PDF that was read and gave up nothing is a scan with no text layer. Noted
-                    // now, while it is known which files were actually read; the expensive part —
-                    // rendering and OCR — is offered, not spent. See `filingUnreadableScans`.
-                    // Not a cloud-only one: it gave nothing because it was not opened, and Read Scan
-                    // would render it — downloading it — to find text it may well have (GJ).
+                    // A PDF read that gave up nothing is a scan with no text layer. Noted now, while
+                    // it's known which files were read; rendering and OCR are offered, not spent
+                    // (see `filingUnreadableScans`). Not a cloud-only one: it gave nothing because it
+                    // wasn't opened, and Read Scan would download it to find text it may well have.
                     filingUnreadableScans = Set(readSet.map { $0.filePath }.filter {
                         routerSnippets[$0] == nil && !notDownloaded.contains($0)
                             && ($0 as NSString).pathExtension.lowercased() == "pdf"
                     })
-                    // **Tokenize only what the keyword pass will use.** `filingTokensFromText` is
-                    // NaturalLanguage named-entity recognition over up to 20,000 characters — the
-                    // most expensive thing in the scan after extraction — and its only consumer is
-                    // the re-suggest below, which acts on files with no confident home. Deriving it
-                    // for the whole widened read set spent minutes of CPU producing tokens for
-                    // files nothing would read, and would have quietly changed the suggestions for
-                    // files that already had a home. The snippets stay wide; this stays narrow.
+                    // Tokenize only what the keyword pass will use. `filingTokensFromText` is
+                    // NaturalLanguage named-entity recognition over up to 20,000 characters, the
+                    // scan's most expensive step after extraction, and its only consumer is the
+                    // re-suggest below, for files with no confident home. Tokenizing the whole wider
+                    // read set would cost minutes of CPU and change suggestions for files that
+                    // already had a home. The snippets stay wide; this stays narrow.
                     let unsurePaths = Set(unsure.map { $0.filePath })
                     content = routerSnippets
                         .filter { unsurePaths.contains($0.key) }
@@ -491,20 +453,17 @@ extension FileSyncManager {
                             return t.isEmpty ? nil : t
                         }
                 } else {
-                    // No router: the keyword pass only ever wanted tokens for the homeless files,
-                    // and reading the rest would buy nothing.
+                    // No router: the keyword pass only wants tokens for the homeless files, and
+                    // reading the rest would buy nothing.
                     content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
                 }
                 if Task.isCancelled { return }
                 if !content.isEmpty {
-                    // **Every argument phase 1 passed, plus the tokens.** This re-suggest replaces
-                    // the whole list rather than patching the homeless entries, so an argument
-                    // omitted here is an argument withdrawn from files that were already answered.
-                    // `registry`/`identity` were: without them `automationFacts` attributes nobody,
-                    // so every `personIs` condition reads false and every `{person}` destination
-                    // resolves unresolved — the candidate is dropped. A rule the user wrote by hand
-                    // stopped steering the moment any file in the scan needed its contents read,
-                    // which is the default setting and the common case.
+                    // Every argument phase 1 passed, plus the tokens. This re-suggest replaces the
+                    // whole list, so an omitted argument is withdrawn from files already answered.
+                    // Without `registry` and `identity`, `automationFacts` attributes nobody, every
+                    // `personIs` condition reads false and every `{person}` destination is dropped,
+                    // so hand-written rules would stop steering whenever a file's contents were read.
                     let registry = filingPersonRegistry
                     let personIdentity = filingPersonIdentity
                     suggestions = await Task.detached(priority: .userInitiated) {
@@ -518,8 +477,8 @@ extension FileSyncManager {
                                              rejectedByFile: rejections,
                                              rejectedWords: rejectedWords, options: scanOptions)
                     }.value
-                        // The identity too: `suggest` builds cards without one, and a card
-                        // without one is filed with no "changed since the scan" check at all.
+                        // The identity too: `suggest` builds cards without one, and a card without
+                        // one is filed with no "changed since the scan" check.
                         .map { $0.recordingSource(scanIdentities[$0.id] ?? nil) }
                 }
             }
@@ -527,28 +486,25 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
-        // **One page sample, so every surface that asks who a document is about gets one answer.**
-        //
-        // `routerSnippets` holds whatever the extractor returned — up to 20,000 characters. What
-        // this scan PUBLISHES as `filingPageSamples` is truncated to `contentSampleChars`, and that
-        // published value is what "Try another" and the OCR re-read hand to the cross-person rule.
-        // The scan's own two veto call sites were passing the untruncated strings, so a name printed
-        // past the cut attributed a document during the scan and not on a re-ask — two answers to
-        // one question about the same file. Derived once here and used by all three.
+        // One page sample, so every surface that asks who a document is about gets one answer.
+        // `routerSnippets` holds up to 20,000 characters, but the published `filingPageSamples`,
+        // which "Try another" and the OCR re-read hand to the cross-person rule, is truncated to
+        // `contentSampleChars`. The scan's own veto calls use the same truncation, or a name printed
+        // past the cut would attribute a document here and not on a re-ask. Derived once, used by
+        // all three.
         let pageSamples = routerSnippets.mapValues { String($0.prefix(FilingRouter.contentSampleChars)) }
 
-        // Phase 2.5 — the tree's own profile and memory, with no model call. Reads page 1 for the
+        // Phase 2.5: the tree's own profile and memory, with no model call. Reads page 1 for the
         // files still without a home and ranks destinations by what each folder already contains.
-        // Skipped entirely when no profile has been loaded, which is the ordinary state.
+        // Skipped when no profile is loaded, the ordinary state.
         //
         // The snippets are kept: phase 3 would otherwise read the same pages again, and a PDF page
-        // is the expensive part of this whole scan.
+        // is the expensive part of the scan.
         var routerShortlists: [String: [String]] = [:]
         if let routerIndex = filingRouterIndex {
-            // Gated on there being anything to rank at all, not on anything being homeless: the
-            // ranking now also produces the shortlists phase 3's folder menu is built from, and a
-            // scan where every file already has a home is exactly the one where the model was being
-            // handed a menu with nothing to do with it.
+            // Gated on there being anything to rank, not on anything being homeless: the ranking
+            // also produces the shortlists phase 3's folder menu is built from, which a scan where
+            // every file has a home needs too.
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !suggestions.isEmpty {
                 // No extraction here: phase 2 already read these pages, and phase 3 reuses the same
@@ -560,8 +516,8 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
                 suggestions = routed
                 routerShortlists = shortlists
-                // Of every card, not of the homeless ones: since GT/GY the router also replaces a
-                // home found by matching words, and "placed 8 of 7" counted those against the rest.
+                // Of every card, not just the homeless: the router also replaces a home found by
+                // matching words, so counting against the homeless alone could print "placed 8 of 7".
                 if count > 0 {
                     Logger.shared.info("Filing: the folder profile placed \(count) of \(suggestions.count) "
                                        + "file(s), \(unsure.count) of which had no confident home, without a model call")
@@ -572,27 +528,23 @@ extension FileSyncManager {
         if Task.isCancelled { return }
 
         // What the classification phase reused, published with the results below rather than as it
-        // happens — same discipline as `filingScanFolder`: a cancelled scan must not relabel the
-        // previous results with its own numbers.
+        // happens, like `filingScanFolder`: a cancelled scan must not relabel the previous results.
         var cacheReuse: FilingCacheReuse?
 
-        // Phase 3 — intelligent classification, at the FREE tier. Reasons about the folder taxonomy
-        // + document text to pick a home, overriding the keyword guess for the files it's confident
-        // about. An explicit remembered rule (F3) still wins, and a backend that declines/errors
-        // never makes things worse than the keyword engine alone.
+        // Phase 3: intelligent classification, at the free tier. Reasons about the folder taxonomy
+        // and document text to pick a home, overriding the keyword guess where it's confident. An
+        // explicit remembered rule still wins, and a backend that declines or errors never makes
+        // things worse than the keyword engine alone.
         //
-        // `freePassWouldReachAPaidBackend` is the app's own answer to "what will you route `.free`
-        // to?", and a cloud answer means the tier is not being honoured. Skipping classification
-        // entirely is the conservative reading: the user gets the phase-1/2 suggestions, which is
-        // exactly what they get when no backend is available at all, rather than a bill for a scan
-        // that promised to be free.
+        // `freePassWouldReachAPaidBackend` is the app's answer to "what will you route `.free` to?",
+        // and a cloud answer means the tier isn't honoured. Skipping classification is the
+        // conservative reading: the user gets the phase 1/2 suggestions, as with no backend at all,
+        // rather than a bill for a scan that promised to be free.
         if filingUsesAI, let classifier = filingClassifier, !freePassWouldReachAPaidBackend {
             let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
-            // Same ignoredNames/minFileSize filters the suggestion engine applied: an
-            // unfiltered list sent ".DS_Store" & co. into the PAID request (name in the
-            // prompt, a slot against the classification cap) and any verdict for them was
-            // discarded anyway — no suggestion exists for filtered names. Junk-heavy folders
-            // pushed real files past the cap, losing their classification outright.
+            // The suggestion engine's ignoredNames and minFileSize filters: otherwise ".DS_Store" and
+            // co. would go into the paid request, taking slots against the classification cap and
+            // pushing real files past it, for verdicts that are discarded anyway.
             let toClassify = looseFiles.filter {
                 !remembered.contains($0.id)
                     && !options.ignoredNames.contains($0.name)
@@ -601,41 +553,37 @@ extension FileSyncManager {
             if !toClassify.isEmpty {
                 enter(.findingHomes)
 
-                // Split against the verdict cache BEFORE anything else in this phase. The ordering
-                // is the whole value of the cache, not an optimization detail: a hit must not have
-                // its contents read (that is OCR/PDF work) and must not occupy a slot against the
-                // classifier's per-pass file cap. On the refine pass the same ordering also keeps
-                // the spend estimate honest — see ``refineFilingSuggestions(_:)``.
+                // Split against the verdict cache before anything else in this phase. The ordering is
+                // the cache's whole value: a hit must not have its contents read (OCR and PDF work)
+                // and must not take a slot against the classifier's per-pass cap. On the refine pass
+                // it also keeps the spend estimate honest (``refineFilingSuggestions(_:)``).
                 let existingRelative = filingLastExistingFolders
                 let excludedByFile = Dictionary(uniqueKeysWithValues: toClassify.map { f in
                     (f.id, (rejectedByFile[f.id] ?? []).compactMap { Self.relativePath($0, under: providerRoot.path) })
                 })
-                // nil ⇒ the cache is off for this scan, read and write both. `ignoringCache` is
-                // deliberately NOT part of this: it suppresses the read below while leaving the
-                // write intact.
+                // nil means the cache is off for this scan, read and write. `ignoringCache` isn't
+                // part of this: it suppresses the read below and leaves the write intact.
                 let identity = resolvedFilingVerdictIdentity(for: .free)
                 var keysByFile: [String: FilingVerdictKey] = [:]
                 var cachedVerdicts: [String: FilingVerdict] = [:]
                 var misses = toClassify
-                // `artifacts` nil ⇒ the fingerprint is unavailable (an artifact exists but could
-                // not be read) and the cache is off for this scan exactly as a nil identity turns
-                // it off: no key can honestly describe the question being asked, so nothing is
-                // looked up and — because `keysByFile` stays empty — nothing is recorded under a
-                // digest that can never recur. See `FilingProfileStore.fingerprint(id:in:)`.
+                // `artifacts` nil means the fingerprint is unavailable (an artifact exists but can't
+                // be read), so the cache is off as for a nil identity: no key can honestly describe
+                // the question, so nothing is looked up and, with `keysByFile` empty, nothing is
+                // recorded under a digest that can never recur.
+                // See `FilingProfileStore.fingerprint(id:in:)`.
                 if let identity, let artifacts = filingRoutingFingerprint {
-                    // Warmed even on the ignore-cache path, where the READ result is thrown away.
-                    // `recordFilingVerdicts` below still has to merge into the existing cache, and
-                    // it reaches the SYNCHRONOUS accessor — so skipping this put a decode of a
-                    // file that reaches ~12 MB at the entry cap back on the main actor, mid-scan,
-                    // which is the whole thing the async accessor exists to avoid.
+                    // Warmed even on the ignore-cache path, where the read is thrown away:
+                    // `recordFilingVerdicts` still merges into the existing cache through the
+                    // synchronous accessor, which would otherwise decode a file of up to ~12 MB on
+                    // the main actor, mid-scan.
                     let loaded = await loadedFilingVerdictCache()
                     let cache = ignoringCache ? nil : loaded
                     misses = []
                     for f in toClassify {
-                        // No key ⇒ this file's mtime or size could not be read, so the cache is
-                        // off for it in both directions: it is not looked up, and having no entry
-                        // in `keysByFile` is what keeps `recordFilingVerdicts` from writing one.
-                        // A miss costs a re-ask; a hit on a placeholder key costs a wrong answer.
+                        // No key: this file's mtime or size couldn't be read, so the cache is off for
+                        // it both ways; not looked up, and no `keysByFile` entry, so nothing is
+                        // recorded. A miss costs a re-ask; a hit on a placeholder key, a wrong answer.
                         guard let key = FilingVerdictKey(
                             filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize,
                             model: identity, promptVersion: CloudFilingProtocol.promptVersion,
@@ -654,12 +602,11 @@ extension FileSyncManager {
                     }
                 }
 
-                // **Every page already read goes to the model; only the READING is rationed.**
-                // `canRemember` used to gate the snippet itself, so a file with a meaningful name
-                // reached the backend as a bare filename even when phase 2.5 had already extracted
-                // its first page and left it in `routerSnippets`. That is what reduced a visa foil
-                // to the seven words of its filename. Extraction is still limited to files whose
-                // name says nothing — that is the cost worth controlling, and it is unchanged.
+                // Every page already read goes to the model; only the reading is rationed. A file
+                // with a meaningful name still gets the page phase 2.5 extracted into
+                // `routerSnippets`, or a visa foil would reach the backend as its filename alone.
+                // New extraction is still limited to files whose name says nothing, the cost worth
+                // controlling.
                 var snippets: [String: String] = [:]
                 if filingReadsContents, !misses.isEmpty {
                     let missPaths = Set(misses.map { $0.id })
@@ -682,12 +629,11 @@ extension FileSyncManager {
                                         excludedRelativePaths: excludedByFile[f.id] ?? [])
                 }
 
-                // No spend pre-flight: this is the free tier, so there is nothing to confirm. The
-                // guardrail moved to ``refineFilingSuggestions(_:)``, the only pass that can
-                // reach a paid backend — which is also the only pass the user explicitly asks
-                // for, so the dialog now answers a question they just posed.
-                // The folder menu: what the router already thinks is plausible for these very files,
-                // then the shallow structural list. See ``FilingEngine/classifierFolders``.
+                // No spend pre-flight: this is the free tier, with nothing to confirm. The guardrail
+                // lives in ``refineFilingSuggestions(_:)``, the only pass that can reach a paid
+                // backend and the one the user explicitly asks for.
+                // The folder menu: what the router already thinks plausible for these files, then
+                // the shallow structural list. See ``FilingEngine/classifierFolders``.
                 let menu = FilingEngine.classifierFolders(
                     preferred: Self.preferredFolders(for: files, shortlists: routerShortlists,
                                                      in: suggestions, providerRoot: providerRoot.path),
@@ -697,19 +643,16 @@ extension FileSyncManager {
                 var classifiedCount = 0
                 if !files.isEmpty {
                     let fresh = await classifier(filingContext(taxonomyFolders: menu), files, .free)
-                    // Recorded BEFORE the cancellation check, unlike everything else in this scan.
-                    // The verdicts are true regardless of what this scan goes on to do with them —
-                    // cancelling abandons the SUGGESTIONS, and there is nothing to abandon about a
-                    // question that was already answered. (On the refine pass the same line has a
-                    // second, sharper reason: the answer has already been billed.) `keysByFile` is
-                    // empty exactly when the cache is off, so this is a no-op then.
+                    // Recorded before the cancellation check, unlike everything else in this scan:
+                    // the verdicts are true whatever the scan goes on to do, and cancelling abandons
+                    // the suggestions, not answers already given (on the refine pass, already
+                    // billed). `keysByFile` is empty when the cache is off, so this is a no-op then.
                     recordFilingVerdicts(fresh, keys: keysByFile, providerRoot: providerRoot.path,
                                          existingRelative: existingRelative)
                     if Task.isCancelled { return }
                     classifiedCount = files.count
-                    // Fresh wins on the (impossible today) overlap: a file is in exactly one of
-                    // the two sets by construction, but stating the precedence keeps that a
-                    // property of this line rather than of the partition above.
+                    // Fresh wins on an overlap that can't happen today: a file is in one set by
+                    // construction, and stating the precedence keeps that a property of this line.
                     verdicts.merge(fresh) { _, new in new }
                 }
                 if !cachedVerdicts.isEmpty {
@@ -717,9 +660,9 @@ extension FileSyncManager {
                     Logger.shared.info("Filing: reused \(cachedVerdicts.count) of \(toClassify.count) classification(s) "
                         + "from cache, \(classifiedCount) sent to the backend")
                 }
-                // Files the backend judged without their text. The rule — including why a scan with
-                // no reader yields an EMPTY set rather than every file — is stated once, on
-                // `FilingEngine.contentBlindFiles`, and called from here and from the refine pass.
+                // Files the backend judged without their text. The rule, including why a scan with
+                // no reader yields an empty set rather than every file, is stated once, on
+                // `FilingEngine.contentBlindFiles`, and called from here and the refine pass.
                 let contentBlind = FilingEngine.contentBlindFiles(
                     handedOver: toClassify.map { $0.id }, read: Set(snippets.keys),
                     hadReader: filingReadsContents && filingSnippetExtractor != nil)
@@ -742,29 +685,26 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
-        // **The cross-person rule, applied to the cards rather than to the model.** Until here it
-        // guarded one input — a backend verdict — and every phase above can put a home on a card
-        // without one: the keyword engine, the router, and on this machine (no Apple Intelligence,
-        // classifier returns nothing) those are the only two that ever do. See
+        // The cross-person rule, applied to the cards rather than the model. A home can reach a card
+        // without a backend verdict (the keyword engine, the router, and with no Apple Intelligence
+        // those are the only two), so the veto runs on the cards. See
         // ``FilingEngine/refusingCrossPersonHomes(_:providerRoot:profile:registry:identity:pageSamples:onVeto:)``
-        // for what it costs, measured on this tree.
+        // for its cost.
         //
-        // Last, so it sees every home this scan produced whatever produced it, and BEFORE the
-        // naming pass so nothing is asked what a refused folder would call the file.
+        // Last, so it sees every home this scan produced, and before the naming pass so nothing is
+        // asked what a refused folder would call the file.
         suggestions = FilingEngine.refusingCrossPersonHomes(
             suggestions, providerRoot: providerRoot.path,
             profile: filingRoutingProfile, registry: filingPersonRegistry,
             identity: filingPersonIdentity, pageSamples: pageSamples,
             onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
 
-        // What each file would be CALLED once it lands — computed against the taxonomy this scan
-        // already walked, so the queue answers "where does this go" and "what is it called there"
-        // in one pass. See `namingSuggestions`.
-        // DETACHED, for the reason `detectRiskyNames` and `detectRenamePlans` beside it are: this
-        // indexes every file in the provider and then plans one folder per candidate, and measured
-        // at real-tree scale (3,000 folders, 12,000 files, 14 files × 3 candidates) it holds the
-        // main actor for **21 ms** — small, but spent at exactly the moment the results publish and
-        // the list rebuilds. Nothing here touches the manager, so there is nothing to hop back for.
+        // What each file would be called once it lands, computed against the taxonomy this scan
+        // walked, so the queue answers "where does this go" and "what is it called there" in one
+        // pass. See `namingSuggestions`. Detached, like `detectRiskyNames` and `detectRenamePlans`:
+        // it indexes every file in the provider and plans a folder per candidate, tens of
+        // milliseconds on a real tree, spent just as the results publish. It touches nothing on
+        // the manager, so there is nothing to hop back for.
         let namingInput = suggestions
         let namingProfile = filingRoutingProfile
         let namingRoot = providerRoot.path
@@ -773,10 +713,9 @@ extension FileSyncManager {
                                    profile: namingProfile)
         }.value
         if Task.isCancelled { return }
-        // Which of these the tree ALREADY holds — after the naming pass, because a card that says
-        // "this is already filed in X" is about the document and not about the name it would land
-        // under, and before the publish so the queue never shows a duplicate as ordinary for a
-        // frame and then corrects itself.
+        // Which of these the tree already holds: after the naming pass, since "already filed in X"
+        // is about the document, not the name it would land under, and before the publish so the
+        // queue never shows a duplicate as ordinary for a frame.
         suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path)
         if Task.isCancelled { return }
         self.publishFilingSuggestions(suggestions)   // single publish
@@ -784,16 +723,15 @@ extension FileSyncManager {
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
-        // The pages this scan read, kept for the rule offered after a filing move — same publish
-        // discipline, and replaced rather than merged so a sample can never outlive the list of
-        // files it describes. Truncated to what the scorer was measured on, not to what the
-        // extractor returned (see `filingPageSamples`).
+        // The pages this scan read, kept for the rule offered after a filing move: same publish,
+        // replaced rather than merged so a sample never outlives the list it describes. Truncated
+        // to what the scorer was measured on, not what the extractor returned (`filingPageSamples`).
         filingPageSamples = pageSamples
         filingNotDownloaded = notDownloaded
         filingLastCacheReuse = cacheReuse
-        // These results have not been refined — whatever the previous list's refine pass did, it
-        // was about files that are no longer on screen. Cleared in the same publish so the summary
-        // and the rows it describes can never be one scan apart.
+        // These results haven't been refined: the previous list's refine pass was about files no
+        // longer on screen. Cleared in the same publish so the summary and its rows are never one
+        // scan apart.
         filingLastRefine = nil
         hasSuggestedFiling = true
         // Remembered only on completion: the auto-rescan consent is "the user scanned exactly
@@ -805,77 +743,70 @@ extension FileSyncManager {
             + "\(homed) with a suggested home\(steered > 0 ? ", \(steered) steered by your rules" : "")")
     }
 
-    /// True when Filing may use its intelligent backend (on-device LLM / cloud). Default on; the app
-    /// only injects a classifier when one is actually available, so this gates a present backend.
+    /// True when Filing may use its intelligent backend (on-device LLM or cloud). Default on; the
+    /// app injects a classifier only when one is available, so this gates a present backend.
     public static let usesAIDefaultsKey = "tidyFilingUseAI"
     var filingUsesAI: Bool {
         (filingContentDefaults.object(forKey: Self.usesAIDefaultsKey) as? Bool) ?? true
     }
 
     /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
-    /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
-    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
-    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
-    // app's startup read) crossed an actor boundary to read a constant.
+    /// Off by default: sends folder names and file names (and contents, if reading is on) to Anthropic.
+    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
+    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
     public nonisolated static let usesCloudDefaultsKey = "tidyFilingUseCloud"
-    /// Whether Filing may use the opt-in cloud (Claude) backend. Off by default; mirrors `filingUsesAI`
-    /// (both must be on, plus a stored key, for a cloud call to run). Read through the injectable
-    /// defaults store so tests can flip it without touching `.standard`.
+    /// Whether Filing may use the opt-in cloud (Claude) backend. Off by default; with `filingUsesAI`
+    /// and a stored key, both needed for a cloud call. Read through the injectable defaults store so
+    /// tests can flip it without touching `.standard`.
     var filingUsesCloud: Bool {
         (filingContentDefaults.object(forKey: Self.usesCloudDefaultsKey) as? Bool) ?? false
     }
-    /// Which Claude model the cloud classifier uses (a model-ID string). Trades cost against quality;
-    /// defaults to Haiku, the cheapest model (see `CloudFilingProtocol.defaultModel` and the
-    /// matching Settings picker default).
-    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
-    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
-    // app's startup read) crossed an actor boundary to read a constant.
+    /// Which Claude model the cloud classifier uses (a model-ID string), trading cost against
+    /// quality. Defaults to Haiku, the cheapest (`CloudFilingProtocol.defaultModel`, and the
+    /// Settings picker's default).
+    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
+    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
     public nonisolated static let cloudModelDefaultsKey = "tidyFilingCloudModel"
 
-    /// Monthly budget cap for cloud (Claude) Filing spend, in USD. 0 (the default) = no cap /
-    /// unlimited — the user is never surprise-blocked. When > 0 and this calendar month's spend
-    /// would exceed it, cloud calls pause and Filing falls back to its on-device suggestions.
-    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
-    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
-    // app's startup read) crossed an actor boundary to read a constant.
+    /// Monthly budget cap for cloud (Claude) Filing spend, in USD. 0 (the default) means no cap, so
+    /// the user is never surprise-blocked. When > 0 and this calendar month's spend would exceed it,
+    /// cloud calls pause and Filing falls back to its on-device suggestions.
+    // `nonisolated`: an immutable defaults-key string, main-actor-isolated only by living on
+    // `FileSyncManager`, and background callers (the classifiers, the app's startup read) read it.
     public nonisolated static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
 
-    /// Total (lifetime) budget cap for cloud (Claude) Filing spend, in USD. Unlike the monthly cap,
-    /// this ships ON by default (`defaultTotalBudgetCapUSD`) as a safety backstop — a runaway or
-    /// forgotten cloud setup can't quietly rack up unbounded lifetime spend. 0 = off/unlimited.
+    /// Total (lifetime) budget cap for cloud (Claude) Filing spend, in USD. Unlike the monthly cap
+    /// it ships on by default (`defaultTotalBudgetCapUSD`), a backstop so a runaway or forgotten
+    /// cloud setup can't rack up unbounded spend. 0 means off.
     public nonisolated static let totalBudgetCapKey = "tidyFilingTotalBudgetUSD"
 
-    /// Default total (lifetime) cap applied when the user has never set one. Kept in sync with the
-    /// Settings picker's default; read through `totalBudgetCap(in:)` so an absent key means "$5 cap",
-    /// not `UserDefaults.double`'s 0 (which would read as "off"). `nonisolated` (like `totalBudgetCapKey`)
-    /// so the belt-and-suspenders cap check in `CloudFilingClassifier` can read it off the main actor.
+    /// Default total cap when the user has never set one, kept in step with the Settings picker's
+    /// default. Read through `totalBudgetCap(in:)` so an absent key means "$5 cap", not
+    /// `UserDefaults.double`'s 0 ("off"). `nonisolated` so `CloudFilingClassifier`'s own cap check
+    /// can read it off the main actor.
     public nonisolated static let defaultTotalBudgetCapUSD = 5.0
 
-    /// The effective total (lifetime) cap for a defaults store. An ABSENT key means the user hasn't
-    /// chosen — apply the shipped `$5` default; a present value (including an explicit `0` = "Off")
-    /// is honored as-is. This is why the total cap can't just use `defaults.double(forKey:)`.
+    /// The effective total cap for a defaults store. An absent key means the user hasn't chosen, so
+    /// the shipped $5 default applies; a present value (including `0`, "Off") is honoured as is.
+    /// Hence not `defaults.double(forKey:)`.
     public nonisolated static func totalBudgetCap(in defaults: UserDefaults) -> Double {
         defaults.object(forKey: totalBudgetCapKey) == nil ? defaultTotalBudgetCapUSD
                                                           : defaults.double(forKey: totalBudgetCapKey)
     }
 
-    /// Decides whether the cloud (Claude) classifier may run for this batch. Returns true
-    /// immediately when the pass is not going to reach the paid backend (never gated — there is
-    /// nothing to confirm). Otherwise it builds a pre-flight cost estimate (`FilingSpendPreflight`)
-    /// from this month's and lifetime spend, the monthly + total caps, and the batch's estimated
-    /// tokens, consults `filingCloudSpendConfirmer`, and returns its answer — logging when a call
-    /// is skipped so a paused/declined pass is auditable. Returning false leaves the suggestions
-    /// exactly as the free scan left them (graceful fallback).
+    /// Decides whether the cloud (Claude) classifier may run for this batch. True at once when the
+    /// pass won't reach the paid backend. Otherwise builds a cost estimate (`FilingSpendPreflight`)
+    /// from this month's and lifetime spend, both caps and the batch's estimated tokens, asks
+    /// `filingCloudSpendConfirmer`, and returns its answer, logging a skipped call so a paused or
+    /// declined pass is auditable. False leaves the suggestions as the free scan left them.
     ///
-    /// **Called only from ``refineFilingSuggestions(_:)``.** The scan classifies at
-    /// ``FilingClassifierTier/free``, which cannot route to cloud, so it has nothing to confirm.
+    /// Called only from ``refineFilingSuggestions(_:)``: the scan classifies at
+    /// ``FilingClassifierTier/free``, which can't route to cloud.
     ///
-    /// **Gated on the real route, not on `filingUsesCloud` and not on the display seam.** The
-    /// toggle is not the same question: cloud on with no readable key routes on-device, and gating
-    /// on the toggle put a payment dialog in front of a pass that was never going to be billed.
-    /// ``filingCloudRefineAvailable`` is not the question either — it answers "is a key stored"
-    /// cheaply enough to ask per render, which is deliberately weaker than "will this be billed".
-    /// Money reads ``filingRoutesToCloud(_:)``, which resolves the route for real.
+    /// Gated on the real route. Not on `filingUsesCloud`: cloud on with no readable key routes
+    /// on-device, and would put a payment dialog in front of a pass never billed. Not on
+    /// ``filingCloudRefineAvailable`` either, which only says "is a key stored", cheaply enough to
+    /// ask per render. Money reads ``filingRoutesToCloud(_:)``, which resolves the route for real.
     func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String],
                           downloading: Int = 0) -> Bool {
         switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders, downloading: downloading) {
@@ -893,37 +824,25 @@ extension FileSyncManager {
         }
     }
 
-    /// The same guardrail **without the dialog**, for the per-card re-ask.
+    /// The same guardrail without the dialog, for the per-card re-ask, which routes to `.refine`,
+    /// the paid tier. A modal per card click would be worse than no gate, so this takes the half
+    /// that isn't a conversation: an unpriced model or a cap breach refuses, with the specifics in
+    /// the log, the remedy in a non-blocking banner, and the click keeping the free on-device answer.
+    /// A banner, not silence: with only the log, the button would do nothing and the remedy would
+    /// sit in a file the user has no reason to open.
     ///
-    /// `tryAnotherFolder` routes to `.refine` — the paid tier — and consulted no spend gate at all:
-    /// the one billable path in the app with no pre-flight, recorded as a known gap in its own
-    /// comment. A modal per card click really would be worse than the gap, so this takes the half
-    /// of the gate that is not a conversation: an unpriced model and a cap breach both refuse, say
-    /// the specifics in the log and the remedy in a banner, and the click falls back to the free
-    /// on-device answer.
-    ///
-    /// **A banner rather than nothing, which is what "no dialog" first became.** The refusal's only
-    /// trace was the log: the button did nothing, said nothing, and the remedy lived in a file the
-    /// user has no reason to open. "Not a conversation" rules out a modal — it does not rule out
-    /// telling them. The banner is non-blocking, needs no answer, and is the surface every other
-    /// refusal in this file already uses.
-    ///
-    /// The refine PASS keeps its dialog, and keeps showing a cap breach as an informational alert —
-    /// that pass is a deliberate bulk action the user asked to price. A single card is not, and the
-    /// remedy for a hit cap is the same either way: Settings ▸ Intelligence.
+    /// The refine pass keeps its dialog, showing a cap breach as an informational alert: it is a
+    /// bulk action the user asked to price. A single card is not, and the remedy for a hit cap is
+    /// the same either way: Settings ▸ Intelligence.
     func cloudSpendWithinCapsWithoutPrompting(files: [FilingCandidateFile],
                                               taxonomyFolders: [String]) -> Bool {
         switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
         case .notBilled:
             return true
         case .blocked:
-            // **Not silent on screen.** "No dialog" was the right call and it was over-applied to
-            // mean "no feedback at all": the click's only trace was `~/sync-cloud.log`, so a user
-            // who pressed a button and watched nothing happen had no way to learn why, and the
-            // remedy — a model with a known price — sat in a file they have no reason to open.
-            // A banner is not a conversation: it does not block the card, it does not need an
-            // answer, and it is the surface every other refusal in this file already uses. The
-            // gate has logged the specifics; this says the sentence the user needs.
+            // Said on screen, not only logged: otherwise the click does nothing visible and the
+            // remedy, a model with a known price, sits in the log. The gate has logged the
+            // specifics; this says the sentence the user needs.
             banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
                               + "known price, so the cost can’t be checked. Keeping the on-device "
                               + "suggestion; pick one of the offered models in Settings ▸ Intelligence.")
@@ -935,7 +854,7 @@ extension FileSyncManager {
                 + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
                 + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
                 + "suggestion; raise the cap in Settings ▸ Intelligence to keep using Claude.")
-            // Same reasoning as `.blocked` above, and the remedy differs, so the sentence does.
+            // As for `.blocked` above, with a different remedy, so a different sentence.
             banner = .warning("Couldn’t ask Claude for another folder — it would pass a budget "
                               + "cap. Keeping the on-device suggestion; raise the cap in "
                               + "Settings ▸ Intelligence to keep using Claude.")
@@ -943,8 +862,8 @@ extension FileSyncManager {
         }
     }
 
-    /// What a prospective cloud call costs, or why it must not be made — shared by the refine
-    /// pass's dialog and the re-ask's silent check so the two can never price a call differently.
+    /// What a prospective cloud call costs, or why it must not be made. Shared by the refine pass's
+    /// dialog and the re-ask's check so the two can never price a call differently.
     enum FilingSpendGate {
         /// Not routed to cloud, so nothing will be billed and nothing needs confirming.
         case notBilled
@@ -957,37 +876,23 @@ extension FileSyncManager {
     private func filingSpendGate(files: [FilingCandidateFile], taxonomyFolders: [String],
                                  downloading: Int = 0) -> FilingSpendGate {
         guard filingRoutesToCloud(.refine) else { return .notBilled }
-        // Resolve the same way the classifier does, so the cost the user confirms is priced for the
-        // model the call will actually name.
+        // Resolved as the classifier resolves it, so the cost confirmed is priced for the model the
+        // call will name.
         let model = CloudFilingProtocol.currentModel(
             for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
-        // **An unpriced model is not a free one, and `?? 0` said it was.**
+        // An unpriced model is not a free one. `pricing(for:)` answers nil outside its
+        // `claude-<family>` arms, and `currentModel(for:)` passes such an id through untouched (a
+        // hand-set choice is honoured), so a typed `tidyFilingCloudModel` or an old dated id arrives
+        // with no rate. Coerced to zero, the dialog would quote "$0.0000" for a call nothing here
+        // can price, and `spent + estCostUSD` could never cross either cap, the default $5 lifetime
+        // backstop included; nor would recorded spend catch up, since `CloudFilingClassifier`
+        // records it as `estimatedCostUSD: 0, costUnpriced: true`.
         //
-        // `pricing(for:)` answers nil for any id outside its `claude-<family>` arms, and
-        // `currentModel(for:)` deliberately hands such an id through untouched — "it can only have
-        // been set by hand, so honor it rather than overriding a deliberate choice" — so a
-        // `tidyFilingCloudModel` the user typed, or any dated pre-alias id, arrives here with no
-        // rate. Coercing that nil to zero broke both halves of this function at once:
-        //
-        // - **The quote.** `promptForFilingSpend` renders `estCostUSD` verbatim, so the dialog
-        //   read "Estimated cost: $0.0000" for a call whose price nothing in this build knows,
-        //   and offered Classify. `estimatedCostUSD`'s own doc says the nil exists so the caller
-        //   "shows 'estimate unavailable' rather than a wrong number"; this call site did the
-        //   opposite, and $0.0000 is the most misleading wrong number available.
-        // - **The caps.** `wouldExceedMonthlyCap` and `wouldExceedTotalCap` both test
-        //   `spent + estCostUSD` against the cap, so a zero estimate can never push either
-        //   dimension past its limit — the $5 lifetime backstop that ships ON by default
-        //   included. Nor can the recorded spend catch up later: `CloudFilingClassifier` records
-        //   the same nil as `estimatedCostUSD: 0, costUnpriced: true`, so an unpriced model's
-        //   whole spend history sums to zero and `isOverCap` never fires either.
-        //
-        // Neither half is fixable by choosing a number — a substitute rate is exactly the wrong
-        // number the nil exists to avoid, and there is no honest cap arithmetic over an unknown.
-        // So the pass stands down and keeps the free on-device suggestions, which is the same
-        // graceful degradation `CloudFilingClassifier` already applies when the spend record
-        // cannot be read: no paid call may be made while no cap can be enforced against it. The
-        // log names the model, because the remedy is one Settings ▸ Intelligence change away.
+        // No substitute number is honest, so the pass stands down and keeps the free on-device
+        // suggestions, as `CloudFilingClassifier` does when the spend record can't be read: no paid
+        // call while no cap can be enforced. The log names the model, since the remedy is one
+        // Settings ▸ Intelligence change away.
         guard let estCost = CloudFilingProtocol.estimatedCostUSD(
                 model: model, taxonomyFolders: taxonomyFolders, files: files) else {
             Logger.shared.warning("Filing: cloud classify skipped for \(files.count) file(s) — no price "
@@ -996,10 +901,9 @@ extension FileSyncManager {
                 + "the offered models in Settings ▸ Intelligence to use Claude.")
             return .blocked
         }
-        // Spend and caps must come from the SAME store, or the preflight compares this month's
-        // spend in one place against a cap set in another. Production resolves both to `.standard`;
-        // reading the spend from the hard-coded default while the caps honoured the injectable one
-        // meant only a test could tell them apart — which is precisely why it went unnoticed.
+        // Spend and caps must come from the same store, or the pre-flight compares spend in one
+        // place against a cap set in another. Production resolves both to `.standard`; only a test
+        // with an injected store can tell them apart.
         let monthlySpent = FilingSpendBudget.monthlySpend(
             entries: FilingSpendStore.entries(defaults: filingContentDefaults), now: Date())
         let totalSpent = FilingSpendStore.totals(defaults: filingContentDefaults).costUSD
@@ -1040,9 +944,9 @@ extension FileSyncManager {
 
     // MARK: Verdict cache
 
-    /// What the last Filing scan's classification phase got for free. `classified` is what was
-    /// actually sent to the backend, so `reused + classified` is the number of files that needed
-    /// an answer — not the number of loose files, which also includes those a rule already steered.
+    /// What the last Filing scan's classification phase got for free. `classified` is what was sent
+    /// to the backend, so `reused + classified` is the files that needed an answer, not all loose
+    /// files, which include those a rule already steered.
     public struct FilingCacheReuse: Sendable, Equatable {
         public let reused: Int
         public let classified: Int
@@ -1052,31 +956,29 @@ extension FileSyncManager {
         }
     }
 
-    /// Whether Filing may reuse a cached classifier verdict for an unchanged file. Default ON —
-    /// the key already carries everything the answer depended on, so reuse is not a tradeoff
-    /// between speed and correctness, and leaving it off would mean re-paying for answers that
-    /// cannot have changed. The switch exists for the user who wants every scan asked afresh.
+    /// Whether Filing may reuse a cached classifier verdict for an unchanged file. Default on: the
+    /// key carries everything the answer depended on, so reuse costs no correctness, and off would
+    /// re-pay for answers that can't have changed. The switch is for a user who wants every scan
+    /// asked afresh.
     public static let reuseVerdictsDefaultsKey = "tidyFilingReuseVerdicts"
     var filingReusesVerdicts: Bool {
         (filingContentDefaults.object(forKey: Self.reuseVerdictsDefaultsKey) as? Bool) ?? true
     }
 
     /// The identity recorded for a verdict the on-device model produced.
-    // `nonisolated` for the same reason as the defaults-key constants below: it is an immutable
-    // string, main-actor-isolated only by living on `FileSyncManager`, and the `@Sendable`
-    // routing closures the app and the tests install — which must answer `.free` with exactly
-    // this value — cannot cross an actor boundary to read a constant.
+    // `nonisolated` like the defaults-key constants: an immutable string, main-actor-isolated only
+    // by living on `FileSyncManager`, and the `@Sendable` routing closures the app and tests
+    // install, which must answer `.free` with exactly this value, can't cross an actor to read it.
     public nonisolated static let onDeviceBackendIdentity = "on-device"
 
-    /// The backend identity derivable from settings alone — what ``filingBackendIdentity`` falls
-    /// back to when the app has not supplied one (the CLI and tests, neither of which has a
-    /// Keychain downgrade to account for). Resolved through `currentModel` so a stored id from
-    /// before a model refresh keys the same as the model that will actually run.
+    /// The backend identity derivable from settings alone: what ``filingBackendIdentity`` falls back
+    /// to when the app hasn't supplied one (the CLI and tests, which have no Keychain downgrade to
+    /// account for). Resolved through `currentModel` so a stored id from before a model refresh keys
+    /// the same as the model that will run.
     ///
-    /// `.free` is the on-device identity **unconditionally** — not "when cloud is off". That is
-    /// the same guarantee the tier itself carries, stated where the cache can see it: a free-pass
-    /// verdict is an on-device verdict, so it must never key under a cloud model's name, or a
-    /// later refine pass would serve the free answer back as if Claude had given it.
+    /// `.free` is the on-device identity unconditionally, not only when cloud is off: a free-pass
+    /// verdict is an on-device verdict, and keyed under a cloud model's name a later refine pass
+    /// would serve it back as if Claude had given it.
     func configuredFilingBackendIdentity(for tier: FilingClassifierTier) -> String {
         guard tier == .refine, filingUsesCloud else { return Self.onDeviceBackendIdentity }
         let model = CloudFilingProtocol.currentModel(
@@ -1084,17 +986,14 @@ extension FileSyncManager {
         return "cloud:" + model
     }
 
-    /// The identity this pass's verdict cache keys on — nil turns the cache off for the pass,
-    /// read and write both (verdict reuse switched off, or the app's resolver declining to vouch).
+    /// The identity this pass's verdict cache keys on. nil turns the cache off for the pass, read
+    /// and write (verdict reuse switched off, or the app's resolver declining to vouch).
     ///
-    /// **An `if let` on the closure, NOT `filingBackendIdentity?(tier) ?? …`.** Optional chaining
-    /// FLATTENS in Swift, so that spelling gives a plain `String?` in which a closure that
-    /// RETURNED nil is indistinguishable from one that was never set — and `??` then sends both
-    /// to the configured identity. That silently voided the one guarantee
-    /// ``filingBackendIdentity`` documents: returning nil is how the app says it cannot vouch for
-    /// which backend will run, and answering `"cloud:<model>"` on its behalf is exactly the
-    /// durable silent-substitution the seam exists to prevent. The fallback is for an UNSET
-    /// closure (the CLI, tests) and nothing else.
+    /// An `if let` on the closure, not `filingBackendIdentity?(tier) ?? …`: optional chaining
+    /// flattens, so a closure that returned nil would be indistinguishable from an unset one, and
+    /// `??` would answer `"cloud:<model>"` for an app that said it can't vouch for the backend,
+    /// the silent substitution the seam exists to prevent. The fallback is for an unset closure
+    /// (the CLI, tests) only.
     func resolvedFilingVerdictIdentity(for tier: FilingClassifierTier) -> String? {
         if !filingReusesVerdicts { return nil }
         if let resolveBackend = filingBackendIdentity { return resolveBackend(tier) }
@@ -1102,12 +1001,10 @@ extension FileSyncManager {
     }
 
     /// The cache, read from disk at most once per launch and then held in memory. An unset
-    /// ``filingVerdictCacheURL`` yields a permanently empty cache — every lookup misses.
-    /// The scan's accessor: decodes OFF the main actor on first use, then serves the memoized copy.
-    ///
-    /// `findFilingSuggestions` runs on the main actor, so decoding here directly would put the file
-    /// on the main thread in the middle of a scan — a hitch the user sees, and at the entry cap a
-    /// large one. The synchronous accessor below still exists for the two rare, small callers.
+    /// ``filingVerdictCacheURL`` yields a permanently empty cache: every lookup misses. The scan's
+    /// accessor: decodes off the main actor on first use, then serves the memoized copy, since
+    /// `findFilingSuggestions` runs on the main actor and a decode there is a visible hitch, a large
+    /// one at the entry cap.
     func loadedFilingVerdictCache() async -> FilingVerdictCache {
         if let cached = filingVerdictCache { return cached }
         guard let url = filingVerdictCacheURL else {
@@ -1122,18 +1019,14 @@ extension FileSyncManager {
         return loaded
     }
 
-    /// The in-memory copy, loading synchronously only if nothing has already warmed it.
+    /// The in-memory copy, loading synchronously only if nothing has warmed it.
     ///
-    /// **Every caller must have warmed the memo first, and that is a real obligation rather than a
-    /// preference.** This runs on the main actor, and at ``FilingVerdictCache/maxEntries`` the file
-    /// is on the order of twelve megabytes — a decode nobody would call "a few milliseconds", which
-    /// is what this doc used to claim on the strength of the callers being rare. Rare is not the
-    /// same as cheap. Both callers now arrive warm: the scan awaits ``loadedFilingVerdictCache()``
-    /// before recording (on the ignore-cache path too, where the read is discarded), and the
-    /// Settings readout awaits ``filingVerdictCacheCount()`` before offering `Clear`.
-    ///
-    /// It stays synchronous because both of them need it from a non-async position afterwards, and
-    /// once warm it touches no disk at all.
+    /// **Every caller must warm the memo first.** This runs on the main actor, and at
+    /// ``FilingVerdictCache/maxEntries`` the file is about twelve megabytes. Both callers arrive
+    /// warm: the scan awaits ``loadedFilingVerdictCache()`` before recording (on the ignore-cache
+    /// path too, where the read is discarded), and the Settings readout awaits
+    /// ``filingVerdictCacheCount()`` before offering `Clear`. Synchronous because both need it from
+    /// a non-async position afterwards, and once warm it touches no disk.
     func filingVerdictCacheNow() -> FilingVerdictCache {
         if let cached = filingVerdictCache { return cached }
         let loaded = filingVerdictCacheURL.map { FilingVerdictStore.load(from: $0) } ?? FilingVerdictCache()
@@ -1160,9 +1053,8 @@ extension FileSyncManager {
         FilingVerdictStore.saveInBackground(cache, to: url)
     }
 
-    /// Forgets cached verdicts — all of them, or just those under `providerRoot`. The next scan
-    /// re-asks the backend, which for the cloud backend means paying again; the UI that offers
-    /// this should say so.
+    /// Forgets cached verdicts, all or just those under `providerRoot`. The next scan re-asks the
+    /// backend, which for the cloud means paying again; the UI that offers this should say so.
     public func clearFilingVerdictCache(under providerRoot: String? = nil) {
         guard let url = filingVerdictCacheURL else { return }
         var cache = filingVerdictCacheNow()
@@ -1173,29 +1065,24 @@ extension FileSyncManager {
             cache = FilingVerdictCache()
         }
         filingVerdictCache = cache
-        // Through the QUEUE, never the synchronous `save`. A scan's own write is queued there
-        // (`recordFilingVerdicts` fires it mid-scan, and at the entry cap it is a multi-megabyte
-        // encode), and a synchronous write here races it: the queued PRE-clear snapshot could land
-        // last, and the next launch would reload every verdict the user just cleared — a Clear
-        // that silently undoes itself is worse than none. Queued, ordering does the work: this
-        // snapshot is the newest, so it lands last.
+        // Through the queue, never the synchronous `save`. A scan's own write is queued there
+        // (`recordFilingVerdicts`, a multi-megabyte encode at the entry cap), and a synchronous
+        // write would race it: the queued pre-clear snapshot could land last, and the next launch
+        // would reload every verdict just cleared. Queued, this snapshot is newest and lands last.
         FilingVerdictStore.saveInBackground(cache, to: url)
         Logger.shared.info("Filing: cleared \(before - cache.count) cached classification(s)")
     }
 
-    /// How many verdicts are cached — for the Settings readout, and the call that WARMS the memo
-    /// for the `Clear` button beside it.
-    ///
-    /// Async, and that is the point: it is the first thing the Organize settings tab asks, so a
-    /// synchronous version would decode the whole file on the main actor the moment the tab
-    /// appeared. Awaiting ``loadedFilingVerdictCache()`` moves that decode off the actor once per
-    /// launch and leaves every later read — including ``filingVerdictCacheCountNow`` below — free.
+    /// How many verdicts are cached, for the Settings readout; the call that warms the memo for the
+    /// `Clear` button beside it. Async on purpose: it is the first thing the Organize settings tab
+    /// asks, and awaiting ``loadedFilingVerdictCache()`` moves the decode off the main actor once
+    /// per launch, leaving every later read, ``filingVerdictCacheCountNow`` included, free.
     public func filingVerdictCacheCount() async -> Int {
         await loadedFilingVerdictCache().count
     }
 
-    /// The same count without awaiting, for reading back the result of an action that has just
-    /// written the memo (`Clear`). Never the FIRST read — see ``filingVerdictCacheNow()``.
+    /// The same count without awaiting, for reading back an action that just wrote the memo
+    /// (`Clear`). Never the first read; see ``filingVerdictCacheNow()``.
     public var filingVerdictCacheCountNow: Int { filingVerdictCacheNow().count }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
@@ -1206,17 +1093,16 @@ extension FileSyncManager {
 
     // MARK: Remembering rules (learned by example)
 
-    /// Where the legacy remembered filing rules (F3) persist (JSON, in `filingRuleDefaults`). The
-    /// store is read for the one-time migration into Automations — and consulted by scans only
-    /// until that migration has run — but no new rules are ever written to it.
+    /// Where the legacy remembered filing rules persist (JSON, in `filingRuleDefaults`). Read for
+    /// the one-time migration into Automations, and by scans until it has run; never written to.
     public nonisolated static let rulesDefaultsKey = "tidyFilingRules"
 
-    /// Set once ``migrateFilingRulesToAutomations(providerRoots:)`` has converted the legacy F3
-    /// store; scans then steer from automations alone.
+    /// Set once ``migrateFilingRulesToAutomations(providerRoots:)`` has converted the legacy store;
+    /// scans then steer from automations alone.
     public nonisolated static let filingRulesMigratedKey = "tidyFilingRulesMigratedToAutomations"
 
-    /// The legacy remembered rules (F3). Kept readable for the migration and the pre-migration
-    /// scan path; the old data stays in defaults untouched afterwards as a backup.
+    /// The legacy remembered rules. Kept readable for the migration and the pre-migration scan
+    /// path; the old data stays in defaults untouched afterwards as a backup.
     public var filingRules: [FilingRule] {
         get {
             FileSyncManager.decodePersistedStore([FilingRule].self, from: filingRuleDefaults,
@@ -1230,22 +1116,21 @@ extension FileSyncManager {
         }
     }
 
-    /// Legacy rules whose destination lives inside `providerRoot` — the only ones safe to apply to
-    /// a scan of that provider (a rule's destination is an absolute path in one provider's tree).
+    /// Legacy rules whose destination lives inside `providerRoot`: the only ones safe to apply to a
+    /// scan of that provider, since a rule's destination is an absolute path in one provider's tree.
     func filingRules(under providerRoot: URL) -> [FilingRule] {
         let root = providerRoot.path
-        // Disabled rules (G1) stay persisted/editable in the manager but are inert for scans.
+        // Disabled rules stay persisted and editable in the manager but are inert for scans.
         return filingRules.filter { $0.enabled && PathBoundary.contains($0.destinationPath, under: root) }
     }
 
-    /// Learns an automation from a correction: "file <fileName> here" becomes a *mentions*-rule —
-    /// "files that mention these words go here" — using the same distinctive-anchor token derivation
-    /// remembered rules (F3) always used. The destination is stored as the **absolute** path that
-    /// was filed into, exactly as F3 stored it, so a learned rule stays scoped to the provider
-    /// containing that folder and can never batch-file into another provider (a rule can be made
-    /// portable by editing its destination to a provider-relative template). Re-teaching the same
-    /// trigger replaces the old destination rather than duplicating. Returns the saved rule so the
-    /// caller can open it for review; nil when the filename yields nothing distinctive to key on.
+    /// Learns an automation from a correction: "file <fileName> here" becomes a mentions-rule
+    /// ("files that mention these words go here"), from the distinctive-anchor tokens remembered
+    /// rules always used. The destination is the absolute path filed into, so a learned rule stays
+    /// scoped to that provider and can never batch-file into another (editing its destination to a
+    /// provider-relative template makes it portable). Re-teaching the same trigger replaces the old
+    /// destination. Returns the saved rule for review; nil when the filename has nothing
+    /// distinctive to key on.
     @discardableResult
     public func rememberAutomationRule(fileName: String, contentTokens: Set<String> = [],
                                        destinationPath: String) -> AutomationRule? {
@@ -1253,8 +1138,8 @@ extension FileSyncManager {
                                               filedInto: destinationPath) else { return nil }
         ensureAutomationRulesLoaded()
         let condition = AutomationCondition.mentionsAll(derived.tokens)
-        // Newest destination for a trigger wins — replace any rule keyed on exactly these words,
-        // through the logging remover so the audit trail shows the old rule going away.
+        // Newest destination for a trigger wins: replace any rule keyed on exactly these words,
+        // through the logging remover so the audit trail shows the old rule going.
         for stale in automationRules.filter({ $0.conditions == [condition] }) {
             removeAutomationRule(id: stale.id)
         }
@@ -1265,12 +1150,10 @@ extension FileSyncManager {
     }
 
     /// Proposes an automation for "this file went into that folder", with everything this scan
-    /// already learned about the tree behind it.
-    ///
-    /// The seam exists so the offer is assembled in one place: the pages the scan read
-    /// (``filingPageSamples``), the prepared profile/memory index, and the rules already saved.
-    /// `destinationRelativePath` is provider-relative — the domain a rule's template lives in.
-    /// Nothing is saved here; the caller shows the proposal and saves only if the user says so.
+    /// already learned about the tree. Assembled in one place: the pages the scan read
+    /// (``filingPageSamples``), the prepared profile and memory index, and the saved rules.
+    /// `destinationRelativePath` is provider-relative, the domain a rule's template lives in.
+    /// Nothing is saved; the caller shows the proposal and saves only if the user says so.
     public func proposeAutomationRule(fileName: String,
                                       filePath: String,
                                       destinationRelativePath: String,
@@ -1287,19 +1170,17 @@ extension FileSyncManager {
                                               now: now)
     }
 
-    /// One-time migration: every legacy remembered rule (F3) becomes an automation with a single
-    /// `mentionsAll` condition — the same tokens, the same **absolute** destination, the same
-    /// enabled state — so the rules the user taught keep steering Organize (scoped to the same
-    /// provider they always were) and become visible/editable in the Automations lens. Idempotent
-    /// via ``filingRulesMigratedKey``; the legacy store is left in place (unconsulted) as a backup.
+    /// One-time migration: every legacy remembered rule becomes an automation with one
+    /// `mentionsAll` condition, the same tokens, absolute destination and enabled state, so the
+    /// rules the user taught keep steering Organize (scoped to the same provider) and become
+    /// editable in the Automations lens. Idempotent via ``filingRulesMigratedKey``; the legacy
+    /// store is left in place, unconsulted, as a backup.
     public func migrateFilingRulesToAutomations() {
         guard !filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) else { return }
-        // Read through the three-way result, not the `?? []` getter. This is the one caller whose
-        // decision is IRREVERSIBLE: marking the migration done is a one-way flag, and line ~113
-        // never consults the legacy store again. An unreadable store read as "no rules" would
-        // therefore orphan every remembered rule the user ever taught, permanently, on the strength
-        // of a decode that failed once — and the backup this leaves behind is only bytes in
-        // defaults, with nothing that can put them back. So: stand down and try again next launch.
+        // Read through the three-way result, not the `?? []` getter: marking the migration done is
+        // one-way and the legacy store is never consulted again, so an unreadable store read as "no
+        // rules" would orphan every rule the user taught, permanently, on one failed decode. Stand
+        // down and retry next launch.
         let legacyRead = FileSyncManager.readPersistedStore([FilingRule].self, from: filingRuleDefaults,
                                                             key: Self.rulesDefaultsKey,
                                                             describing: "remembered filing rules")
@@ -1351,10 +1232,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Where the word-level rejections (GU) are persisted, beside the whole-name ones.
+    /// Where the word-level rejections persist, beside the whole-name ones.
     public nonisolated static let wordRejectionsDefaultsKey = "tidyFilingWordRejections"
 
-    /// The words the user has said are no reason for a folder — see ``FilingWordRejection``.
+    /// The words the user has said are no reason for a folder; see ``FilingWordRejection``.
     public var filingWordRejections: [FilingWordRejection] {
         get {
             FileSyncManager.decodePersistedStore([FilingWordRejection].self, from: filingRuleDefaults,
@@ -1382,8 +1263,8 @@ extension FileSyncManager {
         return filingRejections.filter { PathBoundary.contains($0.path, under: root) }
     }
 
-    /// The absolute folder paths rejected for a file — a rejection matches when its trigger tokens
-    /// are all present in the filename's salient tokens (mirrors how F3 rules match).
+    /// The absolute folder paths rejected for a file: a rejection matches when its trigger tokens
+    /// are all among the filename's salient tokens, as remembered rules match.
     nonisolated static func rejectedPaths(forFileNamed name: String, in rejections: [FilingRejection]) -> Set<String> {
         let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: name))
         guard !fileTokens.isEmpty else { return [] }
@@ -1397,8 +1278,8 @@ extension FileSyncManager {
     /// Records that the user rejected `destinationPath` for a file like `fileName`.
     ///
     /// With `providerRoot`, also records the words the file's name shares with that folder's path,
-    /// plus `evidenceWord` (the word a content match was read on), as no reason for it (GU) — the
-    /// lesson that reaches other files. Without it, only the whole-name rejection is kept.
+    /// plus `evidenceWord` (the word a content match was read on), as no reason for it: the lesson
+    /// that reaches other files. Without it, only the whole-name rejection is kept.
     @discardableResult
     public func rememberFilingRejection(fileName: String, destinationPath: String,
                                         providerRoot: String? = nil,
@@ -1427,41 +1308,37 @@ extension FileSyncManager {
         filingWordRejections = []
     }
 
-    /// Absolute folder path → relative to `root`, or nil if not STRICTLY under it. Thin wrapper
-    /// over ``PathBoundary/relativize(_:under:)`` that keeps this call's historical exact-match
-    /// behavior: `path == root` returns nil here (the callers build classifier exclusion lists,
-    /// where the provider root itself has never been an entry), not `""`.
+    /// Absolute folder path → relative to `root`, or nil if not strictly under it. A wrapper over
+    /// ``PathBoundary/relativize(_:under:)`` where `path == root` returns nil, not `""`: callers
+    /// build classifier exclusion lists, where the provider root is never an entry.
     nonisolated static func relativePath(_ path: String, under root: String) -> String? {
         guard let rel = PathBoundary.relativize(path, under: root), !rel.isEmpty else { return nil }
         return rel
     }
 
-    /// "Try another": the user rejected the current suggested folder. Records the rejection, then
-    /// shows the next non-rejected candidate the file already has — or, when those are exhausted,
-    /// re-asks the backend for a genuinely different folder (excluding everything rejected).
+    /// "Try another": the user rejected the suggested folder. Records the rejection, then shows the
+    /// next non-rejected candidate the file already has, or, when those run out, re-asks the
+    /// backend for a different folder (excluding everything rejected).
     public func tryAnotherFolder(for suggestion: FilingSuggestion) async {
         guard let rejected = suggestion.best else { return }
-        // One re-ask per card at a time: the button fires an unstructured Task per click, and a
-        // second click while the classifier is out would start a second round-trip whose
-        // late-returning result overwrote the first's. Re-entrant calls for the same suggestion
-        // are ignored — the first click's answer is the one the card shows.
+        // One re-ask per card at a time: each click fires an unstructured Task, and a second
+        // round-trip's late result would overwrite the first's. Re-entrant calls for the same
+        // suggestion are ignored; the first click's answer is the one the card shows.
         guard filingTryAnotherInFlight[suggestion.id] == nil else { return }
         let invocation = UUID()
         filingTryAnotherInFlight[suggestion.id] = invocation
         defer {
-            // Release only what this invocation still owns. The id is the file's absolute path —
-            // stable across scans and provider switches — so after `clearFiling()` released this
-            // entry mid-round-trip, a recreated card's NEW re-ask can hold the same key under its
-            // own token. An unconditional remove here would strip that round-trip's guard while
-            // it is still out, re-opening the exact two-round-trips race this set exists to
-            // prevent.
+            // Release only what this invocation still owns. The id is the file's absolute path,
+            // stable across scans and provider switches, so after `clearFiling()` releases the
+            // entry mid-round-trip, a recreated card's new re-ask can hold the same key under its
+            // own token, and an unconditional remove would strip that guard while it is still out.
             if filingTryAnotherInFlight[suggestion.id] == invocation {
                 filingTryAnotherInFlight.removeValue(forKey: suggestion.id)
             }
         }
-        // The persisted (token-keyed) rejection is best-effort — token-less filenames can't store
-        // one. The session set, keyed by file path, is what guarantees the click always takes
-        // effect: the rejected folder never comes back for this file, whatever its name.
+        // The persisted (token-keyed) rejection is best-effort: token-less filenames can't store
+        // one. The session set, keyed by file path, guarantees the click takes effect: the
+        // rejected folder never comes back for this file, whatever its name.
         rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path,
                                 providerRoot: suggestion.providerRoot,
                                 evidenceWord: rejected.evidenceToken)
@@ -1481,25 +1358,25 @@ extension FileSyncManager {
             return
         }
 
-        // Out of local ideas — re-ask the backend for one different folder, if one is available.
-        // The cached root/taxonomy must belong to this suggestion's provider: a scan of another
+        // Out of local ideas: re-ask the backend for a different folder, if one is available. The
+        // cached root and taxonomy must belong to this suggestion's provider: a scan of another
         // provider (even a cancelled one) overwrites the cache, and resolving against it would
-        // build — and then move the file into — a destination in the wrong provider's tree.
+        // build, and move the file into, a destination in the wrong provider's tree.
         guard filingUsesAI, let classifier = filingClassifier,
               let root = filingLastProviderRoot, root == suggestion.providerRoot,
               !filingLastTaxonomyFolders.isEmpty else {
             replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
             return
         }
-        // Snapshot the cached folder sets at the same point `root` was validated: a Filing scan
-        // of another provider (or `clearFiling()`) during the classifier round-trip swaps or
-        // empties them, and reading the live properties after the await would label the verdict
-        // against the WRONG provider's folders — an emptied set marks EVERY segment new, so the
-        // "Creates N new folders." confirmation lies. Everything after the await uses only
-        // these locals, which are consistent with the validated `root` by construction.
-        // **Hidden from Claude, honoured as the refine pass does:** a hidden file is not asked
-        // about, and a hidden folder is neither offered nor sent as one to avoid. Only when the
-        // re-ask goes to Claude: on this Mac nothing leaves it.
+        // Snapshot the cached folder sets where `root` was validated: a scan of another provider
+        // (or `clearFiling()`) during the round-trip swaps or empties them, and reading them after
+        // the await would label the verdict against the wrong folders (an emptied set marks every
+        // segment new, so "Creates N new folders." would be false). Everything after the await
+        // uses only these locals.
+        //
+        // Hidden from Claude is honoured as in the refine pass: a hidden file isn't asked about,
+        // and a hidden folder is neither offered nor sent as one to avoid. Only when the re-ask
+        // goes to Claude; on this Mac nothing leaves it.
         let hidden = filingRoutesToCloud(.refine) ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
         if hidden.isHidden(suggestion.filePath) {
             banner = .warning("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
@@ -1512,21 +1389,18 @@ extension FileSyncManager {
             Self.shownToClaude($0, under: root, hidden: hidden)
         }
         let existingFoldersSnapshot = filingLastExistingFolders
-        let nameProvider = filingLastNameProvider   // same snapshot rule, for a new folder's name (FR47)
-        // "Try another" is a re-ask, not a scan, so it may only BORROW the status line while the
-        // Filing lens is idle. Writing it unconditionally overwrote a running rescan's own phase
-        // text, and the `defer` then blanked the line while that scan was still going — leaving the
-        // scanning view with no status until its next update. Epoch-scoped like every other status
-        // write (see `updateScan`): if a scan starts while the classifier is out, it owns the line
-        // and this re-ask neither sets nor clears it. The epoch is the right currency for the
-        // STATUS LINE specifically — a cancelled scan clears the line in its `defer` and bumps the
-        // epoch there, which is exactly when this re-ask must stop clearing it. It is the wrong
-        // currency for the RESULT write; that one uses the generation, below.
+        let nameProvider = filingLastNameProvider   // same snapshot rule, for a new folder's name
+        // "Try another" is a re-ask, not a scan, so it only borrows the status line while the lens
+        // is idle; otherwise it would overwrite a running rescan's phase text and its `defer`
+        // would blank the line mid-scan. Epoch-scoped like every status write (see `updateScan`):
+        // a scan that starts while the classifier is out owns the line. The epoch suits the status
+        // line, since a cancelled scan clears the line and bumps the epoch; the result write uses
+        // the generation, below.
         let preAwaitEpoch = filingScanLifecycle.epoch
-        // The pre-await marker for "the list my verdict is about is still the list on screen".
-        // See ``filingSuggestionsGeneration``: it counts wholesale republishes only, so a scan
-        // that was CANCELLED — which never reaches the publish, and deliberately leaves the old
-        // cards standing — does not invalidate this verdict, though it did bump the epoch twice.
+        // The pre-await marker for "the list my verdict is about is still on screen". See
+        // ``filingSuggestionsGeneration``: it counts wholesale republishes only, so a cancelled scan,
+        // which never publishes and leaves the old cards standing, doesn't invalidate this verdict,
+        // though it bumps the epoch.
         let preAwaitGeneration = filingSuggestionsGeneration
         let ownsStatusLine = !filingScanLifecycle.isRunning
         if ownsStatusLine {
@@ -1539,66 +1413,51 @@ extension FileSyncManager {
         }
         let excluded = allRejected.filter { !hidden.isHidden($0) }
             .compactMap { Self.relativePath($0, under: root) }
-        // **The page the scan already read, not nil.** This is a `.refine` call — the paid tier —
-        // and it was handing the model less than the router had. The refine PASS made exactly this
-        // change for exactly this reason: "the last place to hand the model less than the router
-        // already had — a name-only verdict here is one the overlay will refuse anyway
-        // (`contentBlind`), which is a paid round-trip that changes nothing". A re-ask is the same
-        // kind of pass, asked for by the same click, and was still going out blind.
-        //
-        // Free, and already in hand: `filingPageSamples` holds page 1 of every file the scan read,
-        // bounded to the router's own sample size — this very function reads it forty lines down
-        // for the person veto. Nothing is re-extracted, so the click costs no more I/O than before.
-        // A file the scan never read still sends nil, which is the honest answer for it.
+        // The page the scan already read, not nil. This is a `.refine` call, the paid tier, and as
+        // in the refine pass a name-only verdict is one the overlay refuses anyway
+        // (`contentBlind`), a paid round-trip that changes nothing. `filingPageSamples` already
+        // holds page 1 of every file the scan read, bounded to the router's sample size (the person
+        // veto below reads it too), so nothing is re-extracted. A file the scan never read sends
+        // nil, the honest answer for it.
         let file = FilingCandidateFile(filePath: suggestion.filePath, fileName: suggestion.fileName,
                                        ext: (suggestion.fileName as NSString).pathExtension.lowercased(),
                                        year: Self.modificationYear(suggestion.modificationDate),
                                        contentSnippet: filingPageSamples[suggestion.filePath],
                                        excludedRelativePaths: excluded)
-        // `.refine`, not `.free` — this is the same thing the refine pass is, for one card: an
-        // explicit click asking the preferred backend for a better answer. Routing it to the free
-        // tier would re-ask the model that already produced the destination being rejected.
+        // `.refine`, not `.free`: this is the refine pass for one card, an explicit click asking
+        // the preferred backend for a better answer. The free tier would re-ask the model that
+        // produced the destination being rejected.
         //
-        // **The gap this comment used to record is closed, and closed the way it argued for.** A
-        // re-ask consulted no spend gate at all: the one billable path in the app with no
-        // pre-flight. A modal per card click really would be worse than the gap, so this takes the
-        // half of the guardrail that is not a conversation — an unpriced model and a cap breach
-        // both refuse under a banner naming the remedy (not a modal, and not silence: a click that
-        // does nothing, with its reason only in `~/sync-cloud.log`, teaches the user nothing), and
-        // the click keeps the free on-device suggestion it already had.
-        //
-        // The refine PASS keeps its dialog: that is a bulk action the user asked to price. This is
-        // one card.
+        // The spend gate without the conversation: a modal per card click would be worse than
+        // none, so an unpriced model or a cap breach refuses under a banner naming the remedy (not
+        // silently: a click that does nothing, with its reason only in `~/sync-cloud.log`, teaches
+        // nothing), and the card keeps its free on-device suggestion. The refine pass keeps its
+        // dialog: it is a bulk action the user asked to price.
         guard cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
             return
         }
         let verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
-        // The verdict was computed against THIS invocation's pre-await snapshots — its taxonomy,
-        // its rejections, its session. If the filing state moved on while the classifier was out,
-        // the card now on screen (same id: the stable file path) belongs to the NEW state, and
-        // writing the old verdict into it is a stale overwrite. Two ways the state moves on, two
-        // checks: `clearFiling()` (provider switch) releases this invocation's entry, so the
-        // token no longer matches; a Filing rescan never touches the in-flight dictionary but
-        // does republish the list, which bumps the generation. Either way, drop the result — the
-        // defer above still releases only what this invocation owns.
+        // The verdict was computed against this invocation's pre-await snapshots. If the filing
+        // state moved on while the classifier was out, the card now on screen (same id, the file
+        // path) belongs to the new state, and writing the old verdict into it is a stale overwrite.
+        // Two ways it moves on, two checks: `clearFiling()` releases this invocation's entry, so the
+        // token no longer matches; a rescan republishes the list, which bumps the generation.
+        // Either way, drop the result; the defer above still releases only what this one owns.
         guard filingTryAnotherInFlight[suggestion.id] == invocation,
               filingSuggestionsGeneration == preAwaitGeneration else { return }
-        // Mark new-vs-existing against the FULL folder set (uncapped), so a real folder beyond the
-        // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
-        // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
-        // see above.
+        // Mark new-vs-existing against the full, uncapped folder set, hidden folders included
+        // since they still exist, so a real folder beyond the classifier's cap isn't labelled one
+        // to create. Falls back to the capped cached list, before the hidden filter, if the full
+        // set wasn't captured. Both from the pre-await snapshots.
         let existingFolders = existingFoldersSnapshot.isEmpty ? Set(allTaxonomyFolders) : existingFoldersSnapshot
-        // **The same cross-person rule the scan and the refine apply.** This is a `.refine`-tier
-        // answer from the same backend, for one card, and it went straight from
-        // `destination(from:)` onto the card: none of `applyVerdicts`' guards ran, so a re-ask
-        // could put one family member's document in another's folder — the error that rule exists
-        // for, on the click most likely to produce it, since the user is asking the model to think
-        // again about a file it has already been wrong about once.
+        // The cross-person rule the scan and the refine apply. This answer goes straight from
+        // `destination(from:)` onto the card, past `applyVerdicts`, so without it a re-ask could
+        // put one family member's document in another's folder, on the click most likely to
+        // produce that: the model is asked again about a file it was already wrong about.
         //
-        // Only the veto, deliberately, not the rest of `applyVerdicts`: its confidence guard
-        // refuses to promote an answer weaker than the current best, and the current best here is
-        // the one the user just rejected. The other guards arbitrate against a standing suggestion,
-        // which this path has already discarded.
+        // Only the veto, not the rest of `applyVerdicts`: its confidence guard refuses an answer
+        // weaker than the current best, which here is the one just rejected, and the other guards
+        // arbitrate against a standing suggestion this path has already discarded.
         let accepted: FilingDestination? = {
             guard let verdict = verdicts[suggestion.filePath],
                   let dest = FilingEngine.destination(from: verdict, providerRoot: root,
@@ -1625,35 +1484,31 @@ extension FileSyncManager {
         }
     }
 
-    /// The one way to WHOLESALE replace the published suggestion list. Bumps
-    /// ``filingSuggestionsGeneration`` with the assignment so the two can never drift — see that
-    /// property for why per-item edits are excluded.
-    /// `public` so a caller outside the module can put a list on screen at all — `filingSuggestions`
-    /// is `internal(set)` precisely so that nobody can do it any other way, and the render tests in
-    /// `FileExplorer` need a lens showing results. Exposing THIS rather than the property is the
-    /// point: the generation bump is not optional, and a setter that skipped it would silently
-    /// disarm every staleness guard that reads it.
+    /// The one way to replace the published suggestion list wholesale. Bumps
+    /// ``filingSuggestionsGeneration`` with the assignment so the two can't drift (see that property
+    /// for why per-item edits are excluded). `public` so a caller outside the module can put a list
+    /// on screen, as `FileExplorer`'s render tests need; `filingSuggestions` is `internal(set)` so
+    /// there is no other way, since a setter that skipped the bump would silently disarm every
+    /// staleness guard that reads it.
     public func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
         filingSuggestions = suggestions
         filingSuggestionsGeneration &+= 1
     }
 
     /// Replaces a suggestion's candidates in place (keeps the card, updates its shown home).
-    // `internal`, not `private`: `readScan(for:)` updates one card the same way "Try another"
-    // does, and it lives in the router extension. Still not `public` — the generation bump above
-    // is what every staleness guard reads, so wholesale replacement stays the only outside door.
+    // `internal`, not `private`: `readScan(for:)`, in the router extension, updates one card this
+    // way too. Not `public`: the generation bump above is what every staleness guard reads, so
+    // wholesale replacement stays the only outside door.
     func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
         guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
         let s = filingSuggestions[i]
-        // **Named here too, or "Try another" answers differently from the scan.** The scan enriches
-        // every candidate with the name the file would take there; a destination minted afterwards
-        // would carry none, and since the apply path is gated on that name, the same folder reached
-        // by rejecting a first suggestion would file the raw name while reaching it directly filed
-        // `04. Apr 2025.pdf`. One folder, one answer.
+        // Named here too, or "Try another" answers differently from the scan. The scan gives every
+        // candidate the name the file would take there; a destination minted afterwards would carry
+        // none, and since the apply path is gated on that name, the same folder would file the raw
+        // name when reached by rejection and `04. Apr 2025.pdf` when reached directly.
         //
-        // Read from disk rather than from the scan's taxonomy: this runs long after the walk, on
-        // one folder the user just chose, and a single directory listing is cheaper than being
-        // wrong about a tree that has moved on.
+        // Read from disk, not the scan's taxonomy: this runs long after the walk, on one folder the
+        // user just chose, and one listing is cheaper than being wrong about a tree that moved on.
         let named = candidates.map { dest -> FilingDestination in
             guard dest.newSegments.isEmpty else { return dest }
             return dest.naming(Self.liveIncomingName(
@@ -1688,66 +1543,49 @@ extension FileSyncManager {
     public func clearFiling() {
         filingScanTask?.cancel()
         publishFilingSuggestions([])
-        // The rename backlog is a product of THIS scan, so it goes with it. Left behind it outlived
-        // its own scope chip: `filingLastProviderRoot` is cleared four lines down, and that is what
-        // the backlog's chip names — so the finding stayed on screen, still claiming N folders,
-        // with nothing left to say which tree they were in.
+        // The rename backlog is a product of this scan, so it goes with it; left behind, it would
+        // still claim N folders with `filingLastProviderRoot`, which its chip names, cleared below.
         clearRenamePlans()
         filingScanFolder = nil
         filingLastCacheReuse = nil
         filingLastRefine = nil
         hasSuggestedFiling = false
-        // Re-arm the auto-rescan: switching back to this provider should behave like a fresh
-        // launch, exactly as Storage's restore does after `clearStorageLens()`.
+        // Re-arm the auto-rescan: switching back to this provider behaves like a fresh launch, as
+        // Storage's restore does after `clearStorageLens()`.
         filingAutoRescanAttempted = nil
         filingLastProviderRoot = nil
         filingLastNameProvider = nil
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []
         filingSessionRejections = [:]
-        // The refine guard, released wholesale for the same reason and with the same safety: a
-        // still-out pass checks its invocation token before releasing or publishing, so clearing
-        // here can neither strip a successor's guard nor land a stale verdict.
+        // The refine guard, released wholesale with the same safety: a still-out pass checks its
+        // invocation token before releasing or publishing, so clearing here can neither strip a
+        // successor's guard nor land a stale verdict.
         filingRefineInFlight = nil
-        // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only
-        // if it returns: `FilingClassifier` is a seam with no timeout in its type, so a round-trip
-        // that never comes back
-        // leaves the entry latched forever and every later "Try another" for that card is a
-        // silent no-op.
+        // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only if
+        // it returns, and `FilingClassifier` is a seam with no timeout in its type, so a hung
+        // round-trip would latch the card and make every later "Try another" a silent no-op. The
+        // shipped classifier is bounded (`CloudFilingClassifier` times out at 90 s, then falls back
+        // on-device), so this hatch is for an injected backend that hangs.
         //
-        // **How reachable that is, measured rather than assumed:** what the app injects is bounded
-        // — `CloudFilingClassifier` sets `request.timeoutInterval = 90`, and a hard failure there
-        // falls back to the on-device model. So the shipped worst case is a latch held for the
-        // length of one timed-out request plus a local classify, not a permanent one; "forever"
-        // needs an injected backend that hangs. The hatch is kept because it is free and the seam
-        // is public, not because the shipped path is known to strand.
-        //
-        // Clearing here is the ONLY recovery hatch: a Filing rescan assigns
-        // `filingSuggestions` directly and never touches this dictionary, so a latched card
-        // survives any number of rescans — only a provider switch (the one caller of this
-        // function) frees it. Clearing wholesale is safe because every release and result write
-        // in `tryAnotherFolder` is ownership-checked against its invocation token: a still-out
-        // round-trip whose entry is cleared here can neither strip a successor's guard in its
-        // defer nor land its stale verdict in a recreated card.
+        // This is the only recovery: a rescan assigns `filingSuggestions` directly and never
+        // touches this dictionary, so only a provider switch (this function's one caller) frees a
+        // latched card. Wholesale is safe because every release and result write in
+        // `tryAnotherFolder` is checked against its invocation token: a still-out round-trip can
+        // neither strip a successor's guard nor land its stale verdict in a recreated card.
         filingTryAnotherInFlight = [:]
-        // **The OCR latch is the same latch, and it was left behind.** `readScan` inserts here,
-        // releases in a `defer`, and that defer only runs if it RETURNS — `filingOCRExtractor` is
-        // an unbounded `async` closure with no timeout, exactly like `FilingClassifier` above, so a
-        // Vision render that never comes back leaves the entry latched and every later "Read scan"
-        // on that file is a silent no-op. Nothing else clears this set: a Filing rescan assigns
-        // `filingSuggestions` directly and never touches it, so a latched file survives any number
-        // of rescans. Clearing here is the only hatch, word for word the argument three lines up.
-        //
-        // Safe wholesale for a weaker reason than `tryAnotherFolder`'s, and worth stating rather
-        // than borrowing: `readScan` guards its write on `filingSuggestionsGeneration`, so a
-        // still-out render whose latch is cleared here cannot land its result in a recreated list.
-        // Its `defer` may remove a path a later `readScan` re-inserted — that merely un-latches a
-        // file, which is this function's whole intent.
+        // The OCR latch, for the same reason: `readScan` releases it in a `defer` that runs only if
+        // it returns, and `filingOCRExtractor` is an unbounded `async` closure, so a Vision render
+        // that never returns latches the file and every later "Read scan" on it is a silent no-op.
+        // Nothing else clears it, rescans included. Safe wholesale because `readScan` guards its
+        // write on `filingSuggestionsGeneration`, so a still-out render can't land in a recreated
+        // list; its `defer` may remove a path a later `readScan` re-inserted, which only
+        // un-latches a file.
         filingOCRInFlight = []
-        // Both are keyed by absolute path and describe files under the provider being switched
-        // AWAY from, so neither says anything true about the next one. `filingUnreadableScans`
-        // drives the "Read scan" offer and `filingPageSamples` holds page-1 text for the
-        // rule-offer — held across every switch in a session, they only grow.
+        // These are keyed by absolute path and describe files under the provider being left, so
+        // they say nothing true about the next one: `filingUnreadableScans` drives the "Read scan"
+        // offer and `filingPageSamples` holds page-1 text for the rule offer. Kept across
+        // switches, they would only grow.
         filingUnreadableScans = []
         filingPageSamples = [:]
         filingNotDownloaded = []
@@ -1757,48 +1595,47 @@ extension FileSyncManager {
 
     private enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
 
-    /// The outcome of a single `applyFilingSuggestion`. The `moved` / `notNeeded` distinction lets a
-    /// caller act only on a real move (e.g. offering a learned rule, or the remember-override prompt)
-    /// without re-deriving "did it move?" from a path comparison — the manager is the single source of
-    /// truth. `notNeeded` is still a success: the file is where the caller asked, just already there.
+    /// The outcome of a single `applyFilingSuggestion`. `moved` vs `notNeeded` lets a caller act
+    /// only on a real move (offering a learned rule, the remember-override prompt) without
+    /// re-deriving it from a path comparison. `notNeeded` is still a success: the file is already
+    /// where the caller asked.
     public enum FilingApplyResult: Sendable, Equatable {
         /// The file was moved into the destination (and the list row dropped).
         case moved
-        /// The chosen folder is where the file already lives — nothing to do (success, no move).
+        /// The chosen folder is where the file already lives: nothing to do (success, no move).
         case notNeeded
         /// The move was refused (Verify All in flight) or failed; the file stayed put.
         case failed
     }
 
     /// Moves the suggestion's file into the chosen destination, creating any new folders in the
-    /// path, and drops it from the list. Reversible with Undo (⌘Z). Never overwrites — a name
+    /// path, and drops it from the list. Reversible with Undo (⌘Z). Never overwrites: a name
     /// collision keeps both by uniquifying.
     /// - Returns: `.moved` on a real move, `.notNeeded` when the file already lives there, `.failed`
     ///   when refused or the move errored.
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
                                       remember: Bool = false) async -> FilingApplyResult {
-        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
-        // syncFile's): filing moves a file Verify All may be hashing.
+        // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
+        // file Verify All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before filing")
             return .failed
         }
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
-            // Remember only on an actual move — a rule keyed on where the file already lived is
-            // noise. The log reports what actually happened: derivation can decline (a token-less
-            // name), and claiming "remembered" then would be a lie in the audit trail.
+            // Remember only on an actual move: a rule keyed on where the file already lived is
+            // noise. The log reports what happened, since derivation can decline (a token-less
+            // name) and claiming "remembered" then would be false.
             var remembered = false
             if remember {
                 remembered = rememberAutomationRule(fileName: suggestion.fileName,
                                                     destinationPath: destination.path) != nil
             }
-            // **Filing somewhere else says the suggestion was wrong (GV)** — the same lesson as
-            // Try another, which until now was the only way to teach it: a FedEx invoice filed
-            // into `Immigration/Customs/USA/Shipments` past a suggested `Health/Medical/India`
-            // left "india" pointing at Medical for the next one. A folder inside the suggested
-            // one is a more specific answer, not a correction, and teaches nothing here.
+            // Filing somewhere else says the suggestion was wrong, the same lesson as Try another:
+            // otherwise a word that misled it (an invoice's "india" pointing at Medical) keeps
+            // misleading the next file. A folder inside the suggested one is a more specific
+            // answer, not a correction, and teaches nothing.
             if let suggested = suggestion.best,
                !PathBoundary.contains(destination.path, under: suggested.path) {
                 rememberFilingRejection(fileName: suggestion.fileName, destinationPath: suggested.path,
@@ -1811,10 +1648,10 @@ extension FileSyncManager {
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")
             return .moved
         case .noMoveNeeded:
-            // The chosen folder is where the file already lives — nothing to do, and SAID (FR9):
-            // the card goes either way, and without a word that reads as a click that did nothing
-            // or a file that went somewhere. The engine drops the file's own folder by its path,
-            // so this is reached through a link to it or a folder the user picked.
+            // The chosen folder is where the file already lives: nothing to do, and said so. The
+            // card goes either way, and silence would read as a click that did nothing or a file
+            // that went somewhere. The engine drops the file's own folder by path, so this is
+            // reached through a link to it or a folder the user picked.
             banner = .success("“\(suggestion.fileName)” is already in that folder — nothing to move.")
             return .notNeeded
         case .failed:
@@ -1822,75 +1659,58 @@ extension FileSyncManager {
         }
     }
 
-    /// Files every batch-eligible suggestion (a confident home derived from the filename) into its
-    /// best destination, as one undoable batch.
-    /// Every suggestion eligible for the blind batch, unfiltered — the honest "all of them" scope.
-    /// The Organize lens deliberately does NOT pass this: its button scopes to whatever the search
-    /// left on screen (see `applyRecommendedFiling`).
+    /// Every suggestion eligible for the blind batch (a confident home derived from the filename),
+    /// unfiltered: the honest "all of them" scope. The Organize lens doesn't pass this; its button
+    /// scopes to what the search left on screen (see `applyRecommendedFiling`).
     public var batchEligibleFilingSuggestions: [FilingSuggestion] {
         filingSuggestions.filter { $0.isBatchEligible }
     }
 
-    /// True while a "File recommended" batch is running for this manager — see the latch's
-    /// declaration at the foot of this file and the guard in ``applyRecommendedFiling(_:)``.
+    /// True while a "File recommended" batch is running for this manager; see the latch at the
+    /// foot of this file and the guard in ``applyRecommendedFiling(_:)``.
     ///
-    /// Internal, and deliberately not published: the storage is a file-private set, so nothing
-    /// observes it and a SwiftUI view reading it would never be told when it changed. It exists so
-    /// the re-entrancy test can assert that its second invocation really did overlap the first —
-    /// without that, a run in which the two never overlapped is indistinguishable from one the
-    /// latch refused, and the test would pass while proving nothing.
-    ///
-    /// Disabling the button for the duration is the other half of this fix and is NOT done here:
-    /// that needs a `@Published` property on `FileSyncManager` and a `.disabled(…)` in
-    /// `LensWorkspaceView.fileAllButton`, neither of which is this file.
+    /// Internal and not published: the storage is a file-private set nothing observes, so a
+    /// SwiftUI view reading it would never be told it changed, and the button isn't disabled by
+    /// it. It lets the re-entrancy test assert that its second call really overlapped the first;
+    /// otherwise a run that never overlapped looks like one the latch refused.
     var isFilingBatchRunning: Bool { filingBatchInFlight.contains(ObjectIdentifier(self)) }
 
     /// Files the batch-eligible suggestions among `scope` into their suggested homes.
     ///
-    /// `scope` is REQUIRED for the same reason as `applyRecommendedDuplicates`: a search can now
-    /// narrow this list, so a method that recomputed its own targets from the unfiltered
-    /// `filingSuggestions` would move files the button never counted and the user could not see.
-    /// The count on the button and the array iterated here are one value, passed in. Eligibility
-    /// is still re-checked here, so a caller can't talk this into filing an unsure suggestion.
+    /// `scope` is required, as for `applyRecommendedDuplicates`: a search can narrow the list, so
+    /// recomputing targets from the unfiltered `filingSuggestions` would move files the button never
+    /// counted and the user couldn't see. The button's count and the array iterated are one value.
+    /// Eligibility is still re-checked, so a caller can't make this file an unsure suggestion.
     public func applyRecommendedFiling(_ scope: [FilingSuggestion]) async {
-        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
-        // syncFile's): filing moves files Verify All may be hashing.
+        // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves
+        // files Verify All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before filing")
             return
         }
         let batch = scope.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
-        // **The in-flight latch every sibling write pass owns, and this one did not.**
-        // `isVerifyAllRunning` above is a *different* pass's guard; it says nothing about a second
-        // "File all". And a second one is a single gesture away: the button is disabled only while
-        // a scan runs, its confirmation is an `NSAlert` whose modal run loop keeps spinning the
-        // main actor while the first batch's `Task` is parked on the file-operation queue, and both
-        // invocations file the same captured `scope` array — the list republish that would have
-        // narrowed it happens per file, after each move, and cannot reach an array already passed.
+        // The in-flight latch every sibling write pass has. `isVerifyAllRunning` is another pass's
+        // guard and says nothing about a second "File all", which is one gesture away: the button
+        // is disabled only while a scan runs, its `NSAlert` confirmation's modal loop keeps the
+        // main actor turning while the first batch waits on the file-operation queue, and both
+        // calls file the same captured `scope`. The second would find every source already moved
+        // and report "Couldn't file N files" for files that were filed.
         //
-        // So the second run walks suggestions the first one has already moved, fails
-        // `performFiling`'s source-exists guard on every one, and reports each as a failure under
-        // a "Couldn't file N files" banner. That is false: the files were filed.
+        // Refused silently: the user pressed the same button twice, and the first press is still
+        // running and will report for both.
         //
-        // Refuse silently rather than with a banner. The Verify All refusal above answers a
-        // question the user could not have known the answer to; this one answers "you pressed the
-        // same button twice", where the first press is still running and about to report for both.
-        //
-        // The latch is file-private storage keyed by manager identity rather than a stored property
-        // because a stored property has to live in the class body and this is an extension. It is
-        // otherwise exactly the sibling shape — `isBulkSyncRunning`, `isApplyingRenames`,
-        // `mergingGroupIDs`: refuse at entry, latch, release in a `defer` that covers every exit.
-        // Nothing leaks: `ObjectIdentifier` holds no reference, the caller's `await` holds `self`
-        // alive for the whole latched window so the key cannot be reused by a later object, and the
-        // `defer` removes the entry on every path out.
+        // File-private storage keyed by manager identity, since an extension can't add a stored
+        // property; otherwise the sibling shape (`isBulkSyncRunning`, `isApplyingRenames`,
+        // `mergingGroupIDs`): refuse at entry, latch, release in a `defer` on every exit. The
+        // caller's `await` keeps `self` alive for the whole window, so the key can't be reused.
         guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else { return }
         filingBatchInFlight.insert(ObjectIdentifier(self))
         defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
         var moves: [MoveItemState] = []
         var failures = 0
-        // Counted, not dropped (FR9): its card leaves the list like a filed one, so a banner that
-        // left it out would count fewer files than went.
+        // Counted, not dropped: its card leaves the list like a filed one, so a banner leaving it
+        // out would count fewer files than went.
         var alreadyHome = 0
         for s in batch {
             guard let dest = s.best else { continue }
@@ -1926,7 +1746,7 @@ extension FileSyncManager {
         filingSuggestions.removeAll { $0.id == suggestion.id }
     }
 
-    /// The package `url` is, or sits inside, or nil — read off the disk, one `stat` per existing
+    /// The package `url` is, or sits inside, or nil, read off the disk with one `stat` per existing
     /// ancestor. Folders the filing would still create are skipped: only what exists can be one.
     nonisolated static func enclosingPackage(of url: URL) -> URL? {
         var current = url.standardizedFileURL
@@ -1939,9 +1759,9 @@ extension FileSyncManager {
         return nil
     }
 
-    /// The outermost folder in `url`'s path that does not exist yet and whose name's extension is
-    /// a package type's — `Notes.rtfd`, `Helper.app`, a `.numbers` where Numbers declares it — or
-    /// nil (FR3). The folders that exist are ``enclosingPackage(of:)``'s to ask.
+    /// The outermost folder in `url`'s path that doesn't exist yet and whose extension is a package
+    /// type's (`Notes.rtfd`, `Helper.app`, a `.numbers` where Numbers declares it), or nil. Folders
+    /// that exist are ``enclosingPackage(of:)``'s to ask.
     nonisolated static func newPackageSegment(of url: URL, fileManager: FileManaging) -> String? {
         var current = url.standardizedFileURL
         var found: String?
@@ -1957,18 +1777,17 @@ extension FileSyncManager {
         return found
     }
 
-    /// The move + list-drop (no undo registration — the caller registers, so a batch is one undo).
+    /// The move and list-drop. No undo registration: the caller registers, so a batch is one undo.
     private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
         let fm = fileManager
         let src = URL(fileURLWithPath: suggestion.filePath)
         let destFolder = URL(fileURLWithPath: destination.path)
 
-        // No-op: the chosen folder IS the file's current folder — leave it, don't rename to "(2)".
-        // Case-folded per the volume: an exact comparison let a case-variant destination through
-        // to the move below, where `fileExists` collapsed the case, found the file itself, and the
-        // unique-name step renamed it in place while the banner reported a successful filing.
-        // And resolved through links (FR9): the own folder reached through a folder link is the
-        // same folder, and read as another it met the same rename.
+        // No-op: the chosen folder is the file's current folder, so leave it rather than rename it
+        // "(2)". Case-folded per the volume, or a case-variant destination reaches the move, where
+        // `fileExists` folds the case, finds the file itself, and the unique-name step renames it
+        // in place under a success banner. And resolved through links: the own folder reached
+        // through a folder link is the same folder.
         if PathBoundary.resolvesToSameDirectory(
             destFolder.path,
             src.deletingLastPathComponent().path,
@@ -1984,59 +1803,54 @@ extension FileSyncManager {
         let recordedSource = suggestion.sourceIdentity
         let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
-                // Gone since the scan — moved, renamed or deleted: said as that, not as a filing
-                // that failed and left the file in place (F6).
+                // Gone since the scan (moved, renamed or deleted): said as that, not as a filing
+                // that failed and left the file in place.
                 guard fm.fileExists(atPath: src.path) else { return .failed(reason: Self.filingSourceGoneReason) }
-                // **And it has to still BE the file the card is about (FR45).** The existence check
-                // above says only that the path is occupied. A queue is stepped through minutes
-                // after the scan, and in that time a browser can re-download over the name or an
-                // editor save a different document to it; moving whatever sits there now puts a
-                // stranger in a folder chosen for something else, and — being a move — leaves
-                // nothing behind where the user last saw it. The rule Automations' apply already
-                // follows (`sourceChangedSincePreview`). `.indeterminate` refuses too: a file that
-                // could not be read is not one this can vouch for. nil ⇒ not recorded ⇒ no check.
+                // And it must still be the file the card is about. Existence says only that the
+                // path is occupied: a queue is stepped through minutes after the scan, and a browser
+                // can re-download over the name or an editor save another document to it. Moving
+                // that puts a stranger in a folder chosen for something else and, being a move,
+                // leaves nothing where the user last saw it. Automations' apply has the same rule
+                // (`sourceChangedSincePreview`). `.indeterminate` refuses too; nil means nothing was
+                // recorded, so no check.
                 if let recordedSource, recordedSource.drift(at: src, fileManager: fm) != .unchanged {
                     throw FileOperationError.sourceChangedSinceScan
                 }
-                // One stat, before any I/O — the guard `transferItems` has always had and filing
-                // never did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
-                // path, so a destination tree that has gone away since the scan (a provider
-                // unmounted, an external volume ejected) is silently RECREATED as an ordinary local
-                // folder. This is a MOVE: the file would leave a live tree to sit in a dead one the
-                // provider never syncs, under a success banner.
+                // One stat before any I/O, as `transferItems` does. `createDirectory` below builds
+                // the whole path, so a destination tree gone since the scan (a provider unmounted, a
+                // volume ejected) would be silently recreated as a plain local folder, and this move
+                // would take the file out of a live tree into one the provider never syncs, under a
+                // success banner.
                 //
-                // Stat'ing the ANCHOR rather than the leaf is what makes the check precise: only
-                // the folders `newSegments` names are ours to create, so everything above them must
-                // already be there. See `filingAnchor(for:under:)` for how the anchor is derived and
-                // why it is clamped. For a destination the user browsed to (`newSegments` empty) the
-                // anchor IS the folder, which is exactly right: if it vanished between the pick and
-                // the apply, refusing beats re-creating it.
+                // The anchor is stat'ed, not the leaf: only the folders `newSegments` names are ours
+                // to create, so everything above must already exist (see `filingAnchor(for:under:)`).
+                // For a folder the user browsed to, the anchor is the folder itself, so if it
+                // vanished between the pick and the apply this refuses rather than recreate it.
                 guard fm.fileExists(atPath: anchor.path) else {
                     throw FileOperationError.destinationRootUnavailable
                 }
-                // **A package is a document, not a folder to file into** (FR3). The survey and the
-                // router list `Budget 2025.numbers` and its `Data/` like any folder, so a suggestion
-                // can name one; a file moved in disappears from Finder and can be dropped at the
-                // app's next save. Asked here, where every route — the engine, the router, a model's
-                // answer, a folder the user typed — ends.
+                // A package is a document, not a folder to file into. The survey and router list
+                // `Budget 2025.numbers` and its `Data/` like any folder, so a suggestion can name
+                // one; a file moved in vanishes from Finder and can be dropped at the app's next
+                // save. Asked here, where every route ends: the engine, the router, a model's
+                // answer, a folder the user typed.
                 if let document = Self.enclosingPackage(of: destFolder) {
                     throw FileOperationError.destinationIsADocument(name: document.lastPathComponent)
                 }
-                // …and so is a folder the filing would CREATE under a package's name: `Notes.rtfd`
-                // made as a plain folder is one document to Finder the moment it exists, with the
-                // file inside it. Nothing is on disk to ask yet, so the extension is asked.
+                // And so is a folder the filing would create under a package's name: `Notes.rtfd`
+                // made as a plain folder is one document to Finder once it exists, file and all.
+                // Nothing is on disk to ask yet, so the extension is asked.
                 if let document = Self.newPackageSegment(of: destFolder, fileManager: fm) {
                     throw FileOperationError.destinationIsADocument(name: document)
                 }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
-                // **Gated on the card having offered a rename.** The scan's proposal is what the
-                // user saw and agreed to; without this the file is renamed whenever the destination
-                // happens to number its files, including on paths that never displayed a name at
-                // all — a move the user asked for silently becoming a move-and-rename.
+                // Renamed only if the card offered a rename. The scan's proposal is what the user
+                // saw and agreed to; without this gate, any destination that numbers its files
+                // would turn a requested move into a silent move-and-rename.
                 //
-                // Given that consent, the SLOT is re-derived against the destination as it stands
-                // now rather than as the scan found it, because a folder gains files while a queue
-                // is open. So the card's promise decides *whether*, and the disk decides *which*.
+                // Given that consent, the slot is re-derived against the destination as it stands
+                // now, since a folder gains files while a queue is open: the card decides whether,
+                // the disk decides which.
                 let landingName = destination.proposedName == nil ? suggestion.fileName
                     : (Self.liveIncomingName(
                         for: suggestion.fileName, destination: destFolder.path,
@@ -2049,12 +1863,11 @@ extension FileSyncManager {
                 let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
                 return .moved(to: dst, overwritten: overwritten)
             } catch {
-                // Record the cause — the generic alert below can't carry it.
+                // Record the cause: the generic alert below can't carry it.
                 logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
-                // A vanished destination tree is a condition the user can act on ("plug the volume
-                // back in / rescan"), unlike a generic I/O failure — so it gets to say so instead
-                // of being flattened into "couldn't file this item" — and so do a document
-                // destination and a changed file (FR3, FR45).
+                // A vanished destination tree is something the user can act on ("plug the volume
+                // back in, rescan"), unlike a generic I/O failure, so it says so instead of
+                // "couldn't file this item", as do a document destination and a changed file.
                 switch error as? FileOperationError {
                 case .destinationIsADocument?, .sourceChangedSinceScan?, .destinationRootUnavailable?:
                     return .failed(reason: error.localizedDescription)
@@ -2077,35 +1890,32 @@ extension FileSyncManager {
         }
     }
 
-    /// What the enqueued move actually did. An enum rather than a tuple because the tuple it
-    /// replaced carried the same fact twice — `movedTo == nil` and `failed == true` always agreed,
-    /// and nothing stopped a future edit from returning a destination alongside `failed: true`.
+    /// What the enqueued move did. An enum so a destination can never be returned alongside a
+    /// failure.
     private enum FilingMoveOutcome: Sendable {
         case moved(to: URL, overwritten: URL?)
         /// `reason` is user-facing when the failure is one the user can act on; nil falls back to
         /// the generic "couldn't file this item". No retryable flag: the filing alert has no Retry
-        /// to offer (`present` is given no retry), so it decided nothing a reader could see (F6).
+        /// to offer (`present` is given no retry).
         case failed(reason: String?)
     }
 
-    /// The filing alert's reason for a file gone from where the scan found it (F6) — it was not
-    /// "left in place", since it is no longer there.
+    /// The filing alert's reason for a file gone from where the scan found it: it wasn't "left in
+    /// place", since it is no longer there.
     nonisolated static let filingSourceGoneReason = "It’s no longer where the scan found it — it may have been moved, renamed or deleted — so nothing was filed."
 
-    /// The folder a filing destination's new segments hang off — the part that must ALREADY exist,
-    /// because everything below it is what `createDirectory` is being asked to create.
+    /// The folder a filing destination's new segments hang off: the part that must already exist,
+    /// since everything below it is what `createDirectory` is asked to create.
     ///
-    /// Walking up one level per entry in `newSegments` is the whole rule, but it trusts a
-    /// scan-time list, so it is clamped to the provider root. Without the clamp an over-long
-    /// `newSegments` walks past the root and saturates at "/", which always exists — turning a
-    /// data-safety guard into a tautology exactly when its input is wrong. `FilingEngine` builds
-    /// `newSegments` as a suffix of the destination's own segments, so today it cannot over-count;
-    /// the clamp is what keeps that a property of THIS function rather than of a caller far away.
+    /// Walking up one level per `newSegments` entry is the rule, but it trusts a scan-time list, so
+    /// it is clamped to the provider root. Unclamped, an over-long `newSegments` would walk to "/",
+    /// which always exists, turning a data-safety guard into a tautology exactly when its input is
+    /// wrong. `FilingEngine` builds `newSegments` as a suffix of the destination's segments, so it
+    /// can't over-count today; the clamp keeps that a property of this function.
     ///
-    /// The clamp only applies when the destination is genuinely under the root, so a picker choice
-    /// on another volume is still checked at its own anchor. An EMPTY `providerRoot` is treated as
-    /// no root at all — `URL(fileURLWithPath: "")` resolves against the process working directory,
-    /// so clamping to it would aim the guard at a completely unrelated folder.
+    /// The clamp applies only when the destination is under the root, so a picker choice on another
+    /// volume is checked at its own anchor. An empty `providerRoot` counts as no root:
+    /// `URL(fileURLWithPath: "")` resolves against the working directory, an unrelated folder.
     nonisolated static func filingAnchor(for destination: FilingDestination,
                                          under providerRoot: String?) -> URL {
         let destFolder = URL(fileURLWithPath: destination.path)
@@ -2118,19 +1928,15 @@ extension FileSyncManager {
     }
 }
 
-/// Which managers currently have a "File recommended" batch in flight.
+/// Which managers have a "File recommended" batch in flight: the latch behind
+/// ``FileSyncManager/applyRecommendedFiling(_:)``, shaped like its siblings (`isBulkSyncRunning`,
+/// `isApplyingRenames`, `mergingGroupIDs`, `filingRefineInFlight`) but file-private, because an
+/// extension can't hold a stored property.
 ///
-/// The in-flight latch behind ``FileSyncManager/applyRecommendedFiling(_:)``, in the shape every
-/// sibling write pass uses — `isBulkSyncRunning`, `isApplyingRenames`, `mergingGroupIDs`,
-/// `filingRefineInFlight` — but as file-private storage rather than a stored property, because a
-/// stored property has to live in the class body and this file is an extension.
+/// Keyed by `ObjectIdentifier` so two managers (tests make many) latch independently. Safe because
+/// a latched manager can't be deallocated: the caller awaits `applyRecommendedFiling`, which holds
+/// `self` for the whole window, and its `defer` clears the entry before returning.
 ///
-/// Keyed by `ObjectIdentifier` so two managers (which tests routinely create) latch independently.
-/// That key is safe here specifically because a latched manager cannot be deallocated: the caller
-/// awaits `applyRecommendedFiling`, which holds `self` for the whole latched window, and the
-/// method's `defer` clears the entry before returning. No entry outlives its object, so no address
-/// can be reused while it is still spoken for.
-///
-/// `@MainActor` because `FileSyncManager` is: the read, the insert and the `defer`'s remove all
-/// happen in one main-actor turn each, which is exactly what makes this a latch at all.
+/// `@MainActor` because `FileSyncManager` is: the read, insert and `defer` remove each happen in
+/// one main-actor turn, which is what makes this a latch.
 @MainActor private var filingBatchInFlight: Set<ObjectIdentifier> = []

@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// His three files of 2026-11-01, and the five calls that came of them (GS–GW): a home that rests
-/// on one shared word, a survey and a paid model that could not displace it, and corrections that
-/// taught nothing beyond the file in hand. The whole-tree numbers are in `FilingCardReplayTests`.
+/// How suggestions weigh evidence and learn: one shared word is a lead, not a home; the survey
+/// and a paid model's shortlisted pick lead over a word match; and corrections and filings teach
+/// beyond the file in hand. The whole-tree numbers are in `FilingCardReplayTests`.
 @Suite struct FilingSuggestionLearningTests {
 
     static let root = "/root"
@@ -126,7 +126,7 @@ import Testing
         #expect(routed.suggestion.candidates.contains { $0.path == keyword.path }, "the word match stays as an alternate")
     }
 
-    /// GY: even an unsure survey home leads over a word match, carrying its own (Low) badge.
+    /// Even an unsure survey home leads over a word match, carrying its own (Low) badge.
     @Test func anUnsureSurveyHomeStillLeadsOverAWordMatch() throws {
         let index = Self.index(["Immigration/Customs/USA": ["customs", "courier"],
                                 "Purchases/US/FedEx": ["courier", "invoice"]],
@@ -339,8 +339,8 @@ import Testing
         #expect(m.filedSinceSurvey(under: root.path).isEmpty)
     }
 
-    /// GW covers Ask Claude's filings too: a file its card moves teaches the folder, and a folder
-    /// moved or a rename teaches nothing.
+    /// Ask Claude's filings teach too: a file its card moves teaches the folder, and a folder moved
+    /// or a rename teaches nothing.
     @Test func aMoveAskClaudeAppliesTeachesTheRouter() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingGWAskClaude")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -395,7 +395,7 @@ import Testing
         func prompt(_ p: FilingSpendPreflight) { lock.lock(); prompts.append(p); lock.unlock() }
     }
 
-    /// TE287's fixture — a cloud-only lease the scan placed by name — refined with Claude.
+    /// A cloud-only lease the scan placed by name, refined with Claude.
     static func refine(agree: Bool) async throws -> (FileSyncManager, URL, FilingDownloadAndReadTests.Cloud, String, Seen) {
         let (m, root, cloud, ticket) = try await FilingDownloadAndReadTests.makeScan()
         let seen = Seen()

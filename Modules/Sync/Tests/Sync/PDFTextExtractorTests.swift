@@ -56,9 +56,9 @@ import Testing
     }
 
     @Test func twoWritesOfTheSameTextDifferInBytesAndAgreeInFingerprint() throws {
-        // The feature's whole premise, exercised against real PDF bytes: a provider re-generating
-        // the document stamps something new into it (here, the Producer string), so the byte
-        // hashes differ while the text does not.
+        // The feature's premise on real PDF bytes: a provider re-generating the document stamps
+        // something new into it (here, the Producer string), so the bytes differ but the text
+        // doesn't.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let first = dir.appendingPathComponent("download-1.pdf")
@@ -116,15 +116,10 @@ import Testing
     }
 
     @Test func anEvictedICloudFileIsDeclinedRatherThanDownloaded() throws {
-        // The scan hands the reader every PDF in the tree. On a tree that lives in iCloud
-        // Documents, a reader that opened whatever it was given would force-download the user's
-        // entire offloaded library on the first cold scan — the one guard here whose absence costs
-        // more than a missed group.
-        //
-        // A real dataless file cannot be fabricated, so availability is the injected half. The
-        // fixture is a document that reads perfectly well when it IS available: the expected value
-        // (nil) and the fallback (a real ExtractedDocument) are different answers, so the
-        // assertion cannot pass by accident.
+        // The scan hands the reader every PDF in the tree. On an iCloud tree, a reader that opened
+        // whatever it was given would force-download the whole offloaded library on the first cold
+        // scan. A real dataless file can't be fabricated, so availability is injected; the fixture
+        // reads fine when available, so nil can't pass by accident.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("statement.pdf")
@@ -136,8 +131,8 @@ import Testing
     }
 
     @Test func anImageOnlyPDFYieldsNoFingerprintRatherThanAnEmptyOne() throws {
-        // A scan with no text layer: PDFKit parses it happily and returns nothing. "Nothing" must
-        // not become a digest that every other textless scan of the same shape also has.
+        // A scan with no text layer parses to nothing, and "nothing" must not become a digest that
+        // every other textless scan of the same shape shares.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("scan.pdf")
@@ -156,9 +151,9 @@ import Testing
     }
 
     @Test func theReadingSaysWhyThereIsNoDigest() async throws {
-        // Only "read, and said too little" may be cached as a negative. Everything that was not
-        // read at all — not on this disk, locked, unparseable — must come back as unreadable, or a
-        // placeholder would stay unfingerprinted after it downloaded.
+        // Only "read, and said too little" may be cached as a negative. Anything not read at all
+        // (not on this disk, locked, unparseable) must come back unreadable, or a placeholder would
+        // stay unfingerprinted after it downloaded.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let text = dir.appendingPathComponent("statement.pdf")
@@ -194,8 +189,8 @@ import Testing
     }
 
     @Test func availabilityIsAskedBeforeTheLaneNotOnIt() async throws {
-        // A placeholder used to take the PDF lane's turn — holding up Edit's PDFs, Print and the
-        // column preview — only to be turned away by a stat.
+        // A placeholder must not take the PDF lane's turn, holding up Edit's PDFs, Print and the
+        // column preview, only to be turned away by a stat.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("statement.pdf")
@@ -212,11 +207,9 @@ import Testing
     }
 
     @Test func parsesNeverRunConcurrently() async throws {
-        // The rule this pins was learned the expensive way: with a concurrent queue, ~1% of a real
-        // tree's documents extracted DIFFERENT text run to run, and the group count moved between
-        // two runs of the same binary over the same files. A synthetic fixture cannot reproduce
-        // that race — it needs the font substitution that real bills trigger — so what is asserted
-        // instead is the property that fixes it: however many callers ask at once, one parse runs.
+        // Concurrent PDFKit parses extract different text run to run on real documents (the race
+        // needs the font substitution real bills trigger, so a synthetic fixture can't show it).
+        // What is asserted is the fix: however many callers ask at once, one parse runs.
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         var urls: [URL] = []
@@ -235,18 +228,10 @@ import Testing
         #expect(PDFKitSerialAccess.peakConcurrentParses == 1)
     }
 
-    /// **The lane is process-wide, not per-reader — that is the whole point of it.**
-    ///
-    /// A private serial queue on this type protected it from itself and nothing else: Filing's
-    /// `ContentSignalExtractor` was parsing PDFs on its own queue at the same time, and two serial
-    /// queues race exactly like one concurrent one. Measured over 176 real Chase statements: a
-    /// serial pass agreed with itself across six runs (0 documents differing) and started
-    /// disagreeing on 4.5–6.3% of them as soon as a second serial queue read PDFs alongside.
-    ///
-    /// `ContentSignalExtractor` lives in `MacApp` and cannot be reached from this module, so what
-    /// is asserted here is the property that makes sharing work: reads issued through the lane's
-    /// two entry points at once still never overlap. A second lane anywhere fails the same way the
-    /// second queue did — invisibly — so the guard is that both doors lead to one room.
+    /// The lane is process-wide, not per-reader: two serial queues parsing PDFs at once race
+    /// exactly like one concurrent one. `ContentSignalExtractor` lives in `MacApp`, out of reach
+    /// here, so this asserts that reads through the lane's two entry points at once never overlap.
+    /// A second lane anywhere would fail invisibly.
     @Test func theLaneSerializesItsTwoEntryPointsAgainstEachOther() async throws {
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -275,8 +260,8 @@ import Testing
             for await didRead in group where didRead { ok += 1 }
             return ok
         }
-        // Non-vacuity, and it is NOT the peak that provides it: both doors must have returned a
-        // document. Discarding the reads let a broken fixture move the counter and pass.
+        // Non-vacuity comes from the reads, not the peak: both doors must return a document, or a
+        // broken fixture could move the counter and pass.
         #expect(read == urls.count * 2, "only \(read) of \(urls.count * 2) reads returned a document")
 
         let peak = PDFKitSerialAccess.peakConcurrentParses

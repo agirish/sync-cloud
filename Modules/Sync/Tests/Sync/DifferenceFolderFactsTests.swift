@@ -2,13 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **Each difference records, per side, whether its item is a folder** — the fact a row's menu needs
-/// to keep "Open in Edit" and "Compare…" off directories named like files.
-///
-/// `enclosedItemCount` was the only folder marker a row carried, and it is recorded only for a
-/// folder whose contents were collapsed into it: an EMPTY folder, a name-conflicted pair of folders
-/// and a folder-versus-file row with an empty folder all came out with `nil`, and where it was set
-/// it could not say which side was the folder. Every shape below is built by the real engine.
+/// Each difference records, per side, whether its item is a folder, so a row's menu keeps
+/// "Open in Edit" and "Compare…" off folders named like files. `enclosedItemCount` can't stand in:
+/// it is nil for an empty folder and can't say which side is the folder. Every shape below is
+/// built by the real engine.
 @Suite struct DifferenceFolderFactsTests {
 
     private let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)

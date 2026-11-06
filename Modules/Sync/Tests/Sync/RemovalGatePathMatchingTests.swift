@@ -2,24 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **The removal gate's path-matching contract.**
-///
-/// `deleteItems` asks its caller's `removalGate` about a list of paths and matches the answer back
-/// against that list; the duplicates gate in turn matches the paths it is asked about against the
-/// group's own `recommendedRemovalPaths`. Both matched by exact string equality, and the two sides
-/// do not always hold the same spelling of one path: the post-confirmation invocation is fed
-/// `trashFailures.map { $0.path }`, which is URL round-tripped — identical for an ordinary path,
-/// but `"/a/Folder/"` comes back as `"/a/Folder"`, `"~/x"` as the expanded home path, and a
-/// relative path as an absolute one.
-///
-/// A mismatch failed OPEN in both places, which is the reason these are pins rather than notes:
-/// `deleteItems` dropped the refusal on the floor and removed the item anyway, and the duplicates
-/// gate's `Set(paths)` intersection came back empty, so `guard !groupPaths.isEmpty else { continue }`
-/// skipped re-verification entirely — silently, immediately before a permanent delete.
-///
-/// The contract these fix in place: both sides match on `FileSyncManager.canonicalRemovalPath`,
-/// which is the exact transform the removal itself applies (`URL(fileURLWithPath:).path`), and
-/// anything the gate cannot attribute is REFUSED rather than waved through.
+/// The removal gate's path-matching contract. `deleteItems` matches its `removalGate`'s answer
+/// against the paths it asked about, and the duplicates gate matches those paths against each
+/// group's `recommendedRemovalPaths`. The two sides can spell one path differently: after a
+/// confirmation the gate is fed URL round-tripped paths, so `"/a/Folder/"` becomes `"/a/Folder"`
+/// and `"~/x"` the expanded home path. Matched by exact string, a mismatch fails open, removing a
+/// refused item or skipping re-verification right before a permanent delete. So both sides match
+/// on `FileSyncManager.canonicalRemovalPath`, the transform the removal itself applies, and the
+/// gate refuses anything it can't attribute.
 @Suite struct RemovalGatePathMatchingTests {
 
     @MainActor
@@ -49,9 +39,8 @@ import Foundation
 
     // MARK: `deleteItems`' side of the match
 
-    /// A refusal answered in a DIFFERENT SPELLING of the same path must still hold. Red before the
-    /// canonicalization: the trailing-slash answer missed the exact-string `contains`, and the file
-    /// the gate refused was moved to the Trash regardless.
+    /// A refusal answered in a different spelling of the same path still holds; matched by exact
+    /// string, the trailing-slash answer would miss and the refused file would go to the Trash.
     @MainActor
     @Test func aRefusalSpelledDifferentlyStillKeepsTheItemOnDisk() async throws {
         let mockFM = MockFileManager()
@@ -67,9 +56,9 @@ import Foundation
                 "a refusal the matcher missed was also missed by the accounting: \(outcome)")
     }
 
-    /// The same mismatch on the UNRECOVERABLE branch: after a confirmed permanent delete the gate
-    /// is fed URL round-tripped paths, so a gate holding the scan's own spelling answers in that
-    /// spelling — and its refusal must still stop `removeItem`.
+    /// The same mismatch on the unrecoverable branch: after a confirmed permanent delete the gate is
+    /// fed URL round-tripped paths, so a gate answering in the scan's spelling must still stop
+    /// `removeItem`.
     @MainActor
     @Test func aRefusalSpelledDifferentlyStopsAConfirmedPermanentDelete() async throws {
         let mockFM = MockFileManager()
@@ -81,8 +70,8 @@ import Foundation
 
         let outcome = await manager.deleteItems(at: ["/a/Folder"], fileManager: mockFM,
                                                 removalGate: { _ in
-            // Allow the pre-trash pass so the run reaches the confirmation, refuse the post-confirm
-            // one — in the scan's spelling, which is not the one it was handed.
+            // Allow the pre-trash pass so the run reaches the confirmation, then refuse the
+            // post-confirm one in the scan's spelling, not the one it was handed.
             calls.withLock { $0 += 1; return $0 } == 1 ? [] : ["/a/Folder/"]
         })
 
@@ -95,15 +84,14 @@ import Foundation
 
     // MARK: The duplicates gate's side of the match
 
-    /// The gate must recognize a group's path however the caller spelled it. Red before the fix:
-    /// the intersection with `recommendedRemovalPaths` came back empty, the group was `continue`d
-    /// past, and a drifted copy sailed through the last check before removal.
+    /// The gate recognizes a group's path however the caller spelled it; otherwise the group is
+    /// skipped and a drifted copy passes the last check before removal.
     @MainActor
     @Test func theDuplicatesGateVerifiesAGroupPathGivenInAnotherSpelling() async throws {
         let mockFM = MockFileManager()
         let manager = makeManager(mockFM)
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        // The copy the group would trash, REWRITTEN since the scan (size 1000 → 4242): drift, so a
+        // The copy the group would trash, rewritten since the scan (size 1000 → 4242): drift, so a
         // gate that really looked at it must refuse.
         mockFM.virtualDisk["/b/x"] = stub(size: 4242)
         let g = group(keeper: "/a/x", redundant: "/b/x")
@@ -116,8 +104,8 @@ import Foundation
         #expect(refusals.all[g.id] == .drifted)
     }
 
-    /// The control, so the pin above cannot pass by refusing everything: the same group, unchanged
-    /// on disk, in the same spelling, is NOT refused.
+    /// The control, so the test above can't pass by refusing everything: the same group, unchanged
+    /// on disk, in the same spelling, is not refused.
     @MainActor
     @Test func theDuplicatesGateStillPassesAnUnchangedGroupInAnotherSpelling() async throws {
         let mockFM = MockFileManager()
@@ -132,10 +120,8 @@ import Foundation
         #expect(refused.isEmpty, "the fixture refuses even the unchanged case, so the pin above is vacuous")
     }
 
-    /// **Fail CLOSED.** A path the gate cannot attribute to any of its groups has not been
-    /// verified, and the gate's whole job is to answer for what is about to be destroyed. Red
-    /// before the fix: unattributable meant unrefused, so the only way a match could fail was the
-    /// way that removed the file.
+    /// Fail closed: a path the gate can't attribute to any group hasn't been verified, and the
+    /// gate's job is to answer for what is about to be destroyed, so it is refused.
     @MainActor
     @Test func theDuplicatesGateRefusesAPathItCannotAttributeToAnyGroup() async throws {
         let mockFM = MockFileManager()
@@ -154,11 +140,10 @@ import Foundation
 
     // MARK: The canonical form itself
 
-    /// What the key actually promises, pinned so a "tidy-up" to `standardized` or
-    /// `resolvingSymlinksInPath` cannot slip in: it is exactly the transform the removal applies,
-    /// no more. Trailing slashes and `~` fold (both are what `URL(fileURLWithPath:)` does to a path
-    /// on its way to `trashItem`); `//` and `/.` are left alone, because the removal leaves them
-    /// alone too — the two sides only need to agree with each other and with the syscall.
+    /// The key is exactly the transform the removal applies, no more, so a "tidy-up" to
+    /// `standardized` or `resolvingSymlinksInPath` fails here. Trailing slashes and `~` fold, as
+    /// `URL(fileURLWithPath:)` folds them on the way to `trashItem`; `//` and `/.` are left alone,
+    /// as the removal leaves them.
     @Test func theCanonicalRemovalKeyMatchesWhatTheRemovalItselfActsOn() {
         #expect(FileSyncManager.canonicalRemovalPath("/a/Folder/") == "/a/Folder")
         #expect(FileSyncManager.canonicalRemovalPath("/a/Folder") == "/a/Folder")

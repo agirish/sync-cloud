@@ -2,14 +2,12 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **Compare finds the `/` in a relative path by scalar, never by Character.**
-///
-/// A name can open with a combining mark (U+0301), and one can end with a Prepend character
-/// (U+0600, ARABIC NUMBER SIGN). Either joins the `/` beside it into one Character, so a search
-/// for the Character `/` walks past that boundary, a split on it leaves the two names fused, and a
-/// Character count dropped off the front of a path takes the `/` with it. The disk walk and the warm
-/// keying already cut keys by scalar (`getFilesInDirectory`, `TreeShape.leaf`), so these keys are
-/// real; each case below takes one apart the way `computeDifferences` does.
+/// Compare finds the `/` in a relative path by scalar, never by Character. A name can open with a
+/// combining mark (U+0301) or end with a Prepend character (U+0600, ARABIC NUMBER SIGN), and either
+/// fuses the `/` beside it into one Character: a search for `/` walks past the boundary, a split
+/// leaves the names fused, and dropping a Character count off a path's front takes the `/` with it.
+/// The disk walk and warm keying cut keys by scalar (`getFilesInDirectory`, `TreeShape.leaf`), so
+/// these keys are real; each case takes one apart as `computeDifferences` does.
 @Suite struct SlashByScalarDiffTests {
 
     private let leftURL = URL(fileURLWithPath: "/left")
@@ -107,8 +105,8 @@ import Foundation
 
     // MARK: - Which name differs
 
-    /// Only the folders' case differs, so the identical child under them is no row at all — not
-    /// "Names differ only by case", which is the child's leaf against the other's.
+    /// Only the folders' case differs, so the identical child under them is no row at all, not
+    /// "Names differ only by case" from comparing its leaf against the other's.
     @Test(arguments: shapes)
     func aChildUnderCaseVariantFoldersIsNotACaseDifference(_ shape: Shape) {
         let lower = shape.folder.lowercased()
@@ -149,10 +147,9 @@ import Foundation
 
     // MARK: - Where a one-sided child is copied to
 
-    /// Re-aimed at the right side's real folder spelling, with the `/` kept: dropping the fused
-    /// folder's Character count from the front took the slash too, and the copy went BESIDE the
-    /// folder (`X؀ f.txt`); failing to see the boundary at all left it aimed at the left's
-    /// spelling, minting the doppelganger folder the conflict row exists to prevent.
+    /// Aimed at the right side's real folder spelling, with the `/` kept. Losing the slash would put
+    /// the copy beside the folder (`X؀ f.txt`); missing the boundary would aim it at the left's
+    /// spelling and make the doppelganger folder the conflict row exists to prevent.
     @Test(arguments: conflictShapes)
     func aLeftOnlyChildIsCopiedIntoTheRightSidesFolder(_ shape: ConflictShape) {
         let left = [

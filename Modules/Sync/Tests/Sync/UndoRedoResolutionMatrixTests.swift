@@ -2,27 +2,23 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Systematic undo→redo resolution matrix across the three registrar chains (move / copy /
-/// delete), pinning EXACTLY which items each redo acts on for the three batch shapes round 4's
-/// resolver fixes (f18f723, a73529b, and DeleteRedoOccupantTests' chain) must keep straight:
+/// Undo→redo resolution matrix across the three registrar chains (move, copy, delete), pinning
+/// exactly which items each redo acts on for three batch shapes:
 ///
-///   (a) every item succeeds → the redo re-applies the FULL batch;
-///   (b) one item's undo is REFUSED (occupant at the move-back target / copy-destination size
-///       drift) → the redo re-applies ONLY the items actually undone, and never touches what
-///       the undo refused to disturb;
-///   (c) the SAME path appears twice in one batch → the duplicate resolves to a single
-///       effective item end-to-end (one trash, one restore, one redo), never a double
-///       operation or a phantom second undo state.
+///   (a) every item succeeds → the redo re-applies the full batch;
+///   (b) one item's undo is refused (an occupant at the move-back target, or a changed copy) →
+///       the redo re-applies only the items actually undone, never what the undo left alone;
+///   (c) the same path twice in one batch → one effective item end to end (one trash, one
+///       restore, one redo), never a double operation or a phantom second undo state.
 ///
-/// The refusal cases mirror the single-item tests in RedoFailureReportingTests /
-/// CopyUndoDriftAndTransientTests / DeleteRedoOccupantTests but in a MIXED batch, so a
-/// regression that resolves redo params from the wrong item set (the original eager list, or
-/// the refused subset) flips the untouched sibling's assertions here even when the single-item
-/// pins stay green.
+/// The refusal cases mirror the single-item tests in RedoFailureReportingTests,
+/// CopyUndoDriftAndTransientTests and DeleteRedoOccupantTests in a mixed batch, so resolving redo
+/// params from the wrong item set (the original list, or the refused subset) flips the untouched
+/// sibling's assertions even when the single-item pins stay green.
 ///
 /// Batches use ≥2 distinct items throughout: `UndoRedoLogLabelTests` pins the "Move to Trash"
-/// labels against the shared Logger, and a parallel-suite one-item delete would trip its
-/// "no Redo logged yet" assertion.
+/// labels against the shared Logger, and a parallel one-item delete would trip its "no Redo
+/// logged yet" assertion.
 @Suite struct UndoRedoResolutionMatrixTests {
 
     @MainActor
@@ -48,7 +44,7 @@ import Foundation
 
     // MARK: - Move
 
-    /// (a) All items succeed: undo moves BOTH back, redo re-moves BOTH.
+    /// (a) All items succeed: undo moves both back, redo re-moves both.
     @MainActor
     @Test func moveAllSucceedRedoReappliesFullBatch() async throws {
         let manager = makeManager()
@@ -77,9 +73,9 @@ import Foundation
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
     }
 
-    /// (b) One move-back refused (occupant at the source): the redo re-moves ONLY the restored
-    /// sibling — the occupant must survive both the undo AND the redo, and the refused item
-    /// stays at the destination throughout.
+    /// (b) One move-back refused (occupant at the source): the redo re-moves only the restored
+    /// sibling. The occupant survives the undo and the redo, and the refused item stays at the
+    /// destination throughout.
     @MainActor
     @Test func moveOneRefusedRedoActsOnlyOnTheRestoredItem() async throws {
         let manager = makeManager()
@@ -92,7 +88,7 @@ import Foundation
         await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
 
-        // An UNRELATED file Z occupies a.txt's original location before the undo.
+        // An unrelated file Z occupies a.txt's original location before the undo.
         mockFM.virtualDisk["/src/a.txt"] = file(55)
         manager.banner = nil
 
@@ -114,9 +110,8 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty, "nothing may be displaced to the Trash by a refused-then-redone move")
     }
 
-    /// (c) The same path twice in one move batch: the duplicate collapses to ONE effective move
-    /// (the second attempt finds its source gone and errors), the undo restores the file once,
-    /// and the redo re-moves it once. Characterization: a duplicated selection must never
+    /// (c) The same path twice in one move batch: one effective move (the second attempt finds its
+    /// source gone and errors), one restore, one re-move. A duplicated selection must never
     /// double-move or leave a phantom second undo state.
     @MainActor
     @Test func moveDuplicatePathResolvesToASingleItem() async throws {
@@ -154,7 +149,7 @@ import Foundation
 
     // MARK: - Copy
 
-    /// (a) All items succeed: undo trashes BOTH copies, redo re-copies BOTH.
+    /// (a) All items succeed: undo trashes both copies, redo re-copies both.
     @MainActor
     @Test func copyAllSucceedRedoReappliesFullBatch() async throws {
         let manager = makeManager()
@@ -182,9 +177,9 @@ import Foundation
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
     }
 
-    /// (b) One copy-undo refused (destination size drifted): the undo trashes ONLY the unchanged
-    /// sibling, and the redo re-copies ONLY that sibling — the drifted item is never trashed,
-    /// never re-copied over.
+    /// (b) One copy-undo refused (the copy changed size): the undo trashes only the unchanged
+    /// sibling, and the redo re-copies only that sibling. The changed item is never trashed or
+    /// re-copied over.
     @MainActor
     @Test func copyOneDriftedRedoActsOnlyOnTheUndoneItem() async throws {
         let manager = makeManager()
@@ -214,12 +209,10 @@ import Foundation
         #expect(size(mockFM, "/dst/b.txt") == 200)
     }
 
-    /// (c) The same path twice in one copy batch: with a `.replace` resolver the second copy
-    /// replaces the first at the SAME destination, so the registered undo state carries two
-    /// items for one path. The undo trashes the destination once and REFUSES the second item
-    /// (its destination is now gone — size drifted from its snapshot); the redo then re-copies
-    /// exactly once. Characterization of the double-registration shape — if the undo ever
-    /// starts double-trashing or the redo double-copying, this flips.
+    /// (c) The same path twice in one copy batch: with `.replace` the second copy replaces the
+    /// first at the same destination, so the undo state carries two items for one path. The undo
+    /// trashes the destination once (the second item finds it gone) and the redo re-copies once;
+    /// double-trashing or double-copying flips this.
     @MainActor
     @Test func copyDuplicatePathUndoesOnceAndRedoesOnce() async throws {
         let manager = makeManager()
@@ -241,8 +234,8 @@ import Foundation
             mockFM.virtualDisk["/dst/a.txt"] == nil && mockFM.virtualDisk["/dst/b.txt"] == nil
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        // Exactly TWO new trash events (a.txt once, b.txt once) — the duplicate registration
-        // must not trash a second time; its second item is refused (destination gone).
+        // Exactly two new trash events (a.txt once, b.txt once): the duplicate's second item finds
+        // its destination gone and trashes nothing.
         #expect(mockFM.trashedPaths.count == trashesAfterCopy + 2)
         #expect(size(mockFM, "/src/a.txt") == 100 && size(mockFM, "/src/b.txt") == 200)
 
@@ -256,10 +249,9 @@ import Foundation
 
     // MARK: - Delete
 
-    /// (a)+(c) combined for the delete chain: a batch with a DUPLICATED path trashes each
-    /// distinct file exactly once (the second occurrence finds the path already gone and is
-    /// silently skipped), the undo restores each exactly once, and the redo re-trashes each
-    /// exactly once. The refused-occupant case (b) is pinned by DeleteRedoOccupantTests.
+    /// (a)+(c) for the delete chain: a batch with a duplicated path trashes each distinct file
+    /// once (the second occurrence finds the path gone and is skipped), the undo restores each
+    /// once, and the redo re-trashes each once. Case (b) is in DeleteRedoOccupantTests.
     @MainActor
     @Test func deleteDuplicatePathTrashesRestoresAndRedoesOnceEach() async throws {
         let manager = makeManager()
@@ -268,7 +260,7 @@ import Foundation
         mockFM.virtualDisk["/docs/a.txt"] = file(100)
         mockFM.virtualDisk["/docs/b.txt"] = file(200)
 
-        // a.txt listed twice: the return value counts each DISTINCT file once.
+        // a.txt listed twice: the return value counts each distinct file once.
         let removed = await manager.deleteItems(at: ["/docs/a.txt", "/docs/b.txt", "/docs/a.txt"], fileManager: mockFM).removed
         #expect(removed == 2)
         #expect(mockFM.virtualDisk["/docs/a.txt"] == nil && mockFM.virtualDisk["/docs/b.txt"] == nil)
@@ -281,9 +273,8 @@ import Foundation
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(size(mockFM, "/docs/a.txt") == 100 && size(mockFM, "/docs/b.txt") == 200)
 
-        // The mock's flat Trash dir would collide on a same-name re-trash (the real Trash
-        // uniquifies) — move the drained backups aside to model reality, as
-        // DeleteRedoOccupantTests does.
+        // The mock's flat Trash would collide on a same-name re-trash (the real Trash uniquifies),
+        // so move the drained backups aside, as DeleteRedoOccupantTests does.
         for trashPath in mockFM.trashedPaths {
             if let stub = mockFM.virtualDisk.removeValue(forKey: trashPath) {
                 mockFM.virtualDisk["/mock-trash-drained/" + (trashPath as NSString).lastPathComponent] = stub

@@ -3,9 +3,9 @@ import Testing
 @testable import Sync
 
 /// Pins the safety gates of the orphaned-working-file sweep: only exact `.tmp_<UUID>`
-/// artifacts older than the age threshold are reaped; `.rollback_<UUID>` replacement
-/// backups (potentially the only copy of a replaced file, see c945e30) and user files
-/// that merely look similar are never touched.
+/// artifacts older than the age threshold are reaped. `.rollback_<UUID>` replacement
+/// backups (possibly the only copy of a replaced file) and user files that merely look
+/// similar are never touched.
 @Suite struct OrphanSweeperTests {
 
     private let anHourAndABit: TimeInterval = OrphanSweeper.minimumAge + 60
@@ -106,10 +106,9 @@ import Testing
     }
 
     @Test func testRemoveNeverUnlinksWhenTrashIsUnavailable() {
-        // The sweep is Trash-only by design: a surviving `.tmp_` can be the preserved only
-        // copy of a consumed source (replaceDestinationByMoving's double failure), so a
-        // failed trash must leave it on disk for the next sweep — never permanently unlink
-        // (the old removeItem fallback destroyed it unrecoverably).
+        // The sweep is Trash-only: a surviving `.tmp_` can be the only copy of a consumed source
+        // (`replaceDestinationByMoving`'s double failure), so a failed trash must leave it on disk
+        // for the next sweep, never unlink it.
         let fm = MockFileManager()
         fm.shouldFailTrash = true
         let tmp = "/root/.tmp_\(UUID().uuidString)"

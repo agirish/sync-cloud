@@ -2,11 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The cross-parent pair merge **through the real executor**, not just the planner.
-///
-/// The pair tests next door stop at the derivation, and that gap hid the defect this suite exists
-/// for: a whole-folder relocation derived perfectly and was then vetoed at apply by a rule that
-/// assumes a `move-dir`'s source parent is a folder the plan drains. Every one of these runs
+/// The cross-parent pair merge through the real executor, not just the planner. The pair tests
+/// next door stop at the derivation, which can't see a correct plan vetoed at apply (say, by a rule
+/// assuming a `move-dir`'s source parent is drained). Every one of these runs
 /// `executeRestructureActions` against a real temporary tree.
 @Suite struct RestructurePairApplyTests {
 
@@ -40,10 +38,9 @@ import Testing
 
     // MARK: - The whole-folder relocation
 
-    /// **The loose-folder plan has to land.** Its detector only fires when a sibling container
-    /// exists — that sibling is exactly what the apply's unlisted-file rule reads as "an item the
-    /// plan never listed", so before the action declared itself a relocation this was skipped
-    /// every single time, on every tree, while the sheet reported a successful landing.
+    /// The loose-folder plan has to land. Its detector fires only when a sibling container exists,
+    /// and that sibling is what the apply's unlisted-file rule reads as "an item the plan never
+    /// listed", so the action must declare itself a relocation or it is skipped on every tree.
     @Test func aWholeFolderMoveLandsPastItsUninvolvedSiblings() throws {
         let root = try Self.makeTree(["Work/Badge/badge.pdf",
                                       "Work/Acme/Offer Letter/offer.pdf",
@@ -89,9 +86,9 @@ import Testing
         #expect(execution.skipped.contains { $0.contains("the plan never listed") })
     }
 
-    /// A file landing where the target has a FOLDER of that name — any case — collides as surely
-    /// as a file would (review C10): the apply lands it under a unique name, and the plan used to
-    /// promise no collision. One level down too.
+    /// A file landing where the target has a folder of that name, in any case, collides as surely
+    /// as a file would: the apply lands it under a unique name, so the plan must not promise no
+    /// collision. One level down too.
     @Test func aFolderOfTheSameNameIsACollision() throws {
         let root = try Self.makeTree(["Health/TODO/Dental/Claims",
                                       "Health/TODO/Dental/Sub/Notes",
@@ -141,9 +138,9 @@ import Testing
 
     // MARK: - Packages and links travel whole (FR2)
 
-    /// Both folders hold `Return.pages`. Merging one level down moved one document's insides into
-    /// the other (`Index 2.zip`) and left a shell that no longer opened. A package is one item:
-    /// it moves whole, and the name already taken keeps both.
+    /// Both folders hold `Return.pages`. Merging one level down would move one document's insides
+    /// into the other (`Index 2.zip`) and leave a shell that won't open. A package is one item: it
+    /// moves whole, and the name already taken keeps both.
     @Test func aMergeMovesAPackageWholeAndKeepsBoth() throws {
         let root = try Self.makeTree(["Health/TODO/Dental/Return.pages/Index.zip",
                                       "Health/TODO/Dental/Return.pages/Data/p.jpg",
@@ -169,7 +166,7 @@ import Testing
         #expect(execution.collisions == 1)
     }
 
-    /// The pair route names the packages THEMSELVES — a mirrored inbox holding `TODO/Return.pages`
+    /// The pair route names the packages themselves: a mirrored inbox holding `TODO/Return.pages`
     /// beside `Return.pages`. A document has no listing, so no merge of its insides is planned.
     @Test func aPairMergeRefusesAPackageAsEitherEnd() throws {
         let root = try Self.makeTree(["Taxes/TODO/Return.pages/Index.zip",
@@ -185,8 +182,8 @@ import Testing
         }
     }
 
-    /// `TODO/Dental/Shared` is a link to a folder in another provider. Merging through it moved
-    /// that provider's files into this tree. The link is one item: it moves, its target stays.
+    /// `TODO/Dental/Shared` is a link to a folder in another provider. Merging through it would
+    /// move that provider's files into this tree. The link is one item: it moves, its target stays.
     @Test func aMergeMovesALinkNotWhatItPointsAt() throws {
         let root = try Self.makeTree(["Elsewhere/Shared/theirs.pdf",
                                       "Health/TODO/Dental/invoice.pdf",
@@ -214,8 +211,8 @@ import Testing
         }
     }
 
-    /// A relocation empties nothing. Reading the drained folder off the action's path made this
-    /// the source's PARENT, so the landing's card offered `Work/` — which still held `Acme` —
+    /// A relocation empties nothing. Reading the drained folder off the action's path would make it
+    /// the source's parent, and the landing's card would offer `Work/`, which still holds `Acme`,
     /// as a folder to move to the Trash.
     @Test func aWholeFolderMoveReportsNoEmptiedFolders() throws {
         let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/Acme/Offer Letter/offer.pdf"])
@@ -245,9 +242,9 @@ import Testing
 
     // MARK: - The empty same-name subfolder
 
-    /// A same-name subfolder that is EMPTY produces no file moves and no deeper rows, so nothing
-    /// in the manifest named it — and the apply's unlisted-file rule then read it as an item the
-    /// plan never listed and refused the whole merge. It is listed as kept instead.
+    /// A same-name subfolder that is empty produces no file moves and no deeper rows, so the
+    /// apply's unlisted-file rule would read it as unlisted and refuse the whole merge. It is
+    /// listed as kept instead.
     @Test func anEmptySameNameSubfolderIsListedSoTheMergeCanRun() throws {
         let root = try Self.makeTree(["Health/TODO/Dental/invoice.pdf",
                                       "Health/Dental/Claims/old.pdf"])

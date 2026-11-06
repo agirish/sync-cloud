@@ -1,25 +1,16 @@
 import Foundation
 
-/// Re-derives ``FilingMemory`` from what is on disk now, reading only what changed.
+/// Re-derives ``FilingMemory`` from what is on disk now, reading only what changed. A folder the
+/// memory hasn't learned ranks on its name alone, which routes far worse than learned content.
 ///
-/// The memory shipped as a static artifact: a survey produced it offline and the app read it. That is
-/// fine for a tree that stands still, and this one does not — the whole point of Filing is that
-/// documents land in folders, and a folder created after the last survey has no learned content at
-/// all, so it ranks on its name alone (the 28.9% signal) while every surveyed sibling ranks on what
-/// it has received (58.2%).
+/// Extraction is the expensive part (page 1 of every document takes hours; the arithmetic takes
+/// under a second), so ``FilingCorpus`` keeps the tokens and a re-survey reads only documents whose
+/// size or mtime moved. The memory is then rebuilt in full: IDF is corpus-wide, and a partial
+/// rebuild would weigh a new folder's anchors on a different denominator, quietly worsening ranks.
 ///
-/// **The expensive half is extraction, and only extraction.** Deriving the memory from tokens is
-/// arithmetic over a few hundred thousand entries — under a second. Reading page 1 of every document
-/// to *get* those tokens is hours. So ``FilingCorpus`` keeps the tokens, the walk that Organize
-/// already does supplies the stamps, and a re-survey reads only the documents whose size or mtime
-/// moved. The memory itself is then rebuilt **in full**, every time: IDF is a corpus-wide quantity,
-/// and a partial rebuild would weigh a new folder's anchors on a different denominator from its
-/// neighbours' — the kind of divergence that shows up as a quietly worse ranking and nothing else.
-///
-/// This is a port of the offline builder (`build_memory_extended.py`), rule for rule, and it shares
-/// the router's tokenizer rather than restating it — see ``FilingRouter/tokenize(_:)``. The two
-/// tokenizers agreeing is not a nicety: an anchor this side splits differently from the one the
-/// stored memory holds simply stops matching, silently, as a lower score.
+/// A rule-for-rule port of the offline builder (`build_memory_extended.py`), sharing
+/// ``FilingRouter/tokenize(_:)``: a token split differently from the stored memory's silently stops
+/// matching.
 public enum FilingSurvey {
 
     // MARK: - What the walk saw
@@ -41,17 +32,13 @@ public enum FilingSurvey {
         /// Document path relative to the root → its stamp.
         public let documents: [String: Stamp]
 
-        /// Folders the walk did **not** descend into — permission denied, a depth cap, a symlink
-        /// cycle. Relative paths, same spelling as `folders`.
-        ///
-        /// **A walk records two different kinds of "not here", and merging them destroys data.**
-        /// `documents` missing a path can mean the file was deleted, or it can mean nobody looked;
-        /// only the first is a reason to forget what was learned from it. Without this set the
-        /// second case reads as the first, and one unreadable folder silently drops every document
-        /// under it from the corpus on the next survey — see ``merge(corpus:tree:read:)``.
+        /// Folders the walk did not descend into (permission denied, a depth cap, a symlink cycle),
+        /// spelled as in `folders`. **Keeps "nobody looked" apart from "deleted".** Without it, one
+        /// unreadable folder drops every document under it from the corpus on the next survey
+        /// (``merge(corpus:tree:read:)``).
         public let unexplored: Set<String>
 
-        /// Defaulted so a fixture that is only about folders and documents stays about those.
+        /// `unexplored` defaults to empty so fixtures about folders and documents stay short.
         public init(folders: [String: Int], documents: [String: Stamp],
                     unexplored: Set<String> = []) {
             self.folders = folders
@@ -65,45 +52,27 @@ public enum FilingSurvey {
             unexplored.contains { path == $0 || path.hasPrefix($0 + "/") }
         }
 
-        /// Whether this walk is **evidence that `path` is gone**: it looked where the document was
-        /// and did not find it.
-        ///
-        /// **One member because three callers must agree**, and they did not. `merge` was taught to
-        /// keep an unwalked document while `relocations` still counted it among the lost — so an
-        /// unwalked document whose stamp matched a newly-found file was recorded as a move, and
-        /// `merge` then wrote it at BOTH paths: the same document contributing to two folders'
-        /// learned content, inflating one and keeping the other. Reachable from something ordinary:
-        /// copy a file out of a folder, then lose read access to that folder.
+        /// Whether this walk is evidence that `path` is gone: it looked where the document was and
+        /// didn't find it. One member so every caller agrees: if `relocations` counted an unwalked
+        /// document as lost while `merge` kept it, a stamp match would write it at both paths.
         public func showsGone(_ path: String) -> Bool {
             documents[path] == nil && !wasNotWalked(path)
         }
     }
 
-    /// Extensions a re-survey will open — **the offline generator's document set, intersected with
-    /// what this app can actually read.**
-    ///
-    /// Both halves of that sentence are load-bearing. It is narrower than the generator's because
-    /// `.docx`, `.pptx` and `.xlsx` go through a helper this app does not carry; that is contained
-    /// rather than damaging, because it gates *reading*, not *keeping* — an Office document already
-    /// in the corpus keeps its tokens and follows its folder when it moves (see
-    /// ``relocations(tree:corpus:)``). Reading one, failing, and recording a blank would delete a
-    /// real signal and call it a survey.
-    ///
-    /// And it is no *wider* than the generator's, which is the half that is easy to get wrong.
-    /// Adding `.md` looked free and would have queued **1,700 markdown files** on this tree — notes
-    /// and reports whose tokens were never part of the 10,171 documents the shipped memory was built
-    /// from, mixed into the same IDF. A survey extends an existing corpus, so it reads what that
-    /// corpus was made of.
+    /// Extensions a re-survey will open: the offline generator's set, intersected with what this
+    /// app can read. Office files are left out because their helper isn't here; this gates reading,
+    /// not keeping, so one already in the corpus keeps its tokens and follows moves
+    /// (``relocations(tree:corpus:)``). Never wider than the generator's (no `.md`, say): a survey
+    /// extends the corpus, so it reads only what the corpus was made of, or the IDF mixes in notes.
     public static let readableExtensions: Set<String> = [
         "pdf", "txt", "csv", "jpg", "jpeg", "png",
     ]
 
-    /// Flattens a walked tree into stamps, relative to the walk's root.
-    ///
-    /// Paths are built structurally from node names, never by string-stripping the root — the same
-    /// rule ``FilingEngine/relativeFolderPaths(of:limit:)`` follows, so a corpus key and a memory key
-    /// name the same folder even when the root arrives as `/var/…` one time and `/private/var/…` the
-    /// next.
+    /// Flattens a walked tree into stamps, relative to the walk's root. Paths are built from node
+    /// names, never by stripping the root string (as
+    /// ``FilingEngine/relativeFolderPaths(of:limit:)`` does), so keys match even when the root comes
+    /// as `/var/…` once and `/private/var/…` the next time.
     public static func flatten(_ taxonomy: [FileNode]) -> Tree {
         var folders: [String: Int] = [:]
         var documents: [String: Stamp] = [:]
@@ -113,10 +82,9 @@ public enum FilingSurvey {
             guard !node.name.hasPrefix(".") else { return }
             let rel = prefix.isEmpty ? node.name : prefix + "/" + node.name
             if node.isDirectory {
-                // A folder whose children were not walked (depth cap, symlink cycle) must not be
-                // recorded as up-to-date: its mtime would then vouch for contents nobody looked at.
-                // Remembered rather than merely skipped: dropping it silently is what made "nobody
-                // looked here" indistinguishable from "these documents are gone".
+                // A folder whose children weren't walked must not be recorded as up to date: its
+                // mtime would vouch for contents nobody looked at. Remembered, not just skipped, so
+                // "nobody looked" stays distinct from "these documents are gone".
                 guard node.isUnexplored != true else {
                     unexplored.insert(rel)
                     return
@@ -134,17 +102,10 @@ public enum FilingSurvey {
 
     // MARK: - What changed
 
-    /// Folders that are new, or whose contents moved, since the memory learned them.
-    ///
-    /// This is the cheap question — one integer compare per folder, against stamps the walk already
-    /// carries — and it is what makes the whole feature affordable. A folder absent from the memory
-    /// counts as stale, which covers both a genuinely new folder and one whose documents never
-    /// yielded anything readable.
-    ///
-    /// Note what a directory mtime does and does not see: it moves when a child is added, removed or
-    /// renamed, and **not** when a child is edited in place. That is why documents are stamped
-    /// individually as well — this narrows *which folders to look at* for reporting, while
-    /// ``documentsToRead(tree:corpus:)`` decides what actually gets opened.
+    /// Folders that are new, or whose contents moved, since the memory learned them: one integer
+    /// compare per folder. A folder absent from the memory counts as stale (new, or nothing in it
+    /// was readable). A folder's mtime misses in-place edits of a child, so this only narrows what
+    /// to report; ``documentsToRead(tree:corpus:)`` decides what gets opened.
     public static func staleFolders(tree: Tree, memory: FilingMemory?) -> Set<String> {
         var out: Set<String> = []
         for (folder, mtime) in tree.folders {
@@ -154,21 +115,11 @@ public enum FilingSurvey {
         return out
     }
 
-    /// The part of the tree a survey belongs in — every folder on the path to something already
-    /// surveyed.
-    ///
-    /// **A survey extends a corpus; it does not decide what the corpus should have been.** The
-    /// offline survey that produced this memory chose a scope and walked it, and nothing it skipped
-    /// leaves a mark the app can read: on this tree it stopped at `Claude/`, whose 554 readable
-    /// files are project notes rather than filed documents, and the profile records that only as a
-    /// `container` entry with no descendants — which is exactly what a leaf destination folder looks
-    /// like too. So scope is taken from where documents have actually been surveyed, closed upwards:
-    /// `Home` counts because `Home/Utilities/PG&E/2024` was surveyed, which is what lets a folder
-    /// created under `Home` today be learned tomorrow, while a branch nothing was ever surveyed in
-    /// stays out.
-    ///
-    /// Empty means unscoped — a machine with no corpus and no memory has nothing to extend, so its
-    /// first survey reads the whole tree, which is the only thing it could sensibly do.
+    /// The part of the tree a survey belongs in: every folder on the path to something already
+    /// surveyed. A survey extends a corpus and doesn't widen its scope; what the offline survey
+    /// skipped leaves no readable mark, so scope comes from where documents were surveyed, closed
+    /// upwards. A new folder under a surveyed one gets learned; a never-surveyed branch stays out.
+    /// Empty means unscoped: with no corpus and no memory, the first survey reads the whole tree.
     public static func surveyedRegion(corpus: FilingCorpus?, memory: FilingMemory?) -> Set<String> {
         var out: Set<String> = []
         func addAncestors(of folder: String) {
@@ -185,8 +136,7 @@ public enum FilingSurvey {
         return out
     }
 
-    /// Whether a document sits inside the surveyed region — it, or any folder above it, having been
-    /// surveyed before.
+    /// Whether a document sits inside the surveyed region: a folder above it was surveyed before.
     static func isInScope(_ path: String, region: Set<String>) -> Bool {
         guard !region.isEmpty else { return true }
         var folder = (path as NSString).deletingLastPathComponent
@@ -197,11 +147,8 @@ public enum FilingSurvey {
         return false
     }
 
-    /// Documents whose page 1 has to be read again — new, restamped, or never indexed.
-    ///
-    /// Ordered shallowest-first then by name so a long survey progresses through the tree in a way a
-    /// person watching a counter can recognise, and so two runs over the same tree read in the same
-    /// order.
+    /// Documents whose page 1 must be read again: new, restamped, or never indexed. Shallowest
+    /// first, then by name, so progress is recognisable and two runs read in the same order.
     public static func documentsToRead(tree: Tree, corpus: FilingCorpus?,
                                        memory: FilingMemory? = nil) -> [String] {
         let relocated = relocations(tree: tree, corpus: corpus)
@@ -221,21 +168,16 @@ public enum FilingSurvey {
         return FilingEngine.shallowestFirst(out, then: <)
     }
 
-    /// New path → the corpus path whose tokens belong to it, for documents that only moved.
-    ///
-    /// **A move is the most common change in this tree, and re-reading one is pure waste** — filing a
-    /// document is exactly what Organize does for a living. A rename or a move leaves size and mtime
-    /// untouched, so a corpus entry whose path is gone can be matched to a new path with the same
-    /// stamp and extension. Both sides must be unique for that stamp: two files that genuinely share
-    /// a size to the byte and an mtime to the second are indistinguishable here, and guessing between
-    /// them would attribute one document's content to the other's folder. The offline builder makes
-    /// the same call from the same motive, matching on basename and requiring exactly one candidate.
+    /// New path → the corpus path whose tokens belong to it, for documents that only moved, the most
+    /// common change. A move keeps size and mtime, so a gone corpus entry matches a new path with
+    /// the same stamp and extension. Both sides must be unique for the stamp: guessing between two
+    /// matches would credit one document's content to the other's folder.
     public static func relocations(tree: Tree, corpus: FilingCorpus?) -> [String: String] {
         guard let corpus, !corpus.isEmpty else { return [:] }
         var lostByStamp: [Stamp: [String]] = [:]
-        // **Lost means the walk looked and did not find it.** A document under a folder the walk
-        // could not enter is not lost, it is unseen — and treating it as lost lets a coincidental
-        // stamp match elsewhere record a "move" that never happened. See ``Tree/showsGone(_:)``.
+        // Lost means the walk looked and didn't find it. A document under a folder it couldn't
+        // enter is unseen, and counting it lost lets a chance stamp match record a false move
+        // (``Tree/showsGone(_:)``).
         for (path, doc) in corpus.documents where tree.showsGone(path) {
             lostByStamp[Stamp(size: doc.size, modified: doc.modified), default: []].append(path)
         }
@@ -255,18 +197,10 @@ public enum FilingSurvey {
     }
 
     /// The corpus brought up to date: relocations followed, vanished documents dropped, freshly read
-    /// ones merged in.
-    ///
-    /// **Dropping is as important as adding.** A document that moved out of a folder must stop
-    /// counting towards it, or the folder keeps recommending itself for the very thing that left —
-    /// and since every filing move is a departure from somewhere, a corpus that only ever grows is
-    /// wrong within a day of use.
-    ///
-    /// **But only a document the walk actually looked for may be dropped.** `tree.documents` is
-    /// what the walk *found*, and a folder it could not descend into contributes nothing to it —
-    /// so treating every absence as a deletion made one permission-denied directory erase
-    /// everything learned under it, permanently and without a word. `Tree.wasNotWalked` is the
-    /// distinction; the survey is months of page-1 reads and the file it writes is the only copy.
+    /// ones merged in. Dropping matters: a document that left a folder must stop counting towards it.
+    /// **Drop only what the walk looked for and missed.** A folder it couldn't enter contributes
+    /// nothing to `tree.documents`; treating that as deletion would permanently erase everything
+    /// learned under it, and this file is the only copy of months of reads (`Tree.wasNotWalked`).
     public static func merge(corpus: FilingCorpus, tree: Tree,
                              read: [String: FilingCorpusDocument]) -> FilingCorpus {
         let relocated = relocations(tree: tree, corpus: corpus)
@@ -285,39 +219,24 @@ public enum FilingSurvey {
 
     // MARK: - Reading one document
 
-    /// Whether a document is actually on this disk to be read.
-    ///
-    /// **A cloud-only placeholder is not an unreadable document, and the difference is permanent.**
-    /// The extractor declines to force-download one, so it comes back with nothing — exactly like an
-    /// image-only scan. Recording that as "read, nothing there" would stamp it and never look again,
-    /// and on a tree that lives in cloud storage an offloaded folder would be written off in one
-    /// pass. So availability is asked separately, and an unavailable document is skipped whole:
-    /// not read, not stamped, still there to be learned from once it comes back.
-    ///
-    /// **The check is provider-agnostic, and it has to be.** It used to consult iCloud's eviction
-    /// signals alone — `isUbiquitousItem` plus `ubiquitousItemDownloadingStatus` — which every other
-    /// File Provider answers `false` to. So a dataless Dropbox, OneDrive, Google Drive or Box file
-    /// under `~/Library/CloudStorage` fell straight through to "available", and both outcomes are
-    /// the ones this comment exists to rule out: online the survey opens the placeholder and the
-    /// provider downloads it (a metadata scan must never cause a download), offline it is stamped
-    /// blank against a size and mtime that do not change when the content later arrives, so it never
-    /// invalidates. ``MaterializationStatus`` is the shared answer — one dataless check, not a
-    /// second cloud-detection path to drift from it.
+    /// Whether a document's bytes are on this disk to be read. **A cloud-only placeholder is skipped
+    /// whole**, not read and not stamped: the extractor won't download it and returns nothing, and
+    /// stamping that as blank would never look again, writing off an offloaded folder in one pass.
+    /// The check must be provider-agnostic (``MaterializationStatus``). iCloud's signals alone miss
+    /// Dropbox, OneDrive, Google Drive and Box placeholders: opening one makes the provider download
+    /// it (a scan must never do that), and offline it would be stamped blank for good.
     public static func isAvailable(_ path: String) -> Bool {
         isAvailable(path, statFlags: MaterializationStatus.realStatFlags)
     }
 
-    /// The decision proper, with only the `lstat` substitutable — see
-    /// ``MaterializationStatus/StatFlags`` for why that is the one seam a test can honestly take.
+    /// The decision, with only the `lstat` substitutable (``MaterializationStatus/StatFlags`` says
+    /// why that is the one honest test seam).
     static func isAvailable(_ path: String, statFlags: MaterializationStatus.StatFlags) -> Bool {
-        // The provider-agnostic half, and the one that has to come first: `SF_DATALESS` is set by
-        // every File Provider, Apple's included, so it is what says "this file's bytes are not on
-        // this disk" for Dropbox, OneDrive, Google Drive and Box under `~/Library/CloudStorage`.
-        // An lstat reads it without fetching anything.
+        // First, the provider-agnostic check: every File Provider, Apple's included, sets
+        // `SF_DATALESS` on a placeholder, and an lstat reads it without fetching anything.
         if MaterializationStatus.isCloudOnly(atPath: path, statFlags: statFlags) { return false }
-        // iCloud's own signal, kept because it says something the flag does not: `.downloaded`
-        // (as against `.current`) is a file whose bytes ARE local but stale, which is not a
-        // dataless placeholder and is still not the document to learn from.
+        // Then iCloud's own signal, which the flag lacks: `.downloaded` (not `.current`) means the
+        // bytes are local but stale, still not the document to learn from.
         let url = URL(fileURLWithPath: path)
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey,
                                                              .ubiquitousItemDownloadingStatusKey]),
@@ -326,18 +245,14 @@ public enum FilingSurvey {
         return status == .current
     }
 
-    /// How much of page 1 a document is judged on. The router's own measured sample, and the rule
-    /// the offline builder and the folder profile both follow: a statement, form, letter or bill says
-    /// what it is in its first few lines, and what follows is line items.
+    /// How much of page 1 a document is judged on: the router's measured sample, also used by the
+    /// offline builder and the folder profile. A statement or bill says what it is in its first
+    /// lines.
     public static let snippetChars = 400
 
-    /// One document's contribution, from the text the extractor produced.
-    ///
-    /// **The text is taken as it came — no whitespace normalisation.** Collapsing runs of spaces
-    /// would fit more words into the same 400 characters and, on the face of it, read better; it
-    /// would also mean these tokens were derived under a different rule from the 9,525 documents the
-    /// shipped memory was built from, and the routing accuracy that memory is measured at was
-    /// measured under this one. Changing the sample is a retuning exercise, not a survey.
+    /// One document's contribution, from the extractor's text. Taken as it came, with no whitespace
+    /// normalisation: the stored memory and its measured accuracy were built under this rule, and
+    /// changing the sample is a retuning, not a survey.
     public static func document(fromPage1 text: String, stamp: Stamp, salt: String) -> FilingCorpusDocument {
         let snippet = String(text.prefix(snippetChars))
         guard isDecodable(snippet) else {
@@ -358,16 +273,10 @@ public enum FilingSurvey {
                                     anchors: anchors.sorted(), idHashes: ids.sorted())
     }
 
-    /// Whether extracted text is words rather than glyph codes.
-    ///
-    /// **A PDF whose fonts carry no `ToUnicode` map extracts *successfully* and returns nonsense** —
-    /// a utility's bills came back as `') ! ) ) ! A A @ A 1 < H <`. No error is raised and the text
-    /// is not empty, so without this the nonsense becomes the folder's anchors, and takes top rarity
-    /// precisely because it occurs nowhere else. Three states, not two: readable, undecodable,
-    /// absent.
-    ///
-    /// The test is deliberately crude — enough three-letter-plus words, a few of them ordinary
-    /// English, and an average word length a glyph soup does not reach.
+    /// Whether extracted text is words rather than glyph codes. A PDF whose fonts lack a `ToUnicode`
+    /// map extracts without error and returns symbol soup, which would become the folder's anchors
+    /// at top rarity. Deliberately crude: enough words of three letters or more, a few ordinary
+    /// English ones, and an average word length glyph soup doesn't reach.
     static func isDecodable(_ text: String) -> Bool {
         var words: [String] = []
         var current = ""
@@ -387,8 +296,8 @@ public enum FilingSurvey {
             && Double(totalLength) / Double(words.count) >= 3.5
     }
 
-    /// Words ordinary enough that real correspondence contains some of them. Not a stop list — these
-    /// are evidence *for* readability, and several are also perfectly good anchors.
+    /// Words ordinary enough that real correspondence contains some. Not a stop list: they are
+    /// evidence for readability, and several are good anchors too.
     static let commonWords: Set<String> = [
         "the", "and", "for", "you", "your", "with", "from", "this", "that", "have", "has", "are",
         "was", "were", "will", "not", "all", "any", "account", "statement", "date", "total",
@@ -400,23 +309,19 @@ public enum FilingSurvey {
 
     // MARK: - Building the memory
 
-    /// Caps and gates, named where the builder that wrote today's artifact has them.
+    /// Caps and gates, matching the offline builder's.
     static let maxAnchors = 24
     static let maxIdHashes = 32
     /// A token in more than about half the tree carries nothing. `log((NF+1)/(df+1)) > 0.5` is
     /// roughly `df < 0.6 × NF`.
     static let minimumIDF = 0.5
 
-    /// Rebuilds the whole memory from the corpus.
-    ///
-    /// `folderModified` supplies the stamp each entry is written with — the walk's reading, so the
-    /// next survey compares against what was actually on disk when this one ran.
+    /// Rebuilds the whole memory from the corpus. `folderModified` is the walk's stamp for each
+    /// entry, so the next survey compares against what was on disk when this one ran.
     public static func buildMemory(corpus: FilingCorpus, folderModified: [String: Int],
                                    profileId: String? = nil) -> FilingMemory {
-        // Documents-per-token, per folder. Two counters rather than the builder's one: an id arrives
-        // already hashed, and a hash that happened to contain no digit would be re-classified as a
-        // readable anchor — a one-in-millions event that would put a hex string in a prompt. Keeping
-        // the two spaces apart makes it impossible rather than unlikely.
+        // Documents per token, per folder. Two counters, not the builder's one: an id arrives
+        // hashed, and a hash with no digit would pass as an anchor and put hex in a prompt.
         var folderAnchors: [String: [String: Int]] = [:]
         var folderIds: [String: [String: Int]] = [:]
         var folderDocs: [String: Int] = [:]
@@ -426,8 +331,8 @@ public enum FilingSurvey {
             let folder = (path as NSString).deletingLastPathComponent
             // A document sitting at the root belongs to no folder the router can suggest.
             guard !folder.isEmpty else { continue }
-            // Content tokens, plus the filename's — derived here rather than stored, so a rename
-            // costs nothing. The stem only: the extension is a type, not a subject.
+            // Content tokens plus the filename stem's, derived here so a rename costs nothing. The
+            // extension is a type, not a subject.
             let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
             var anchors = Set(doc.anchors)
             var ids = Set(doc.idHashes)
@@ -443,8 +348,8 @@ public enum FilingSurvey {
             for t in ids { folderIds[folder, default: [:]][t, default: 0] += 1 }
         }
 
-        // Rarity is measured in folders, not documents: a token that fourteen payslips in one folder
-        // all carry is still a perfect signal for that folder.
+        // Rarity is measured in folders, not documents: a token every payslip in one folder carries
+        // is still a perfect signal for that folder.
         let folderCount = folderDocs.count
         var documentFrequency: [String: Int] = [:]
         for counts in folderAnchors.values {
@@ -460,10 +365,8 @@ public enum FilingSurvey {
 
         var entries: [String: FilingMemoryEntry] = [:]
         for (folder, docs) in folderDocs {
-            // **Recurrence, where there is enough evidence to ask for it.** A token appearing in
-            // exactly one of a folder's documents is usually extraction noise, and noise takes the
-            // highest rarity score precisely because it occurs nowhere else — this is what put `d9`,
-            // `lm` and `g8` at the top of a utility folder's anchors ahead of `pge`.
+            // With three or more documents, require recurrence: a token in only one is usually
+            // extraction noise, which scores the highest rarity because it occurs nowhere else.
             let minimumCount = docs >= 3 ? 2 : 1
             let anchors = rank(folderAnchors[folder] ?? [:], documents: docs,
                                minimumCount: minimumCount, limit: maxAnchors, idf: idf,
@@ -477,25 +380,19 @@ public enum FilingSurvey {
         return FilingMemory(profileId: profileId ?? corpus.profileId, salt: corpus.salt, folders: entries)
     }
 
-    /// `memory` with documents filed since the survey last looked folded into their folders (GW).
+    /// `memory` with documents filed since the last survey folded into their folders, so the next
+    /// file like one just filed goes to the same place. Per folder, not a rebuild (that is the
+    /// survey's job): token counts are read back from each kept token's share, the new documents
+    /// added, and ``rank`` selects again under the same floor and cap.
     ///
-    /// **Per folder, not a rebuild.** The survey's corpus is the full record and rebuilding from it
-    /// is the honest way to learn, but it is the survey's job and it runs on its own schedule; what
-    /// this answers is "the user just filed a FedEx courier invoice into an empty `Shipments`
-    /// folder — does the next one go there?" So only the folders filed into are touched, and only
-    /// by the builder's own rules: the counts each kept token stands for are read back from its
-    /// recorded share, the new documents are added, and ``rank`` selects again under the same
-    /// recurrence floor and cap.
-    ///
-    /// A kept token keeps its stored weight. A new one is priced by `foldersWith` — how many
-    /// folders' documents carry it, which ``folderFrequency(_:)`` reads off the survey's corpus —
-    /// and, without one, from the memory itself: the folders whose kept anchors include it. That
-    /// can only under-count, so a common word that is nobody's top anchor (`page`, `total`) reads
-    /// as rare, and a folder taught one document starts winning other folders' files on it.
+    /// A kept token keeps its weight. A new one is priced by `foldersWith`, from
+    /// ``folderFrequency(_:)`` over the survey's corpus; without it, by the folders whose kept
+    /// anchors include it, which under-counts: a common word like `page` reads as rare, and a folder
+    /// taught one document starts winning other folders' files on it.
     ///
     /// `filed` maps a folder (relative, as the memory keys it) to one anchor set per document.
-    /// Identifiers are not carried: they are kept hashed under the survey's salt, and a raw
-    /// account number has no business being persisted to wait for one.
+    /// Identifiers are left out: they are stored hashed under the survey's salt, and a raw account
+    /// number must not be persisted waiting for one.
     public static func memory(_ memory: FilingMemory, addingFiled filed: [String: [Set<String>]],
                               foldersWith counted: (folders: Int, perToken: [String: Int])? = nil) -> FilingMemory {
         let incoming = filed.filter { !$0.value.isEmpty }
@@ -533,9 +430,9 @@ public enum FilingSurvey {
         return FilingMemory(profileId: memory.profileId, salt: memory.salt, folders: folders)
     }
 
-    /// How many folders' documents carry each anchor, and how many folders hold documents — the
-    /// rarity ``buildMemory(corpus:folderModified:profileId:)`` prices every token by, for
-    /// ``memory(_:addingFiled:foldersWith:)`` to price a newly filed word the same way.
+    /// How many folders' documents carry each anchor, and how many folders hold documents: the
+    /// rarity ``buildMemory(corpus:folderModified:profileId:)`` uses, so
+    /// ``memory(_:addingFiled:foldersWith:)`` prices a newly filed word the same way.
     public static func folderFrequency(_ corpus: FilingCorpus) -> (folders: Int, perToken: [String: Int]) {
         var tokensIn: [String: Set<String>] = [:]
         for (path, doc) in corpus.documents where !doc.isBlank {
@@ -554,7 +451,7 @@ public enum FilingSurvey {
         return (tokensIn.count, perToken)
     }
 
-    /// The anchors one filed document contributes — page 1 as the survey reads it, plus the name's
+    /// The anchors one filed document contributes: page 1 as the survey reads it, plus the name's
     /// stem as ``buildMemory(corpus:folderModified:profileId:)`` adds it, without identifiers.
     public static func filedAnchors(fileName: String, page1: String?) -> Set<String> {
         var anchors = Set(page1.map { document(fromPage1: $0, stamp: Stamp(size: 0, modified: 0), salt: "").anchors } ?? [])
@@ -566,14 +463,10 @@ public enum FilingSurvey {
         return anchors
     }
 
-    /// The builder's selection rule for one folder's token counter.
-    ///
-    /// **What is sorted on and what is stored are different numbers**, and that is the builder's
-    /// design rather than an oversight: selection weighs rarity by how often the folder actually saw
-    /// the token (`idf × log(1 + n)`), so a rare word seen once loses to a slightly commoner word
-    /// seen in half the folder's documents. What is *stored* is the plain rarity, because the router
-    /// scores a match on how much the token discriminates, not on how often this folder happened to
-    /// see it — the count is already reflected in the folder having been chosen at all.
+    /// The builder's selection rule for one folder's token counter. It sorts on one number and stores
+    /// another, by design: selection weighs rarity by how often the folder saw the token
+    /// (`idf × log(1 + n)`), while the stored weight is plain rarity, because the router scores how
+    /// much a token discriminates, not how often this folder saw it.
     private static func rank(_ counts: [String: Int], documents: Int, minimumCount: Int, limit: Int,
                              idf: (String) -> Double, dropBareNumbers: Bool) -> [FilingMemoryToken] {
         var scored: [(token: String, score: Double, weight: Double, share: Double)] = []
@@ -582,16 +475,12 @@ public enum FilingSurvey {
             if dropBareNumbers, token.allSatisfy(\.isNumber) { continue }
             let rarity = idf(token)
             guard rarity > minimumIDF else { continue }
-            // The share of this folder's documents the token comes back in — the recurrence half,
-            // which answers the opposite question from rarity and which a rule needs. See
-            // ``FilingMemoryToken/docFrequency``. The count is already here; dropping it is how the
-            // proposer ended up keying `awesome` over `autopay`.
+            // Also store the share of this folder's documents the token recurs in, which a rule
+            // needs alongside rarity (``FilingMemoryToken/docFrequency``).
             scored.append((token, rarity * log(1 + Double(n)), round2(rarity),
                            round2(Double(n) / Double(max(documents, 1)))))
         }
-        // Ties broken by token, so the same corpus always produces the same file — the offline
-        // builder leaned on dictionary insertion order here, which is reproducible within one Python
-        // run and meaningless across two.
+        // Ties broken by token, so the same corpus always produces the same file.
         scored.sort { $0.score != $1.score ? $0.score > $1.score : $0.token < $1.token }
         return scored.prefix(limit).map {
             FilingMemoryToken(token: $0.token, weight: $0.weight, docFrequency: $0.share)

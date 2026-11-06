@@ -2,10 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Coverage for ContentHashCache and its wiring into FileContentVerifier.sha256Hex. The cache lets
-/// Verify skip re-hashing a file whose (path, mtime, size) is unchanged within a session. These
-/// tests exercise both the actor directly and the behavioral contract "a cache hit returns the
-/// stored digest without re-reading the bytes" against real temp files.
+/// `ContentHashCache` and its wiring into `FileContentVerifier.sha256Hex`. The cache lets Verify
+/// skip re-hashing a file whose key (path, mtime, size, file number, status-change time) is
+/// unchanged within a session. Tests the actor directly, and on real temp files that a hit returns
+/// the stored digest without re-reading the bytes.
 @Suite struct ContentHashCacheTests {
 
 
@@ -39,8 +39,8 @@ import Foundation
     }
 
     @Test func testRestoringSameKeyDoesNotDoubleCountForEviction() async {
-        // Re-storing an existing key must not grow the FIFO order (it would evict a live entry
-        // prematurely). maxEntries = 2, store k1 twice then k2: both must survive.
+        // Re-storing a live key must not grow the FIFO order, or it evicts a live entry early.
+        // Cap 2, store k1 twice then k2: both survive.
         let cache = ContentHashCache(maxEntries: 2)
         let k1 = ContentHashKey(path: "/a", mtime: 1, size: 1)
         let k2 = ContentHashKey(path: "/b", mtime: 1, size: 1)
@@ -55,10 +55,9 @@ import Foundation
 
     // MARK: - Eviction under sustained overflow
 
-    /// Eviction advances an index instead of shifting the array, so the FIFO order has to keep
-    /// holding after the dead prefix is compacted away — the one moment the indices all move.
-    /// Drives the cache well past its cap so several compactions happen, then checks the exact
-    /// survivor set: the newest `cap` keys, and nothing older.
+    /// Eviction advances an index instead of shifting the array, so FIFO order must survive the
+    /// compaction of the dead prefix, when every index moves. Runs several compactions, then checks
+    /// the survivors are exactly the newest `cap` keys.
     @Test func testFifoOrderSurvivesRepeatedCompaction() async {
         let cap = 4
         let cache = ContentHashCache(maxEntries: cap)
@@ -72,16 +71,15 @@ import Foundation
         for i in (keys.count - cap)..<keys.count {
             #expect(await cache.hash(for: keys[i]) == "h\(i)")
         }
-        // ...and everything older is gone. (Checked across the whole history, not just the
-        // boundary, so a compaction that resurrected or mis-indexed an old key is caught.)
+        // ...and everything older is gone, checked across the whole history so a compaction that
+        // resurrects or mis-indexes an old key is caught.
         for i in 0..<(keys.count - cap) {
             #expect(await cache.hash(for: keys[i]) == nil, "key \(i) should have been evicted")
         }
     }
 
-    /// A key evicted and then stored AGAIN must come back cleanly. This is the case the index
-    /// bookkeeping can get wrong: the key still sits in the dead prefix of the order array, and
-    /// re-appending it means one key occupies two slots — only one of which may be live.
+    /// A key evicted and stored again comes back cleanly. It still sits in the dead prefix, so
+    /// re-appending gives one key two slots, only one of which may be live.
     @Test func testReStoringAnEvictedKeyRevivesItWithoutDisturbingTheOrder() async {
         let cache = ContentHashCache(maxEntries: 2)
         let a = ContentHashKey(path: "/a", mtime: 1, size: 1)
@@ -98,7 +96,7 @@ import Foundation
         #expect(await cache.hash(for: b) == nil)
         #expect(await cache.hash(for: c) == "c1")
 
-        // And the revived key is now the NEWEST, so the next store evicts c, not a.
+        // The revived key is now the newest, so the next store evicts c, not a.
         let d = ContentHashKey(path: "/d", mtime: 1, size: 1)
         await cache.store("d1", for: d)
         #expect(await cache.hash(for: c) == nil)
@@ -106,26 +104,18 @@ import Foundation
         #expect(await cache.hash(for: d) == "d1")
     }
 
-    /// The eviction loop's comment rests on an invariant — that a key never occupies two LIVE
-    /// slots, so `entries.count == insertionOrder.count - evictedPrefix`. The existing tests drive
-    /// clean patterns (all-new keys, or one key re-stored); this drives the messy one that could
-    /// actually break the bookkeeping: new keys interleaved with re-stores of keys that are
-    /// variously live, already evicted, or never seen, all while sitting at the cap.
-    ///
-    /// A double-counted key would let the cache exceed its cap or evict a live entry early, so the
-    /// two assertions here — never over cap, and survivors are exactly the newest `cap` distinct
-    /// keys — are what the invariant buys, checked from outside.
+    /// The eviction loop relies on a key never holding two live slots, so
+    /// `entries.count == insertionOrder.count - evictedPrefix`. This interleaves new keys with
+    /// re-stores of keys that are live, evicted or unseen, all at the cap. A double-counted key
+    /// would exceed the cap or evict a live entry early, so it checks both from outside.
     @Test func testMixedNewAndRepeatStoresKeepEvictionExact() async {
         let cap = 8
         let cache = ContentHashCache(maxEntries: cap)
         func k(_ i: Int) -> ContentHashKey { ContentHashKey(path: "/f\(i)", mtime: 1, size: 1) }
 
-        // A reference model of the documented policy, rather than a hand-derived expectation.
-        // The order is FIFO by FIRST INSERTION: re-storing a key that is still live updates its
-        // value and leaves its position alone (see `testRestoringSameKeyDoesNotDoubleCountForEviction`),
-        // while re-storing one that has been evicted appends it afresh at the back. Writing the
-        // expectation out longhand instead got this backwards — modelling a re-store as a move to
-        // the back is LRU, which this is not.
+        // A reference model of the policy: FIFO by first insertion. Re-storing a live key updates
+        // its value in place (`testRestoringSameKeyDoesNotDoubleCountForEviction`); re-storing an
+        // evicted one appends it at the back. Not LRU: a re-store doesn't move a live key.
         var modelOrder: [Int] = []
         var modelLive: Set<Int> = []
         func modelStore(_ i: Int) {
@@ -148,8 +138,7 @@ import Foundation
 
         // Never over cap: a key counted twice would have inflated the live set.
         #expect(actual.count == cap, "live entries \(actual.count) should equal the cap \(cap)")
-        // And exactly the set the policy says — evicting a live entry early, or failing to evict a
-        // dead one, shows up here.
+        // Exactly the policy's set: evicting a live entry early, or keeping a dead one, shows here.
         #expect(actual == modelLive)
 
         // The order array is still bounded despite all the re-stores appending after eviction.
@@ -157,20 +146,14 @@ import Foundation
         #expect(slots <= cap * 2, "order storage \(slots) exceeded the 2x ceiling")
     }
 
-    /// Why the cap is a cliff rather than a dial, pinned so the next person to touch the number
-    /// sees it before they shrink it.
-    ///
-    /// Eviction is FIFO and both workloads re-read their files in the same order they wrote them,
-    /// so a working set one entry past the cap evicts each key just before the next pass asks for
-    /// it. The hit rate does not taper — it collapses. This drives the default's size: a duplicates scan
-    /// hashes every size-colliding file, which on the trees the default was measured against is
-    /// ~23k and ~25k for the two providers (~48k together, since Verify shares the cache), and at
-    /// the old 20k cap the cache returned nothing at all for them.
+    /// The cap is a cliff, not a dial: check this before shrinking it. Eviction is FIFO and both
+    /// workloads re-read files in the order they wrote them, so a working set one entry past the
+    /// cap evicts each key just before the next pass asks for it, and the hit rate collapses to
+    /// zero. The default must exceed a duplicates scan's size-colliding files on both providers
+    /// together (Verify shares the cache): about 48k on the trees measured.
     @Test func testHitRateCollapsesOnceTheWorkingSetPassesTheCap() async {
-        // Pass 2 must STORE on a miss, because that is what the real callers do — a miss means the
-        // file gets hashed, and the result is written back. That write is what evicts the entry the
-        // next read was about to want. A read-only second pass would show a comfortable 1000 hits
-        // here and hide the whole effect.
+        // Pass 2 stores on a miss, as real callers do (a miss is hashed and written back). That
+        // write evicts the entry the next read wants; a read-only pass would hide the effect.
         func rescanHits(workingSet: Int, cap: Int) async -> Int {
             let cache = ContentHashCache(maxEntries: cap)
             let keys = (0..<workingSet).map { ContentHashKey(path: "/f\($0)", mtime: 1, size: 1) }
@@ -185,19 +168,17 @@ import Foundation
         #expect(await rescanHits(workingSet: 900, cap: 1000) == 900)
         // Exactly at it: still whole.
         #expect(await rescanHits(workingSet: 1000, cap: 1000) == 1000)
-        // A single entry past it is enough to lose EVERYTHING, not one entry.
+        // One entry past it loses everything, not one entry.
         #expect(await rescanHits(workingSet: 1001, cap: 1000) == 0)
-        // And well past it stays zero — the cache is pure overhead in this regime.
+        // Well past it stays zero: the cache is pure overhead here.
         #expect(await rescanHits(workingSet: 2500, cap: 1000) == 0)
         // Raising the cap over the working set restores it completely.
         #expect(await rescanHits(workingSet: 2500, cap: 3000) == 2500)
     }
 
-    /// The bound that the amortization rests on. Eviction only advances an index, so the dead
-    /// prefix has to be reclaimed on a schedule or `insertionOrder` grows forever — a memory leak
-    /// that every other test here sails straight past, because the survivors stay correct whether
-    /// or not the array is ever compacted. Storing 100x the cap must leave the storage within the
-    /// documented 2x-cap ceiling, not at the 100x it would reach uncompacted.
+    /// Eviction only advances an index, so the dead prefix must be reclaimed or `insertionOrder`
+    /// grows forever, a leak the other tests can't see because survivors stay correct either way.
+    /// Storing 100x the cap must stay within the 2x-cap ceiling.
     @Test func testOrderStorageStaysBoundedUnderSustainedOverflow() async {
         let cap = 50
         let cache = ContentHashCache(maxEntries: cap)
@@ -211,8 +192,8 @@ import Foundation
         #expect(await cache.hash(for: ContentHashKey(path: "/f0", mtime: 1, size: 1)) == nil)
     }
 
-    /// A cap of 1 is the degenerate case the index arithmetic is most likely to get wrong: every
-    /// store evicts, so `evictedPrefix` reaches the compaction threshold on essentially every call.
+    /// A cap of 1, where the index arithmetic is likeliest to go wrong: every store evicts, so
+    /// `evictedPrefix` reaches the compaction threshold almost every call.
     @Test func testCapOfOneKeepsOnlyTheNewest() async {
         let cache = ContentHashCache(maxEntries: 1)
         let keys = (0..<20).map { ContentHashKey(path: "/k\($0)", mtime: 1, size: 1) }
@@ -228,8 +209,7 @@ import Foundation
         let dir = try makeCanonicalTempRoot(prefix: "ContentHashCacheTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // Integer-second mtime round-trips exactly through the filesystem, so the two hash calls
-        // build an identical ContentHashKey.
+        // An integer-second mtime round-trips exactly through the filesystem.
         let fixedDate = Date(timeIntervalSince1970: 1_600_000_000)
         let file = dir.appendingPathComponent("cached.bin")
         try Data("AAAAAA".utf8).write(to: file)
@@ -239,10 +219,8 @@ import Foundation
         let first = await FileContentVerifier.sha256Hex(filePath: file.path, cache: cache)
         #expect(first != nil)
 
-        // A hit is served without reading the file: a digest planted under the file's own key —
-        // the verifier's one spelling of it — comes back instead of the file's real one. (This
-        // used to be shown by rewriting the bytes under a restored mtime; since FR59 that write
-        // moves the key's status-change time, and is a miss — see the case below.)
+        // A hit is served without reading the file: a digest planted under the file's own key
+        // (from the verifier's `cacheKey`) comes back instead of the real one.
         let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
         let key = try #require(FileContentVerifier.cacheKey(statPath: file.path, attributes: attributes, size: 6))
         await cache.store("planted", for: key)
@@ -250,10 +228,9 @@ import Foundation
         #expect(served == "planted")  // served from cache, NOT re-read
         await cache.store(try #require(first), for: key)
 
-        // FR59. Overwrite the bytes with a different payload of the SAME length, then restore the
-        // same mtime — what `exiftool -P` or `touch -r` leaves. (path, mtime, size) is unchanged,
-        // so the old key served the stale digest; the write moved the status-change time, so this
-        // is a miss and a real re-hash of the new bytes.
+        // Overwrite with different bytes of the same length and restore the mtime, as
+        // `exiftool -P` or `touch -r` do. Path, mtime and size match, but the write moved the
+        // status-change time, so this is a miss and a real re-hash.
         try Data("BBBBBB".utf8).write(to: file)
         try FileManager.default.setAttributes([.modificationDate: fixedDate], ofItemAtPath: file.path)
 
@@ -270,7 +247,7 @@ import Foundation
         let grown = await FileContentVerifier.sha256Hex(filePath: file.path, cache: cache)
         #expect(grown != nil)
         #expect(grown != first)  // did not serve the stale cached value
-        // And it equals a fresh uncached hash of the current 7-byte content -> a genuine re-hash.
+        // It equals a fresh uncached hash of the 7-byte content: a genuine re-hash.
         let grownTruth = await FileContentVerifier.sha256Hex(filePath: file.path)
         #expect(grown == grownTruth)
     }

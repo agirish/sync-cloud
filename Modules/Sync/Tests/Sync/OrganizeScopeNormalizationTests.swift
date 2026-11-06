@@ -2,42 +2,23 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Organize's scope as it is **written**: the one normalization both writers now ask for.
+/// Organize's scope as it is written: the one normalization both writers (`ContentView` and
+/// `LensWorkspaceView`) use, ``OrganizeScope/normalizedPath(_:providerRoot:)``. A characterization
+/// pin: every stored value below is what the writers produce, and must keep producing.
 ///
-/// ## What this suite is
-///
-/// A **characterization pin**. The rule used to be spelled twice — `ContentView.setOrganizeScope`
-/// (`resolvedOrganizeScope(path)?.path ?? ""`, over a NON-optional provider root) and
-/// `LensWorkspaceView.setScope` (a guard over an OPTIONAL root, clearing to `""` when it failed) —
-/// each under a doc comment claiming to be the only write of a **persisted** key. The table below
-/// was captured by running **both** pre-refactor spellings over every input in it, at `78b6ce8e`,
-/// before ``OrganizeScope/normalizedPath(_:providerRoot:)`` existed; all fifteen inputs both
-/// spellings could express agreed, and every value here is what they both produced. So this is not
-/// a description of the new function — it is the old behaviour, and the new function has to keep
-/// answering it.
-///
-/// ## The rows that are not obvious
-///
-/// - **A trailing slash is dropped from the stored path.** `…/Legal/` stores as `…/Legal`, because
-///   `init?` runs the path through `expandingTildeInPath`, which normalizes it. Worth pinning: the
-///   stored string is compared against pane paths, so a stray slash would have been a scope that
-///   never matched itself.
-/// - **A trailing slash on the ROOT is tolerated** — `PathBoundary` folds one — so the same subtree
-///   under `…/Documents` and `…/Documents/` stores identically.
-/// - **A sibling that merely shares a string prefix is outside.** `/Users/x/Documentsz/Legal` is
-///   not in `/Users/x/Documents`, and storing it would have filtered every lens to nothing.
+/// - A trailing slash is dropped (`…/Legal/` stores as `…/Legal`), since the stored string is
+///   compared against pane paths and a stray slash would never match itself.
+/// - A trailing slash on the root is tolerated (`PathBoundary` folds it).
+/// - A sibling sharing a string prefix (`/Users/x/Documentsz`) is outside, or storing it would
+///   filter every lens to nothing.
 @Suite struct OrganizeScopeNormalizationTests {
 
     static let root = "/Users/x/Documents"
     static let home = NSHomeDirectory()
 
     /// Every interesting input, and the exact string that must land in
-    /// ``OrganizeScopeDefaults/pathKey``.
-    ///
-    /// `""` is the global view. Eleven rows answer `""` and six answer a real path, which is what
-    /// keeps the table from being a fixture whose expectation is the fallback: a `normalizedPath`
-    /// that had degenerated to "always clear" fails six of these, and one that had lost the
-    /// collapse entirely fails the other eleven.
+    /// ``OrganizeScopeDefaults/pathKey``. `""` is the global view. Eleven rows clear and six keep a
+    /// path, so an "always clear" or a "never clear" `normalizedPath` both fail.
     static let table: [(label: String, path: String?, root: String?, stored: String)] = [
         ("nil path",                nil,                          root,          ""),
         ("empty path",              "",                           root,          ""),
@@ -63,28 +44,21 @@ import Foundation
             #expect(OrganizeScope.normalizedPath(row.path, providerRoot: row.root) == row.stored,
                     "\(row.label): expected \"\(row.stored)\"")
         }
-        // Non-vacuity, twice over: the table must actually contain both answers, or a degenerate
-        // implementation would pass it. Counted, not assumed — a row edited to `""` in a hurry is
-        // exactly how a pin stops pinning.
+        // Non-vacuity: the table must hold both answers, or a degenerate implementation would pass.
         #expect(Self.table.filter { $0.stored.isEmpty }.count == 11)
         #expect(Self.table.filter { !$0.stored.isEmpty }.count == 6)
     }
 
     // MARK: The question the two spellings used to answer separately
 
-    /// **A missing provider root and an empty one are one condition, and both clear the scope.**
-    ///
-    /// This is the only semantic the two writers stated differently: `ContentView` passes
-    /// `lensProviderRootExpanded`, a non-optional `String` that is `""` when the pane's provider has
-    /// no path in settings, and `LensWorkspaceView` passes a `String?` that is nil for the same
-    /// condition. Neither could produce the other's spelling of "absent", so neither's behaviour for
-    /// it was ever compared with the other's — they agree, and this is what says so.
+    /// A missing provider root and an empty one are one condition, and both clear the scope.
+    /// `ContentView` passes `""` for a provider with no path and `LensWorkspaceView` passes nil, so
+    /// this is what keeps the two writers agreeing.
     @Test func aMissingRootAndAnEmptyRootAnswerTheSame() {
         let subtree = Self.root + "/Legal"
         #expect(OrganizeScope.normalizedPath(subtree, providerRoot: nil) == "")
         #expect(OrganizeScope.normalizedPath(subtree, providerRoot: "") == "")
-        // And the same path with a real root does NOT clear — otherwise the two above would be
-        // passing for the wrong reason.
+        // With a real root it does not clear, or the two above could pass for the wrong reason.
         #expect(OrganizeScope.normalizedPath(subtree, providerRoot: Self.root) == subtree)
     }
 

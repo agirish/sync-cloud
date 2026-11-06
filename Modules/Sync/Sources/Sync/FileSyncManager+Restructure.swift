@@ -1,10 +1,9 @@
 import Events
 import Foundation
 
-/// §5.2's backlog scaffold — the first Restructure landing, and deliberately the safest possible
-/// one: `create-dir` and nothing else, no file moves, nothing to undo but empty folders. It
-/// exists to prove the manifest, the ledger and ⌘Z on a real tree before anything destructive
-/// does (ROADMAP v5, Order item 2).
+/// The backlog scaffold: the safest Restructure landing, `create-dir` and nothing else, so there
+/// is nothing to undo but empty folders. Also the shared landing guards, the per-render disk
+/// probes, and *Never suggest this again*.
 @MainActor
 extension FileSyncManager {
 
@@ -12,8 +11,8 @@ extension FileSyncManager {
     public struct ScaffoldOutcome: Equatable, Sendable {
         /// Folders created, as profile-relative paths, in manifest order.
         public var created: [String] = []
-        /// Folders the re-probe found already on disk — skipped and reported, never overwritten
-        /// (invariant 5: every claim re-derived at the moment of the action).
+        /// Folders the re-probe found already on disk: skipped and reported, never overwritten.
+        /// Every claim is re-checked at the moment of the action.
         public var skipped: [String] = []
         /// The guard's sentence when the landing never started; nil when it ran.
         public var refusal: String?
@@ -25,25 +24,12 @@ extension FileSyncManager {
         }
     }
 
-    /// Creates the folders a backlog finding's vouched vocabulary expects, as one undoable
-    /// landing with a ledger entry.
-    ///
-    /// The order inside is §5.5's, cut down to what a non-destructive landing needs:
-    /// guards → ledger entry with the inverse on disk → the operations, re-probing each
-    /// destination → one grouped ⌘Z → finalised counts → one log line. What it deliberately
-    /// does NOT do is step 6 (re-derive the profile): `applyPlan` has that machinery now, but
-    /// a scaffold creates empty folders a fresh walk would not re-shape the finding around, so
-    /// the finding stays visible and the card says the survey has not caught up — §5.7's third
-    /// sentence, not a borrowed one.
-    /// §5.5 step 1's guard set, shared by every Restructure landing — the scaffold, a plan apply
-    /// The undo handlers' side of the landing flag: a session ⌘Z/⌘⇧Z group stays LIVE on the
-    /// stack while a landing suspends (apply arms its group at step 5, then awaits through the
-    /// re-derive; the ledger inverse runs under groups armed by the landing it reverses), and a
-    /// replay fired into that window races the landing's own moves and walks. The registration
-    /// sites cannot close the window — the group must exist on the early-return paths — so the
-    /// HANDLERS consult this at fire time and give up their turn. The group is consumed either
-    /// way; the ledger's Undo This Reorganization… remains the durable way back, and the refusal
-    /// is logged rather than silent.
+    /// The undo handlers' side of the landing flag. A session ⌘Z/⌘⇧Z group stays live on the
+    /// stack while a landing suspends, and a replay fired then would race the landing's own moves
+    /// and walks. Registration can't close that window (the group must exist on early returns),
+    /// so the handlers check this when they fire and give up their turn. The group is consumed
+    /// either way; the ledger's Undo This Reorganization… stays the durable way back, and the
+    /// refusal is logged.
     func undoReplayBlockedByLanding(_ actionName: String) -> Bool {
         guard restructureLandingInProgress else { return false }
         Logger.shared.warning("Undo/Redo (\(actionName)) fired while a reorganisation is "
@@ -51,19 +37,18 @@ extension FileSyncManager {
         return true
     }
 
-    /// and a ledger undo all move things inside subtrees the scans read, and a refusal is a
-    /// sentence while a race is a debugging session. Returns the sentence, or nil to proceed.
+    /// The guard set shared by every Restructure landing (the scaffold, a plan apply and a ledger
+    /// undo), which all move things inside subtrees the scans read: better a refusal than a race.
+    /// Returns the sentence, or nil to proceed.
     func restructureLandingRefusal() -> String? {
         restructureLandingBlocker
     }
 
-    /// What would refuse a landing or a ledger undo right now — the sentence, or nil. Read-only,
-    /// so a surface can say so BEFORE it asks: *Undo this reorganisation* used to put its question
-    /// up while a scan ran, and a Yes was refused the moment it was given.
+    /// What would refuse a landing or a ledger undo right now: the sentence, or nil. Read-only, so
+    /// a surface can say so before it asks, rather than refusing a Yes the moment it is given.
     public var restructureLandingBlocker: String? {
-        // First, because it is the one hazard the counts below cannot see: a landing holds this
-        // flag across its whole run, including the re-derive awaits where no file operation is
-        // queued and no scan is running.
+        // First: the one hazard the counts below can't see. A landing holds this flag across its
+        // whole run, including re-derive awaits with no file operation queued and no scan running.
         if restructureLandingInProgress {
             return "Another reorganization is landing right now — wait for it to finish first."
         }
@@ -86,22 +71,19 @@ extension FileSyncManager {
         if restructureStore == nil {
             return "No profile is loaded, so there is nothing to record the landing against."
         }
-        // The ledger IS the safety contract: its record, inverse included, must be on disk
-        // before the first operation. A store that cannot write (restructure.json exists but is
-        // unreadable) would swallow that record silently, so the landing refuses for the same
-        // reason the store refuses — better nothing than moves with no trace.
+        // The ledger is the safety contract: its record, inverse included, must be on disk before
+        // the first operation. An unreadable restructure.json would swallow that record, so the
+        // landing refuses: better nothing than moves with no trace.
         if restructureStore?.isUnreadable == true {
             return "restructure.json exists but could not be read, so the landing’s record "
                 + "could not be kept. Fix the file first — the landing refuses rather than "
                 + "running unrecorded."
         }
         guard let profile = filingFolderProfile else { return "No folder survey is loaded." }
-        // **A profile that does not say which folder it describes is refused, not guessed at.**
-        // This asked `root == nil`, which only a missing profile answers: a file without `root`
-        // decodes as `~`, so every landing acted under the home folder — the scaffold created
-        // folders there, a plan moved whatever shared a name with the surveyed tree, the re-derive
-        // walked all of `~` with no size prompt and wrote `"~"` into the profile it produced,
-        // turning the guess into the record. Refresh and the document survey refuse it too.
+        // A profile that doesn't say which folder it describes is refused, not guessed at. A file
+        // without `root` decodes as `~`, so checking `root` would act under the home folder:
+        // creating and moving there, and re-deriving all of `~`. Refresh and the document survey
+        // refuse it too.
         if profile.recordedFolderPath == nil {
             return "The folder survey does not say which folder it describes, so there is no "
                 + "telling where this would land. Give folder-profile.json an absolute “root” — "
@@ -110,6 +92,13 @@ extension FileSyncManager {
         return nil
     }
 
+    /// Creates the folders a backlog finding's vouched vocabulary expects, as one undoable landing
+    /// with a ledger entry. In order: guards, the ledger entry with its inverse on disk, the
+    /// creations (each re-probed), one grouped ⌘Z, final counts, one log line.
+    ///
+    /// It doesn't re-derive the profile, as `applyPlan` does: a fresh walk wouldn't reshape the
+    /// finding around empty folders, so the finding stays and the card says the survey hasn't
+    /// caught up.
     public func applyScaffold(for finding: StructureFinding, now: Date = Date()) async
         -> ScaffoldOutcome {
         if let refusal = restructureLandingRefusal() {
@@ -131,18 +120,16 @@ extension FileSyncManager {
                 + "is nothing to scaffold — the files go to To File as they are.")
         }
 
-        // A double-click mints the same second-resolution id twice, and two records under one
-        // id leave `updateApplied` finalising the wrong one — the same landing-once rule as
-        // applyPlan, refused with the same shape of sentence.
+        // A double-click mints the same second-resolution id twice, and two records under one id
+        // would leave `updateApplied` finalising the wrong one. Lands once, as in applyPlan.
         guard !store.applied.contains(where: { $0.manifest.manifestId == manifest.manifestId })
         else {
             return ScaffoldOutcome(refusal: "This scaffold just landed (\(manifest.manifestId)) "
                 + "— it runs once.")
         }
 
-        // §5.5 step 2: the record, inverse included, is on disk BEFORE the first operation —
-        // a crash mid-run leaves a reversible trace, not a mystery. Verified: a swallowed write
-        // failure would land folders whose only record dies with the session.
+        // The record, inverse included, is on disk before the first operation, so a crash
+        // mid-run leaves a reversible trace. A failed write refuses: never land unrecorded.
         guard store.recordApplied(RestructureStore.AppliedRecord(
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0))
         else {
@@ -156,8 +143,8 @@ extension FileSyncManager {
             var out = ScaffoldOutcome()
             for relative in targets {
                 let absolute = (expandedRoot as NSString).appendingPathComponent(relative)
-                // Re-probe at the moment of the action: a folder that has appeared since the
-                // plan is skipped and reported, and the rest still lands (invariants 2 and 5).
+                // Re-probe at the moment of the action: a folder that appeared since the plan is
+                // skipped and reported, and the rest still lands.
                 if fm.fileExists(atPath: absolute) {
                     out.skipped.append(relative)
                     continue
@@ -175,9 +162,8 @@ extension FileSyncManager {
             return out
         }
 
-        // One grouped ⌘Z for the whole landing, registered synchronously — no await may sit
-        // between begin and end (the Duplicates rule), and none does: the creations above are
-        // already on disk.
+        // One grouped ⌘Z for the whole landing, registered synchronously: no await may sit
+        // between begin and end.
         if !outcome.created.isEmpty, let undo = undoManager {
             undo.beginUndoGrouping()
             for relative in outcome.created {
@@ -194,7 +180,7 @@ extension FileSyncManager {
             $0.skipped = outcome.skipped.count
         }
 
-        // §5.5 step 8's log line — the truth of an apply gets found later by grepping the id.
+        // One log line, found later by grepping the manifest id.
         Logger.shared.info("Scaffold \(manifest.manifestId): \(finding.subject) — "
             + "\(outcome.created.count) folder(s) created, \(outcome.skipped.count) skipped")
         return outcome
@@ -202,35 +188,23 @@ extension FileSyncManager {
 
     // MARK: - The trend (proposal O16)
 
-    /// Stamp the current survey's finding counts into the store, if it has not already recorded
-    /// this profile.
+    /// Stamps the current survey's finding counts into the store, if it hasn't recorded this
+    /// profile yet. Called when a profile is attached and when a landing derives one, never from
+    /// a view body, where it would put a disk write behind every render.
     ///
-    /// **Called at the two moments the survey can actually change** — when a profile is attached
-    /// (launch, a fresh walk) and when a landing produces a derived one — never from a view body.
-    /// `structureReport` is a cached pure function of the profile that Organize's overview reads
-    /// on every render; stamping there would put a disk write behind a scroll, and would record
-    /// the same survey once per memo drop.
-    ///
-    /// The store's own dedupe is the real guard (one point per `profileId`), so calling this
-    /// twice for one profile is harmless — which matters, because "the profile changed" is
-    /// observed in two places that do not know about each other.
+    /// The store's dedupe (one point per `profileId`) is the real guard, so a second call for one
+    /// profile is harmless; two unrelated places observe "the profile changed".
     public func stampStructureTrend(landing: Bool = false, now: Date = Date()) {
         guard let store = restructureStore, filingFolderProfile != nil else { return }
         let id = filingProfileDirectoryId ?? filingFolderProfile?.profileId ?? ""
         guard !id.isEmpty else { return }
-        // **The dedupe check BEFORE the counting, and this is not a micro-optimisation.**
-        // Reading `structureFindings` runs the whole detector sweep — measured at 325 ms over
-        // the reference profile's 3,013 folders, on the main actor. The launch call site sits in
-        // `FilingArtifacts.attach`, before the window appears, and the store already holds a
-        // point for a profile that has not changed since last launch — so counting first paid
-        // a third of a second of launch latency on every launch to discover there was nothing
-        // to record. A landing is the one case that legitimately re-stamps an existing profile,
-        // to upgrade its point's cause, so it is exempt.
+        // Dedupe before counting: `structureFindings` runs the whole detector sweep on the main
+        // actor (about 325 ms on 3,000 folders), and the launch call runs before the window
+        // appears. A landing re-stamps an existing profile to upgrade its point, so it is exempt.
         if !landing, store.trend.contains(where: { $0.profileId == id }) { return }
         var counts: [String: Int] = [:]
-        // Every finding the detectors produced, NOT `visibleStructureFindings`: a suppression is
-        // a statement about what to show, and a trend that fell when the user hid a card would
-        // answer "is the tree getting better?" with "did you look away?".
+        // Every finding, not `visibleStructureFindings`: hiding a card must not make the tree's
+        // trend look better.
         for finding in structureFindings {
             counts[finding.kind.rawValue, default: 0] += 1
         }
@@ -239,19 +213,13 @@ extension FileSyncManager {
             landing: landing))
     }
 
-    /// Subjects whose scaffold landed **and still stands** — the one answer every surface reads.
+    /// Subjects whose scaffold landed and still stands: the one answer every surface reads. A
+    /// record whose folders are all gone (a ⌘Z, or a hand-tidy) drops back to offering the
+    /// scaffold; one that partly stands keeps the claim, since re-offering would re-create
+    /// folders beside survivors.
     ///
-    /// A record whose created folders are all gone (a ⌘Z, or a hand-tidy) no longer supports the
-    /// "Scaffolded" claim, and the subject drops back to offering the scaffold; one that partially
-    /// stands keeps it, because re-offering would re-create the survivors' siblings around folders
-    /// that still exist.
-    ///
-    /// **Here rather than in the workspace, because there were two copies.** The Organize menu had
-    /// its own ledger-only version filtered on `undoneAt` — and a scaffold record's `undoneAt` is
-    /// never set, since `applyScaffold` records no `appliedUnderProfileId` and the ledger undo
-    /// refuses a record without one. So that filter was inert and the two disagreed after a ⌘Z:
-    /// the card correctly re-offered the scaffold while the menu item stayed greyed. The disk is
-    /// the only thing that knows, so the disk is what both ask.
+    /// Asks the disk, not the ledger: a scaffold record's `undoneAt` is never set
+    /// (`applyScaffold` records no `appliedUnderProfileId`), so the ledger can't tell.
     public func scaffoldedSubjects(now: Date = Date()) -> Set<String> {
         guard let root = filingFolderProfile?.root else { return [] }
         let applied = restructureStore?.applied ?? []
@@ -276,13 +244,10 @@ extension FileSyncManager {
         return subjects
     }
 
-    /// Whether any folder this landing emptied **still stands on disk** — the removal button's
-    /// licence, and the ledger cards' `hasEmptiedFolders`.
-    ///
-    /// Here rather than in the workspace for the reason ``scaffoldedSubjects(now:)`` gives: it is
-    /// a disk probe that a view body runs, once per applied record per render, and it belongs
-    /// where the caching can be shared. `emptiedFolders(of:)` is a pure function of the manifest,
-    /// so on its own the button would outlive its own landing forever.
+    /// Whether any folder this landing emptied still stands on disk: the removal button's licence,
+    /// and the ledger cards' `hasEmptiedFolders`. A disk probe, since `emptiedFolders(of:)` reads
+    /// only the manifest and the button would outlive its landing. A view body runs it once per
+    /// record per render, so it lives here beside the shared cache.
     public func emptiedFoldersStillStanding(of manifest: RestructureManifest,
                                             now: Date = Date()) -> Bool {
         guard let root = filingFolderProfile?.root else { return false }
@@ -303,34 +268,22 @@ extension FileSyncManager {
     }
 }
 
-/// **The one-entry caches in front of Restructure's two per-render disk probes.**
+/// The one-entry caches in front of Restructure's two per-render disk probes,
+/// `scaffoldedSubjects` and `emptiedFoldersStillStanding`. Only the disk can answer them, and a
+/// SwiftUI `body` calls them on every publish, several times per render.
 ///
-/// `scaffoldedSubjects` and `emptiedFoldersStillStanding` both answer a question only the disk can
-/// answer — a ⌘Z or a hand-tidy removes folders without touching the ledger, which is exactly why
-/// they probe rather than read the manifest — and both are called from a SwiftUI `body`, which
-/// re-runs on every publish this manager makes. The lens asked once, the overview asked again, and
-/// the ledger cards asked once per applied record, all for a tree that had not moved.
+/// The ledger signature drops an entry at once on any change made through the store. Disk
+/// changes can't be keyed, so entries also expire after ``window``: a ⌘Z that removes scaffolded
+/// folders corrects the card within that window, not instantly.
 ///
-/// **Two keys, and they answer different halves of "could this have changed".** The ledger
-/// signature catches every change the app makes through the store — a landing, an undo record, a
-/// re-derive's rekey — and drops the entry at once. The DISK half cannot be keyed on anything, so
-/// it is bounded by time instead: an entry older than ``window`` is not served. A ⌘Z that removes
-/// scaffolded folders therefore corrects the card on the first render after that window rather
-/// than instantly. That is the deliberate trade, and it is a different thing from the defect the
-/// probe exists to prevent, which was a card that stayed wrong **forever** because it read the
-/// ledger instead of the disk.
-///
-/// Keyed on the manager's identity as well, so a second `FileSyncManager` (every test that builds
-/// one) can never be served another's answer. One entry, not a dictionary: there is one manager in
-/// the app, and an unbounded map keyed on object identity would outlive the objects in it.
+/// Keyed on the manager's identity too, so one test's manager is never served another's answer.
+/// One entry, not a map: a map keyed on object identity would outlive its objects.
 @MainActor
 enum RestructureDiskProbeMemo {
 
-    /// How long a probe's answer is served before the disk is asked again.
-    ///
-    /// Short enough that a hand-tidy or a ⌘Z is reflected in the next render a person could
-    /// notice, long enough that a burst of renders — a hover, a scroll, a window resize, any of
-    /// the publishes this manager makes per second — costs one probe rather than dozens.
+    /// How long a probe's answer is served before the disk is asked again: short enough that a ⌘Z
+    /// shows by the next render a person notices, long enough that a burst of renders (a hover, a
+    /// scroll, a resize) costs one probe.
     static let window: TimeInterval = 0.5
 
     struct Key: Equatable {
@@ -340,18 +293,15 @@ enum RestructureDiskProbeMemo {
         let ledger: String
     }
 
-    /// The applied ledger reduced to the things these probes read: which records exist, and what
-    /// each one claims to have created or emptied. Cheap to build (one pass over the records'
-    /// ids and counts) and it changes whenever anything the probes care about does.
+    /// The applied ledger reduced to what these probes read: which records exist, their action
+    /// counts and undo state. One cheap pass, and it changes whenever anything they read does.
     static func signature(of applied: [RestructureStore.AppliedRecord]) -> String {
         applied.map { "\($0.manifest.manifestId):\($0.manifest.actions.count):"
             + "\($0.undoneAt ?? "-")" }.joined(separator: "|")
     }
 
-    /// One remembered answer, valid while the key holds and the window has not run out.
-    ///
-    /// A clock that has gone BACKWARDS (a manual time change, an NTP step) invalidates rather
-    /// than serving forever: `now < at` is not a fresh entry, it is an unknown one.
+    /// One remembered answer, valid while the key holds and the window hasn't run out. A clock
+    /// gone backwards (a manual change, an NTP step) invalidates rather than serving forever.
     @MainActor
     final class Entry<Value> {
         private var key: Key?
@@ -371,7 +321,7 @@ enum RestructureDiskProbeMemo {
             self.at = now
         }
 
-        /// Drops whatever is held — the seam the tests use to start from a known state.
+        /// Drops whatever is held, so tests start from a known state.
         func clear() {
             key = nil
             value = nil
@@ -379,12 +329,9 @@ enum RestructureDiskProbeMemo {
         }
     }
 
-    /// The same, for a probe asked about MANY subjects under one key.
-    ///
-    /// The ledger cards ask `emptiedFoldersStillStanding` once per applied record inside a single
-    /// render, so a one-slot cache would be evicted by the next record and never hit. The map is
-    /// dropped whole the moment the key changes or the window runs out — one lifetime for every
-    /// entry in it, because they were all probed against the same tree.
+    /// The same, for a probe asked about many subjects under one key: the ledger cards ask once
+    /// per record in one render, which would evict a one-slot cache every time. The map drops
+    /// whole when the key changes or the window runs out, since all were probed on one tree.
     @MainActor
     final class MapEntry<Value> {
         private var key: Key?
@@ -427,12 +374,9 @@ enum RestructureDiskProbeMemo {
 @MainActor
 extension FileSyncManager {
 
-    /// *Never suggest this again*, with a way back.
-    ///
-    /// **It used to be one store write and nothing else** — no question, no ⌘Z, no banner, and no
-    /// screen that listed what had been hidden, so a mis-click hid a finding for good. It now
-    /// registers one ⌘Z step and says so in an undoable banner; the lens's *Show them again*
-    /// (``showHiddenStructureFindings(in:)``) is the way back for older ones.
+    /// *Never suggest this again*, with a way back, so a mis-click can't hide a finding for good:
+    /// one ⌘Z step and an undoable banner, and the lens's *Show them again*
+    /// (``showHiddenStructureFindings(in:)``) for older ones.
     public func suppressStructureFinding(_ finding: StructureFinding) {
         guard let store = restructureStore else { return }
         let key = RestructureKey(finding)
@@ -447,31 +391,22 @@ extension FileSyncManager {
                           undoable: undoManager != nil)
     }
 
-    /// ⌘Z for ``suppressStructureFinding(_:)``. **In the store it was hidden in**, and in the store
-    /// the manager holds now only when that one carries on from it.
+    /// ⌘Z for ``suppressStructureFinding(_:)``: in the store it was hidden in, and in the current
+    /// store only when that one carries on from it. A landing or survey refresh swaps in a store
+    /// that carries the hidden set across, so the key is cleared there too, moved through the same
+    /// renames (``RestructureStore/carriedKey(_:from:)``).
     ///
-    /// A landing or a survey refresh swaps the store for the new profile's, and the swap carries
-    /// the hidden set across (the artifact copy brings `restructure.json`, and `rekey` moves its
-    /// keys through the renames). Undoing against the captured old store alone cleared a key in a
-    /// store nothing reads any more, and the finding stayed hidden — so the current store is
-    /// reached too, with the key moved through the same renames (``RestructureStore/carriedKey(_:from:)``).
-    ///
-    /// **Not whatever store is current.** After a provider switch it belongs to another profile,
-    /// and the same kind and path there is a different folder's finding, hidden on its own; after
-    /// a renaming landing the original key names nothing. A store reopened on the same file is
-    /// the captured one's successor outright, and the captured object is stale, so only the
-    /// current one writes.
+    /// Never just whatever store is current: after a provider switch it is another profile's,
+    /// where the same key is a different folder's finding. A store reopened on the same file
+    /// replaces the captured one outright, so only the current one writes.
     func unsuppressStructureFinding(_ finding: StructureFinding, in store: RestructureStore) {
         let key = RestructureKey(finding)
         if let current = restructureStore, current !== store, current.isSameFile(as: store) {
             current.unsuppress(key)
         } else {
-            // **The captured object writes only while the app still reads it (L8).** Once swapped
-            // out it is a snapshot from before the swap, and `save` writes the whole store: a
-            // landing recorded since into the same file by a reopened store (a Setup Save beside
-            // a hand-built profile reopens it) was written over, and that profile's ledger lost
-            // the landing. So a swapped-out store's file is read afresh and the one key cleared
-            // there.
+            // The captured object writes only while the app still reads it. Swapped out, it is a
+            // stale snapshot, and `save` writes the whole store, which would erase a landing
+            // recorded since into the same file. So its file is read afresh and one key cleared.
             if restructureStore === store {
                 store.unsuppress(key)
             } else {
@@ -483,8 +418,7 @@ extension FileSyncManager {
                 current.unsuppress(carried)
             }
         }
-        // The "Hidden … [Undo]" banner is stale the moment this runs (see
-        // `invalidateUndoableBanner`).
+        // The "Hidden … [Undo]" banner is stale once this runs (`invalidateUndoableBanner`).
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             target.suppressStructureFinding(finding)
@@ -495,16 +429,11 @@ extension FileSyncManager {
 
 @MainActor
 extension FileSyncManager {
-    /// Today's findings *Never suggest this again* is hiding, within `scope` — what the lens's
-    /// *Show them again* counts and brings back.
-    ///
-    /// **Scoped the way the lens's rows are**: a finding the lens would show (inside the scope, or
-    /// about an ancestor of it) counts; one outside it does not. The count used to be the whole
-    /// survey's under a scoped list, and *Show them again* cleared every key — findings in other
-    /// folders, and stale keys for folders that are gone — with no undo and nothing said.
-    ///
-    /// **From the same findings ``visibleStructureFindings`` starts from**, §5.9's duplicated
-    /// taxonomy included: reading the report's alone left a hidden §5.9 finding with no way back.
+    /// Today's findings *Never suggest this again* is hiding within `scope`: what the lens's
+    /// *Show them again* counts and brings back. Scoped as the lens's rows are (inside the scope,
+    /// or about an ancestor of it), so it never clears findings in other folders or stale keys.
+    /// Drawn from the same findings as ``visibleStructureFindings``, duplicated taxonomy included,
+    /// so every hidden finding has a way back.
     public func hiddenStructureFindings(in scope: OrganizeScope?) -> [StructureFinding] {
         guard let store = restructureStore, !store.suppressed.isEmpty else { return [] }
         let root = filingFolderProfile?.root ?? ""

@@ -1,17 +1,14 @@
 import Foundation
 import CryptoKit
 
-/// What a PDF reader hands the fingerprint: the text it could pull, plus the two structural
-/// readings that are content rather than bytes.
-///
-/// A value type rather than a bare `String` because the text alone over-claims, and the two extra
-/// fields are what measurement said to add (see ``ContentFingerprint``). Everything here is
-/// derivable from the document, nothing from the file's bytes — that is the whole point.
+/// What a PDF reader hands the fingerprint: the text it could pull, plus the structural readings
+/// that are content rather than bytes. Not a bare `String`, because text alone over-claims (see
+/// ``ContentFingerprint``). Everything here comes from the document, nothing from the file's bytes.
 public struct ExtractedDocument: Sendable, Equatable {
     /// Page text, in page order, for the pages that were read.
     public let pages: [String]
-    /// AcroForm widget values — what a *filled* form holds that its blank template does not.
-    /// Empty for the great majority of documents.
+    /// AcroForm widget values: what a filled form holds that its blank template does not. Empty for
+    /// most documents.
     public let formFieldValues: [String]
     /// The document's full page count, including pages beyond ``ContentFingerprint/maxPagesRead``.
     public let pageCount: Int
@@ -26,15 +23,11 @@ public struct ExtractedDocument: Sendable, Equatable {
     }
 }
 
-/// What reading one document for its fingerprint came to.
-///
-/// **Three ways, because only one of the two "no digest" answers may be remembered.** A document
-/// that was parsed and said too little will say too little again until its bytes change, so the
-/// cache can hold that answer under the file's key. A document that could not be read — not on
-/// this disk (a cloud placeholder, or local but stale), password-locked, or unparseable — says
-/// nothing about its content, and the next scan must try it again: cached as "too little text", a
-/// placeholder would stay unfingerprinted after it downloaded, since downloading leaves its key's
-/// path, mtime and size as they were.
+/// What reading one document for its fingerprint came to. Three cases, because only one of the two
+/// "no digest" answers may be cached. A document parsed with too little text says the same until its
+/// bytes change. One that could not be read (a cloud placeholder, stale, password-locked or
+/// unparseable) must be tried again next scan: cached, a placeholder would stay unfingerprinted
+/// after it downloaded, since downloading leaves its path, mtime and size as they were.
 public enum FingerprintReading: Sendable, Equatable {
     case digest(String)
     /// Parsed fine; fewer than ``ContentFingerprint/minimumTokens`` tokens. Cached.
@@ -43,103 +36,49 @@ public enum FingerprintReading: Sendable, Equatable {
     case unreadable
 }
 
-/// A digest over what a PDF *says* rather than what its bytes are — so two downloads of one
-/// document match even though a provider re-stamped a fresh `/ID` into the second.
+/// A digest over what a PDF says rather than what its bytes are, so two downloads of one document
+/// match even when a provider re-stamped a fresh `/ID` into the second. `DuplicateFinder` can't
+/// see such pairs: they hash fine, fail to match, and report a clean result that is wrong.
 ///
-/// **The problem, measured on this tree.** 10,569 PDFs; 736 groups share a byte size and 232 share
-/// a (name, size). Of those 232, only 183 are byte-identical — the other 49 are the same document
-/// twice with different bytes, and `DuplicateFinder` cannot see any of them. Worse than the three
-/// blind spots `DEFERRED_ENHANCEMENTS.md` #6 lists, because those are *counted and reported* while
-/// this one hashes successfully, fails to match, and reports a clean result that is wrong.
+/// The digest covers the token multiset of the text and form field values, plus the page count and
+/// each page's media box. On the surveyed tree the form values and media boxes each remove false
+/// groups; the page count and ``minimumTokens`` remove none and are kept for reasons the corpus
+/// can't show, given at their declarations. Measure a change over a frozen extraction, not by
+/// re-running the reader, which is slow enough that the tree moves underneath it.
 ///
-/// **What the digest is over.** The token multiset of the extracted text and the form field
-/// values, plus the page count and each page's media box. Each ingredient was ablated over one
-/// frozen extraction of the real tree — 253 groups at baseline, about five more than the live
-/// reader reports for the reason ``PDFTextExtractor`` records — and what it is worth is:
+/// Sorted, not ordered: sorting also matches re-renders whose text PDFKit hands back in a different
+/// order, and on the surveyed tree it gained more real groups than false ones, by a small margin.
+/// Counts, not a set, so two statements differing only in how often a line repeats don't collide.
 ///
-/// | ingredient | groups it removes | recall cost |
-/// |---|---|---|
-/// | form field values | 14 | none |
-/// | media boxes | 3 | none |
-/// | page count | 0 | none |
-/// | ``minimumTokens`` floor | 0 | 4 pairs the byte hash already had |
-///
-/// Two of those are honestly inert on this tree and are kept for reasons the corpus cannot show;
-/// each says why at its own declaration. **Ablate over a frozen extraction, not by re-running the
-/// reader** — re-parsing the tree per variant took 28 minutes a run under load, and the tree itself
-/// moves underneath a measurement that slow.
-///
-/// **Sorted, not ordered — but the margin is three documents, not the landslide the case for it
-/// assumed.** Hashing the token *sequence* would be strictly more discriminating, and over the same
-/// extraction it finds 248 of the 253 groups the multiset finds. Reading the five groups only the
-/// multiset admits settles it: three are real (a state tax transcript filed twice, a compressed
-/// passport beside its original, a compressed birth certificate beside its original — re-renders
-/// that reordered the text PDFKit hands back), and two are not the same document (a resume
-/// revision, and a report whose filename literally ends "- Sorted"). Sorting wins, and it is worth
-/// knowing it wins by three documents rather than by the margin the hand-run that motivated it
-/// suggested.
-///
-/// **Counts, not a set.** A set of tokens loses repetition, so two statements differing only in how
-/// many times a line item repeats would collide. Counting costs nothing.
-///
-/// **No decodability gate, and that is deliberate.** ``FilingSurvey/isDecodable(_:)`` refuses text
-/// from a PDF whose fonts carry no `ToUnicode` map, because glyph soup would become a folder's
-/// rarest anchors. That hazard does not exist here and the reflex to port it is expensive: two
-/// downloads of one soupy document produce the *same* soup, which is a perfectly good identity.
-/// Measured, gating on decodability would drop 11 groups, and ten of them are real — including both
-/// halves of the `Form 1095-C` pair that is the clearest evidence in the tree of a folder taxonomy
-/// duplicated in two places.
+/// No decodability gate (unlike ``FilingSurvey/isDecodable(_:)``): two downloads of one document
+/// whose fonts lack a `ToUnicode` map produce the same glyph soup, which is still a good identity,
+/// and gating on it would drop real groups.
 public enum ContentFingerprint {
 
-    /// Bumped when any rule below changes. It is the first thing in the canonical string, so a
-    /// digest computed under an older rule can never COLLIDE with one computed under this one.
+    /// Bumped when any rule below changes. It leads the canonical string, so digests from different
+    /// rules can never collide.
     ///
-    /// **That is not the same as being safe to bump, and the difference is the cache.** The
-    /// persisted index is keyed on (path, mtime, size, file number, ctime) — the scheme is nowhere
-    /// in the key — so after a bump every unchanged file keeps being served the digest it was given
-    /// under the old rule, while anything new or edited gets one under the new rule. The two never
-    /// collide; they simply never match, so a re-stamped pair straddling the bump goes unreported.
-    /// One-way toward a missed group rather than a false one — but silent, and **no longer
-    /// self-healing**: an entry now lives while it is used (``ContentHashCache/maxEntryAge``), so a
-    /// file every scan finds keeps its old-scheme digest for good.
-    ///
-    /// So bumping this means deleting the fingerprint index with it, every time. It has its own file precisely
-    /// so that costs nothing else: Settings ▸ Saved scan data already clears it, or delete
-    /// ``ContentHashIndexStore/defaultFingerprintURL(fileManager:)``. Budget one full re-read of
-    /// the tree afterwards (~5.5 minutes for 10,569 documents).
+    /// **Bumping it means deleting the fingerprint index too.** The persisted index is keyed on
+    /// (path, mtime, size, file number, ctime), not the scheme, so unchanged files keep their
+    /// old-rule digest while new ones get the new rule, and a pair straddling the bump silently
+    /// never matches. Entries live while used (``ContentHashCache/maxEntryAge``), so it never heals.
+    /// Settings ▸ Saved scan data clears it, or delete
+    /// ``ContentHashIndexStore/defaultFingerprintURL(fileManager:)``; expect a full re-read of the
+    /// tree (minutes for ten thousand documents).
     public static let scheme = "pdf-text-1"
 
-    /// How many pages are read. Nothing downstream needs more, and a 500-page document would
-    /// otherwise pay for pages that only repeat the covenant boilerplate on page 3.
-    ///
-    /// This cap is why ``ExtractedDocument/pageCount`` is in the digest: two documents sharing
-    /// their first twenty pages and differing after them would otherwise be called the same. That
-    /// case does not occur in the surveyed tree — the page count removed no group there — so it is
-    /// pinned by a fixture rather than by the corpus.
+    /// How many pages are read; nothing downstream needs more. This cap is why
+    /// ``ExtractedDocument/pageCount`` is in the digest: two documents sharing their first twenty
+    /// pages and differing after would otherwise match. A fixture pins that case, since the surveyed
+    /// tree has none.
     public static let maxPagesRead = 20
 
-    /// Below this many tokens a document has not said enough to be identified by what it says.
-    ///
-    /// **A bound on a degenerate case, and measured INERT on the tree it was written for — which is
-    /// not what the first version of this comment claimed.** As the text thins, the canonical string
-    /// approaches page count plus page geometry and stops being about the document at all; the floor
-    /// is where that is cut off.
-    ///
-    /// The draft justified it with ten unrelated quarterly earnings summaries — each a two-page
-    /// 612×792 scan whose entire extracted content was the page-number token `1` — grouping as one.
-    /// That reading came from a concurrent extraction, and it was **an artifact of the race**
-    /// ``PDFTextExtractor/workQueue`` now prevents: read serially, every one of those documents
-    /// yields *zero* tokens and is declined whatever the floor is. Ablated over a frozen serial
-    /// extraction the floor removes **no group at all**, and its only measurable effect is to stop
-    /// judging four byte-identical pairs — which costs nothing, because the content hash has already
-    /// grouped those.
-    ///
-    /// So it stays as insurance rather than as a fix: a one-token page is a shape a scanner can
-    /// certainly produce, `textlessScansOfTheSameShapeAreNotOneDocument` shows what happens without
-    /// the floor when it does, and eight is a judgement — there is no knee in the data to pick it
-    /// from. If a real corpus ever shows it declining documents that mattered, lower it.
-    /// (Changing this re-reads the documents cached as too short: their marker names it — see
-    /// ``tooLittleTextMarker``.)
+    /// Below this many tokens a document has not said enough to be identified by what it says. As
+    /// text thins, the canonical string approaches page count plus geometry and stops being about the
+    /// document; the floor cuts that off. It changes no group on the surveyed tree and is insurance:
+    /// a scanner can produce one-token pages (`textlessScansOfTheSameShapeAreNotOneDocument`). Eight
+    /// is a judgement; lower it if it declines documents that matter. Changing it re-reads documents
+    /// cached as too short, since their marker names it (``tooLittleTextMarker``).
     public static let minimumTokens = 8
 
     /// The digest, or nil when this document has not said enough to be identified by its text.
@@ -166,21 +105,11 @@ public enum ContentFingerprint {
 
     /// Maximal runs of ASCII alphanumerics, lowercased.
     ///
-    /// Deliberately NOT ``FilingRouter/tokenize(_:)``. That tokenizer drops stop words and
-    /// one-character tokens because it is scoring *relevance*, where "the" carries nothing; this is
-    /// asking *identity*, where every character the document contains is evidence and throwing any
-    /// of it away only makes two documents easier to confuse. The two never meet — no fingerprint
-    /// is ever compared against a corpus anchor — so they are free to disagree.
-    ///
-    /// **ASCII, and that IS throwing something away — measured, and it costs nothing here.** A
-    /// document in a non-Latin script contributes only its ASCII residue (dates, amounts, form
-    /// numbers), which is a recall risk and, if two different such documents shared that residue,
-    /// a precision one. Ablated against a Unicode-aware tokenizer over the frozen serial extraction
-    /// of the real tree: 7 documents of 10,280 are a quarter or more non-ASCII words, **none** of
-    /// them falls under the token floor that a Unicode rule would clear, and the two tokenizers
-    /// find the **same 253 groups** — no group unique to either, recall 485/485 with 0
-    /// disagreements both ways. So this stays, on a tree that cannot tell the difference; a corpus
-    /// with real non-Latin documents in it would be a reason to re-measure, not to assume.
+    /// Not ``FilingRouter/tokenize(_:)``, which drops stop words and one-character tokens because it
+    /// scores relevance; this asks identity, where every character is evidence. The two never meet,
+    /// so they may disagree. ASCII-only means a non-Latin document contributes only its dates,
+    /// amounts and form numbers; on the surveyed tree a Unicode tokenizer found the same groups, but
+    /// a corpus with many non-Latin documents is a reason to re-measure.
     static func tokens(in text: String) -> [String] {
         var out: [String] = []
         var current = ""
@@ -197,22 +126,19 @@ public enum ContentFingerprint {
         return out
     }
 
-    /// What ``ContentHashCache/sharedTextless`` holds for a document that was read and said too
-    /// little — fewer than ``minimumTokens`` tokens. Under the same key as a digest, so it is
-    /// invalidated exactly as one is, and it spares a warm rescan re-parsing every image-only scan.
+    /// What ``ContentHashCache/sharedTextless`` holds for a document read with fewer than
+    /// ``minimumTokens`` tokens. Keyed like a digest, so it is invalidated like one, and it spares a
+    /// warm rescan re-parsing every image-only scan.
     ///
-    /// **Never an identity.** A digest is 64 hex characters; this has a colon in it, so it can
-    /// never equal one. But every negative is the SAME string, so anything that read it as "what
-    /// this document is" would call all of them one document — Duplicates would group them, and To
-    /// File would mark each "already filed" beside all the others. So it is kept in a store of its
-    /// own that no identity reader opens, ``FileSyncManager/fingerprintDocuments`` answers nil for
-    /// it, and ``DocumentIdentityIndex/build(hashes:fingerprints:textless:providerRoot:existsOnDisk:)``
-    /// drops one should it ever reach the fingerprint index.
+    /// **Never an identity.** It can't equal a 64-hex digest, but every negative is the same string,
+    /// so reading it as an identity would make all of them one document: Duplicates would group them
+    /// and To File would call each "already filed". So it lives in its own store no identity reader
+    /// opens, ``FileSyncManager/fingerprintDocuments`` answers nil for it, and
+    /// ``DocumentIdentityIndex/build(hashes:fingerprints:textless:providerRoot:existsOnDisk:)`` drops
+    /// one that reaches the fingerprint index.
     ///
-    /// It carries ``scheme`` and the floor itself. The floor moving does not change any digest, so
-    /// lowering it is unlikely to come with a scheme bump (which costs a cold re-read of every
-    /// document); a marker naming the old floor is then read as a miss, and a document the new
-    /// floor would fingerprint is read again rather than declined from the cache for good.
+    /// It names ``scheme`` and the floor, so lowering the floor without a scheme bump turns old
+    /// markers into misses and those documents are read again rather than declined for good.
     public static let tooLittleTextMarker = noFingerprintPrefix + scheme + ":floor\(minimumTokens)"
 
     static let noFingerprintPrefix = "none:"
@@ -222,9 +148,8 @@ public enum ContentFingerprint {
         value.hasPrefix(noFingerprintPrefix)
     }
 
-    /// The file extensions a fingerprint can be taken of. PDFs only, for now: the roadmap item is
-    /// about a re-stamped PDF, 80% of this tree's files are PDFs, and the extractor below is the
-    /// only reader wired up.
+    /// The file extensions a fingerprint can be taken of. PDFs only for now: they are most of the
+    /// files, and the PDF extractor is the only reader wired up.
     public static let fingerprintableExtensions: Set<String> = ["pdf"]
 
     /// Whether this path is worth handing to an extractor at all.

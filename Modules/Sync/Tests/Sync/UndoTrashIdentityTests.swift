@@ -2,19 +2,17 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// What an undo takes back OUT of the Trash, and what it decides is gone.
+/// What an undo takes back out of the Trash, and what it decides is gone.
 ///
-/// - **FR27** — every undo that restores from the Trash moved whatever sat at the recorded Trash
-///   path. Empty the Trash, trash a different file of the same name, and macOS gives it the freed
-///   name: ⌘Z then moved that unrelated file into the folder it was restoring.
-/// - **FR28** — the copy-undo and move-undo asked `fileExists` whether their item had vanished.
-///   It follows links, so a dangling link — what moving a relative link usually leaves — read as
-///   gone: never moved back, never removed.
-/// - **FR35** — a move's merge put the emptied source folder in the Trash outside the undo record,
-///   so ⌘Z made a NEW folder for the children and the original stayed in the Trash.
+/// - A restore takes only the item recorded at its Trash path. Empty the Trash, trash a different
+///   file of the same name, and macOS gives it the freed name; ⌘Z must leave that stranger.
+/// - A dangling link (what moving a relative link usually leaves) is still an item. `fileExists`
+///   follows links and would read it as gone, so it would never be moved back or removed.
+/// - A move's merge records the source folder it emptied and trashed, so ⌘Z puts that folder
+///   back rather than making a new one while the original stays in the Trash.
 ///
 /// Real disk with a `ScratchTrash` throughout: the claims are about where items end up, and the
-/// mock's flat paths and link-less stat cannot model either.
+/// mock's flat paths and link-less stat can't model either.
 @Suite struct UndoTrashIdentityTests {
 
     @MainActor
@@ -36,12 +34,12 @@ import Foundation
         (try? Data(contentsOf: url)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    /// Whether any entry — a dangling link included — is at `url`.
+    /// Whether any entry, a dangling link included, is at `url`.
     private func entryExists(_ url: URL) -> Bool {
         (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
     }
 
-    /// Puts a DIFFERENT item at a Trash backup's path: what emptying the Trash and then trashing
+    /// Puts a different item at a Trash backup's path, as emptying the Trash and then trashing
     /// another file of the same name does. A different length, so its identity differs.
     private func replaceInTrash(_ backup: URL) throws {
         try FileManager.default.removeItem(at: backup)
@@ -102,9 +100,9 @@ import Foundation
         #expect(!entryExists(backup))
     }
 
-    /// A deleted FOLDER that Finder has written a `.DS_Store` into while it sat in the Trash — the
-    /// user opened it there — is still the folder the delete put there, and comes back. A folder
-    /// of the same name with different contents does not.
+    /// A deleted folder that Finder wrote a `.DS_Store` into while it sat in the Trash (the user
+    /// opened it there) is still the folder the delete put there, and comes back. A folder of the
+    /// same name with different contents does not.
     @MainActor
     @Test func aDeletedFolderComesBackAfterFinderBrowsedItButAStrangerFolderDoesNot() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-folder")
@@ -141,7 +139,7 @@ import Foundation
     }
 
     /// A move that replaced a file: ⌘Z moves the file back, and puts back only the file the move
-    /// itself sent to the Trash — not one that has taken its name there since.
+    /// sent to the Trash, not one that has taken its name there since.
     @MainActor
     @Test func aMoveUndoDoesNotPutAStrangerFromTheTrashInPlaceOfTheReplacedFile() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move")
@@ -191,16 +189,16 @@ import Foundation
                 "banner: \(m.banner?.message ?? "nil")")
     }
 
-    /// Makes `folder` unreadable (mode 000), the way a subfolder another account owns or a cloud
-    /// folder that does not answer leaves a deep walk partial. Returns the undo for a `defer`.
+    /// Makes `folder` unreadable (mode 000), as a subfolder another account owns or a cloud folder
+    /// that doesn't answer leaves a deep walk partial. Returns the undo for a `defer`.
     private func lock(_ folder: URL) throws -> () -> Void {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
         return { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
     }
 
-    /// A deleted folder holding one unreadable subfolder cannot be digested, so it is recorded by
-    /// its own file number (FR27, follow-up) — and ⌘Z restores it, unreadable subfolder and all:
-    /// the number needs only a stat of the folder, and the move into the Trash kept it.
+    /// A deleted folder holding an unreadable subfolder can't be digested, so it is recorded by its
+    /// own file number, and ⌘Z restores it, unreadable subfolder and all: the number needs only a
+    /// stat of the folder, and the move into the Trash keeps it.
     @MainActor
     @Test func aDeleteUndoRestoresAFolderWhoseIdentityCouldNotBeRecorded() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unrecorded")
@@ -214,7 +212,7 @@ import Foundation
         let backup = try #require(trashedURL as URL?)
         let unlockBackup = { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: backup.appendingPathComponent("private").path) }
         defer { unlockBackup(); unlockOriginal(); try? FileManager.default.removeItem(at: root) }
-        // The premise: the contents could not be read, and the number was recorded instead.
+        // The premise: the contents couldn't be read, and the number was recorded instead.
         #expect(ItemIdentity.deepSnapshot(at: backup, fileManager: trash) == .indeterminate)
         guard case .directoryFileNumber = FileSyncManager.backupIdentity(backup, fileManager: trash) else {
             Issue.record("recorded \(FileSyncManager.backupIdentity(backup, fileManager: trash))")
@@ -230,10 +228,9 @@ import Foundation
         #expect(!entryExists(backup))
     }
 
-    /// …and a STRANGER given that folder's name in the Trash is refused (FR27, follow-up). With no
-    /// identity recorded for a folder it could not read, ⌘Z restored whatever sat at the Trash
-    /// path: empty the Trash, trash another folder of that name, and it landed in the user's
-    /// folder. Its file number differs, so it stays in the Trash.
+    /// …and a stranger given that folder's name in the Trash is refused. Its contents may match,
+    /// but its file number differs, so it stays in the Trash rather than landing in the user's
+    /// folder.
     @MainActor
     @Test func aDeleteUndoRefusesAStrangerInPlaceOfAFolderItCouldNotRead() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unread-stranger")
@@ -253,8 +250,8 @@ import Foundation
         let m = manager()
         await m.registerRestoreItems(urls: [original], trashedItems: [backup], actionName: "Delete 1 Item", fileManager: trash).value
 
-        // The Trash emptied, and another folder of the same name — same contents, so only its
-        // number can tell — trashed into the freed name.
+        // The Trash emptied, and another folder of the same name and contents (only its number
+        // can tell) trashed into the freed name.
         try FileManager.default.setAttributes([.posixPermissions: 0o755],
                                               ofItemAtPath: backup.appendingPathComponent("private").path)
         try FileManager.default.removeItem(at: backup)
@@ -271,8 +268,8 @@ import Foundation
                 "banner: \(m.banner?.message ?? "nil")")
     }
 
-    /// Against an identity that WAS recorded, a backup that cannot be read at ⌘Z still refuses —
-    /// and the banner says it couldn't be read, not that it is a stranger.
+    /// Against an identity that was recorded, a backup that can't be read at ⌘Z still refuses, and
+    /// the banner says it couldn't be read, not that it is a stranger.
     @MainActor
     @Test func aDeleteUndoOfABackupThatCannotBeReadNowSaysSo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-unreadable-now")
@@ -297,7 +294,7 @@ import Foundation
     }
 
     /// Replaces `dst/Project` with `src/Project` by `transfer` (a copy or a move), so the replaced
-    /// folder — holding a `private` subfolder — goes to the Trash as the backup.
+    /// folder, holding a `private` subfolder, goes to the Trash as the backup.
     private func replaceFolder(in root: URL, trash: ScratchTrash,
                                by transfer: (URL, URL) throws -> URL?) throws -> (src: URL, dst: URL, backup: URL) {
         let src = root.appendingPathComponent("src/Project")
@@ -309,10 +306,9 @@ import Foundation
         return (src, dst, backup)
     }
 
-    /// A copy-undo whose backup was recorded but cannot be read at undo time refuses BEFORE it
-    /// trashes the copy: the copy stays at the destination and the original stays in the Trash,
-    /// both recoverable, and the banner says the backup couldn't be read — not that it is a
-    /// stranger. Trashing the copy first left the destination empty with the original stranded.
+    /// A copy-undo whose backup was recorded but can't be read at undo time refuses before it
+    /// trashes the copy, which would leave the destination empty and the original stranded. Both
+    /// stay recoverable, and the banner says the backup couldn't be read, not that it is a stranger.
     @MainActor
     @Test func aCopyUndoWhoseBackupCannotBeReadLeavesTheCopyInPlace() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-copy-unreadable")
@@ -335,7 +331,7 @@ import Foundation
     }
 
     /// The move-undo's twin: the moved folder is not moved back while the backup it would restore
-    /// in its place cannot be read.
+    /// in its place can't be read.
     @MainActor
     @Test func aMoveUndoWhoseBackupCannotBeReadLeavesTheMovedItemInPlace() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move-unreadable")
@@ -359,7 +355,7 @@ import Foundation
 
     // MARK: FR28
 
-    /// A relative link moved to another folder dangles there — and is still the item the move put
+    /// A relative link moved to another folder dangles there, and is still the item the move put
     /// there, so ⌘Z moves it back.
     @MainActor
     @Test func aMoveUndoMovesADanglingLinkBack() async throws {
@@ -385,9 +381,9 @@ import Foundation
         #expect(!entryExists(to), "the link is still at the destination")
     }
 
-    /// **L6.** The redo of that move, once the folder it went to is gone: the link is a source to
-    /// move, dangling or not, so the redo makes the folder again and moves it. The gate asked
-    /// `fileExists`, which follows the link, read it as no source, built nothing, and the move failed.
+    /// The redo of that move, once the folder it went to is gone: the link is a source to move,
+    /// dangling or not, so the redo makes the folder again and moves it. Asked through
+    /// `fileExists`, which follows the link, it would read as no source and the move would fail.
     @MainActor
     @Test func aMoveRedoOfADanglingLinkRemakesTheFolderItGoesTo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "redo-dangling-link-move")
@@ -440,9 +436,9 @@ import Foundation
 
     // MARK: FR35
 
-    /// A move whose merge emptied its source folder: ⌘Z puts THAT folder back — its own extended
-    /// attributes with it — and the children back inside it, rather than a new empty folder while
-    /// the original stays in the Trash.
+    /// A move whose merge emptied its source folder: ⌘Z puts that folder back, its own extended
+    /// attributes with it, and the children inside it, not a new folder while the original stays
+    /// in the Trash.
     @MainActor
     @Test func aMergeMoveUndoRestoresTheOriginalSourceFolderFromTheTrash() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-source-folder")
@@ -486,9 +482,8 @@ import Foundation
         #expect(read(dst.appendingPathComponent("sub/other.txt")) == "other c")
     }
 
-    /// **U4: a merge that moved nothing out still has an undo.** Its source held only a
-    /// `.DS_Store`, so no child landed — and the registration ran only for a batch that transferred
-    /// something, so the emptied folder went to the Trash with nothing that could bring it back.
+    /// A merge that moved nothing out still has an undo. Its source held only a `.DS_Store`, so no
+    /// child landed, but the emptied folder still went to the Trash and ⌘Z must bring it back.
     @MainActor
     @Test func aMergeMoveThatLandsNoChildStillUndoesItsTrashedSource() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-nothing-landed")
@@ -516,7 +511,7 @@ import Foundation
     }
 
     /// Moves `src/Reports` (holding `a.txt`) into a `dst` that already has a `Reports`, with Merge,
-    /// and undoes it: the shape every FR35 redo test starts from.
+    /// and undoes it: where every merge redo test starts.
     @MainActor
     private func mergeMoveAndUndo(in root: URL, trash: ScratchTrash) async throws -> (m: FileSyncManager, src: URL, dst: URL) {
         let src = root.appendingPathComponent("src/Reports")
@@ -541,10 +536,10 @@ import Foundation
         await waitUntil("the redo drains") { m.activeFileOperationsCount == 0 }
     }
 
-    /// The redo of a merge-move trashes the source folder only when the merge's own rule holds at
-    /// that moment — nothing left in it but a `.DS_Store`. A child whose redo was refused (edited
-    /// since the undo) stays inside it, so the folder stays too, and the banner says so; it is not
-    /// carried into the Trash under a banner saying the child was left in place.
+    /// The redo of a merge-move trashes the source folder only when the merge's rule holds then:
+    /// nothing left in it but a `.DS_Store`. A child whose redo was refused (edited since the undo)
+    /// stays inside, so the folder stays too and the banner says so, rather than carrying the
+    /// child into the Trash under a banner saying it was left in place.
     @MainActor
     @Test func aMergeMoveRedoLeavesTheSourceFolderHoldingARefusedChild() async throws {
         let root = try makeCanonicalTempRoot(prefix: "redo-merge-refused-child")
@@ -552,8 +547,8 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let (m, src, dst) = try await mergeMoveAndUndo(in: root, trash: trash)
 
-        // Edited in place: the folder's own date and child count do not move, so its identity
-        // passes the redo's up-front check.
+        // Edited in place: the folder's child names don't change, so the folder's own identity
+        // still passes the redo's check.
         let handle = try FileHandle(forWritingTo: src.appendingPathComponent("a.txt"))
         try handle.seekToEnd()
         try handle.write(contentsOf: Data(" edited".utf8))
@@ -586,8 +581,8 @@ import Foundation
     }
 
     /// Writes the `.DS_Store` Finder adds to a folder the user opens, into the `Reports` folder in
-    /// the Trash. The folder is empty there, so its shallow identity's child count moves for
-    /// certain, whatever the clock's resolution does to its date.
+    /// the Trash. The folder is empty there, so its raw child count moves for certain, whatever
+    /// the clock's resolution does to its date.
     private func browseTrashedReports(_ trash: ScratchTrash) throws {
         let slots = try FileManager.default.contentsOfDirectory(at: trash.folder, includingPropertiesForKeys: nil)
         let trashed = try #require(slots.map { $0.appendingPathComponent("Reports") }.first(where: entryExists),
@@ -610,10 +605,9 @@ import Foundation
         return n > 0 ? String(decoding: buffer.prefix(n), as: UTF8.self) : nil
     }
 
-    /// The source folder a merge trashed is held to the identity rule of every other Trash backup
-    /// (FR27): deep, OS noise ignored. Finder writes a `.DS_Store` into a folder the user merely
-    /// opens in the Trash, which moves the folder's own date and child count; a ⌘Z after a look
-    /// must still put THAT folder back.
+    /// The source folder a merge trashed is held to the rule of every other Trash backup: deep, OS
+    /// noise ignored. Finder writes a `.DS_Store` into a folder the user merely opens in the Trash,
+    /// moving its date and child count; a ⌘Z after a look must still put that folder back.
     @MainActor
     @Test func aMergeMoveUndoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source")
@@ -637,13 +631,11 @@ import Foundation
         #expect(!trash.names.contains("Reports"), "trash: \(trash.names)")
     }
 
-    /// **A stranger at the emptied folder's Trash path is not pulled out as the source folder.** The
-    /// merge trashes the folder only once nothing but a `.DS_Store` is left in it, so its contents
-    /// digest is the same for every such folder: empty the Trash, trash some other empty `Reports`
-    /// — macOS hands it the freed name — and ⌘Z moved THAT folder out as `src/Reports`. The
-    /// folder's own file number tells them apart; Finder's `.DS_Store` does not change it, so the
-    /// browsed tests above still restore the real one. The stranger stays in the Trash, its mark
-    /// with it, and the child goes back into a folder made for it, as before FR35.
+    /// A stranger at the emptied folder's Trash path is not pulled out as the source folder. Every
+    /// merge-emptied folder has the same contents digest, so another empty `Reports` trashed into
+    /// the freed name would match; the folder's own file number tells them apart, and a
+    /// `.DS_Store` doesn't change it. The stranger stays in the Trash, its mark with it, and the
+    /// child goes back into a folder made for it.
     @MainActor
     @Test func aMergeMoveUndoLeavesAnEmptyStrangerFolderAtTheSourceFoldersTrashPathInTheTrash() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source")
@@ -669,8 +661,8 @@ import Foundation
         #expect(read(dst.appendingPathComponent("kept.txt")) == "kept")
     }
 
-    /// The same after a redo, whose own record of the folder it put back in the Trash is the one
-    /// the next ⌘Z reads.
+    /// The same after a redo, whose record of the folder it put back in the Trash is the one the
+    /// next ⌘Z reads.
     @MainActor
     @Test func aMergeMoveUndoAfterARedoLeavesAnEmptyStrangerFolderInTheTrash() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-stranger-source-redo")
@@ -689,7 +681,7 @@ import Foundation
     }
 
     /// Empties the `Reports` folder out of the Trash and puts another empty `Reports`, marked
-    /// "stranger", at the path it freed — what trashing some other empty folder of that name does.
+    /// "stranger", at the path it freed, as trashing another empty folder of that name does.
     /// Returns that path.
     private func swapTrashedReportsForAnEmptyStranger(_ trash: ScratchTrash) throws -> URL {
         let slots = try FileManager.default.contentsOfDirectory(at: trash.folder, includingPropertiesForKeys: nil)
@@ -703,8 +695,8 @@ import Foundation
         return trashed
     }
 
-    /// The same after a redo: the redo's own record of the folder it put back in the Trash follows
-    /// the same rule, so the next ⌘Z after a look in the Trash still restores it.
+    /// The same after a redo: the redo's record of the folder it put back in the Trash follows the
+    /// same rule, so the next ⌘Z after a look in the Trash still restores it.
     @MainActor
     @Test func aMergeMoveUndoAfterARedoRestoresTheSourceFolderFinderBrowsedInTheTrash() async throws {
         let root = try makeCanonicalTempRoot(prefix: "undo-merge-browsed-source-redo")

@@ -2,15 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins Finding 5 of the data-corruption review: the undo/redo blocks used to restore an
-/// overwritten/deleted original from its Trash backup with a best-effort, silent `try?`. If the
-/// backup was emptied or auto-purged between the operation and the undo, undo first trashes/removes
-/// the CURRENT file and then silently failed to put the original back — leaving the destination
-/// EMPTY with no log line and no user signal.
-///
-/// These tests simulate the vanished backup by deleting the trashed stub from `virtualDisk` before
-/// the undo, and assert the failure is now SURFACED (a `.warning` banner) rather than swallowed.
-/// The success cases assert we do NOT over-surface (no false warning when the restore works).
+/// An undo that can't restore an overwritten or deleted original from its Trash backup (emptied
+/// or purged since) has already removed the current file, leaving the destination empty, so the
+/// failure must be surfaced as a `.warning` banner, not swallowed. The vanished backup is simulated
+/// by deleting the trashed stub before the undo; the success cases check no false warning.
 @Suite struct UndoRestoreFailureTests {
 
     /// A manager with every alert seam mocked so no test can ever pop a real NSAlert.
@@ -30,10 +25,9 @@ import Foundation
 
     // MARK: Move undo — overwritten original's Trash backup is gone
 
-    /// A Move that replaced an existing file trashes the overwritten original. When that backup is
-    /// emptied from the Trash before the undo, the undo moves the file back to its source (vacating
-    /// the destination) and then cannot restore the overwritten original — the destination is left
-    /// empty, so a warning banner is raised instead of silently swallowing the loss.
+    /// A Move that replaced a file trashed the original. With that backup emptied before the undo,
+    /// the undo moves the file back to its source, can't restore the original, and leaves the
+    /// destination empty, so it raises a warning banner.
     @MainActor
     @Test func testMoveUndoSurfacesWarningWhenOverwrittenBackupIsGone() async throws {
         let manager = makeManager()
@@ -58,8 +52,8 @@ import Foundation
 
         manager.undoManager?.undo()
 
-        // The undo moves the file back to /src, then fails to restore the overwritten original into
-        // /dst — the loss is surfaced as a warning banner, not silently swallowed.
+        // The undo moves the file back to /src, then fails to restore the original into /dst, and
+        // says so in a warning banner.
         await waitUntil("move undo raises a warning when the overwritten backup is gone") {
             manager.banner?.severity == .warning
         }
@@ -71,8 +65,8 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }
 
-    /// The mirror of the above: when the overwritten backup is still in the Trash, the undo restores
-    /// it cleanly and must NOT raise a warning banner (no over-surfacing).
+    /// The mirror: with the backup still in the Trash, the undo restores it cleanly and raises no
+    /// warning.
     @MainActor
     @Test func testMoveUndoRaisesNoWarningWhenBackupIntact() async throws {
         let manager = makeManager()
@@ -99,9 +93,8 @@ import Foundation
 
     // MARK: Delete undo (registerRestoreItems) — the trashed item is gone
 
-    /// Undoing a Delete restores each item from its Trash location. When the Trash was emptied before
-    /// the undo, the restore fails; that failure is surfaced as a warning banner rather than leaving
-    /// the item silently unrestored.
+    /// Undoing a Delete restores each item from the Trash. When the Trash was emptied before the
+    /// undo, the restore fails, and a warning banner says so.
     @MainActor
     @Test func testDeleteUndoSurfacesWarningWhenTrashedItemIsGone() async throws {
         let manager = makeManager()
@@ -125,7 +118,7 @@ import Foundation
             manager.banner?.severity == .warning
         }
         #expect(manager.banner?.message.contains("couldn’t restore") == true)
-        // The item was NOT resurrected (there was nothing left in the Trash to restore).
+        // Nothing came back: there was nothing left in the Trash to restore.
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }
 
@@ -150,11 +143,9 @@ import Foundation
 
     // MARK: Copy undo on a trash-less volume — the in-place backup is gone
 
-    /// A Copy that replaced an existing file on a trash-less volume keeps the old file as a hidden
-    /// in-place backup. Undoing the copy removes the copied file (after the permanent-delete
-    /// confirmation) and restores the backup — but if that backup has since vanished, the undo
-    /// removes the current file and cannot restore the original, so it raises a warning banner and
-    /// leaves the destination empty.
+    /// A Copy that replaced a file trashed the original. If the volume then loses Trash support
+    /// and the backup vanishes, the undo removes the copy permanently (once confirmed), can't
+    /// restore the original, raises a warning banner and leaves the destination empty.
     @MainActor
     @Test func testCopyUndoSurfacesWarningWhenInPlaceBackupIsGone() async throws {
         let manager = makeManager() // collisionResolver is .replace
@@ -170,8 +161,8 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         let backupPath = try #require(mockFM.trashedPaths.first)
 
-        // The volume loses Trash support (network share) AND the overwritten backup is purged before
-        // the undo, so the undo must fall through to a permanent removeItem + a failing restore.
+        // The volume loses Trash support (a network share) and the backup is purged before the
+        // undo, so it falls through to a permanent removeItem and a failing restore.
         mockFM.shouldFailTrash = true
         mockFM.virtualDisk.removeValue(forKey: backupPath)
         manager.banner = nil
@@ -182,13 +173,12 @@ import Foundation
             manager.banner?.severity == .warning
         }
         #expect(manager.banner?.message.contains("couldn’t restore") == true)
-        // The copy was removed and the original could not be restored — destination is empty.
+        // The copy was removed and the original couldn't be restored: the destination is empty.
         await waitUntil("the copied file was removed") { mockFM.virtualDisk["/dst/f.txt"] == nil }
     }
 
-    /// On a trash-less volume, undoing a copy needs the permanent-delete confirmation to remove the
-    /// copied file. If the user DECLINES, the undo aborts as a safe no-op: the copied file stays in
-    /// place, nothing is removed or restored, and no failure is surfaced.
+    /// On a trash-less volume, undoing a copy needs the permanent-delete confirmation. If the user
+    /// declines, the undo is a safe no-op: the copy stays, nothing is restored, no failure shows.
     @MainActor
     @Test func testCopyUndoDeclinedPermanentDeleteLeavesCopyInPlace() async throws {
         let manager = makeManager() // permanentDeleteConfirmer defaults to { _ in false } → declines
@@ -211,7 +201,7 @@ import Foundation
         manager.undoManager?.undo()
         await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
 
-        // The copied file was NOT removed and nothing was surfaced — a clean no-op.
+        // The copy was not removed and nothing was surfaced: a clean no-op.
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         #expect(manager.banner == nil)
     }

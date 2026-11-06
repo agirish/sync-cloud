@@ -3,9 +3,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The bar for pre-ticking a country, on fixtures.
-///
-/// What the *number* should be is not decidable here — that is
+/// The bar for pre-ticking a country, on fixtures. What the number should be is decided by
 /// ``JurisdictionConfidenceGroundTruthTests`` below, against the reference tree. These pin what the
 /// rule is made of, so a change to either half fails as itself.
 @Suite struct JurisdictionConfidenceTests {
@@ -16,8 +14,8 @@ import Testing
                               folderCount: parents * 2)
     }
 
-    /// A country code that splits enough branches is offered already ticked — the case the whole
-    /// rule exists for, because on this tree that is `US` and `IN`.
+    /// A country code that splits enough branches is offered already ticked: the case the rule
+    /// exists for (`US` and `IN` on the reference tree).
     @Test func aRealCountryOverTheBarIsConfident() {
         #expect(JurisdictionCandidates.isConfident(Self.candidate("US", parents: 5)))
         #expect(JurisdictionCandidates.isConfident(Self.candidate("IN", parents: 9)))
@@ -29,9 +27,9 @@ import Testing
         #expect(!JurisdictionCandidates.isConfident(Self.candidate("US", parents: 4)))
     }
 
-    /// The count alone cannot tell a country from a department. `IT` clears any parent bar on a
-    /// tree with an IT department in it, and it is a real ISO code — which is exactly why the two
-    /// conditions are both necessary and neither is sufficient.
+    /// The count alone can't tell a country from a department, so both conditions are needed.
+    /// Neither is sufficient: `IT` is a real ISO code and clears any bar on a tree with an IT
+    /// department.
     @Test func somethingThatIsNotACountryIsNeverTicked() {
         #expect(!JurisdictionCandidates.isConfident(Self.candidate("EMP", parents: 12)))
         #expect(!JurisdictionCandidates.isConfident(Self.candidate("PRD", parents: 12)))
@@ -39,8 +37,8 @@ import Testing
                 "IT is Italy to ISO, and the rule cannot see the department — the user unticks it")
     }
 
-    /// The stated limit, pinned so it is a known cost rather than a surprise: three-letter codes
-    /// are proposed and can never pre-tick, because the region list is alpha-2.
+    /// A known limit: three-letter codes are proposed but never pre-tick, because the region list
+    /// is alpha-2.
     @Test func threeLetterCodesCanNeverPreTick() {
         #expect(!JurisdictionCandidates.isConfident(Self.candidate("USA", parents: 20)))
         #expect(!JurisdictionCandidates.isConfident(Self.candidate("UAE", parents: 20)))
@@ -53,18 +51,14 @@ import Testing
     }
 }
 
-/// The measurement the bar is set from: **every value setup would pre-tick on the reference tree
-/// is one the hand-built profile actually carries**.
+/// The measurement the bar is set from: every value setup would pre-tick on the reference tree is
+/// one the hand-built profile carries. Only the 3,000-folder tree the profile was written for can
+/// answer that. If this fails, raise ``JurisdictionCandidates/confidentDistinctParents`` until it
+/// passes and record the new number in that constant's doc comment.
 ///
-/// A fixture cannot settle this. The question is whether a threshold chosen in the abstract admits
-/// something real — and the only tree that can answer is the 3,000-folder one the profile was
-/// hand-written for. If this fails, raise ``JurisdictionCandidates/confidentDistinctParents`` until
-/// it passes and record the new number in that constant's doc comment.
-///
-/// Gated exactly as ``FolderSurveyGroundTruthTests`` is, and for the same three reasons: no live
-/// profile, a sleeping display (an iCloud walk makes no progress), and CI being this same Mac.
-/// `SYNCCLOUD_SKIP_MACHINE_PINNED` names `liveProfile` there, so this is always skipped on CI and
-/// the number can only be measured locally, with the display awake and held.
+/// Gated like ``FolderSurveyGroundTruthTests``: no live profile, a sleeping display (an iCloud
+/// walk makes no progress), and CI. `SYNCCLOUD_SKIP_MACHINE_PINNED` names `liveProfile` there, so
+/// this only runs locally, with the display awake and held.
 @Suite(.enabled(if: LiveProfile.isAvailable,
                 "no live folder profile on this machine — the confidence bar was not measured"),
        .enabled(if: FolderSurveyGroundTruth.displayIsAwake,

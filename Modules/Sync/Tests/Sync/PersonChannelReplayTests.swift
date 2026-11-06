@@ -2,41 +2,19 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Every channel that can claim a document for a person, replayed over the **live** corpus and
-/// scored against the tree's own filing.
+/// Every channel that can claim a document for a person, replayed over the live corpus and scored
+/// against the tree's own filing. The review queue treats weak evidence as unreviewed rather than
+/// wrong, which only holds if its precision is decent: a queue of mostly wrong rows costs a
+/// decision per row. A document under a folder whose `person` axis resolves is labelled by that
+/// folder.
 ///
-/// ## Why this exists before the review queue does
+/// Ground truth exists only for documents already in a person folder, which never reach the queue,
+/// so these precisions are an upper bound for queue rows. What the replay can say is the ordering
+/// (filename beats page, strong beats weak) and how often a channel contradicts the tree, the one
+/// failure that would make the queue lie. ``queueSize`` counts the real, unlabelled rows.
 ///
-/// The queue's whole proposition is that weak evidence is *unreviewed* rather than wrong. That is a
-/// claim about precision, and it was never measured — stage 1 suppressed weak matches precisely
-/// because there was nowhere to put them and no number to justify showing them. Putting them in
-/// front of the user makes the number matter: a queue whose rows are mostly wrong is worse than no
-/// queue, because every row costs a decision.
-///
-/// **The corpus is already labelled.** For every document under a folder whose `person` axis
-/// resolves, that person is ground truth — the household filed it there. So each channel can be
-/// asked the same question the queue will ask, and its answer compared with the answer the tree
-/// already gives.
-///
-/// ## The population this can score is not the population the queue holds
-///
-/// This is the limit to state before quoting any number from here. Ground truth exists **only** for
-/// documents already inside somebody's person folder — and those are exactly the documents the
-/// queue will *not* contain, because a document whose folder claims it is attributed by the folder
-/// channel and never reaches review. The queue holds documents in nobody's folder, where nothing
-/// says who is right.
-///
-/// So the precisions below are an **upper bound** for the queue's rows, not an estimate of them. On
-/// a person-filed document the filename and the folder usually agree, and that agreement is part of
-/// what is being measured. What the replay can say honestly is the *ordering* — filename beats page,
-/// strong beats weak — and how often a channel actively **contradicts** the tree's own filing, which
-/// is the one failure mode that would make the queue lie. ``queueSize`` counts the real rows
-/// separately, and they are unlabelled by construction.
-///
-/// The numbers this printed on 2026-08-09 are recorded in `ROADMAP.md` item 22 and in the design
-/// artifact. What is *asserted* is deliberately coarser than what is printed: the tree is his live
-/// `~/Documents` and he edits it while work is in progress, so pinning "the page channel is 94.1%"
-/// would make this a tripwire for his filing rather than for this code.
+/// Assertions are coarser than the printed numbers: the tree is his live `~/Documents`, and exact
+/// figures would trip on his filing rather than on this code.
 @Suite(.enabled(if: LiveProfile.isAvailable && LiveCorpus.isAvailable,
                 "no live filing corpus on this machine — channel replay skipped"),
        .machinePinned(.liveProfile))
@@ -44,11 +22,11 @@ struct PersonChannelReplayTests {
 
     // MARK: - The labelled corpus
 
-    /// One document, with the person its folder says it belongs to — or nil when no folder claims it.
+    /// One document, with the person its folder says it belongs to, or nil when no folder claims it.
     struct Document {
         let path: String
-        /// The folder's verdict: ground truth where it exists, and absent for exactly the documents
-        /// the review queue is made of.
+        /// The folder's verdict: ground truth where it exists, absent for exactly the documents the
+        /// review queue holds.
         let truth: String?
         let doc: FilingCorpusDocument
     }
@@ -73,17 +51,16 @@ struct PersonChannelReplayTests {
         return out.sorted { $0.path < $1.path }
     }()
 
-    /// The scorable half — every document a folder already claims.
+    /// The scorable half: every document a folder already claims.
     static let labelled: [Document] = allDocuments.filter { $0.truth != nil }
 
     // MARK: - Asking one channel
 
     /// What a channel said about one document: the single person it claimed, or nil for no opinion.
     ///
-    /// **One person or none, never a set.** A channel that names two people has not attributed the
-    /// document — it has produced exactly the over-attribution the registry took to zero — so it is
-    /// scored as an abstention rather than as half a hit. Counting it as correct whenever either
-    /// half matched is how a channel that names everybody scores 100%.
+    /// One person or none, never a set: a channel naming two people hasn't attributed the document,
+    /// so it scores as an abstention. Counting either half as a hit would let a channel that names
+    /// everybody score 100%.
     static func claim(_ report: PersonMatchReport, strongOnly: Bool) -> String? {
         var ids = Set<String>()
         for m in report.matches {
@@ -103,7 +80,8 @@ struct PersonChannelReplayTests {
 
     /// The page sample a channel reads, from the anchors the corpus already holds.
     ///
-    /// **This is a sorted, de-duplicated bag, not text** — see ``PersonChannelReplayTests/aSortedBagHasNoPhrasesToFind()``.
+    /// A sorted, de-duplicated bag, not text; see
+    /// ``PersonChannelReplayTests/aSortedBagHasNoPhrasesToFind()``.
     static func pageSample(_ doc: FilingCorpusDocument) -> String? {
         doc.anchors.isEmpty ? nil : doc.anchors.joined(separator: " ")
     }
@@ -112,8 +90,8 @@ struct PersonChannelReplayTests {
         var claimed = 0
         var correct = 0
         var precision: Double { claimed == 0 ? 0 : Double(correct) / Double(claimed) }
-        /// Claims that named somebody **other** than the folder's own person. The failure the queue
-        /// cannot afford: not silence, but a confident wrong name.
+        /// Claims that named somebody other than the folder's own person: the failure the queue
+        /// can't afford, a confident wrong name.
         var contradictions: Int { claimed - correct }
         var line: String {
             String(format: "%5d claimed  %5d correct  %6.1f%%  %3d contradict",
@@ -131,14 +109,14 @@ struct PersonChannelReplayTests {
         var fileWeak = Score()
         var pageStrong = Score()
         var pageWeak = Score()
-        /// The page channel asked of every document rather than only of the ones whose filename
-        /// names nobody — what it would score if precedence were dropped.
+        /// The page channel asked of every document, not only those whose filename names nobody:
+        /// what it would score without precedence.
         var pageIgnoringPrecedence = Score()
         /// Phrase matches found in a sorted anchor bag. Every one of them is fabricated: the bag has
         /// no word order, so an adjacency in it means alphabetical luck, not what the page said.
         var fabricatedPhrases = 0
         var documentsWithText = 0
-        /// Documents no folder claims, for which some channel has an opinion — the real queue.
+        /// Documents no folder claims, for which some channel has an opinion: the real queue.
         var queueSize = 0
         var queueStrong = 0
     }
@@ -163,7 +141,7 @@ struct PersonChannelReplayTests {
             let weak = strong == nil ? claim(effective, strongOnly: false) : nil
 
             guard let truth = item.truth else {
-                // No folder claims it — this is a queue row, and nothing labels it.
+                // No folder claims it: a queue row, and nothing labels it.
                 if strong != nil || weak != nil { r.queueSize += 1 }
                 if strong != nil { r.queueStrong += 1 }
                 continue
@@ -198,8 +176,8 @@ struct PersonChannelReplayTests {
 
     // MARK: - The report
 
-    /// Prints the table the roadmap quotes. The assertions are below, and are about relationships
-    /// rather than about his filing on any given day.
+    /// Prints the per-channel table. The assertions below are about relationships, not about his
+    /// filing on any given day.
     @Test func printsThePerChannelScoreboard() {
         let r = Self.report
         var out = "\n── Person channel replay ── \(Self.allDocuments.count) documents, "
@@ -219,12 +197,9 @@ struct PersonChannelReplayTests {
 
     // MARK: - What the design depends on
 
-    /// **The filename outranks the page, and this is the number that says so.**
-    ///
-    /// `attribute` reads the page only when the name names nobody. Asked of every document instead,
-    /// the page channel contradicts the tree's own filing far more often — it is testimony rather
-    /// than a label, and an invoice for a swim class prints the parent who pays for it, not the
-    /// child who takes it.
+    /// The filename outranks the page, which is why `attribute` reads the page only when the name
+    /// names nobody. The page is testimony, not a label: an invoice for a swim class prints the
+    /// parent who pays, not the child who takes it.
     @Test func theFilenameOutranksThePage() {
         let r = Self.report
         let why: Comment = """
@@ -234,12 +209,9 @@ struct PersonChannelReplayTests {
         #expect(r.fileStrong.precision > r.pageIgnoringPrecedence.precision, why)
     }
 
-    /// **A strong match beats a weak one — which is what makes the strength gate a gate.**
-    ///
-    /// Asserted on the page channel, where the gap is real and large. The filename channel's weak
-    /// tier is *also* accurate on this population (97%) — see the suite doc: on a document the
-    /// household already filed under a person, a weak name match usually agrees with the folder,
-    /// which is precisely the bias that makes these numbers an upper bound.
+    /// A strong match beats a weak one, which is what makes the strength gate a gate. Asserted on
+    /// the page channel, where the gap is large; the filename's weak tier is also accurate on this
+    /// population, the upper-bound bias the suite doc describes.
     @Test func strongPageEvidenceOutscoresWeak() {
         let r = Self.report
         #expect(r.pageWeak.claimed > 0, "no weak page matches at all — the queue would be empty")
@@ -247,11 +219,8 @@ struct PersonChannelReplayTests {
         #expect(r.pageStrong.precision > r.pageWeak.precision, why)
     }
 
-    /// **The queue exists and is small enough to review.**
-    ///
-    /// These rows have no ground truth by construction — no folder claims them, which is why they
-    /// are in the queue. What can be asserted is that the population is real and that it is a
-    /// review-sized list rather than the 204-row flood that suppressing weak evidence was avoiding.
+    /// The queue exists and is small enough to review. Its rows have no ground truth by
+    /// construction, so only its size can be asserted.
     @Test func theQueueIsARealAndReviewableSize() {
         let r = Self.report
         #expect(r.queueSize > 0, "nothing to review — the queue would never show a row")
@@ -259,8 +228,8 @@ struct PersonChannelReplayTests {
         #expect(r.queueSize < Self.allDocuments.count / 4, size)
     }
 
-    /// **A channel that contradicts the tree's own filing is the one failure the queue cannot
-    /// absorb**, so both name channels are held to a low contradiction rate on the labelled half.
+    /// A channel that contradicts the tree's own filing is the one failure the queue can't absorb,
+    /// so both name channels are held to a low contradiction rate on the labelled half.
     @Test func noChannelOftenContradictsTheTree() {
         let r = Self.report
         for (name, score) in [("file strong", r.fileStrong), ("file weak", r.fileWeak),
@@ -306,8 +275,8 @@ struct PersonChannelReplayTests {
         #expect(!rows.isEmpty)
     }
 
-    /// What each person's view actually holds, from the shipping ``PersonFiles/gather`` — not a
-    /// re-derivation of it. The queue has to be a review-sized list per person, not per household.
+    /// What each person's view holds, from the shipping ``PersonFiles/gather``, not a re-derivation.
+    /// The queue has to be review-sized per person, not per household.
     @Test func printsWhatEachPersonsViewHolds() throws {
         guard let corpus = LiveCorpus.corpus, let profile = LiveProfile.profile else { return }
         var out = "\n── Each person's view (live gather) ──\n"
@@ -328,17 +297,10 @@ struct PersonChannelReplayTests {
         #expect(totalReview > 0)
     }
 
-    /// **A sorted token bag has no phrases to find, and any it yields were never on the page.**
-    ///
-    /// The corpus stores page-1 anchors as a *sorted, de-duplicated set* — word order is gone by the
-    /// time anything reads it back. So a phrase match in that bag is alphabetical luck (`elder`
-    /// next to `forebear` because *g* precedes *k*), not something the document said.
-    ///
-    /// **Measured: zero, over 1,304 documents with text.** A barrier token between anchors was
-    /// written to prevent this and then deleted, because it prevented nothing — the mechanism had no
-    /// measurable work to do. This assertion is what replaces it: if a roster change ever makes the
-    /// count non-zero, the hazard has become real and the barrier is the fix. Non-vacuity is
-    /// asserted alongside, so a corpus that stopped carrying anchors cannot pass this quietly.
+    /// A sorted token bag has no phrases to find. The corpus stores page-1 anchors as a sorted,
+    /// de-duplicated set, so a phrase match in it is alphabetical luck, not something the document
+    /// said. The count is zero today, so no barrier token separates the anchors; if a roster change
+    /// makes it non-zero, add one. Non-vacuity is asserted too.
     @Test func aSortedBagHasNoPhrasesToFind() {
         let r = Self.report
         #expect(r.documentsWithText > 200, "no anchors to search — this assertion would be vacuous")

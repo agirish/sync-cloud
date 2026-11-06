@@ -2,17 +2,13 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **One unknown `role` string used to kill the entire filing layer, unrepairably.**
-///
-/// `FolderRole` is a raw-value enum and `role` is optional — but optional only makes an ABSENT key
-/// fine. A present value with no case throws `dataCorrupted`, and the throw escapes both
-/// `decodeIfPresent` and the `?? []` beside it, because `??` handles nil and not a throw. One entry
-/// out of 3,013 written by a newer generator therefore failed the whole profile, and `SyncCloudApp`
-/// loads six things behind one `if let`: the profile, the memory, the profiles directory, the
-/// content-index directory, the people store and the tag store. Organize reports "not scanned", the
-/// roster and every person verdict become unreachable — and it cannot be fixed from inside the app,
-/// because `writeProfile` refuses to overwrite. The schema probe does not catch it either: a new
-/// role inside the current schema is not a new schema.
+/// One unknown `role` string must not fail the whole profile. `FolderRole` is a raw-value enum, and
+/// `role` being optional only makes an absent key fine: a present value with no case throws
+/// `dataCorrupted`, which escapes `decodeIfPresent` and any `??` beside it. One entry from a newer
+/// generator would then fail the profile, and with it everything `SyncCloudApp` loads behind it
+/// (memory, people and tag stores, the content index). The app can't repair it, because
+/// `writeProfile` refuses to overwrite, and the schema probe doesn't catch a new role inside the
+/// current schema.
 @Suite struct FolderProfileToleranceTests {
 
     static func json(roles: [String]) -> Data {
@@ -35,11 +31,11 @@ import Testing
         #expect(profile.folders.count == 3, "an unknown role took other folders with it")
         #expect(profile.folders["F0"]?.role == .destination)
         #expect(profile.folders["F2"]?.role == .container)
-        // The unknown one is present and role-less — which is what "the survey said nothing" means
+        // The unknown one is present and role-less, which is what "the survey said nothing" means
         // everywhere else, rather than a folder that vanished.
         let unknown = try #require(profile.folders["F1"])
         #expect(unknown.role == nil)
-        // ...and it keeps every field this build DOES understand.
+        // ...and it keeps every field this build does understand.
         #expect(unknown.fileCount == 2)
         #expect(unknown.anchors == ["a"])
         #expect(unknown.axes["person"] == "Daughter")
@@ -56,8 +52,8 @@ import Testing
         #expect(profile.undecodableFolders == 0)
     }
 
-    /// A missing role is still simply a missing role — the tolerance must not report every
-    /// role-less folder as a surprise.
+    /// A missing role is still just a missing role: the tolerance must not report every role-less
+    /// folder as a surprise.
     @Test func anAbsentRoleIsNotAnUnknownRole() throws {
         let profile = try JSONDecoder().decode(FolderProfile.self,
                                                from: Self.json(roles: ["null", "\"destination\""]))
@@ -66,7 +62,7 @@ import Testing
         #expect(profile.unknownRoles.isEmpty, "an absent role was reported as unknown")
     }
 
-    /// An entry that cannot be read even leniently costs itself, not the file — and is counted, so
+    /// An entry that can't be read even leniently costs itself, not the file, and is counted, so
     /// "the profile loaded" never quietly means "most of it did".
     @Test func anUndecodableEntryCostsOnlyItself() throws {
         let data = Data("""
@@ -83,8 +79,8 @@ import Testing
         #expect(profile.undecodableFolders == 1)
     }
 
-    /// The person axis still comes through — the folders array is decoded differently now, and the
-    /// axis block is read from the same container.
+    /// The person axis still comes through: the axis block is read from the same container as the
+    /// leniently decoded folders array.
     @Test func thePersonAxisSurvivesTheNewFolderDecode() throws {
         let data = Data("""
         {"profileId":"p","root":"~","folders":[],

@@ -3,16 +3,14 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Regression coverage for `activeProgress` / bulk progress accounting:
-/// - an operation queued behind a running one must not clobber (or blank out) the running
-///   operation's `activeProgress`; each operation publishes its progress only when it starts,
-/// - `syncAll` must count collision-skipped items as completed so the progress reaches 100%
-///   instead of stalling at (total - skipped).
+/// `activeProgress` and bulk progress accounting. An operation queued behind a running one must not
+/// replace or blank the running one's progress; each publishes its own only when it starts. A
+/// skipped item counts as completed, so the bar reaches 100% instead of stalling short.
 @Suite struct ProgressAccountingTests {
 
-    /// Wraps `MockFileManager` and blocks copy/move calls on a semaphore, so a test can hold an
-    /// operation "in flight" at a deterministic point. Gates time out (rather than hang the
-    /// suite) if a test forgets to signal.
+    /// Wraps `MockFileManager` and blocks copy, move and trash calls on a semaphore, so a test can
+    /// hold an operation in flight at a deterministic point. Gates time out rather than hang the
+    /// suite if a test forgets to signal.
     private final class GatedFileManager: FileManaging, @unchecked Sendable {
         private let inner: MockFileManager
         var copyGate: DispatchSemaphore?
@@ -21,10 +19,9 @@ import Combine
         private let timeoutLock = NSLock()
         private var timedOut = false
 
-        /// True if a gated call gave up waiting instead of being signalled. The bound only stops
-        /// a mis-wired test from hanging; discarding its result is what makes it dangerous, since
-        /// the call then resumes by itself and the accounting assertions read as though the test
-        /// had held it. Tests `try #require(!fm.releasedByTimeout)` once the run completes.
+        /// True if a gated call gave up waiting instead of being signalled. A timed-out call resumes
+        /// by itself and the assertions would read as though the test had held it, so tests
+        /// `try #require(!fm.releasedByTimeout)` once the run completes.
         var releasedByTimeout: Bool {
             timeoutLock.lock(); defer { timeoutLock.unlock() }
             return timedOut
@@ -88,7 +85,7 @@ import Combine
         inner.virtualDisk["/srcB/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let manager = FileSyncManager()
-        // No collisions expected, but the seams stay mocked so no NSAlert can ever appear.
+        // No collisions expected, but the seams stay mocked so no NSAlert can appear.
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
@@ -136,9 +133,8 @@ import Combine
         #expect(inner.virtualDisk["/srcB/b.txt"] == nil)
     }
 
-    /// **A move to the Trash titles its progress in sentence case, as Finder does** (FD7):
-    /// "Moving 3 items to the Trash", where it said "Moving 3 Items to the Trash". The undo name
-    /// it registers is a menu item and stays Title Case.
+    /// A move to the Trash titles its progress in sentence case, as Finder does: "Moving 3 items to
+    /// the Trash". The undo name it registers is a menu item and stays Title Case.
     @MainActor
     @Test(.parksThreads(3)) func aMoveToTheTrashTitlesItsProgressInSentenceCase() async throws {
         let inner = MockFileManager()
@@ -171,7 +167,7 @@ import Combine
         mockFM.virtualDisk["/dst/collides.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/fresh.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        // The user answers "Skip" to the collision dialog (mocked seam — no NSAlert).
+        // The user answers "Skip" to the collision dialog (mocked seam, no NSAlert).
         manager.collisionResolver = { _ in .skip }
         manager.bulkCollisionResolver = { _ in (.skip, true) }
 
@@ -211,10 +207,9 @@ import Combine
         #expect(manager.bulkSyncProgress == nil)
     }
 
-    /// transferItems: a collision answered with Skip on the LAST item must still advance the
-    /// overlay to N/N. The skip `continue`d past the per-item progress bump, so a trailing skip
-    /// left the bar stuck at N-1 of N until the operation returned (a mid-list skip self-healed
-    /// because the next item writes index+1 absolutely).
+    /// transferItems: a collision answered with Skip on the last item still advances the overlay to
+    /// N/N. Only a trailing skip shows it: after a mid-list skip, the next item writes index + 1
+    /// absolutely.
     @MainActor
     @Test func testTrailingCollisionSkipCompletesTransferProgress() async throws {
         let mockFM = MockFileManager()
@@ -249,8 +244,8 @@ import Combine
         #expect(progress.completedUnitCount == 2)
     }
 
-    /// Same accounting hole on the move-onto-itself skip: a trailing "source == destination"
-    /// item must count as completed, not leave the bar one short of full.
+    /// The same for the move-onto-itself skip: a trailing "source == destination" item counts as
+    /// completed, not leaving the bar one short of full.
     @MainActor
     @Test(.parksAThread) func testTrailingMoveOntoItselfSkipCompletesTransferProgress() async throws {
         let inner = MockFileManager()

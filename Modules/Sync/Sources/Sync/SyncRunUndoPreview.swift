@@ -1,21 +1,17 @@
 import Foundation
 import Events
 
-/// What "Undo Last Run" is about to reverse, assembled the moment the button is pressed so the
-/// confirmation can spell out — in as much detail as fits an alert — exactly which operations will
-/// be undone. It exists ONLY when the top of the shared `UndoManager` stack really is the last
-/// recorded sync run (see `FileSyncManager.lastSyncRunUndoPreview`); when a Filing move, a rename,
-/// a "New Folder", or any other non-sync action sits on top instead, there is no preview and the
-/// undo is refused.
+/// What "Undo Last Run" is about to reverse, assembled when the button is pressed so the
+/// confirmation can list which operations will be undone. It exists only when the top of the
+/// shared `UndoManager` stack is the last recorded sync run
+/// (`FileSyncManager.lastSyncRunUndoPreview`); with any other action on top there is no preview and
+/// the undo is refused.
 ///
-/// **What that gate does not cover, and what does** (FR26). This used to say the preview "can
-/// never describe one run while a different action gets reversed", and two paths did exactly that:
-/// a run armed its pairing only after awaiting its identity walks, so a rename or ⌘Z made during
-/// that tail was paired with the run's records; and the confirmation is modal, so a second "Sync
-/// run" finishing while it was up re-armed the pairing under the same name, and Undo reversed the
-/// run the alert never listed. Runs now arm in the turn that registers them, and the confirmation
-/// (`undoLastSyncRunAskingFirst`) re-reads the preview after the modal and refuses unless its
-/// `runToken` still names the run it showed. A path that bypasses both — ⌘Z itself — reverses whatever is on top.
+/// The gate alone doesn't keep the preview honest. A run arms its pairing in the turn that
+/// registers its undo, so nothing can slip in between, and the confirmation is modal, so a second
+/// run can finish while it is up: `undoLastSyncRunAskingFirst` re-reads the preview after the modal
+/// and refuses unless `runToken` still names the run it showed. ⌘Z bypasses both and reverses
+/// whatever is on top.
 public struct SyncRunUndoPreview: Sendable {
     /// The `UndoManager` action name of the run's group (e.g. "Sync run", "Move 3 Items"). Used
     /// both to gate the undo (it must still match the stack's top) and to title the log line.
@@ -38,10 +34,9 @@ public struct SyncRunUndoPreview: Sendable {
     /// Human count grouped by action, zero buckets omitted — e.g. "8 copies, 2 moves". Empty when
     /// there are no records.
     ///
-    /// **A `.delete` here is always a move to the Trash** (FD2): a delete run is paired for Undo
-    /// Last Run only when every item reached the Trash AND the Trash said where each one went
-    /// (`deleteItems`) — the restore needs every location — so the preview never holds a
-    /// permanent delete, and says "moves to the Trash" rather than "deletes".
+    /// A `.delete` here is always a move to the Trash: a delete run is paired for Undo Last Run only
+    /// when every item reached the Trash and the Trash said where each went (`deleteItems`), so the
+    /// preview never holds a permanent delete.
     public var actionSummary: String {
         var counts: [SyncAction: Int] = [:]
         for r in records { counts[r.action, default: 0] += 1 }
@@ -87,14 +82,9 @@ public struct SyncRunUndoPreview: Sendable {
         return lines.joined(separator: "\n")
     }
 
-    /// How the reversal behaves, said only for the kinds of operation this run holds (FR29).
-    ///
-    /// **One fixed sentence was wrong for the commonest run there is.** It always read "Files move
-    /// back to where they were; deleted items are restored from the Trash", and undoing a COPY run
-    /// moves nothing back and restores nothing from the Trash: the copies it made go TO the Trash,
-    /// and a file a copy replaced is put back in its place. Someone who pressed Undo on a sync that
-    /// had only copied was told their files would be moved. Each kind now says what its own undo
-    /// does, in the order the summary lists them.
+    /// How the reversal behaves, one clause per kind of operation this run holds, in summary order.
+    /// No fixed sentence fits every run: undoing a copy moves nothing back, it trashes the copies
+    /// and puts back any file a copy replaced.
     var reversalNote: String {
         let present = Set(records.map(\.action))
         var clauses: [String] = []

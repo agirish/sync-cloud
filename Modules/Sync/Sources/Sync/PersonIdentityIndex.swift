@@ -1,19 +1,16 @@
 import Foundation
 
-/// The account, case and member numbers that belong to one person — learned from what their
+/// The account, case and member numbers that belong to one person, learned from what their
 /// folders have already received.
 ///
-/// **This is the only way a scan with no readable name gets attributed at all.** A passport scan
-/// called `Scan 2026-08-02.pdf` whose text is an image says nothing; but the passport *number* on
-/// page 1 has been filed into Granny's folder eleven times before, and nobody else's. That is a
-/// stronger claim than any word in the document, and it is already recorded — ``FilingMemory``
-/// stores each folder's identifiers as salted hashes, which is what makes this cheap and what keeps
-/// the numbers themselves out of memory.
+/// The only way a scan with no readable name gets attributed: a passport number filed into one
+/// person's folders many times before is a stronger claim than any word in the document.
+/// ``FilingMemory`` already stores each folder's identifiers as salted hashes, so this is cheap
+/// and keeps the numbers themselves out of memory.
 ///
-/// **Only identifiers posted to exactly ONE person survive.** A number two people's folders have
-/// both received is a household account, not a personal one, and attributing on it would file a
-/// joint statement into whichever person happened to sort first. Measured on the real tree: of
-/// Granny's 28 identifiers, 15 are hers alone; Father has 193 of 235.
+/// Only identifiers posted to exactly one person survive. A number two people's folders both
+/// received is a household account, and attributing on it would file a joint statement under
+/// whoever sorted first.
 public struct PersonIdentityIndex: Sendable, Equatable {
     /// Hashed identifier → the one person whose folders have received it.
     let owner: [String: String]
@@ -36,9 +33,8 @@ public struct PersonIdentityIndex: Sendable, Equatable {
 
     /// The people named by the identifiers in this text.
     ///
-    /// Usually one, and empty is the common case. Returns a set rather than a single person because
-    /// a document can carry two people's numbers — a joint tax return — and the caller must be able
-    /// to see that rather than be handed one of them.
+    /// Usually empty, sometimes one. A set because a document can carry two people's numbers (a
+    /// joint tax return), and the caller must see that rather than be handed one of them.
     public func people(in text: String) -> Set<String> {
         guard !owner.isEmpty else { return [] }
         var found: Set<String> = []
@@ -52,10 +48,9 @@ public struct PersonIdentityIndex: Sendable, Equatable {
     ///
     /// A folder's identifiers count for the person that folder belongs to; an identifier claimed by
     /// two different people is dropped rather than assigned.
-    /// - Parameter rejectedIdentifiers: `personId` → identifier hashes the user has said are **not**
-    ///   that person's, from ``rejectedIdentifiers(tags:corpus:)``. A claim withdrawn here is
-    ///   withdrawn before the single-owner filter below, which is what makes the correction do
-    ///   something rather than nothing — see the discussion there.
+    /// - Parameter rejectedIdentifiers: `personId` → identifier hashes the user said are not that
+    ///   person's, from ``rejectedIdentifiers(tags:corpus:salt:)``. Withdrawn before the
+    ///   single-owner filter, which is what lets the correction take effect.
     public static func make(registry: PersonRegistry, profile: FolderProfile?,
                             memory: FilingMemory?,
                             rejectedIdentifiers: [String: Set<String>] = [:]) -> PersonIdentityIndex {
@@ -66,23 +61,12 @@ public struct PersonIdentityIndex: Sendable, Equatable {
                   let personId = registry.person(forAxisValue: axis) else { continue }
             for token in entry.idHashes { claims[token.token, default: []].insert(personId) }
         }
-        // **The user's "no" un-teaches the identifier, and it has to happen HERE — before the
-        // single-owner filter — or it does nothing at all.**
-        //
-        // A misfile does not merely add a wrong owner; it usually SILENCES the identifier. Granny's
-        // passport number sits in eleven of her folders and, once the scan lands in `School/Daughter`,
-        // in one of Daughter's — so the hash is claimed by two people, `people.count == 1` is false,
-        // and it is dropped. The number that identified her best now identifies nobody.
-        //
-        // Withdrawing Daughter's claim first therefore does two things with one line: it stops the
-        // wrong attribution, and it hands the identifier back to its real owner. Filtering the
-        // finished `owner` map instead could only ever do the first, and in this — the common —
-        // shape there would have been nothing there to filter.
-        //
-        // The index is otherwise rebuilt from the tree as surveyed and takes no correction at all:
-        // the People queue wrote a verdict that `attribute`, `personVeto` and `personIs` never
-        // consulted, so the only un-learn was moving the file and re-surveying. That matters more
-        // since the cross-person rule began sweeping every card rather than only backend verdicts.
+        // The user's "no" un-teaches the identifier, and it must happen here, before the
+        // single-owner filter. A misfile usually silences an identifier rather than adding an
+        // owner: one wrong folder makes the hash claimed by two people, so it is dropped. Withdrawing
+        // the wrong claim first both stops that attribution and hands the identifier back to its
+        // real owner; filtering the finished `owner` map could do neither. Apart from this the
+        // index is rebuilt from the surveyed tree and takes no correction.
         for (personId, hashes) in rejectedIdentifiers {
             for hash in hashes { claims[hash]?.remove(personId) }
         }
@@ -93,25 +77,22 @@ public struct PersonIdentityIndex: Sendable, Equatable {
 
     /// The identifiers a rejection withdraws, keyed by the person it was withdrawn from.
     ///
-    /// A tag says "this DOCUMENT is not theirs"; the index reasons in identifier hashes. The corpus
-    /// is what joins the two — it holds each document's own `idHashes`, keyed by the same
-    /// root-relative path the tag records — so this is the whole translation and it is a lookup per
-    /// rejection rather than a pass over 10,000 documents.
+    /// A tag says "this document is not theirs"; the index reasons in identifier hashes. The corpus
+    /// joins them: it holds each document's `idHashes` under the same root-relative path the tag
+    /// records, so this is one lookup per rejection.
     ///
-    /// **Only `.rejected`.** A confirmation adds nothing: the identifier already reached the index
-    /// through the folder the document sits in, and inventing a claim from a tag would let a "yes"
-    /// on a joint statement hand a household account to one person.
+    /// Only `.rejected`: a confirmation adds nothing the folder didn't already teach, and a claim
+    /// invented from a "yes" on a joint statement would hand a household account to one person.
     ///
-    /// Returns empty when the corpus and the index disagree about their salt, since the hashes
-    /// would name nothing in common. That is the survey's own invariant; asserted rather than
-    /// assumed because a stale corpus beside a rebuilt memory is exactly when this would go quiet.
+    /// Returns empty when the corpus and index salts differ, since the hashes would name nothing in
+    /// common. Checked rather than assumed: a stale corpus beside a rebuilt memory would go quiet.
     public static func rejectedIdentifiers(tags: [PersonTag], corpus: FilingCorpus,
                                            salt: String) -> [String: Set<String>] {
         guard corpus.salt == salt else { return [:] }
         var out: [String: Set<String>] = [:]
         for tag in tags where tag.verdict == .rejected {
-            // The path the verdict was recorded at, which is the corpus's own key. A
-            // fingerprint-keyed tag carries it too — see `PersonTag.recordedPath`.
+            // The path the verdict was recorded at, the corpus's own key. A fingerprint-keyed tag
+            // carries it too (`PersonTag.recordedPath`).
             let path: String
             switch tag.key {
             case .path(let p): path = tag.recordedPath.isEmpty ? p : tag.recordedPath

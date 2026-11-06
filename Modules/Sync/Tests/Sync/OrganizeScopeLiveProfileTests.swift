@@ -2,39 +2,23 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The scope predicate, dry-run against the **live** folder profile and the real tree.
+/// The scope predicate, dry-run against the live folder profile and the real tree.
 ///
-/// ## Why fixtures were not enough
+/// Fixtures aren't enough: the live profile propagates axes down the whole subtree, while a
+/// synthetic fixture puts each value only on the folder that owns it, so fixtures can pass while a
+/// real dry run finds nothing. A scope predicate is entirely about how real paths nest, so it is
+/// checked against them.
 ///
-/// This exact feature has already shipped a version where **12 green tests passed while a real
-/// profile dry run returned zero findings**. The cause was structural, not a typo: the live profile
-/// propagates axes down the whole subtree, while a synthetic fixture puts each value only on the
-/// folder that owns it, so no fixture could reach the state that broke. A scope predicate has the
-/// same exposure — it is entirely about how real paths nest — so it gets the same treatment.
+/// The assertions pin shape, not counts: the tree is the user's live `~/Documents`, which he edits
+/// as he works, so exact counts would trip on his filing rather than on this code. What is pinned
+/// can't drift without the predicate being wrong: monotonicity, partition, and the non-vacuity of
+/// each answer. Skips, rather than fails, when the profile is absent.
 ///
-/// These assertions are deliberately about **shape rather than exact counts**: the tree is the
-/// user's live `~/Documents` and he edits it while work is in progress, so pinning "126 folders"
-/// would make this a tripwire for his filing rather than for this code. What is pinned is what
-/// cannot drift without the predicate being wrong — monotonicity, partition, and the
-/// non-vacuity of each answer.
-///
-/// Skips (rather than fails) when the profile is absent, so a fresh checkout on another machine is
-/// not red for a reason that has nothing to do with the change.
-/// ## Why this is machine-pinned as well as gated on the profile existing
-///
-/// **`.enabled(if:)` alone was not enough, and CI proved it within the hour.** The self-hosted
-/// runner runs as the same user on this same Mac, so the profile is right there and the whole suite
-/// ran — under Rosetta, where `nestingIsMonotonic` took **10.8s against 1.05s natively**.
-/// swift-testing runs suites in parallel, so that cost was not paid alone: it starved the
-/// timing-sensitive tests beside it and took `ScanSupersedenceTests` and `DifferenceResolutionTests`
-/// red on a commit that touched neither. A wall-clock budget of 2.0s came back at 9.2s, and two
-/// `ParkGate`s reported `releasedByTimeout`.
-///
-/// A starved wait looks exactly like a slow one, which is what made it read as a flake at first
-/// glance. It was not: the previous commit was green and the only new load was this suite.
-///
-/// So it carries `.machinePinned(.liveProfile)` too, and CI's `SYNCCLOUD_SKIP_MACHINE_PINNED` names
-/// that reason. Locally — the only place these assertions mean anything — it still runs in full.
+/// Machine-pinned as well as gated on the profile: the self-hosted CI runner is the same user on
+/// the same Mac, so the profile is there, but under Rosetta the suite runs about ten times slower
+/// and, running in parallel, starves the timing-sensitive suites beside it into false reds. So it
+/// carries `.machinePinned(.liveProfile)`, which CI's `SYNCCLOUD_SKIP_MACHINE_PINNED` names;
+/// locally, the only place these assertions mean anything, it runs in full.
 @Suite(.enabled(if: LiveProfile.isAvailable,
                 "no live folder profile on this machine — dry run skipped"),
        .machinePinned(.liveProfile))
@@ -59,8 +43,8 @@ struct OrganizeScopeLiveProfileTests {
 
     @Test func theLiveProfileIsTheRealOneAndIsLarge() throws {
         let profile = try #require(LiveProfile.profile)
-        // The known shape of his corpus. A profile that had shrunk to a handful of folders would
-        // make every assertion below pass for the wrong reason.
+        // The known shape of his corpus. A profile shrunk to a handful of folders would make every
+        // assertion below pass for the wrong reason.
         #expect(profile.folders.count > 1_000)
         #expect(Self.absoluteFolders.count == profile.folders.count)
         #expect(Self.root.hasPrefix("/"))
@@ -73,7 +57,7 @@ struct OrganizeScopeLiveProfileTests {
         let root = Self.root
         let all = Self.absoluteFolders
 
-        // The real top-level areas — Finance, Immigration, Family, …
+        // The real top-level areas: Finance, Immigration, Family, …
         let topLevel = Set(profile.folders.keys
             .filter { $0 != "." && !$0.contains("/") })
         #expect(topLevel.count > 3, "a real tree has several top-level areas")
@@ -85,8 +69,8 @@ struct OrganizeScopeLiveProfileTests {
                                      "a top-level folder must resolve to a scope")
             let inside = all.filter { scope.contains($0) }
 
-            // Claims itself at minimum — never zero. A scope that matched nothing is the failure
-            // mode this whole dry run exists to catch.
+            // Claims itself at minimum, never zero: a scope that matched nothing is the failure
+            // this dry run exists to catch.
             #expect(!inside.isEmpty, "\(area) claimed no folders at all")
             #expect(inside.contains(path))
             // And never everything: the root is not a scope, so no subtree may claim the tree.
@@ -94,17 +78,17 @@ struct OrganizeScopeLiveProfileTests {
             covered.formUnion(inside)
         }
 
-        // Top-level scopes PARTITION the tree: together they cover everything except the root
-        // itself. A gap here would mean some folder is reachable from no scope at all.
+        // Top-level scopes partition the tree: together they cover everything except the root
+        // itself. A gap would mean some folder is reachable from no scope at all.
         let uncovered = Set(all).subtracting(covered)
         #expect(uncovered == [root],
                 "only the profile root should sit outside every top-level scope, got \(uncovered.count)")
     }
 
     @Test func nestingIsMonotonic() throws {
-        // A deeper scope can never claim more than its parent. Pure containment algebra, but run
-        // over the real path shapes — the ones with spaces, ampersands, `&`, accents and the
-        // `NN. Mon YYYY` folders that fixtures never reproduce.
+        // A deeper scope can never claim more than its parent. Pure containment algebra, run over
+        // the real path shapes: spaces, ampersands, accents and the `NN. Mon YYYY` folders that
+        // fixtures never reproduce.
         let root = Self.root
         let all = Self.absoluteFolders
         let deep = all
@@ -125,16 +109,14 @@ struct OrganizeScopeLiveProfileTests {
     }
 
     @Test func noScopeClaimsASiblingSharingAPrefix() throws {
-        // The `Legal` / `LegalArchive` hazard, hunted for in the REAL tree rather than posited —
-        // and it is emphatically not hypothetical here. **His tree holds 79 such pairs**, almost
-        // all of them under `Finance/IN/Accounts/HDFC Bank/Archive`, where a folder named `HDFC`
-        // sits beside `HDFC Credit`, `HDFC Demat`, `HDFC Forex` and `HDFC Savings`. A scope built
-        // on a bare `hasPrefix` and pointed at `HDFC` would silently swallow all four siblings and
-        // every year-folder beneath them.
+        // The `Legal` / `LegalArchive` hazard, hunted for in the real tree, where it is common:
+        // under `Finance/IN/Accounts/HDFC Bank/Archive` a folder named `HDFC` sits beside
+        // `HDFC Credit`, `HDFC Demat`, `HDFC Forex` and `HDFC Savings`. A scope built on a bare
+        // `hasPrefix` and pointed at `HDFC` would silently swallow all four and every year-folder
+        // beneath them.
         //
-        // Sorted + early-break rather than the O(n²) sweep this started as: any path sharing a
-        // string prefix with `a` is contiguous with it in sorted order, so the scan stops at the
-        // first non-match. 58s → milliseconds over the same 3,013 folders, same pairs found.
+        // Sorted with an early break rather than an O(n²) sweep: any path sharing a string prefix
+        // with `a` is contiguous with it in sorted order, so the scan stops at the first non-match.
         let root = Self.root
         let all = Self.absoluteFolders.sorted()
         var checked = 0
@@ -147,10 +129,8 @@ struct OrganizeScopeLiveProfileTests {
                 checked += 1
             }
         }
-        // **Asserted, not merely printed.** A loop whose body never runs passes just as green as
-        // one that proves something, and this is precisely the shape where that goes unnoticed.
-        // If his tree ever loses every such pair, this fails and says so rather than quietly
-        // becoming a test of nothing.
+        // Asserted, not printed: a loop whose body never runs passes just as green. If his tree
+        // ever loses every such pair, this fails rather than quietly testing nothing.
         #expect(checked > 0,
                 "no string-prefix sibling pairs in the live tree — this test proved nothing")
     }
@@ -162,8 +142,8 @@ struct OrganizeScopeLiveProfileTests {
         let findings = StructureDivergence.findings(in: profile)
         let root = Self.root
 
-        // The detector's own documented result on this corpus is a small number of families; if it
-        // returns none, the rest of this test is vacuous and must say so rather than pass quietly.
+        // The detector finds a small number of families on this corpus; if it returns none, the
+        // rest of this test is vacuous and must say so rather than pass.
         try #require(!findings.isEmpty,
                      "the live profile produced no structure findings — nothing to scope")
 
@@ -171,15 +151,15 @@ struct OrganizeScopeLiveProfileTests {
             let familyPath = finding.family == "."
                 ? root : (root as NSString).appendingPathComponent(finding.family)
 
-            // Scoped TO the family: inside.
+            // Scoped to the family: inside.
             if let own = OrganizeScope(path: familyPath, providerRoot: root) {
                 #expect(OrganizeScopeFilter.relation(of: finding, profileRoot: profile.root,
                                                      scope: own) == .inside)
             }
 
-            // Scoped to a CHILD of the family: the finding is about the folder above — surfaced,
-            // never dropped. This is the case that makes Restructure honest at a leaf, and the
-            // live profile is where real leaves live.
+            // Scoped to a child of the family: the finding is about the folder above, so it is
+            // surfaced, never dropped. This keeps Restructure honest at a leaf, and the live
+            // profile is where real leaves live.
             let child = profile.folders.keys.first {
                 $0 != finding.family && $0.hasPrefix(finding.family + "/")
             }
@@ -193,15 +173,15 @@ struct OrganizeScopeLiveProfileTests {
     }
 
     @Test func aScopeInAnUnrelatedAreaHidesTheFindingsOfAnother() throws {
-        // The discriminating half: scoping somewhere unrelated must actually REMOVE findings.
-        // Without this the two assertions above would pass against a predicate that answered
+        // The discriminating half: scoping somewhere unrelated must actually remove findings.
+        // Without it, the assertions above would pass against a predicate that answered
         // `.inside`/`.aboutAncestor` for everything.
         let profile = try #require(LiveProfile.profile)
         let findings = StructureDivergence.findings(in: profile)
         try #require(findings.count >= 1)
         let root = Self.root
 
-        // A top-level area that owns NO finding.
+        // A top-level area that owns no finding.
         let familyRoots = Set(findings.map { $0.family.split(separator: "/").first.map(String.init) ?? "." })
         let unrelated = profile.folders.keys
             .filter { $0 != "." && !$0.contains("/") && !familyRoots.contains($0) }

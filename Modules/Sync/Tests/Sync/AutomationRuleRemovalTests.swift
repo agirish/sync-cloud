@@ -2,15 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The removal half of the automation-rule lifecycle.
-///
-/// `upsertAutomationRule` has an end-to-end persistence test (`PersistedStoreWriteTests`); the
-/// removal half had none, and it is the only half that can leave a ZOMBIE: a deletion that does
-/// not reach the store keeps filing the user's files on every subsequent run, silently, with the
-/// rule no longer visible anywhere in the UI to explain why. Every test here drives a FRESH
-/// manager over the same defaults — the relaunch shape — because the dangerous mutation is not
-/// "forgot to persist" alone: a removal that mutates before loading persists the unloaded empty
-/// array, deleting every rule to delete one.
+/// Removing an automation rule persists. A deletion that doesn't reach the store leaves a zombie
+/// rule that keeps filing the user's files on every run with nothing in the UI to explain it. Each test
+/// uses a fresh manager over the same defaults (a relaunch), because a removal that mutates before
+/// loading persists the unloaded empty array and deletes every rule.
 @MainActor
 @Suite struct AutomationRuleRemovalTests {
 
@@ -32,9 +27,8 @@ import Testing
         writer.upsertAutomationRule(keep)
         writer.upsertAutomationRule(drop)
 
-        // A fresh manager (the relaunch) removes. The method must load the persisted rules
-        // before mutating — a removal that skipped the load would persist the unloaded empty
-        // array, which this first assertion sees as [] rather than [keep].
+        // A fresh manager removes, so it must load before mutating; skipping the load persists
+        // the empty array, and this sees [] rather than [keep].
         let remover = makeManager(defaults)
         remover.removeAutomationRule(id: drop.id)
         #expect(remover.automationRules.map(\.id) == [keep.id])
@@ -70,9 +64,8 @@ import Testing
         remover.removeAutomationRule(id: only.id)
         #expect(remover.automationRules.isEmpty)
 
-        // The empty set is a real saved state (the key holds an encoded []), not a removed key —
-        // and a fresh launch reads it as "no rules", not as "nothing saved yet" to be back-filled
-        // from anywhere else. The rule stays gone.
+        // The empty set is a saved state (an encoded []), not a removed key, so a fresh launch
+        // reads "no rules" rather than "nothing saved yet" to back-fill.
         let reader = makeManager(defaults)
         reader.ensureAutomationRulesLoaded()
         #expect(reader.automationRules.isEmpty)

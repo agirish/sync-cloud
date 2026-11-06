@@ -4,10 +4,9 @@ import Testing
 
 /// What the cross-person rule has stopped, and whether it survives a launch.
 ///
-/// The veto's own decision is tested where the rule lives; this is the record of it — the part the
-/// People section reads to say what a person's record has bought. It persists, so it is tested from
-/// **stored bytes** rather than only from a live object: `PersonVetoEvent` is `Codable` and a
-/// decode that silently fails would empty the log with nothing to show for it.
+/// The veto's decision is tested where the rule lives; this is its record, which the People section
+/// reads to say what a person's record has bought. It persists, so it is tested from stored bytes,
+/// not only a live object: a `PersonVetoEvent` decode that silently fails would empty the log.
 @MainActor
 @Suite struct PersonVetoLogTests {
 
@@ -36,9 +35,8 @@ import Testing
         #expect(log.events.map(\.fileName) == ["Second.pdf", "First.pdf"])
     }
 
-    /// Per-person, and it is the *named* person the count is for — the one whose document was
-    /// headed into somebody else's folder. Counting by `proposedPerson` would report the refusals
-    /// against the person whose folder was refused, which is the opposite claim.
+    /// The count is for the named person, whose document was headed into somebody else's folder.
+    /// Counting by `proposedPerson` would make the opposite claim.
     @Test func theCountIsForThePersonTheDocumentNames() {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -66,8 +64,8 @@ import Testing
         #expect(log.mostRecent(namedPerson: "nobody") == nil)
     }
 
-    /// **Capped and lossy on purpose** — an illustration, not an audit trail. The oldest fall off,
-    /// so what remains is the newest `capacity`, not the first ones recorded.
+    /// Capped and lossy on purpose: an illustration, not an audit trail. The oldest fall off, so
+    /// what remains is the newest `capacity`.
     @Test func theOldestEventsFallOffTheEnd() {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -85,8 +83,7 @@ import Testing
 
     // MARK: - Across a launch
 
-    /// The whole point of persisting: a count survives the process. Built by making a *second*
-    /// store over the same suite, which is what the next launch does.
+    /// A count survives the process: a second store over the same suite, as the next launch makes.
     @Test func aRecordedRefusalSurvivesTheNextLaunch() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -103,9 +100,9 @@ import Testing
         #expect(event.at == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    /// **From stored bytes this test wrote itself**, not from anything the app encoded — the fixture
-    /// a schema change has to keep satisfying. A field renamed on `PersonVetoEvent` fails here,
-    /// where the failure names the type, instead of silently emptying the log at the next launch.
+    /// From stored bytes this test wrote, not anything the app encoded: the fixture a schema change
+    /// must keep satisfying. A renamed `PersonVetoEvent` field fails here instead of silently
+    /// emptying the log at the next launch.
     @Test func aStoredLogDecodesFieldForField() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -127,9 +124,8 @@ import Testing
         #expect(log.count(namedPerson: "granny") == 1)
     }
 
-    /// A stored value this build cannot read empties the log rather than taking the launch with it.
-    /// (`events` is the app's "nothing has been refused yet" state, which is also the honest thing
-    /// to show when the record is unreadable.)
+    /// A stored value this build can't read shows an empty log rather than taking the launch with
+    /// it; "nothing refused yet" is the honest thing to show.
     @Test func anUnreadableStoredLogStartsEmpty() {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -153,16 +149,10 @@ import Testing
 
     // MARK: - Absent, unreadable, and the write that used to collapse them
 
-    /// **A stored value this build cannot decode must not be overwritten by the next refusal.**
-    ///
-    /// The load was `guard let data = …, let decoded = try? … else { return }`, so an undecodable
-    /// value left `events` empty — indistinguishable from a machine that has refused nothing — and
-    /// `record` then called `save`, writing that empty array over history it had never read. One
-    /// refusal, and the log is gone. `PersonVetoEvent` is a stored `Codable`, so a newer build
-    /// adding a non-optional field produces exactly this on the older one.
-    ///
-    /// Asserted on the STORED BYTES, because `events` is empty either way — reading the in-memory
-    /// array is what cannot tell the two apart.
+    /// A stored value this build can't decode must not be overwritten by the next refusal, which
+    /// would write over history it never read. A newer build adding a non-optional field to
+    /// `PersonVetoEvent` produces this. Asserted on the stored bytes, since `events` is empty
+    /// either way.
     @Test func anUnreadableStoredLogIsNotOverwrittenByANewRefusal() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -179,9 +169,8 @@ import Testing
                 "the refusal overwrote a stored log this build never read")
     }
 
-    /// And the session still works — the refusal is visible now, it is just not persisted over
-    /// something unreadable. A guard that also stopped recording would trade a data loss for a
-    /// dead feature.
+    /// The session still works: the refusal is visible now, just not persisted over something
+    /// unreadable. A guard that also stopped recording would trade data loss for a dead feature.
     @Test func anUnreadableStoredLogStillShowsThisSessionsRefusals() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -195,8 +184,8 @@ import Testing
         #expect(log.count(namedPerson: "granny") == 1)
     }
 
-    /// The other direction, so the guard cannot become "never persist": with NOTHING stored — the
-    /// ordinary state — a refusal is written as it always was.
+    /// The other direction, so the guard can't become "never persist": with nothing stored, the
+    /// ordinary state, a refusal is written.
     @Test func anAbsentLogIsStillWrittenToOnFirstRefusal() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
@@ -212,8 +201,8 @@ import Testing
         #expect(decoded.map(\.fileName) == ["Passport.pdf"])
     }
 
-    /// A readable log keeps being appended to across launches — the control that proves the flag
-    /// is set from the decode and not from "there were bytes".
+    /// A readable log keeps being appended to across launches: the flag comes from the decode, not
+    /// from "there were bytes".
     @Test func aReadableLogIsStillAppendedToAfterARelaunch() throws {
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }

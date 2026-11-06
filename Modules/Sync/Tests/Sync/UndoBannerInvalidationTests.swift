@@ -2,11 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the fix for the review's C1: a still-showing *undoable* completion banner offers an Undo
-/// button wired to `undoManager.undo()`, which pops the CURRENT top step. Once any other operation
-/// registers an undo (e.g. New Folder, which posts no banner of its own), that button would reverse
-/// the wrong operation. Registration now invalidates the stale undoable banner. Non-undoable
-/// (warning/error) banners must be left alone.
+/// An undoable completion banner's Undo button calls `undoManager.undo()`, which pops the current
+/// top step. Once another operation registers an undo (New Folder, say, which posts no banner), that
+/// button would reverse the wrong operation, so registering drops the stale undoable banner.
+/// Warning and error banners are left alone.
 @Suite struct UndoBannerInvalidationTests {
 
     @MainActor

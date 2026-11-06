@@ -2,17 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The safety net under "batch actions scope to the filtered set".
-///
-/// Search now narrows what an Organize lens shows, and the batch buttons re-label to the narrowed
-/// count: a query leaving 3 of 8 eligible groups makes the button read "Trash all 3". The rule
-/// that makes that safe is that the number on the button and the collection the action iterates
-/// must be the SAME value — never recomputed from an unfiltered source.
-///
-/// The failure mode this guards is the destructive one: a button reading "Trash all 3" over 3
-/// visible rows that actually trashes all 8 would destroy 5 items the user could not see and did
-/// not agree to. `applyRecommendedDuplicates`/`applyRecommendedFiling` take their scope as a
-/// REQUIRED parameter so that bug is unwriteable; these tests pin that the scope is honoured.
+/// Batch actions scope to the filtered set. Search narrows an Organize lens and the batch button
+/// counts what is left ("Trash all 3"), so the action must iterate that same set, never an
+/// unfiltered one: otherwise it trashes items the user couldn't see and didn't agree to.
+/// `applyRecommendedDuplicates` and `applyRecommendedFiling` take the scope as a required
+/// parameter; these tests pin that it is honoured.
 @Suite struct BatchScopeTests {
 
     // MARK: Duplicates
@@ -31,9 +25,8 @@ import Foundation
                        reclaimableBytes: 1000)
     }
 
-    /// The headline case. Three eligible groups on disk, a query leaving ONE — the button would
-    /// read "Trash all 1". Exactly one copy may go to the Trash, and the two groups the search hid
-    /// must be untouched and still listed.
+    /// Three eligible groups, a query leaving one ("Trash all 1"): exactly one copy goes to the
+    /// Trash, and the two hidden groups stay untouched and listed.
     @MainActor
     @Test func duplicatesBatchTrashesOnlyTheFilteredGroups() async throws {
         let mockFM = MockFileManager()
@@ -54,21 +47,17 @@ import Foundation
         await manager.applyRecommendedDuplicates(filtered)
         await waitUntil("filtered copy trashed") { mockFM.virtualDisk["/b/invoice.pdf"] == nil }
 
-        // The whole point: ONE copy trashed, not three.
+        // One copy trashed, not three.
         #expect(mockFM.trashedPaths.count == 1)
         #expect(mockFM.virtualDisk["/b/holiday.jpg"] != nil)   // hidden by the search — must survive
         #expect(mockFM.virtualDisk["/b/notes.txt"] != nil)
         #expect(manager.duplicateGroups.count == 2)            // the other two stay listed
     }
 
-    /// A group with NOTHING to remove must not be counted as resolved.
-    ///
-    /// `dropFullyRemovedGroups` asked `recommendedRemovalPaths.allSatisfy { !exists }`, which is
-    /// vacuously true for an empty list — so a group whose only redundant copy is protected (it
-    /// lives inside a folder another group is keeping) was dropped from the list and its bytes
-    /// credited to the "reclaimed" total, with every one of its copies still on disk. Reachable by
-    /// re-aiming such a group's keeper, which is exactly the move that puts the protected copy on
-    /// the redundant side.
+    /// A group with nothing to remove is not counted as resolved. `allSatisfy` over an empty
+    /// removal list is vacuously true, so a group whose only redundant copy is protected (inside a
+    /// folder another group keeps) would be dropped and its bytes credited as reclaimed while every
+    /// copy is still on disk. Re-aiming such a group's keeper produces this case.
     @MainActor
     @Test func aGroupWithNothingToRemoveIsNotReportedAsResolved() async throws {
         let mockFM = MockFileManager()
@@ -98,8 +87,8 @@ import Foundation
                 "and its group must stay listed rather than vanish as though it had been resolved")
     }
 
-    /// An empty filtered set touches nothing — a query that matches no rows must not fall back to
-    /// "well, do all of them", which is exactly what a nil-defaulted scope parameter would invite.
+    /// An empty filtered set touches nothing: a query matching no rows must not fall back to all of
+    /// them, as a nil-defaulted scope parameter would invite.
     @MainActor
     @Test func duplicatesEmptyFilteredSetTrashesNothing() async throws {
         let mockFM = MockFileManager()
@@ -153,7 +142,7 @@ import Foundation
     @Test func filingBatchMovesOnlyTheFilteredSuggestions() async throws {
         let root = try makeCanonicalTempRoot(prefix: "BatchScopeFiling")
         defer { try? FileManager.default.removeItem(at: root) }
-        // Two words in common with each folder: one alone is Medium, and the batch takes High (GS).
+        // Two words in common with each folder: one alone is Medium, and the batch takes only High.
         try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Documents/Invoices Q3/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))

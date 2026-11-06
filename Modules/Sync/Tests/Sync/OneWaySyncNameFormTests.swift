@@ -3,11 +3,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// One-way sync writes every name in the bytes it was listed or typed in: a file copied from
-/// iCloud reaches Dropbox under iCloud's spelling, Unicode form included, and a long name that
-/// fits iCloud fits Dropbox. `URL` decomposes a name it is built from, and APFS stores the form it
-/// is sent, so a name sent through it reached Dropbox as other bytes than iCloud's. Names are read
-/// back from `readdir` as bytes: Swift's `==` calls the two forms equal.
+/// One-way sync writes every name in the bytes it was listed or typed in: a file copied from iCloud
+/// reaches Dropbox under iCloud's spelling, Unicode form included, and a long name that fits iCloud
+/// fits Dropbox. `URL` decomposes a name it is built from, and APFS stores the form it is sent, so
+/// a name sent through `URL` would reach Dropbox as other bytes than iCloud's. Names are read back
+/// from `readdir` as bytes, since Swift's `==` calls the two forms equal.
 @Suite struct OneWaySyncNameFormTests {
 
     static let composed = "Caf\u{00E9} r\u{00E9}sum\u{00E9}"
@@ -66,7 +66,7 @@ import Testing
         #expect(names(world.dropbox) == [bytes(Self.decomposed + ".pdf")])
     }
 
-    /// 250 precomposed `é` fit APFS's 255 units; decomposed they are 500 and could not be written.
+    /// 250 precomposed `é` fit APFS's 255 units; decomposed they are 500 and can't be written.
     @Test func aLongNameThatFitsICloudFitsDropbox() throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
@@ -105,7 +105,7 @@ import Testing
         #expect(names(world.iCloud.appendingPathComponent(Self.composed)) == [bytes(Self.composed + ".pdf")])
     }
 
-    /// A second restore keeps both, numbered — in the name's own bytes.
+    /// A second restore keeps both, numbered, in the name's own bytes.
     @Test func aNumberedNameKeepsItsBytes() throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }

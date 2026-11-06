@@ -4,17 +4,14 @@ import Testing
 /// `PaneTree.selectedNodes(at:)` is the pane's delete-path resolver — `onDeleteCommand` calls it
 /// to turn the selection into the nodes the confirmation names and the handler acts on.
 ///
-/// It had **no tests at all**. Its trailing `.pruneNestedNodes()` is the load-bearing half: a
-/// selection spanning a folder AND something inside it must resolve to the folder alone, or the
-/// delete confirmation names and counts children that trashing their parent already covers. The
-/// disk outcome was always right (`deleteItems` prunes again before trashing) — the dialog the
-/// user answers is what breaks.
+/// Its trailing `.pruneNestedNodes()` is the load-bearing half: a selection spanning a folder and
+/// something inside it resolves to the folder alone, or the confirmation names and counts children
+/// that trashing the parent already covers. (`deleteItems` prunes again, so only the dialog is
+/// wrong without it.)
 ///
-/// This is deliberately the twin of `ContextMenuSelectionTests.testFolderAndDescendantPruneToTheFolder`
-/// over in FileExplorer, which pins the same prune on the context-menu path through
-/// `FileContextMenu.resolvedSelection`. They are **separate helpers with the same rule**, so each
-/// needs its own pin; the comment at `FileContextMenu.resolvedSelection` points here for exactly
-/// that reason.
+/// The twin of `ContextMenuSelectionTests.testFolderAndDescendantPruneToTheFolder` in
+/// FileExplorer, which pins the same rule in `FileContextMenu.resolvedSelection`. They are
+/// separate helpers, so each needs its own test.
 @Suite struct PaneTreeSelectedNodesTests {
 
     private let tree = [
@@ -67,17 +64,10 @@ import Testing
     }
 }
 
-/// **The prune's ordering is by bytes now, and the two orderings must agree about ancestry.**
-///
-/// `pruneNestedNodes` sorts so parents come first, then drops anything inside an accepted parent.
-/// It sorted by `id.count` — a grapheme count, an O(path) walk — inside the comparator, so it ran
-/// O(n log n) times rather than n, re-walking two full absolute paths per comparison. `utf8.count`
-/// is O(1) and preserves what the prune actually depends on: an ancestor's path is a byte PREFIX of
-/// its descendants', so it is strictly shorter in bytes too.
-///
-/// The case worth pinning is the one where the two counts disagree — a non-ASCII name makes a path
-/// longer in bytes than in Characters, so a shallower folder can sort after a deeper one under the
-/// old comparator and before it under the new. Ancestry must survive either way.
+/// The prune sorts parents first by byte length, then drops anything inside an accepted parent.
+/// `utf8.count` is O(1) where `count` walks graphemes, and an ancestor's path is a byte prefix of
+/// its descendants', so it is strictly shorter in bytes. The case worth pinning is a non-ASCII
+/// name, where byte and Character counts order paths differently; ancestry must survive.
 @Suite struct PruneOrderingTests {
 
     private func node(_ path: String) -> FileNode {
@@ -89,9 +79,8 @@ import Testing
         #expect(pruned.map(\.id) == ["/r/a"])
     }
 
-    /// **Where the two counts disagree.** "/r/文書" is 5 Characters and 11 bytes; a sibling
-    /// "/r/aaaaaaaa" is 11 Characters and 11 bytes. The ancestor must still lead its own subtree
-    /// whichever way the comparator counts.
+    /// Where the two counts disagree: "/r/文書" is 5 Characters and 11 bytes, a sibling
+    /// "/r/aaaaaaaa" 11 and 11. The ancestor must still lead its own subtree.
     @Test func aNonASCIIAncestorStillComesBeforeItsChildren() {
         let ancestor = "/r/文書"
         let child = "/r/文書/deep/file.txt"

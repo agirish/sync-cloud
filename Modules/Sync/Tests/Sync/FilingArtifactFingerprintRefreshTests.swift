@@ -3,19 +3,17 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Re-deriving the artifact digest after a roster edit, under the right id.**
+/// Re-deriving the artifact digest after a roster edit, under the right id.
 ///
-/// `FilingArtifacts.attach` builds every store from `loaded.id` — the folder the artifacts were
-/// actually read from — and its comment says why: `profile.profileId`, the field *inside*
-/// `folder-profile.json`, can disagree, "and when they do the writes went where nothing reads".
-/// `refreshFilingArtifactFingerprint` read the field instead.
+/// `FilingArtifacts.attach` builds every store from `loaded.id`, the folder the artifacts were
+/// read from, because `profile.profileId` (the field inside `folder-profile.json`) can disagree,
+/// and then writes go where nothing reads. `refreshFilingArtifactFingerprint` must use the same id.
 ///
-/// The digest that comes back from the wrong folder is `""`, not nil — `fingerprint` answers `""`
-/// for a directory holding none of the three artifacts — and `""` is NOT nil, so both cache gates
-/// (`FileSyncManager+Filing`, `FileSyncManager+FilingRefine`) stay OPEN. Every verdict for the rest
-/// of the session is then recorded under `artifacts: ""`, billed and unreachable at the next
-/// launch, and a `""`-keyed verdict from one artifact set can be served against another. That is
-/// the exact failure the `String?` change was made to prevent, arriving through the other door.
+/// From the wrong folder the digest is `""`, not nil (`fingerprint` answers `""` for a directory
+/// holding none of the three artifacts), so both cache gates (`FileSyncManager+Filing`,
+/// `FileSyncManager+FilingRefine`) stay open. Every later verdict would be recorded under
+/// `artifacts: ""`, billed and unreachable at the next launch, and a `""`-keyed verdict from one
+/// artifact set could be served against another.
 @Suite @MainActor struct FilingArtifactFingerprintRefreshTests {
 
     /// A profiles directory whose ACTIVE folder is `work` while the profile inside calls itself
@@ -47,8 +45,8 @@ import Testing
         return manager
     }
 
-    /// The whole finding in one run: launch digest is real, an edit lands, the digest must still
-    /// name the folder the roster was written into.
+    /// In one run: the launch digest is real, an edit lands, and the digest must still name the
+    /// folder the roster was written into.
     @Test func aRosterEditRefreshesTheDigestUnderTheFolderItWasWrittenTo() throws {
         let dir = try makeSplitProfiles()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -4,37 +4,26 @@ import Foundation
 
 /// Reads the per-tree filing artifacts: a ``FolderProfile`` and its ``FilingMemory``.
 ///
-/// One store rather than two, because they are two halves of one description of one tree and are
-/// keyed identically — `profiles/<id>/folder-profile.json` and `profiles/<id>/filing-memory.json`,
-/// with `profiles.json` naming the active id. Keying by id is what makes a second tree *additive*:
-/// nothing about one person's conventions can overwrite another's.
+/// One store because they are two halves of one description of one tree, keyed identically:
+/// `profiles/<id>/folder-profile.json` and `profiles/<id>/filing-memory.json`, with `profiles.json`
+/// naming the active id. Keying by id makes a second tree additive: one person's conventions can't
+/// overwrite another's. Every read failure yields nil, which restores the no-profile behaviour.
 ///
-/// **Read-only, deliberately.** These artifacts are produced by a survey of the tree, not by the
-/// app's normal operation, and a partial rewrite from a half-finished scan would be worse than no
-/// profile at all. Every failure yields nil, which restores exactly the behaviour the app had before
-/// any of this existed.
-///
-/// The memory is now also *re-derivable* in the app — see ``FilingSurveyStore``, which owns the only
-/// write path and takes the rule above as its constraint rather than an exception to it: a complete
-/// rebuild, written atomically, and only when it differs from what is there.
-///
-/// **The profile now has exactly one write path — ``writeProfile(_:in:builtBy:now:)`` — and it is
-/// built to take the paragraph above as a constraint rather than to soften it.** It exists for one
-/// state only: a machine with no profile at all, where the app can otherwise offer nothing (see
-/// `ROADMAP.md` v5 §4.2). It **refuses over an existing `folder-profile.json`** rather than merging
-/// or replacing — a name-only profile landing on top of a hand-built one would degrade To File and
-/// Renames with nothing failing — it writes atomically so the file on disk is only ever a whole
-/// profile, and it points `profiles.json` at the new id **only when nothing is active**, so it can
-/// never re-aim a tree that already has an answer.
+/// Writes are narrow, because a partial rewrite would be worse than no profile. The memory's only
+/// writer is ``FilingSurveyStore``: a complete rebuild, written atomically, only when it differs.
+/// The profile's write paths (``writeProfile(_:in:builtBy:now:)`` and the re-derivation below)
+/// **refuse over an existing `folder-profile.json`**, write atomically, and re-point
+/// `profiles.json` only by the rules each states, so a name-only profile never silently replaces a
+/// hand-built one.
 public enum FilingProfileStore {
 
-    /// Bumped when either artifact's shape changes; a foreign schema is discarded rather than
-    /// migrated, for the same reason as the other stores — the contents are a re-survey away.
+    /// Bumped when either artifact's shape changes. A foreign schema is discarded, not migrated, as
+    /// in the other stores: the contents are a re-survey away.
     public static let currentSchema = 1
 
     /// `~/Library/Application Support/SyncCloud/profiles`. Injected by the app, never defaulted
-    /// inside `Sync` — same rule as the verdict cache, the hash index and the Storage Lens store:
-    /// library code must not reach into the real home directory just because nobody said otherwise.
+    /// inside `Sync`, like the verdict cache, hash index and Storage Lens store: library code must
+    /// not reach into the real home directory.
     public static func defaultDirectory(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }
@@ -65,13 +54,10 @@ public enum FilingProfileStore {
         directory.appendingPathComponent("profiles.json")
     }
 
-    /// The folder profile for `id`, or nil when absent or unreadable.
-    ///
-    /// **What the decode salvaged is reported here, once.** A `role` this build has no case for
-    /// costs that folder its role rather than taking the whole profile — and with it the filing
-    /// layer — down; a folder demoted that way files differently, so the count and the offending
-    /// strings belong in the log the user can read. Said at the door rather than from inside the
-    /// decoder, which stays a pure function of its bytes.
+    /// The folder profile for `id`, or nil when absent or unreadable. What the decode salvaged is
+    /// logged here, once: a `role` this build doesn't know costs that folder its role, not the
+    /// whole profile, and since that folder now files differently the user's log should say so.
+    /// Logged at the door so the decoder stays a pure function of its bytes.
     public static func profile(id: String, in directory: URL) -> FolderProfile? {
         guard let profile = decode(FolderProfile.self, at: profileURL(id: id, in: directory),
                                    what: "folder profile") else { return nil }
@@ -91,10 +77,8 @@ public enum FilingProfileStore {
         return profile
     }
 
-    /// The filing memory for `id`, or nil when absent or unreadable.
-    ///
-    /// A missing memory is an ordinary state, not a fault: the profile alone still routes, just less
-    /// well, and a tree that has never been surveyed for content has nothing to remember.
+    /// The filing memory for `id`, or nil when absent or unreadable. A missing memory is ordinary:
+    /// the profile alone still routes, just less well.
     public static func memory(id: String, in directory: URL) -> FilingMemory? {
         decode(FilingMemory.self, at: directory.appendingPathComponent("\(id)/filing-memory.json"),
                what: "filing memory")
@@ -103,20 +87,16 @@ public enum FilingProfileStore {
     private struct PeopleFile: Decodable {
         let schemaVersion: Int?
         let people: [Person]
-        /// Suggested name forms the user has rejected. Absent in a file written before the
-        /// learning loop existed, which reads as "nothing rejected yet".
+        /// Suggested name forms the user has rejected. Absent in older files, which reads as
+        /// nothing rejected.
         let notNames: [String]?
     }
 
-    /// The household for `id` — `people.json` when it exists, else a registry seeded from the
-    /// profile's own person axis.
-    ///
-    /// The seed is not a degraded mode: it carries the alias map the profile already records, so
-    /// even a tree with no `people.json` gets `Mom` and `Granny` resolved to one person. What the
-    /// file adds is what a survey cannot know — the *full names* documents print, which is what
-    /// makes "Daughter Father" attributable to Daughter rather than to two people.
-    /// `profile` is optional so a roster can be read on a machine with no survey at all — the file
-    /// is the user's, and it does not stop being readable because nothing has scanned their tree.
+    /// The household for `id`: `people.json` when it exists, else a registry seeded from the
+    /// profile's person axis. The seed carries the profile's alias map, so `Mom` and `Granny` still
+    /// resolve to one person; the file adds the full names documents print, which make "Daughter
+    /// Father" attributable to Daughter. `profile` is optional so the user's roster stays readable
+    /// on a machine with no survey.
     public static func personRegistry(id: String, profile: FolderProfile?, in directory: URL) -> PersonRegistry {
         if let file = decode(PeopleFile.self, at: directory.appendingPathComponent("\(id)/people.json"),
                              what: "people registry") {
@@ -133,21 +113,13 @@ public enum FilingProfileStore {
         return Set(file?.notNames ?? [])
     }
 
-    /// All artifacts for the active profile, when there is one — **and the id they were loaded
-    /// under**, which is not always the one inside the profile.
+    /// All artifacts for the active profile, if any, **and the id they were loaded under**, which
+    /// isn't always the one inside the profile.
     ///
-    /// **Identity was read from one place and written from another.** Everything here is read from
-    /// `profiles/<activeProfileId>/`, where `activeProfileId` comes from `profiles.json`; the app
-    /// then built the roster and tag stores from `profile.profileId`, a field INSIDE the artifact
-    /// that decodes to `"default"` when absent. Omit it — which nothing rejects — and reads come
-    /// from `work/` while the first roster edit writes to `default/`, where nothing reads it. The
-    /// fingerprint hashes the same empty directory, so every cached verdict is keyed against
-    /// artifacts not in use. The same split appears on a directory rename, which the docs present
-    /// as the way to add a second tree.
-    ///
-    /// The DIRECTORY is the identity: it is where the file was actually found. The field inside is
-    /// informational, and a disagreement is reported rather than silently preferred either way —
-    /// it means the generator wrote something inconsistent, and only the log can say so.
+    /// The directory is the identity: it is where the file was found, and every read and write goes
+    /// there. `profile.profileId` is informational and decodes as `"default"` when absent; trusting
+    /// it would read from one folder and write roster edits to another, and key the fingerprint
+    /// against artifacts not in use. A disagreement is logged, not silently resolved.
     public static func active(in directory: URL)
         -> (id: String, profile: FolderProfile, memory: FilingMemory?, registry: PersonRegistry)? {
         guard let id = activeProfileId(in: directory), let profile = profile(id: id, in: directory) else {
@@ -161,8 +133,8 @@ public enum FilingProfileStore {
                                   + "\(id)/folder-profile.json.")
         }
         // A re-derive cut off before its replay may have left this folder without the survey its
-        // parent holds. NOT finished here (review C5): every caller is on the main actor, and the
-        // read-back is a whole corpus decoded and rewritten — the caller runs
+        // parent holds. Not finished here: every caller is on the main actor, and the read-back
+        // decodes and rewrites a whole corpus. The caller runs
         // `FileSyncManager.finishInterruptedSurveyReplay()` once the profile is attached.
         return (id, profile, memory(id: id, in: directory),
                 personRegistry(id: id, profile: profile, in: directory))
@@ -170,60 +142,44 @@ public enum FilingProfileStore {
 
     private struct SchemaProbe: Decodable { let schemaVersion: Int? }
 
-    /// A short digest of the artifact FILES on disk, or "" when neither is present.
+    /// A short digest of the artifact files on disk, or "" when none is present.
     ///
-    /// **The artifacts are part of the question the backend is asked**, and nothing in
-    /// ``FilingVerdictKey`` used to say so. They decide the router's shortlist, the shortlist is the
-    /// classifier's folder menu, and a re-survey therefore changes what every file is asked about —
-    /// while the cache, keyed on the file and the prompt version, replays the answer to the old
-    /// question. Installing a freshly generated profile logged `reused 14 of 14 classification(s)
-    /// from cache, 0 sent to the backend`: the re-survey had no effect at all until the cache file
-    /// was deleted by hand.
+    /// **The artifacts are part of the question the backend is asked:** they decide the router's
+    /// shortlist, which is the classifier's folder menu. ``FilingVerdictKey`` includes this, so a
+    /// re-survey invalidates cached verdicts instead of replaying answers to the old question.
+    /// Hashed from the bytes, so it also moves when a profile is regenerated without the memory.
+    /// One SHA-256 of a few megabytes per load.
     ///
-    /// Hashed from the bytes rather than derived from a field like the memory's salt, so it also
-    /// moves when a profile is regenerated without the memory being rebuilt. One SHA-256 of a few
-    /// megabytes, once per load, at launch.
-    ///
-    /// **Nil when a component EXISTS but cannot be read — the fingerprint is unavailable, not
-    /// silently different.** Skipping an unreadable file minted a digest that can never recur
-    /// once the file is fixed, so every paid verdict recorded under it became permanently
-    /// unreachable — the exact failure ``PeopleStore/savedRevision``'s doc says must be
-    /// prevented. A caller holding nil must neither record a verdict under it nor serve one:
-    /// the scan sites treat it like a nil verdict identity, cache off for read and write both.
-    /// A genuinely absent component stays ordinary — the others digest without it.
+    /// **Nil when a file exists but can't be read: the fingerprint is unavailable, not different.**
+    /// A digest that skipped it could never recur once the file is fixed, stranding every paid
+    /// verdict recorded under it. A caller holding nil must neither record nor serve a verdict (the
+    /// scan sites turn the cache off both ways). A genuinely absent file is ordinary; the others
+    /// digest without it.
     public static func fingerprint(id: String, in directory: URL) -> String? {
         var hasher = SHA256()
         var any = false
         // `people.json` is part of the question too: the registry decides the person veto and the
-        // person axis bonus, both of which move the shortlist the classifier is handed.
+        // person axis bonus, both of which move the classifier's shortlist.
         for name in ["folder-profile.json", "filing-memory.json", "people.json"] {
             let url = directory.appendingPathComponent("\(id)/\(name)")
             guard let data = try? Data(contentsOf: url) else {
                 // Absent and there-but-unreadable are different answers, as everywhere in this
-                // store. `attributesOfItem` rather than `fileExists` so a dangling symlink still
-                // counts as present.
+                // store. `attributesOfItem`, not `fileExists`, so a dangling symlink still counts
+                // as present.
                 guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
-                    // **"and relaunch" was not quite true and not quite false, which is worse than
-                    // either.** This digest is re-derived on three occasions — at launch, after a
-                    // roster save (`FileSyncManager.refreshFilingArtifactFingerprint`), and after a
-                    // re-survey writes — so a repaired `folder-profile.json` or
-                    // `filing-memory.json` is picked up by the next roster edit without a
-                    // relaunch. `people.json` is the exception, and it is the one this line most
-                    // often names: an unreadable roster sets `PeopleStore.rosterIsUnreadable` at
-                    // construction, which lasts the session, and `save()` refuses while it is set
-                    // — so `savedRevision` never bumps, the sink never fires, and that repair
-                    // really does wait for a relaunch (pinned by
+                    // This digest is re-derived at launch, after a roster save
+                    // (`FileSyncManager.refreshFilingArtifactFingerprint`) and after a re-survey
+                    // writes, so a repaired `folder-profile.json` or `filing-memory.json` is picked
+                    // up without a relaunch. `people.json` is the exception: an unreadable roster
+                    // sets `PeopleStore.rosterIsUnreadable` for the session and `save()` refuses
+                    // while it is set, so `savedRevision` never bumps and that repair waits for a
+                    // relaunch (pinned by
                     // `PeopleStoreSaveOrderingTests.aRefusedSaveDoesNotBumpTheRevision`).
                     //
-                    // **The cost while it stays broken is not only the edits.** The People banner
-                    // says edits will not be saved; it does not say that with the fingerprint
-                    // unavailable the verdict cache is off for READ as well as write, so every
-                    // paid refine re-bills in full and caches nothing. That is the expensive half,
-                    // and it is stated here because nothing on screen states it.
-                    //
-                    // Logged once per CALL rather than once per episode, which is affordable
-                    // precisely because of the three occasions above: nothing calls this per file
-                    // or per scan.
+                    // While it stays broken the verdict cache is off for read as well as write, so
+                    // every paid refine re-bills in full. The People banner doesn't say so, which
+                    // is why the log line does. Logged per call, which is cheap because nothing
+                    // calls this per file or per scan.
                     Logger.shared.warning("Filing artifacts: \(name) exists but could not be read "
                                           + "— the artifact fingerprint is unavailable, so no "
                                           + "classification is cached or replayed this session and "
@@ -242,21 +198,13 @@ public enum FilingProfileStore {
         return HexEncoding.string(hasher.finalize().prefix(8))
     }
 
-    /// The part of `people.json` that can actually change a classification: the roster, and the
-    /// schema that says how to read it.
-    ///
-    /// **Hashing the whole file made things that cannot move an answer cost money.** The file also
-    /// carries `notNames` — the name suggestions the user has declined, which feed nothing but the
-    /// suggestion list — and any keys a future build or the user's own editor left in it (a
-    /// `_note`, a comment). Every one of those changed the digest, and the digest keys
-    /// `FilingVerdictCache`: declining a suggested spelling, or adding a note to the file, invalidated
-    /// every cached verdict and re-billed a full paid re-classification for something the engine
-    /// cannot even see.
-    ///
-    /// Re-serialised canonically rather than hashed as written, so whitespace and key order in a
-    /// hand-edited file do not move it either. Falls back to the raw bytes when the file is not
-    /// JSON this can read — the conservative direction: an unreadable roster invalidates, rather
-    /// than silently serving answers composed against a household this could not parse.
+    /// The part of `people.json` that can change a classification: the roster, and the schema that
+    /// says how to read it. The file also carries `notNames` (declined name suggestions) and
+    /// whatever keys an editor left; hashing those would invalidate every cached verdict, and
+    /// re-bill a paid re-classification, for things the engine can't see. Re-serialised
+    /// canonically, so whitespace and key order don't count either. Falls back to the raw bytes
+    /// when the JSON can't be read: the conservative direction, invalidating rather than serving
+    /// answers for an unparsed household.
     static func classifyingBytes(ofPeople data: Data) -> Data {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return data }
@@ -270,12 +218,10 @@ public enum FilingProfileStore {
         return canonical
     }
 
-    /// Whether something is at `url` that this process could not open — mode 000, an ACL, an I/O
-    /// error, a symlink whose target is gone.
-    ///
-    /// **`attributesOfItem`, never `fileExists`**, for the reason every store in this module now
-    /// records and this branch re-measured: `fileExists` follows symlinks and answers false for one
-    /// pointing at an unmounted volume, while an atomic write replaces the link itself.
+    /// Whether something is at `url` that this process couldn't open: mode 000, an ACL, an I/O
+    /// error, a symlink whose target is gone. **`attributesOfItem`, never `fileExists`**:
+    /// `fileExists` follows symlinks and answers false for one into an unmounted volume, while an
+    /// atomic write would replace the link itself.
     static func isPresentButUnreadable(at url: URL, fileManager: FileManager = .default) -> Bool {
         (try? Data(contentsOf: url)) == nil
             && (try? fileManager.attributesOfItem(atPath: url.path)) != nil
@@ -283,13 +229,11 @@ public enum FilingProfileStore {
 
     private static func decode<T: Decodable>(_ type: T.Type, at url: URL, what: String) -> T? {
         guard let data = try? Data(contentsOf: url) else {
-            // **Absent and there-but-unreadable both answer nil here, and the callers cannot tell
-            // them apart — so the one that WRITES has to ask separately.** Nil is right for the
-            // readers (a missing artifact means filing falls back to folder names), and wrong for
-            // the re-survey, whose `previousMemory == nil` makes `memory != previousMemory`
-            // trivially true and atomically replaces a file it never read. See
-            // `resurveyFilingMemory`, which asks `isPresentButUnreadable` before it writes. Saying
-            // so here is the least a nil can do.
+            // **Absent and there-but-unreadable both answer nil, so a caller that writes must ask
+            // separately.** Nil is right for readers (filing falls back to folder names) and wrong
+            // for the re-survey, where `previousMemory == nil` would make it atomically replace a
+            // file it never read; `resurveyFilingMemory` asks `isPresentButUnreadable` first. The
+            // log line is the least a nil can do.
             if isPresentButUnreadable(at: url) {
                 Logger.shared.warning("The \(what) at \(url.path) exists but could not be read — "
                                       + "treated as absent by everything that only READS it. "
@@ -297,9 +241,8 @@ public enum FilingProfileStore {
             }
             return nil
         }
-        // The artifacts carry their own version, and until now only `profiles.json`'s was read —
-        // so a future shape would have been decoded field-by-field into a half-empty value and
-        // used, which is the silent-wrong-answer failure this store exists to avoid.
+        // The artifacts carry their own version. A future shape decoded field by field would be a
+        // half-empty value used as if whole, the silent wrong answer this store exists to avoid.
         if let probe = try? JSONDecoder().decode(SchemaProbe.self, from: data),
            let v = probe.schemaVersion, v != currentSchema {
             Logger.shared.warning("The \(what) at \(url.lastPathComponent) is schema \(v), not "
@@ -309,8 +252,8 @@ public enum FilingProfileStore {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            // Naming the file matters here: these are hand-generated artifacts, so "it silently did
-            // nothing" is a real support question and the answer is almost always a malformed one.
+            // Name the file: these are hand-generated artifacts, so "it silently did nothing" is a
+            // real support question, usually answered by a malformed file.
             Logger.shared.warning("Couldn't read the \(what) at \(url.lastPathComponent) — "
                                   + "filing will fall back to folder names: \(error.localizedDescription)")
             return nil
@@ -322,40 +265,33 @@ public enum FilingProfileStore {
 
 extension FilingProfileStore {
 
-    /// Why a profile write was refused. **Refusal is the interesting outcome**, so it is a typed
-    /// error rather than a `Bool` or a swallowed log: the caller has promised the user a survey and
-    /// has to be able to say *this tree already has a profile and I did not touch it* — which is a
-    /// different sentence from *the write failed*.
+    /// Why a profile write was refused, as a typed error: the caller promised the user a survey and
+    /// must be able to say "this tree already has a profile and I didn't touch it", which is a
+    /// different sentence from "the write failed".
     ///
-    /// **The store throws; the caller logs.** Every refusal below carries its whole sentence in
-    /// ``description``, so a `Logger` call beside the `throw` writes the same fact twice — once
-    /// where nobody chose the wording and once where the caller does. `profileExists` used to be
-    /// the odd one out, logging *and* throwing while its two siblings threw in silence, which is a
-    /// worse state than either rule applied consistently: a reader of `~/sync-cloud.log` learned
-    /// about one refusal and could reasonably infer the others do not happen. The write path
-    /// therefore logs exactly one thing — the rollback in ``land(_:at:index:at:writeIndex:)``,
-    /// which is the only fact no thrown error carries (see there). **A caller wiring this up owes
-    /// the log line**, and `description` is written to be that line.
+    /// **The store throws; the caller logs.** Each case's ``description`` is the whole sentence, so
+    /// a log beside the `throw` would say it twice. The write path logs one thing only, the
+    /// rollback in ``land(_:at:index:at:writeIndex:)``, the one fact no thrown error carries. **A
+    /// caller wiring this up owes the log line**, and `description` is written to be it.
     public enum WriteRefusal: Error, Equatable, CustomStringConvertible {
         /// `folder-profile.json` already exists for this id. Never overwritten, never merged.
         case profileExists(id: String)
-        /// `profiles.json` is present but not something this can safely amend (not a JSON object,
-        /// or a schema this build does not know). Refused rather than replaced: an index this
-        /// cannot read is still the user's, and it names profiles a clobber would orphan.
+        /// `profiles.json` is present but not safely amendable (not a JSON object, or an unknown
+        /// schema). Refused, not replaced: an unreadable index is still the user's, and names
+        /// profiles a clobber would orphan.
         case indexUnreadable(String)
-        /// A profile id that cannot be a directory name. It is interpolated into a path, so an
-        /// empty or separator-bearing id is refused at the door rather than writing somewhere
-        /// surprising.
+        /// A profile id that can't be a directory name. It is interpolated into a path, so an empty
+        /// or separator-bearing id is refused at the door.
         case invalidProfileId(String)
-        /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``'s own refusal: the id the caller
-        /// claims to be replacing is not what `profiles.json` names as active. The unconditional
-        /// re-point is licensed by that claim being TRUE — an apply that raced a profile switch
-        /// must stop, not re-point away from a profile it never read.
+        /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``'s refusal: the id the caller claims
+        /// to replace isn't the one `profiles.json` names active. The unconditional re-point is
+        /// licensed only by that claim being true, so an apply that raced a profile switch stops
+        /// here.
         case notReplacingTheActiveProfile(claimed: String, active: String?)
-        /// The derived profile's own file does not chain to the id it claims to replace —
-        /// `derivedFrom` is what Undo reads, so a profile that forgot its parent is one that
-        /// could never be undone. Distinct from the case above: there the INDEX disagrees with
-        /// the caller, here the profile disagrees with itself.
+        /// The derived profile's own file doesn't chain to the id it claims to replace.
+        /// `derivedFrom` is what Undo reads, so a profile that forgot its parent could never be
+        /// undone. Unlike the case above, here the profile disagrees with itself, not the index
+        /// with the caller.
         case chainMissing(derivedFrom: String?, claimed: String)
 
         public var description: String {
@@ -378,23 +314,14 @@ extension FilingProfileStore {
         }
     }
 
-    /// Whether a freshly written profile may become the active one.
-    ///
-    /// **Provenance, not existence — this is the rule that changed, and it changed in one
-    /// direction.** It used to be "only when nothing is active", which protected a hand-built
-    /// profile perfectly and also refused to let the app replace *its own* previous derivation. The
-    /// consequence was not theoretical: on a machine with any active profile, a survey ran to
-    /// completion, wrote a correct `folder-profile.json` under a fresh id, and then nothing read it,
-    /// because `profiles.json` still named the old one and no message said so.
-    ///
-    /// So: re-point when nothing is active, or when what is active is the app's own work. Never
-    /// when it is hand-built — that file also records judgements a walk cannot see (`naming`,
-    /// `folderSemantics`, the `outbound-pack` refusals), so aiming the app at a derived profile
-    /// instead would quietly degrade To File and the rename pass with nothing failing.
-    ///
-    /// **An unreadable active profile counts as hand-built**, on the same principle as
-    /// ``FolderProfile/provenance``: a file this build cannot parse is one it must not decide it
-    /// owns. It refuses to re-point, which leaves the user where they were.
+    /// Whether a freshly written profile may become the active one: **provenance, not existence.**
+    /// Re-point when nothing is active, or when the active profile is the app's own derivation, so
+    /// a re-survey replaces its predecessor instead of writing a profile nothing reads. Never when
+    /// it is hand-built: that file records judgements a walk can't see (`naming`,
+    /// `folderSemantics`, the `outbound-pack` refusals), and aiming away from it would quietly
+    /// degrade To File and renames. **An unreadable active profile counts as hand-built**, as in
+    /// ``FolderProfile/provenance``: a file this build can't parse is one it must not decide it
+    /// owns.
     static func mayRepoint(activeId: String?, in directory: URL) -> Bool {
         guard let activeId else { return true }
         guard let active = profile(id: activeId, in: directory) else { return false }
@@ -402,49 +329,37 @@ extension FilingProfileStore {
     }
 
     /// Writes `profile` as `profiles/<id>/folder-profile.json`, creating the directory if needed,
-    /// and points `profiles.json` at it **only when ``mayRepoint(activeId:in:)`` allows it** — that
-    /// is, when nothing is active, or when what is active is the app's own derivation.
+    /// and points `profiles.json` at it **only when ``mayRepoint(activeId:in:)`` allows it**.
     ///
-    /// Four guarantees, each of which is a separate test:
+    /// Four guarantees, each tested:
     ///
-    /// 1. **It refuses over an existing profile** — `WriteRefusal.profileExists`, with the bytes on
-    ///    disk untouched. `ROADMAP.md` v5 §4.2: "A name-only profile must never land on top of a
-    ///    hand-built one — it would degrade To File and Renames with nothing failing." There is
-    ///    deliberately no `overwrite:` parameter; a caller that wants to replace a profile has to
-    ///    move the old file itself, in the open.
-    /// 2. **It writes atomically**, so the file is only ever a whole profile — the same rule
-    ///    ``FilingSurveyStore`` takes for the memory. And if the index write that follows fails, the
-    ///    profile is removed again: a profile nothing points at is also one every retry would refuse
-    ///    with `profileExists`, which is the one state a caller cannot get out of. The empty
-    ///    directory is left behind, harmlessly — `createDirectory` does not mind finding it.
-    /// 3. **It touches `profiles.json` only when ``mayRepoint(activeId:in:)`` says so** — nothing
-    ///    active, or an active profile this app derived — and amends the existing document rather
-    ///    than rewriting it, so a hand-built index keeps every field and every other profile it
-    ///    lists. "Active" is stricter than ``activeProfileId(in:)``'s answer
-    ///    in one direction and looser in another, both deliberately: a field it cannot parse is a
-    ///    refusal rather than an absence, while an id naming a profile that is *not on disk* counts
-    ///    as nothing active, because a dangling pointer is not an answer and treating it as one left
-    ///    the bootstrap permanently dead. Two caveats a reader should not have to discover:
-    ///    re-serializing through `JSONSerialization` reformats numbers (`0.1` comes back
-    ///    `0.10000000000000001`, `1.0` as `1`) and collapses duplicate keys, so "keeps every field"
-    ///    is about content, not bytes; and the read-modify-write is unlocked, so a concurrent edit
-    ///    to `profiles.json` between the read and the write is lost.
+    /// 1. **It refuses over an existing profile** (`WriteRefusal.profileExists`, bytes untouched):
+    /// a
+    ///    name-only profile must never land on a hand-built one. There is no `overwrite:` parameter;
+    ///    a caller that wants to replace a profile must move the old file itself, in the open.
+    /// 2. **It writes atomically**, so the file is only ever a whole profile, as ``FilingSurveyStore``
+    ///    does for the memory. If the index write then fails, the profile is removed again: one
+    ///    nothing points at would make every retry refuse with `profileExists`, a state a caller
+    ///    can't escape. The empty directory stays, harmlessly.
+    /// 3. **It touches `profiles.json` only when ``mayRepoint(activeId:in:)`` says so**, and amends
+    ///    the document rather than rewriting it, so a hand-built index keeps its fields and other
+    ///    profiles. Stricter than ``activeProfileId(in:)`` one way (an unparseable field refuses) and
+    ///    looser the other (an id naming no profile on disk counts as nothing active, or a dangling
+    ///    pointer would block the bootstrap for good). Caveats: `JSONSerialization` reformats numbers
+    ///    (`0.1` comes back `0.10000000000000001`) and collapses duplicate keys, so "keeps" means
+    ///    content, not bytes; and the read-modify-write is unlocked, so a concurrent edit to
+    ///    `profiles.json` is lost.
     ///
-    ///    When a **hand-built** profile is active the index is left completely alone, which means
-    ///    the profile written here is readable by `profile(id:)` but is not what `active(in:)`
-    ///    returns. That is the additive behaviour the id keying intends, not an oversight — but a
-    ///    caller that has promised the user a survey has to check, because "written" and "in use"
-    ///    are different outcomes and this returns the same URL for both.
-    ///    ``FileSyncManager/FolderWalkReport/becameActive`` is that check, and its report says so.
-    /// 4. **The JSON is the shape the offline generator writes**, so a profile made here and one
-    ///    made there are interchangeable — same `schemaVersion` (checked on the way back in by
-    ///    ``decode(_:at:what:)``), same `folders` array, same `axes.person` box. Round-tripping
-    ///    through ``profile(id:in:)`` is what pins that.
+    ///    With a **hand-built** profile active the index is left alone, so the profile written here
+    ///    is readable by `profile(id:)` but isn't what `active(in:)` returns. That is intended, but
+    ///    "written" and "in use" return the same URL, so a caller that promised a survey must check
+    ///    ``FileSyncManager/FolderWalkReport/becameActive``.
+    /// 4. **The JSON is the shape the offline generator writes**: same `schemaVersion` (checked on
+    ///    read by ``decode(_:at:what:)``), `folders` array and `axes.person` box. Round-tripping
+    ///    through ``profile(id:in:)`` pins that.
     ///
-    /// The header fields (`generated`, `builtBy`, `note`) exist for the same reason
-    /// ``FilingSurveyStore``'s do: these artifacts get opened by hand when a suggestion looks
-    /// wrong, and one that does not say what made it is one nobody can audit. `builtBy` is how a
-    /// reader tells a name-only survey from the full offline one.
+    /// The header fields (`generated`, `builtBy`, `note`) are for whoever opens the file because a
+    /// suggestion looks wrong; `builtBy` tells a name-only survey from the full offline one.
     ///
     /// - Returns: the URL written.
     @discardableResult
@@ -460,20 +375,15 @@ extension FilingProfileStore {
             throw WriteRefusal.profileExists(id: id)
         }
 
-        // The index is composed BEFORE the profile lands, so a `profiles.json` this cannot amend
-        // refuses the whole write rather than leaving a profile on disk that the next attempt
-        // would then refuse to replace. Whether to re-point at all is `mayRepoint`'s: re-pointing
-        // an index that names a HAND-BUILT profile would aim every read at a tree the user did not
-        // choose — the same class of harm as the overwrite above, one file over — while replacing
-        // this app's own previous derivation costs nothing.
+        // The index is composed before the profile lands, so a `profiles.json` this can't amend
+        // refuses the whole write rather than leaving a profile the next attempt would refuse to
+        // replace. Whether to re-point at all is `mayRepoint`'s call: re-pointing away from a
+        // hand-built profile would aim every read at a tree the user didn't choose.
         //
-        // **Read once.** The decision and the amendment are taken from the SAME parse, because
-        // taking them from two different ones is a hole rather than a redundancy: the decision used
-        // to come from ``activeProfileId(in:)``, whose `JSONDecoder` returns nil for anything it
-        // cannot decode, while the amendment re-read the file with the far more permissive
-        // `JSONSerialization`. A `"schemaVersion": "1"` — a routine hand-edit slip — read as "no
-        // index here" to the first and as a perfectly good index to the second, so an index that
-        // named an active profile got silently re-pointed at this survey.
+        // **Read once.** The decision and the amendment come from the same parse. Two readers of
+        // different strictness (`JSONDecoder` and `JSONSerialization`) would disagree on a
+        // hand-edit slip like `"schemaVersion": "1"`, and an index naming an active profile would
+        // get re-pointed.
         let reading = try indexForAmending(in: directory)
         let index = mayRepoint(activeId: reading.activeProfileId, in: directory)
             ? try amendedIndex(from: reading, naming: profile, now: now) : nil
@@ -481,28 +391,21 @@ extension FilingProfileStore {
         try FileManager.default.createDirectory(at: directory.appendingPathComponent(id),
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
-        // **`.withoutEscapingSlashes` is not cosmetic here — it is what makes the file the docs
-        // sell.** Every key in a profile is a folder path, so the default escaping writes
-        // `Finance\/US` for every one of them: unreadable at a glance, and it does not diff against
-        // the Python builder's output, which is the comparison this format exists to support.
-        //
-        // Changed while the cost was still nothing: it alters the bytes of any profile written by
-        // this path, and at the time that set was empty because `writeProfile` had no production
-        // caller. It has one as of v4.2 — `FileSyncManager.deriveFolderProfile` — so this is now
-        // the shape every walked profile on disk is in, and changing it again would be a migration.
+        // **`.withoutEscapingSlashes` is not cosmetic.** Every key is a folder path, so default
+        // escaping writes `Finance\/US` throughout: unreadable, and it doesn't diff against the
+        // Python builder's output. Every walked profile on disk is in this shape now, so changing
+        // it would be a migration.
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let document = ProfileDocument(profile: profile, generated: stamp(now), builtBy: builtBy)
         let bytes = try encoder.encode(document)
 
-        // **Re-checked here, immediately before the write.** The guard at the top of this function
-        // runs before an index read, a JSON parse, a serialization and a `createDirectory` — that
-        // is milliseconds of real I/O, and anything landing a profile at this path inside that
-        // window would be overwritten by the atomic write below, which is the one thing this whole
-        // path exists to prevent. Narrowing the window to the two adjacent statements is as far as
-        // this goes without an exclusive create; `Data.WritingOptions.withoutOverwriting` cannot
-        // help, since Foundation traps outright when it is combined with `.atomic`, and `.atomic` is
-        // load-bearing (`theProfileIsWrittenAtomically`). A residual race remains and is documented
-        // on the guarantee list rather than papered over.
+        // **Re-checked immediately before the write.** The guard at the top runs before
+        // milliseconds of real I/O, and a profile landing here in that window would be overwritten
+        // by the atomic write below, the one thing this path exists to prevent. This narrows the
+        // window to two adjacent statements; closing it would need an exclusive create, and
+        // `.withoutOverwriting` can't help because Foundation traps when it is combined with
+        // `.atomic`, which is load-bearing (`theProfileIsWrittenAtomically`). A residual race
+        // remains.
         guard !FileManager.default.fileExists(atPath: url.path) else {
             throw WriteRefusal.profileExists(id: id)
         }
@@ -510,15 +413,12 @@ extension FilingProfileStore {
         return url
     }
 
-    /// Writes a profile re-derived after a Restructure apply, and re-points `profiles.json` at it
-    /// — **even away from a hand-built profile**, which `writeProfile` never does (§5.5 step 6).
-    ///
-    /// The licence for that is provenance, carried in the file: the caller proves it holds the
-    /// active profile by naming it in `replacing`, the new profile records it as `derivedFrom`,
-    /// and the old file is **never touched** — it is what *Undo this reorganisation* re-points
-    /// back to, and it is the last hand-built copy when the chain started from one. The create-only
-    /// guard's protection did not weaken; it moved from "never replace what exists" to "never lose
-    /// what exists", which is what it was protecting all along.
+    /// Writes a profile re-derived after a Restructure apply and re-points `profiles.json` at it,
+    /// **even away from a hand-built profile**, which `writeProfile` never does. The licence is
+    /// provenance carried in the file: the caller proves it holds the active profile by naming it
+    /// in `replacing`, the new profile records it as `derivedFrom`, and the old file is **never
+    /// touched**. It is what Undo re-points back to, and may be the last hand-built copy. The guard
+    /// moves from "never replace what exists" to "never lose what exists".
     @discardableResult
     public static func writeDerivedProfile(_ profile: FolderProfile, replacing oldId: String,
                                            in directory: URL,
@@ -528,8 +428,8 @@ extension FilingProfileStore {
         guard !id.isEmpty, !id.contains("/"), id != ".", id != ".." else {
             throw WriteRefusal.invalidProfileId(id)
         }
-        // The chain must be in the FILE, not only in the caller's intent: derivedFrom is what
-        // Undo reads, and a derived profile that forgot its parent is one that cannot be undone.
+        // The chain must be in the file, not only the caller's intent: `derivedFrom` is what Undo
+        // reads, and a derived profile without it can't be undone.
         guard profile.derivedFrom == oldId else {
             throw WriteRefusal.chainMissing(derivedFrom: profile.derivedFrom, claimed: oldId)
         }
@@ -558,24 +458,23 @@ extension FilingProfileStore {
         return url
     }
 
-    /// The files in a profile's folder that the USER made, as opposed to what a walk derives:
-    /// the household roster, the person verdicts, and everything Restructure remembers. They must
-    /// travel with the active profile, and a folder holding the only copy of one is never retired.
-    /// The roster follows every walk; the verdicts and the ledger, keyed by paths in the folder
-    /// walked, follow their own Setup folder (``RestructureRootMap``).
+    /// The files in a profile's folder that the user made, as opposed to what a walk derives: the
+    /// household roster, the person verdicts, and everything Restructure remembers. They travel
+    /// with the active profile, and a folder holding the only copy of one is never retired. The
+    /// roster follows every walk; the verdicts and ledger, keyed by paths in the folder walked,
+    /// follow their own Setup folder (``RestructureRootMap``).
     public static let curatedArtifactNames = ["people.json", "person-tags.json", "restructure.json"]
 
-    /// What the document survey learned — ``FilingSurveyStore``'s corpus and memory. Not curated,
-    /// and not carried by a walk, but hours of reading to rebuild: a folder holding one the
-    /// active folder lacks is never retired either (see ``retireSupersededProfiles``).
+    /// What the document survey learned: ``FilingSurveyStore``'s corpus and memory. Not curated,
+    /// and not carried by a walk, but hours of reading to rebuild, so a folder holding one the
+    /// active folder lacks is never retired either (``retireSupersededProfiles``).
     public static let surveyArtifactNames = ["filing-corpus.json", "filing-memory.json"]
 
-    /// The plans Restructure's Export Plan wrote into a profile's folder — the
-    /// `restructure-<date>-<family>….json` files the sheet names (``RestructureStore/exportPlan(_:)``),
-    /// never the ledger `restructure.json` itself. Made by the user and named to them, so they
-    /// travel with the survey like the curated files and a folder holding one the active folder
-    /// lacks is never retired (M2: a survey refresh deleted them, permanently, with the folder).
-    /// Nil when the folder could not be listed.
+    /// The plans Restructure's Export Plan wrote into a profile's folder: the
+    /// `restructure-<date>-<family>….json` files (``RestructureStore/exportPlan(_:)``), never the
+    /// ledger `restructure.json`. Made by and named to the user, so like the curated files a folder
+    /// holding one the active folder lacks is never retired; retiring it would delete them
+    /// permanently. Nil when the folder couldn't be listed.
     public static func exportedPlanNames(inProfile id: String, in directory: URL,
                                          fileManager: FileManaging) -> [String]? {
         FileSyncManager.directoryNames(at: directory.appendingPathComponent(id).path,
@@ -584,42 +483,31 @@ extension FilingProfileStore {
             .sorted()
     }
 
-    /// **Retires derived profiles nothing can reach any more** — the directory and its index row.
+    /// **Retires derived profiles nothing can reach any more**: the directory and its index row.
+    /// Every re-derivation writes a new profile directory and row, so without this the store grows
+    /// by a whole profile per survey refresh.
     ///
-    /// Every re-derivation writes a NEW profile directory and appends a row; `replacing:` above
-    /// only asserts which id was active, and never retired anything. So the store grew by one
-    /// full profile per survey refresh, forever. On 2026-08-29 that was eight profiles and 90 MB
-    /// after a single evening — because the refresh button gave no feedback, so it was pressed
-    /// repeatedly, but the leak was there at one-per-press regardless.
+    /// **Four things are never retired**; the first three are this function's own rules:
     ///
-    /// **Four things are never retired, and the first three are this function's own rules rather
-    /// than the caller's:**
+    /// - **The active profile**, read from the index here, not passed in, so a drifted caller can't
+    ///   talk this into deleting the tree the app is reading.
+    /// - **Anything not provably derived.** `provenance` answers `handBuilt` for the offline
+    ///   builder's profiles and for any whose `builtBy` header is absent or unreadable. A file that
+    ///   won't decode is kept too: unreadable is not disposable, and here the difference is
+    ///   unrecoverable.
+    /// - **What a Setup folder's Restructure history needs**: every folder ``RestructureRootMap``
+    ///   names, and every id the ledgers in those folders record. An unreadable map or ledger retires
+    ///   nothing.
+    /// - **Whatever the caller protects.** The caller knows the ledger can re-point Undo at
+    ///   `appliedUnderProfileId` and that `repointActiveProfile` needs the target on disk, so a
+    ///   landing that can still be taken back pins its profile.
     ///
-    /// - **The active profile.** Read from the index here, not passed in, so a caller that has
-    ///   drifted cannot talk this into deleting the tree the app is currently reading.
-    /// - **Anything not provably derived.** `provenance` answers `handBuilt` for a profile the
-    ///   out-of-repo builder wrote AND for one whose `builtBy` header is absent or unreadable —
-    ///   the safe default by construction. A profile whose file will not decode at all is kept
-    ///   too: unreadable is not the same as disposable, and this is the one operation where that
-    ///   distinction is unrecoverable.
-    /// - **What a Setup folder's Restructure history needs** (FR4, follow-up): every folder
-    ///   ``RestructureRootMap`` names, and every id the ledger records in those folders name. An
-    ///   unreadable map (or a ledger it names) retires nothing.
-    /// - **Whatever the caller protects.** That is where domain knowledge lives: the ledger can
-    ///   re-point Undo at `appliedUnderProfileId`, and `repointActiveProfile` requires the target
-    ///   to still be on disk, so a landing that can still be taken back pins the profile it was
-    ///   applied under. The store has no business knowing that, which is why it is a parameter.
-    ///
-    /// Candidates come from the index, and a row whose directory is already gone is pruned rather
-    /// than skipped — otherwise a sweep interrupted between the two halves would leave that row
-    /// naming nothing, forever, since `profile(id:)` returns nil for it and the "is it derived?"
-    /// test could never pass again. Directories are removed first and the index written once at
-    /// the end, so an interruption leaves rows that the NEXT sweep finishes off.
-    ///
-    /// A directory with no index row at all is not swept here. `writeDerivedProfile` cannot leave
-    /// one — `land` removes the profile it just wrote if the index write fails — so the state is
-    /// unreachable short of a hand edit, and inventing a rule for it would mean deleting a
-    /// directory on no recorded authority, which is precisely the wrong side to err on.
+    /// Candidates come from the index. A row whose directory is already gone is pruned, or a sweep
+    /// interrupted between its two halves would leave a row naming nothing that no later test could
+    /// clear. Directories go first and the index is written once at the end, so an interruption
+    /// leaves rows the next sweep finishes. A directory with no index row isn't swept: `land`
+    /// removes what it wrote if the index write fails, so only a hand edit can make one, and
+    /// deleting it would be acting on no recorded authority.
     ///
     /// - Returns: the ids retired, for the caller's log line.
     @discardableResult
@@ -629,8 +517,8 @@ extension FilingProfileStore {
         throws -> [String] {
         let reading = try indexForAmending(in: directory)
         guard let active = reading.activeProfileId else {
-            // No active profile named: this index is not in a state to reason about supersession,
-            // and retiring on a guess is the one mistake with no way back.
+            // No active profile named: this index isn't in a state to reason about supersession,
+            // and retiring on a guess has no way back.
             return []
         }
         var listed: [[String: Any]] = []
@@ -640,11 +528,10 @@ extension FilingProfileStore {
             }
             listed = rows
         }
-        // **A folder Setup walked away from keeps its history, and its Undo keeps what it needs**
-        // (FR4, follow-up): the folder the root map names for each Setup folder, and every id that
-        // folder's ledger records name — a walk back takes that ledger up and re-points its Undo
-        // at them. Kept here rather than by the caller so every sweep keeps them; a map this
-        // cannot read, or a ledger it names that cannot be read, retires nothing at all.
+        // **A folder Setup walked away from keeps its history, and its Undo keeps what it needs:**
+        // the folder the root map names for each Setup folder, and every id that folder's ledger
+        // records, since a walk back takes that ledger up and re-points its Undo at them. Kept here
+        // so every sweep keeps them; an unreadable map, or ledger it names, retires nothing.
         guard let mapped = RestructureRootMap.protectedProfileIds(in: directory) else { return [] }
         let candidates = listed.compactMap { $0["profileId"] as? String }
             .filter { $0 != active && !protected.contains($0) && !mapped.contains($0) }
@@ -652,31 +539,25 @@ extension FilingProfileStore {
         for id in candidates.sorted() {
             let url = directory.appendingPathComponent(id)
             guard fileExistsAsDirectory(url, fileManager: fileManager) else {
-                // Already gone — the row is the only thing left of it.
+                // Already gone: the row is all that is left of it.
                 retired.append(id)
                 continue
             }
-            // Unreadable counts as hand-built (see `provenance`), so it is kept: unreadable is
-            // not disposable, and this is the one operation where the difference cannot be undone.
-            //
-            // **The header, not the whole profile.** This used to call `profile(id:in:)`, which
-            // fully decodes the file — 3,013 folder entries, each with its axes and anchors, and
-            // the lenient per-entry retry — to read ONE string, for every candidate, on the main
-            // actor, in the middle of a landing. `ProvenanceProbe` reads the same string and
-            // decides by the same rule.
+            // Unreadable counts as hand-built (see `provenance`), so it is kept: unreadable is not
+            // disposable, and this removal can't be undone. Reads the header only
+            // (`ProvenanceProbe`), not the whole profile, since this runs per candidate on the main
+            // actor during a landing.
             guard provenance(id: id, in: directory) == .derived else { continue }
-            // **Never the only copy of what the user made.** A profile's folder holds more than the
-            // derivation: the roster, the person verdicts and Restructure's ledger. A re-point that
-            // did not carry them (FR4: a Setup re-walk did not) left the active folder without
-            // them, and this removal — permanent, not the Trash — then took the only copy.
+            // **Never the only copy of what the user made.** A profile's folder also holds the
+            // roster, the person verdicts and Restructure's ledger. If a re-point didn't carry
+            // them, this removal (permanent, not the Trash) would take the only copy.
             //
-            // **And never the only copy of what the survey learned.** A re-derive re-points the
-            // index before its corpus replay, and the folder it leaves is then named by no ledger
-            // record (FR17): a quit in the replay relaunched onto a folder with no corpus, and the
-            // next sweep took the old one with the corpus and memory in it. Kept until the load
-            // reads them back (`finishInterruptedSurveyReplay`), then superseded. An unfinished
-            // survey's progress counts only while the active folder has neither progress nor a
-            // corpus of its own — once it has finished a survey, a stopped one elsewhere is stale.
+            // **Nor the only copy of what the survey learned.** A re-derive re-points the index
+            // before its corpus replay, and the folder it leaves is named by no ledger record, so a
+            // quit during the replay would let this sweep take the corpus and memory. Kept until
+            // the load reads them back (`finishInterruptedSurveyReplay`). An unfinished survey's
+            // progress counts only while the active folder has neither progress nor a corpus; once
+            // it has finished a survey, a stopped one elsewhere is stale.
             func holds(_ folder: URL, _ name: String) -> Bool {
                 fileManager.fileExists(atPath: folder.appendingPathComponent(name).path)
             }
@@ -684,8 +565,8 @@ extension FilingProfileStore {
             var stranded = (curatedArtifactNames + surveyArtifactNames).filter { name in
                 holds(url, name) && !holds(activeURL, name)
             }
-            // An export the active folder lacks is stranded too; a folder whose exports cannot
-            // be listed is kept, on the sweep's rule that unreadable is not disposable.
+            // An export the active folder lacks is stranded too; a folder whose exports can't be
+            // listed is kept, since unreadable is not disposable.
             guard let exported = exportedPlanNames(inProfile: id, in: directory,
                                                    fileManager: fileManager) else {
                 Logger.shared.warning("Filing profiles: kept \(id) — its folder could not be "
@@ -693,7 +574,7 @@ extension FilingProfileStore {
                 continue
             }
             // By contents, not name: two exports of one name can be two plans, and the active
-            // folder holding the other one does not make this one disposable.
+            // folder holding the other doesn't make this one disposable.
             let activeExports = Set((exportedPlanNames(inProfile: active, in: directory,
                                                        fileManager: fileManager) ?? [])
                 .compactMap { try? Data(contentsOf: activeURL.appendingPathComponent($0)) })
@@ -717,8 +598,8 @@ extension FilingProfileStore {
                 try fileManager.removeItem(at: url)
                 retired.append(id)
             } catch {
-                // Reported, never silent: a directory that would not go keeps its row, so the
-                // next sweep sees it again rather than losing track of it.
+                // Reported, never silent: a directory that won't go keeps its row, so the next
+                // sweep sees it again.
                 Logger.shared.warning("Filing profiles: could not retire \(id): \(error)")
             }
         }
@@ -737,17 +618,13 @@ extension FilingProfileStore {
         return retired
     }
 
-    /// Just enough of a profile file to answer ``FolderProfile/provenance`` — the `builtBy`
-    /// header and nothing else.
-    ///
-    /// **It has to succeed on exactly the files ``FolderProfile``'s own decoder succeeds on**, or
-    /// the retire sweep would gain or lose candidates: a file the full decoder rejects reads as
-    /// nil there and is therefore KEPT, and this must not quietly decide such a file is derived.
-    /// Both are satisfied by any JSON object and by nothing else — every field of `FolderProfile`
-    /// is optional or defaulted, and `builtBy` is read through the same `try?` tolerance, so a
-    /// header of the wrong type costs the file its provenance (which reads as hand-built, the
-    /// cautious answer) rather than its readability. That equivalence is what
-    /// `theProvenanceProbeAgreesWithTheFullDecode` pins.
+    /// Just enough of a profile file to answer ``FolderProfile/provenance``: the `builtBy` header.
+    /// **It must succeed on exactly the files ``FolderProfile``'s own decoder succeeds on**, or the
+    /// retire sweep would gain or lose candidates; a file the full decoder rejects is kept, and
+    /// this must not call it derived. Both accept any JSON object and nothing else: every
+    /// `FolderProfile` field is optional or defaulted, and a wrong-typed `builtBy` costs only
+    /// provenance (read as hand-built, the cautious answer).
+    /// `theProvenanceProbeAgreesWithTheFullDecode` pins this.
     private struct ProvenanceProbe: Decodable {
         let builtBy: String?
         private enum Key: String, CodingKey { case builtBy }
@@ -757,12 +634,9 @@ extension FilingProfileStore {
         }
     }
 
-    /// Who wrote the profile at `id`, read from its header alone — nil when the file is absent or
-    /// is not something this build can read at all, which is the same silence `profile(id:in:)`
-    /// answers with and means the same thing: **not disposable**.
-    ///
-    /// Internal rather than private so `FilingProfileStoreTests` can hold it against the full
-    /// decode; there is no reason for a caller outside this module to prefer it.
+    /// Who wrote the profile at `id`, read from its header alone. Nil when the file is absent or
+    /// unreadable, the same silence as `profile(id:in:)`, and it means the same: **not
+    /// disposable**. Internal so `FilingProfileStoreTests` can hold it against the full decode.
     static func provenance(id: String, in directory: URL) -> FolderProfile.Provenance? {
         guard let data = try? Data(contentsOf: profileURL(id: id, in: directory)),
               let probe = try? JSONDecoder().decode(ProvenanceProbe.self, from: data)
@@ -771,7 +645,7 @@ extension FilingProfileStore {
             ? .derived : .handBuilt
     }
 
-    /// Just the `root` a profile file records — what ``FolderProfile/recordedRoot`` decodes.
+    /// Just the `root` a profile file records, as ``FolderProfile/recordedRoot`` decodes it.
     private struct RootProbe: Decodable {
         let root: String?
         private enum Key: String, CodingKey { case root }
@@ -781,17 +655,17 @@ extension FilingProfileStore {
         }
     }
 
-    /// ``FolderProfile/recordedRoot`` for the profile at `id`, as the file spells it, read from
-    /// the header rather than a full decode — nil when the file records none or cannot be read.
+    /// ``FolderProfile/recordedRoot`` for the profile at `id`, as the file spells it, read from the
+    /// header alone. Nil when the file records none or can't be read.
     static func recordedRoot(id: String, in directory: URL) -> String? {
         guard let data = try? Data(contentsOf: profileURL(id: id, in: directory)) else { return nil }
         return (try? JSONDecoder().decode(RootProbe.self, from: data))?.root
     }
 
-    /// Whether two recorded folders are ONE folder (FR4) — compared standardised, with case folded
-    /// where the volume folds it, and again through links, so `~/OneDrive` and the
-    /// `~/Library/CloudStorage/…` folder it links to are one root, not two. `~` is expanded. Nil
-    /// is no folder, and never the same as anything.
+    /// Whether two recorded folders are one folder: compared standardised, case folded where the
+    /// volume folds it, and through links, so `~/OneDrive` and the `~/Library/CloudStorage/…`
+    /// folder it links to are one root. `~` is expanded. Nil is no folder, never the same as
+    /// anything.
     static func namesSameRoot(_ a: String?, _ b: String?) -> Bool {
         guard let a, let b else { return false }
         let ea = (a as NSString).expandingTildeInPath, eb = (b as NSString).expandingTildeInPath
@@ -807,9 +681,9 @@ extension FilingProfileStore {
             && isDirectory.boolValue
     }
 
-    /// Re-points `profiles.json` at an id that already has a profile on disk — the Undo half of
-    /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``: the inverse ran, and the profile
-    /// recorded as `derivedFrom` (kept for exactly this) becomes active again.
+    /// Re-points `profiles.json` at an id that already has a profile on disk: the Undo half of
+    /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``, making the `derivedFrom` profile (kept
+    /// for this) active again.
     public static func repointActiveProfile(to id: String, in directory: URL,
                                             now: Date = Date()) throws {
         guard let target = profile(id: id, in: directory) else {
@@ -820,23 +694,16 @@ extension FilingProfileStore {
         try index.write(to: indexURL(in: directory), options: .atomic)
     }
 
-    /// Writes the profile, then the index, undoing the profile if the index write fails.
-    ///
-    /// **Split out because it is the only part of the write that a test cannot otherwise reach.**
-    /// The obvious way to fail an index write from outside — leaving a directory where
-    /// `profiles.json` should be — stopped working the moment this store learned to tell "there but
-    /// unreadable" from "absent": the directory is now caught while *reading*, and the rollback test
-    /// went on passing while exercising a refusal instead. A test that no longer reaches its subject
-    /// and does not say so is worse than no test, so the subject is now callable on its own with an
-    /// index URL that cannot be written.
+    /// Writes the profile, then the index, undoing the profile if the index write fails. Split out
+    /// so a test can reach the rollback directly: failing an index write from outside now trips the
+    /// read-side refusal instead, and the test would pass without reaching its subject.
     ///
     /// - Parameters:
     ///   - bytes: the encoded profile.
     ///   - url: where it goes. The caller has already refused if something is there.
     ///   - index: composed index bytes, or nil when the index must not be touched.
-    /// - Parameter writeIndex: how the index is written. Injected so a test can fail it *and* act
-    ///   between the two writes — the rollback's byte comparison guards against exactly what another
-    ///   writer does in that gap, and there is no other way to be in it deterministically.
+    /// - Parameter writeIndex: how the index is written. Injected so a test can fail it and act
+    ///   between the two writes, the gap the rollback's byte comparison guards.
     static func land(_ bytes: Data, at url: URL, index: Data?, at indexURL: URL,
                      writeIndex: (Data, URL) throws -> Void = {
                          try $0.write(to: $1, options: .atomic)
@@ -846,43 +713,28 @@ extension FilingProfileStore {
         do {
             try writeIndex(index, indexURL)
         } catch {
-            // The profile landed and the index did not. Left alone that is the worst of the three
-            // possible states: nothing points at the new profile, AND every retry now throws
-            // `profileExists` — whose contract tells the caller "this tree already has a profile and
-            // I did not touch it", which would be false. So undo the half that succeeded and let the
-            // next attempt simply run.
+            // The profile landed and the index didn't: the worst state, since nothing points at the
+            // new profile and every retry would throw `profileExists`, falsely claiming "I didn't
+            // touch it". So undo the half that succeeded.
             //
             // **Only if the bytes on disk are still the ones just written.** The caller's guard
-            // proved the path was free at check time, not at removal time, so an unconditional
-            // delete could take out a profile that something else landed in between — inverting the
-            // refusal contract from "I did not touch it" into "I deleted it". Comparing first costs
-            // one read and makes the rollback provably about this call's own work. Best-effort
-            // throughout: if the comparison or the removal fails, the write error is still the one
-            // worth reporting.
+            // proved the path free at check time, not now, so an unconditional delete could remove
+            // a profile something else landed in between. Best-effort: if the compare or removal
+            // fails, the write error is still the one to report.
             //
-            // **And this is the one thing in the write path that gets logged**, because it is the
-            // one fact the thrown error does not carry. What propagates is the index write's own
-            // error — a permissions or I/O failure about `profiles.json` — which says nothing about
-            // a folder profile having been written and then taken away again. Without the line, a
-            // reader who goes looking finds no profile, no index entry, and no account of either.
-            // The id is the directory the profile sits in, which is how ``profileURL(id:in:)``
-            // composed this path.
+            // **This is the one thing the write path logs**, because the thrown error (about
+            // `profiles.json`) doesn't say a profile was written and taken away again. The id is
+            // the profile's directory name, as ``profileURL(id:in:)`` composed it.
             //
-            // **Three outcomes, not two, because `isOurs == false` covers two different worlds.**
-            // The `else` used to say "left in place, so a retry will refuse it" for both of them,
-            // and one of the two is a correlated failure rather than an exotic race: when the index
-            // write fails *because the containing directory went away* — an unmounted volume, a
-            // directory removed or renamed between the two writes — the profile went with it. The
-            // read then fails, `isOurs` is false, nothing is removed, and the line told a reader
-            // that a profile sits at a path holding nothing and predicted a refusal that will never
-            // happen. A log line that is wrong in the case a reader is most likely to be reading it
-            // in is worse than no line.
+            // **Three outcomes, because not rolled back covers two cases.** If the index write
+            // failed because the directory went away (an unmounted volume, a rename), the profile
+            // went with it; saying it was "left in place" would send a reader looking for a file
+            // that isn't there.
             let onDisk = try? Data(contentsOf: url)
             let rolledBack = onDisk == bytes && (try? FileManager.default.removeItem(at: url)) != nil
-            // `attributesOfItem` rather than `fileExists`, and after the removal attempt: the read
-            // above cannot tell "absent" from "there but unreadable" (mode 000, an ACL, an I/O
-            // error), and those two want opposite sentences — a profile that is there and cannot be
-            // read WILL still be refused by the retry.
+            // `attributesOfItem`, not `fileExists`, and after the removal attempt: the read above
+            // can't tell absent from there-but-unreadable, and those need opposite sentences, since
+            // a profile that is there and unreadable will still be refused by the retry.
             let stillThere = !rolledBack
                 && (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
             let outcome: String
@@ -894,8 +746,8 @@ extension FilingProfileStore {
                     + "it as an existing profile"
             } else {
                 // Not removed by this rollback and not there either: whatever failed the index
-                // write took the profile too. Said as its own sentence, because "was left in place"
-                // and "is already gone" send a reader looking in opposite directions.
+                // write took the profile too. Its own sentence, because "left in place" and
+                // "already gone" send a reader looking in opposite directions.
                 outcome = " — nothing is at \(url.path) either, so the profile went with whatever "
                     + "failed the index write and a retry can simply run"
             }
@@ -907,17 +759,15 @@ extension FilingProfileStore {
         }
     }
 
-    /// Whether a value parsed out of JSON is a boolean rather than a number.
-    ///
-    /// `true` and `false` bridge to `NSNumber`, so `as? Int` accepts them as 1 and 0 — which makes
-    /// every "is this field a number" test silently true for booleans. `CFGetTypeID` is the only
-    /// reliable separation once the value has been through `JSONSerialization`.
+    /// Whether a value parsed from JSON is a boolean rather than a number. `true` and `false`
+    /// bridge to `NSNumber`, so `as? Int` accepts them as 1 and 0; `CFGetTypeID` is the only
+    /// reliable separation after `JSONSerialization`.
     private static func isJSONBoolean(_ value: Any) -> Bool {
         CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
     }
 
-    /// What `profiles.json` holds right now, parsed once for both of the questions the write path
-    /// asks of it: *may this be amended at all*, and *does it already name an active profile*.
+    /// What `profiles.json` holds right now, parsed once for both questions the write path asks:
+    /// may it be amended at all, and does it already name an active profile.
     private struct IndexReading {
         /// The parsed document, or nil when there is no index file yet.
         let object: [String: Any]?
@@ -925,26 +775,21 @@ extension FilingProfileStore {
         let activeProfileId: String?
     }
 
-    /// Reads `profiles.json` for amendment, **refusing anything it cannot fully account for**.
-    ///
-    /// Deliberately stricter than ``activeProfileId(in:)``, and the asymmetry is the point. A
-    /// *reader* that cannot understand the index degrades to "no active profile" and the app carries
-    /// on; a *writer* that cannot understand it has to stop, because the fields it would be
-    /// overwriting are the ones it just failed to read. A malformed field is therefore a refusal
-    /// here and an absence there.
+    /// Reads `profiles.json` for amendment, **refusing anything it can't fully account for**.
+    /// Stricter than ``activeProfileId(in:)`` on purpose: a reader that can't understand the index
+    /// degrades to "no active profile" and carries on, but a writer must stop, because the fields
+    /// it would overwrite are the ones it failed to read. A malformed field is a refusal here, an
+    /// absence there.
     private static func indexForAmending(in directory: URL) throws -> IndexReading {
         let url = indexURL(in: directory)
         guard let data = try? Data(contentsOf: url) else {
-            // **"Absent" and "there but unreadable" are different answers**, and a `try?` alone
-            // conflates them. A `profiles.json` that exists and cannot be read — mode 000, an ACL,
-            // an I/O error — would otherwise look like a fresh machine, and an atomic write needs
-            // permission on the *directory* rather than the file, so composing a new index over it
-            // would succeed and orphan every profile the old one named.
-            //
-            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
-            // that does not resolve: `fileExists` follows links and answers false for one whose
-            // target is missing — an index symlinked onto a volume that is currently unmounted
-            // reads as "no index here", and the atomic write then replaces the link itself.
+            // **Absent and there-but-unreadable are different answers.** A `profiles.json` that
+            // exists but can't be read (mode 000, an ACL, an I/O error) would look like a fresh
+            // machine, and since an atomic write needs permission on the directory, not the file, a
+            // new index would succeed and orphan every profile the old one named.
+            // `attributesOfItem`, not `fileExists`: `fileExists` follows links, so an index
+            // symlinked onto an unmounted volume would read as absent and the atomic write would
+            // replace the link.
             guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
                 throw WriteRefusal.indexUnreadable("it exists but could not be read")
             }
@@ -953,14 +798,11 @@ extension FilingProfileStore {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw WriteRefusal.indexUnreadable("it is not a JSON object")
         }
-        // A schema this build does not know is refused — including one that is not a number at all,
-        // which the old check skipped entirely by asking `as? Int` and moving on when it was nil.
+        // An unknown schema is refused, including one that isn't a number at all.
         if let version = object["schemaVersion"], !(version is NSNull) {
-            // `as? Int` alone is not a number test: JSON `true` bridges to `NSNumber` and satisfies
-            // it as 1, so a `"schemaVersion": true` would have passed as schema 1 here while
-            // `JSONDecoder` threw for ``activeProfileId(in:)`` — the same two-readers-disagree hole
-            // this function exists to close, one type over. `false` was worse: it read as schema 0
-            // and the refusal named a version the file never contained.
+            // `as? Int` alone is not a number test: JSON `true` bridges to `NSNumber` as 1, so
+            // `"schemaVersion": true` would pass as schema 1 here while `JSONDecoder` throws for
+            // ``activeProfileId(in:)``, two readers disagreeing.
             guard !isJSONBoolean(version), let number = version as? Int else {
                 throw WriteRefusal.indexUnreadable("schemaVersion is not a number")
             }
@@ -968,9 +810,9 @@ extension FilingProfileStore {
                 throw WriteRefusal.indexUnreadable("schema \(number), not \(currentSchema)")
             }
         }
-        // The field that decides whether anything may be re-pointed gets the same treatment: an
-        // `activeProfileId` that is present but not a string is an index this does not understand,
-        // not an index with nothing active.
+        // The field that decides whether anything may be re-pointed gets the same treatment: a
+        // present `activeProfileId` that isn't a string is an index this doesn't understand, not
+        // one with nothing active.
         var active: String?
         if let raw = object["activeProfileId"], !(raw is NSNull) {
             guard let id = raw as? String else {
@@ -978,17 +820,14 @@ extension FilingProfileStore {
             }
             active = id
         }
-        // **"Active" means it names a profile that is really there.** An id pointing at a profile
-        // that does not exist is a dangling pointer, not an answer, and treating it as one left the
-        // bootstrap permanently dead while reporting success: a hand-edit as small as a trailing
-        // space (`"father "`) makes every read load nothing, and this refused to re-point for
-        // ever after. Re-pointing away from a name that resolves to no file cannot lose anything,
-        // and re-pointing away from one that resolves is exactly what must never happen.
+        // **"Active" means it names a profile that is really there.** An id naming no profile is a
+        // dangling pointer, and treating it as an answer would block the bootstrap for good after a
+        // hand-edit as small as a trailing space (`"father "`). Re-pointing away from a name that
+        // resolves to no file can't lose anything; away from one that resolves must never happen.
         //
-        // This is also why the empty id is not special-cased. It is not "no profile": an empty
-        // component collapses in `appendingPathComponent`, so `""` addresses
-        // `profiles/folder-profile.json`, which some layouts really do have. Asking the filesystem
-        // answers both cases with one rule instead of a guess about which ids are meaningful.
+        // So the empty id isn't special-cased either: `appendingPathComponent` collapses it, so
+        // `""` addresses `profiles/folder-profile.json`, which some layouts have. Asking the
+        // filesystem answers both with one rule.
         if let id = active, !FileManager.default.fileExists(atPath: profileURL(id: id, in: directory).path) {
             active = nil
         }
@@ -1000,10 +839,9 @@ extension FilingProfileStore {
                                      now: Date) throws -> Data {
         var object = reading.object ?? [:]
         object["schemaVersion"] = currentSchema
-        // A `profiles` field that is not a list of objects is refused rather than replaced. It used
-        // to be read as `as? [[String: Any]] ?? []`, so an object-keyed or otherwise unexpected
-        // list quietly became an empty one and the rewrite dropped every profile the index named —
-        // the exact clobber ``WriteRefusal/indexUnreadable`` says it exists to prevent.
+        // A `profiles` field that isn't a list of objects is refused rather than replaced; reading
+        // it as empty would make the rewrite drop every profile the index names, the clobber
+        // ``WriteRefusal/indexUnreadable`` exists to prevent.
         var profiles: [[String: Any]] = []
         if let raw = object["profiles"], !(raw is NSNull) {
             guard let listed = raw as? [[String: Any]] else {
@@ -1018,14 +856,9 @@ extension FilingProfileStore {
                                       "surveyedFiles": profile.folders.values
                                           .reduce(0) { $0 + $1.fileCount }]
             // **`displayName` and `provider` are inherited from the profile being replaced, not
-            // guessed.** The rule this replaces — "a folder walk does not know the person's
-            // name, and an absent field reads as unknown while a guessed one reads as a fact" —
-            // is right about a FIRST profile and wrong about a re-derivation, which is a new
-            // survey of a tree that has already been identified. Written as it was, one press of
-            // "Update the survey" turned a row reading `Father / iCloud Drive (Desktop &
-            // Documents sync) / 12280 files` into a nameless one, and every press after that
-            // inherited the nothing. Copying from the row being superseded keeps a fact a fact:
-            // the source is the previous active profile's own entry, never a construction.
+            // guessed.** A folder walk doesn't know the person's name, and a guess would read as a
+            // fact; but a re-derivation re-surveys a tree already identified, so it copies those
+            // fields from the superseded row rather than leaving every later row nameless.
             if let parent = profiles.first(where: {
                 $0["profileId"] as? String == reading.activeProfileId
             }) {
@@ -1041,24 +874,21 @@ extension FilingProfileStore {
                                           options: [.sortedKeys, .prettyPrinted])
     }
 
-    /// The instant both filing artifacts date themselves with — see ``FilingArtifactStamp``.
-    /// `now` is injected by the caller — `docs/flaky-tests.md` mechanism 5.
+    /// The instant both filing artifacts date themselves with (``FilingArtifactStamp``). `now` is
+    /// injected by the caller (`docs/flaky-tests.md`, "Tests racing a real-time window").
     static func stamp(_ date: Date) -> String { FilingArtifactStamp.string(from: date) }
 
-    /// The on-disk shape, header and all. Mirrors ``FolderProfile``'s decoder field for field —
-    /// `folders` as an array (the decoder keys it by `path`), the person axis as a
-    /// `values` + `aliases` box — because decoding is the only contract between the Python builder
-    /// and this module, and a profile written here has to satisfy the same one.
+    /// The on-disk shape, header and all. Mirrors ``FolderProfile``'s decoder field for field
+    /// (`folders` as an array keyed by `path` on decode, the person axis as a `values` + `aliases`
+    /// box), because decoding is the only contract between the Python builder and this module.
     struct ProfileDocument: Encodable {
         let profile: FolderProfile
         let generated: String
         let builtBy: String
 
-        /// What the file says about itself, for the person who opens it because a suggestion looked
-        /// wrong. **It has to describe what the builder actually produced**, which is why it no
-        /// longer claims `anchors` and `axes` are empty: they are derived and populated, and a
-        /// reader who believed otherwise would go looking for the cause of a bad suggestion in the
-        /// wrong file. Only `naming` is genuinely abstained from.
+        /// What the file says about itself, for whoever opens it because a suggestion looked wrong.
+        /// It must describe what the writer actually produces: `anchors` and `axes` are derived and
+        /// populated, and only `naming` is abstained from.
         static let note = """
             What each folder IS — role, axes, naming convention, and whether it may receive files. \
             Companion to filing-memory.json, which records what a folder has RECEIVED. A profile \
@@ -1077,7 +907,7 @@ extension FilingProfileStore {
         }
 
         /// The `axes.person` shape ``FolderProfile``'s decoder reads: a `values` list plus the
-        /// alias pairs, which are what let `Family/Mom` and `Granny` resolve to one person.
+        /// alias pairs that let `Family/Mom` and `Granny` resolve to one person.
         struct PersonAxisBox: Encodable {
             let values: [String]
             let aliases: [String: String]
@@ -1095,11 +925,11 @@ extension FilingProfileStore {
                 try c.encodeIfPresent(entry.role?.rawValue, forKey: .role)
                 try c.encodeIfPresent(entry.naming, forKey: .naming)
                 try c.encode(entry.anchors, forKey: .anchors)
-                // Omitted when nil, as the generator omits it: only an explicit `false` forbids
-                // filing, and `null` and absent mean the same thing to the decoder.
+                // Omitted when nil, as the generator does: only an explicit `false` forbids filing,
+                // and `null` and absent mean the same to the decoder.
                 try c.encodeIfPresent(entry.acceptsNewFiles, forKey: .acceptsNewFiles)
-                // The refusal's WHY travels with the refusal — §5.5's carry-over is the writer
-                // whose entries hold one.
+                // The refusal's reason travels with it; the Restructure carry-over writes entries
+                // that hold one.
                 try c.encodeIfPresent(entry.noIntakeReason, forKey: .noIntakeReason)
                 try c.encode(entry.fileCount, forKey: .fileCount)
                 try c.encode(entry.subfolderCount, forKey: .subfolderCount)
@@ -1115,22 +945,21 @@ extension FilingProfileStore {
             try c.encode(generated, forKey: .generated)
             try c.encode(profile.root, forKey: .root)
             try c.encode(builtBy, forKey: .builtBy)
-            // The provenance chain (§5.5 step 6): what this profile was re-derived from, which is
-            // what Undo re-points to. Omitted for a plain walk, exactly as the decoder tolerates.
+            // The provenance chain: what this profile was re-derived from, which Undo re-points to.
+            // Omitted for a plain walk, as the decoder tolerates.
             try c.encodeIfPresent(profile.derivedFrom, forKey: .derivedFrom)
             try c.encode(ProfileDocument.note, forKey: .note)
             try c.encode(profile.folders.count, forKey: .folderCount)
-            // Written only when there is one: an empty person axis and no axis at all decode
-            // identically, and a `{"person":{"values":[]}}` box claims a survey looked and found
-            // nobody, which a name-only survey did not do.
+            // Written only when there is one: an empty person axis and none decode the same, and a
+            // `{"person":{"values":[]}}` box would claim a survey looked and found nobody.
             if !profile.personTokens.isEmpty || !profile.personAliases.isEmpty {
                 try c.encode(["person": PersonAxisBox(values: profile.personTokens.sorted(),
                                                       aliases: profile.personAliases)],
                              forKey: .axes)
             }
-            // Sorted by path so the bytes are a function of the profile alone — a file that
-            // reshuffles on every write is one nobody can diff, and its hash feeds
-            // `fingerprint(id:in:)`, which keys every cached classification.
+            // Sorted by path so the bytes depend on the profile alone: a file that reshuffles can't
+            // be diffed, and its hash feeds `fingerprint(id:in:)`, which keys every cached
+            // classification.
             try c.encode(profile.folders.values.sorted { $0.path < $1.path }.map(EntryBox.init),
                          forKey: .folders)
         }

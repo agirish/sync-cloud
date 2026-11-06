@@ -3,13 +3,13 @@ import Foundation
 import Darwin
 @testable import Sync
 
-/// RD24: a copy that can be abandoned part-way. Two claims, and both are about real disks — the
-/// mock file manager copies whole, which is why none of this can be pinned against it:
+/// A copy that can be abandoned part-way. Both claims are about real disks; the mock file manager
+/// copies whole, so it can't pin them:
 ///
-/// 1. **`observedCopyItem` is `copyItem`** when nobody cancels — the same tree, down to the
-///    folder mtime `copyfile(3)` alone gets wrong beside a symlink.
-/// 2. **A cancel stops inside the item** and leaves nothing behind: no destination, no `.tmp_`,
-///    no alert, and a replaced destination still holding what it held.
+/// 1. `observedCopyItem` is `copyItem` when nobody cancels: the same tree, down to the folder mtime
+///    `copyfile(3)` alone gets wrong beside a symlink.
+/// 2. A cancel stops inside the item and leaves nothing behind: no destination, no `.tmp_`, no
+///    alert, and a replaced destination still holding what it held.
 ///
 /// Clones write no data, so every mid-data test passes `allowClone: false` to force the byte path
 /// a cross-volume copy takes.
@@ -128,7 +128,7 @@ import Darwin
         try write(src.appendingPathComponent("zz/big.bin"), bytes: 32 << 20)
         let dst = root.appendingPathComponent("copy")
         let polls = LockedBox<Int>(0)
-        // Let the first few entries land, so there IS a partial tree to clean up.
+        // Let the first few entries land, so there is a partial tree to clean up.
         let observer = CopyObserver(shouldContinue: {
             polls.withLock { $0 += 1; return $0 } < 60
         })
@@ -162,8 +162,8 @@ import Darwin
         #expect(siblings == ["report.txt"])
     }
 
-    /// Delegates to the real disk, but forces the byte path and presses Cancel on the operation's own
-    /// Progress once the first bytes of the first item have moved — the button, not the observer.
+    /// Delegates to the real disk, but forces the byte path and presses Cancel on the operation's
+    /// own Progress once the first bytes of the first item have moved: the button, not the observer.
     private final class CancelOnFirstBytes: FileManaging, @unchecked Sendable {
         let fm = FileManager.default
         let cancel: @Sendable () -> Void
@@ -247,10 +247,10 @@ import Darwin
     }
 }
 
-/// A mock disk whose OBSERVED copy of one named file does something scripted: press Cancel on the
-/// operation's Progress first (so the abandonment is the button's), or throw `userCancelled` with no
-/// Cancel pressed at all (a provider's refusal, which must read as a failure). Every other call is
-/// the mock's own. Shared by the transfer and bulk-sync tests of RD24's cancellation scoping.
+/// A mock disk whose observed copy of one named file does something scripted: press Cancel on the
+/// operation's Progress first (so the abandonment is the button's), or throw `userCancelled` with
+/// no Cancel pressed (a provider's refusal, which must read as a failure). Every other call is the
+/// mock's own. Shared by the transfer and bulk-sync cancellation tests.
 final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
     enum Script { case pressCancel, throwForeignCancellation }
     let inner: MockFileManager
@@ -259,8 +259,8 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
     private let progressBox = LockedBox<Progress?>(nil)
     private let gaveUpBox = LockedBox(false)
 
-    /// True if `.pressCancel` stopped waiting for `installProgress` and copied the file uncancelled.
-    /// Without it, "Cancel was never pressed" reads exactly like "Cancel did nothing".
+    /// True if `.pressCancel` stopped waiting for `installProgress` and copied the file uncancelled,
+    /// so "Cancel was never pressed" doesn't read like "Cancel did nothing".
     var gaveUpWaitingForProgress: Bool { gaveUpBox.withLock { $0 } }
 
     init(inner: MockFileManager, trigger: String, script: Script) {
@@ -274,8 +274,8 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         switch script {
         case .pressCancel:
             // Bounded, so a mis-wire fails rather than hangs; by turns as well as seconds, so a
-            // starved main actor stops this clock instead of spending it (docs/flaky-tests.md,
-            // mechanism 5: a plain 30 s ran out before the test could install the Progress).
+            // starved main actor stops this clock instead of spending it ("Tests racing a
+            // real-time window" in `docs/flaky-tests.md`).
             let deadline = TurnDeadline(seconds: 30, turns: parkTurnFloor)
             while progressBox.withLock({ $0 }) == nil, !deadline.hasPassed { Thread.sleep(forTimeInterval: 0.005) }
             if progressBox.withLock({ $0 }) == nil { gaveUpBox.withLock { $0 = true } }
@@ -314,8 +314,8 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         return disk
     }
 
-    /// A `userCancelled` nobody asked for is a failure: it is reported, and the batch goes on. Before
-    /// the scoping, it ended the loop silently — every later item dropped, no alert, no log.
+    /// A `userCancelled` nobody asked for is a failure: it is reported, and the batch goes on,
+    /// rather than ending the loop silently with every later item dropped.
     @MainActor
     @Test func aCancellationTheUserDidNotAskForIsReportedAndTheBatchContinues() async throws {
         let disk = try seeded(["a.txt", "b.txt"])
@@ -356,7 +356,7 @@ final class ScriptedObservedCopy: FileManaging, @unchecked Sendable {
         #expect(m.banner?.severity != .warning)
     }
 
-    /// Bulk sync: the same `userCancelled` WITHOUT Cancel is a failure, alerted like any other.
+    /// Bulk sync: the same `userCancelled` without Cancel is a failure, alerted like any other.
     @MainActor
     @Test func bulkSyncReportsACancellationTheUserDidNotAskFor() async throws {
         let disk = try seeded(["big.txt"])

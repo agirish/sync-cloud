@@ -2,20 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the WRITE half of the persisted-rule stores.
-///
-/// `readPersistedStore` has long gone to real lengths to keep an undecodable payload alive (it is
-/// preserved under a sibling key rather than silently read as `[]`), because losing the rules the
-/// user taught is expensive and unexplainable. The setters, meanwhile, were spelled
-/// `defaults.set(try? JSONEncoder().encode(newValue), forKey:)` — and `UserDefaults.set(nil,
-/// forKey:)` is *defined* as `removeObject(forKey:)`, so a failed encode did not skip the write, it
-/// deleted the whole store. These tests pin the failure direction: an unencodable value must leave
-/// the previously saved bytes exactly where they were.
+/// Pins the write half of the persisted-rule stores: an unencodable value must leave the saved
+/// bytes exactly where they were, since losing the rules the user taught is expensive and
+/// unexplainable. `UserDefaults.set(nil, forKey:)` is defined as `removeObject(forKey:)`, so
+/// writing `try? encode(…)` would delete the whole store on a failed encode.
 @Suite struct PersistedStoreWriteTests {
 
-    /// A value the codec always refuses, so the failure path can be exercised deliberately. The real
-    /// stores are `String`/`Int`/`Bool`/`UUID` throughout and should never fail — which is the whole
-    /// problem with failing open: the wipe could not be reproduced on purpose, only suffered.
+    /// A value the codec always refuses, so the failure path can be exercised on purpose. The real
+    /// stores hold only `String`/`Int`/`Bool`/`UUID` and should never fail.
     private struct ThrowingEncodable: Encodable {
         struct Refused: Error {}
         func encode(to encoder: Encoder) throws { throw Refused() }
@@ -41,10 +35,8 @@ import Foundation
         #expect(round == good)
     }
 
-    /// The mutation guard for the test above: it asserts "the bytes survived", which is only
-    /// meaningful if the OLD spelling would have destroyed them. It would — this pins the
-    /// `set(nil) == removeObject` semantic the whole finding rests on, so nobody has to take the
-    /// commit message's word for it.
+    /// The control for the test above, which only means something if `set(try? encode(…))` would
+    /// destroy the bytes. Pins the `set(nil) == removeObject` semantic.
     @MainActor
     @Test func theOldSpellingWouldHaveRemovedTheKeyEntirely() throws {
         let defaults = ScratchDefaults("PersistedStoreWriteMutation")
@@ -52,7 +44,7 @@ import Foundation
         FileSyncManager.writePersistedStore(good, to: defaults, key: key, describing: "test store")
         #expect(defaults.data(forKey: key) != nil)
 
-        // Verbatim the pre-fix expression.
+        // The unguarded spelling.
         defaults.set(try? JSONEncoder().encode(ThrowingEncodable()), forKey: key)
 
         #expect(defaults.data(forKey: key) == nil, "set(nil:) removes the key — this is the wipe")
@@ -71,8 +63,8 @@ import Foundation
         #expect(round == rules)
     }
 
-    /// End-to-end through the real property, so the three setters are covered by their own type
-    /// rather than only by the helper they now share.
+    /// End to end through the real property, so the three setters are covered by their own type,
+    /// not only by the helper they share.
     @MainActor
     @Test func theAutomationRuleSetterRoundTripsThroughTheHelper() async throws {
         let manager = FileSyncManager()
@@ -83,7 +75,7 @@ import Foundation
 
         manager.upsertAutomationRule(rule)
 
-        // A fresh manager on the same store reads it back — the write really reached defaults.
+        // A fresh manager on the same store reads it back: the write really reached defaults.
         let reread = FileSyncManager()
         reread.filingRuleDefaults = manager.filingRuleDefaults
         reread.ensureAutomationRulesLoaded()
@@ -93,11 +85,10 @@ import Foundation
         #expect(round.conditions == rule.conditions)
     }
 
-    /// The three setters are near-identical call sites that each name their OWN defaults key, and
-    /// the helper cannot catch a copy-pasted key — a rules/rejections mix-up would simply write the
-    /// wrong store and read back empty. These two pin the remaining pair by round-tripping through
-    /// the real properties, and cross-check that they do not tread on each other despite sharing
-    /// one `UserDefaults`.
+    /// The three setters are near-identical and each names its own defaults key, which the helper
+    /// can't check: a copy-pasted key would write the wrong store and read back empty. These two
+    /// round-trip the remaining pair through the real properties and check they don't tread on
+    /// each other in one `UserDefaults`.
     @MainActor
     @Test func theFilingRuleSetterRoundTripsUnderItsOwnKey() throws {
         let manager = FileSyncManager()

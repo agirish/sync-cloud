@@ -1,16 +1,12 @@
 import Foundation
 
-/// Which survey To File placed the last scan's files with, and why (GK–GN, 2026-10-31).
+/// Which survey To File placed the last scan's files with, and why. Each tree gets its own answer:
+/// applying one survey to every tree by relative path is right only for a copy of that tree, and
+/// quietly wrong for one laid out differently.
 ///
-/// **Before this, there was no such question.** The one active profile was applied to whatever
-/// tree a scan filed into, matched by path relative to that tree, so iCloud's survey placed
-/// Dropbox's files wherever a Dropbox folder happened to share a path with iCloud — right for a
-/// copy of iCloud's Documents, and quietly wrong for a tree laid out differently, where only the
-/// coincidences matched. Now each tree is answered for on purpose:
-///
-/// - `.primary` — the tree IS the primary survey's (iCloud's Documents), or inside it.
+/// - `.primary` — the tree is the primary survey's (iCloud's Documents), or inside it.
 /// - `.borrowed` — another source using the primary survey: half or more of its folders exist in
-///   the primary survey (Dropbox, 91% on his Mac), or the user chose it.
+///   the primary survey (Dropbox, say), or the user chose it.
 /// - `.own` — the source's own survey, learned from its folders (Google Drive).
 /// - `.byName` — fewer than half match and it has no survey of its own, so files are placed by name.
 public struct FilingSurveyInUse: Equatable, Sendable {
@@ -19,7 +15,7 @@ public struct FilingSurveyInUse: Equatable, Sendable {
     }
 
     public let kind: Kind
-    /// The tree filed into — the scan's provider root.
+    /// The tree filed into: the scan's provider root.
     public let root: String
     /// Folders of `root` that exist, at the same relative path, in the primary survey.
     public let matched: Int
@@ -27,12 +23,11 @@ public struct FilingSurveyInUse: Equatable, Sendable {
     public let total: Int
     /// Whether a choice the user made decided it, rather than the measurement.
     public let chosen: Bool
-    /// The source's own survey, when it has one — whether or not it is the one in use.
+    /// The source's own survey, when it has one, whether or not it is the one in use.
     public let ownProfileId: String?
     public let ownLearnedAt: Date?
     public let ownFolderCount: Int?
-    /// When the own survey's documents were read, and how many — nil until Read Documents has
-    /// finished for it.
+    /// When the own survey's documents were read, and how many; nil until Read Documents finishes.
     public let ownDocumentsReadAt: Date?
     public let ownDocumentsRead: Int?
 
@@ -57,10 +52,10 @@ public struct FilingSurveyInUse: Equatable, Sendable {
     /// "91%", rounded down so 49.6% never reads as the 50% that would have borrowed.
     public var matchPercent: String { "\(Int((matchFraction * 100).rounded(.down)))%" }
 
-    /// GN: half or more of a source's folders found in the primary survey means it borrows.
+    /// Half or more of a source's folders found in the primary survey means it borrows.
     public static let borrowThreshold = 0.5
 
-    /// GN's rule, with the user's choice over the measurement.
+    /// Which survey a tree uses, with the user's choice over the measurement.
     ///
     /// - Parameters:
     ///   - primaryRoot: the primary survey's folder, expanded; nil when there is no survey at all.
@@ -79,7 +74,7 @@ public struct FilingSurveyInUse: Equatable, Sendable {
         return (fraction >= borrowThreshold ? .borrowed : .byName, false)
     }
 
-    /// `path` is the survey's folder or inside it — the test that makes a tree the primary one.
+    /// `path` is the survey's folder or inside it: the test that makes a tree the primary one.
     public static func isAtOrInsideSurvey(_ path: String, _ root: String) -> Bool { isAtOrInside(path, root) }
 
     /// `path` is `root` or a folder inside it, in either spelling of a link on the way.
@@ -92,8 +87,8 @@ public struct FilingSurveyInUse: Equatable, Sendable {
         return false
     }
 
-    /// "Dropbox’s", "Documents’" — a source's name as owner of a survey, shared by To File's
-    /// menu and Settings so the two say it alike.
+    /// "Dropbox’s", "Documents’": a source's name as owner of a survey, shared by To File's menu
+    /// and Settings so the two say it alike.
     public static func possessive(_ name: String) -> String {
         name.hasSuffix("s") ? name + "’" : name + "’s"
     }

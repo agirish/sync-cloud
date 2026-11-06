@@ -76,7 +76,7 @@ import Foundation
         #expect(!manager.isScanning)
     }
 
-    /// The Path column's anchor: a completed scan captures the two compared folders' NAMES with
+    /// The Path column's anchor: a completed scan captures the two compared folders' names with
     /// the results, a swap flips them with everything else, and a pane retarget clears them with
     /// the rest of the comparison state. Deliberately distinct names ("Home" vs "Backup") — a
     /// fixture where both sides matched could not tell a flip from a no-op.
@@ -159,10 +159,10 @@ import Foundation
         #expect(abs(topDate.timeIntervalSince(knownDate)) < 1)
     }
 
-    /// Regression: a scan rooted at an uncanonical symlinked path (temporaryDirectory lives under
-    /// /var/..., a symlink to /private/var/...) must still key files by root-relative path. The
-    /// real enumerator yields canonical URLs, so trimming with a plain prefix check against the
-    /// uncanonical root left every key near-absolute and both panes falsely diffed as missing.
+    /// A scan rooted at an uncanonical symlinked path (temporaryDirectory lives under /var/..., a
+    /// symlink to /private/var/...) must still key files by root-relative path. The real enumerator
+    /// yields canonical URLs, so a plain prefix trim against the uncanonical root would leave every
+    /// key near-absolute and diff both panes as missing.
     @Test func testGetFilesInDirectoryWithUncanonicalSymlinkedRoot() async throws {
         let fm = FileManager.default
         // Deliberately NOT canonicalized, unlike the test above.
@@ -196,7 +196,7 @@ import Foundation
         #expect(Set(files.keys) == ["top.txt", "nested", "nested/deep.txt"])
 
         // Symptom-level pin: identical content under a second uncanonical root must produce
-        // zero differences (the bug made everything missing on both sides).
+        // zero differences, not everything missing on both sides.
         let otherFiles = try FileDiffEngine.getFilesInDirectory(otherRoot)
         let diffs = FileDiffEngine.computeDifferences(
             left: Self.left, leftURL: root,
@@ -206,12 +206,10 @@ import Foundation
         #expect(diffs.isEmpty)
     }
 
-    /// Regression: the two scan sources classified symlinks differently — the tree path carried
-    /// the LINK's own size/mtime for symlinked files, and the disk walk excluded symlinks
-    /// entirely — so the same disk state produced different rows depending on which branch ran.
-    /// Both paths must report symlinked files with the TARGET's size/date, and both must walk
-    /// a symlinked directory's contents (the disk walk once didn't, so a linked folder's files
-    /// flipped between "present" and "missing" with cache state).
+    /// The two scan sources (the tree path and the disk walk) must classify symlinks alike, or the
+    /// same disk state produces different rows depending on which branch ran. Both report symlinked
+    /// files with the target's size and date, and both walk a symlinked directory's contents, so a
+    /// linked folder's files don't flip between "present" and "missing" with cache state.
     @Test func testSymlinkedFilesReportTargetMetadataInBothScanPaths() async throws {
         let fm = FileManager.default
         // Canonical root: both paths key by root-relative path against canonical child URLs.

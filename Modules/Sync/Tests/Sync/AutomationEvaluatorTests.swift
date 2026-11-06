@@ -42,8 +42,8 @@ import Testing
         #expect(AutomationEvaluator.matches(.kindIs(.video), facts("clip.mp4"), now: now))
         #expect(AutomationEvaluator.matches(.kindIs(.audio), facts("song.mp3"), now: now))
         #expect(!AutomationEvaluator.matches(.kindIs(.image), facts("a.pdf"), now: now))
-        // Regression guard: `.video` once included `.audiovisualContent`, which `public.audio`
-        // conforms to, so mp3/m4a wrongly classified as video. Audio must never match the video kind.
+        // Audio must never match the video kind: `public.audio` conforms to `.audiovisualContent`,
+        // so `.video` must not include it.
         #expect(!AutomationEvaluator.matches(.kindIs(.video), facts("song.mp3"), now: now))
         #expect(!AutomationEvaluator.matches(.kindIs(.video), facts("track.m4a"), now: now))
         // `.of` disambiguation: a PDF is never the broad .document; audio resolves to .audio, not .video.
@@ -109,10 +109,9 @@ import Testing
         // A rule with only an incomplete condition matches nothing.
         let empty = AutomationRule(name: "r", conditions: [.nameMatches("   ")], destinationTemplate: "X")
         #expect(!AutomationEvaluator.matches(empty, facts("a.pdf"), now: now))
-        // ROUND-4 SEMANTICS CHANGE (this used to pin the opposite): an ALL-OF rule with an
-        // incomplete member no longer evaluates on the complete remainder — that silently
-        // broadened "kind is PDF AND text contains <blank>" to every PDF. All-of with any
-        // incomplete condition matches nothing; the half-built rule stays saved, just inert.
+        // An all-of rule with an incomplete member matches nothing, rather than evaluating the
+        // complete remainder, which would broaden "kind is PDF AND text contains <blank>" to every
+        // PDF. The half-built rule stays saved, just inert.
         let mixed = AutomationRule(name: "r", matchMode: .all,
                                    conditions: [.kindIs(.pdf), .contentContains("")],
                                    destinationTemplate: "X")
@@ -120,12 +119,10 @@ import Testing
     }
 
     @Test func allOfRuleWithAnIncompleteConditionNeverMatches() {
-        // "All of" cannot be proven when one condition is unevaluatable: filtering the
-        // incomplete row out silently BROADENED the rule to whatever the complete conditions
-        // match — "kind is PDF AND mentions <blank>" fired for every PDF (and an already-
-        // stored .mentionsAll([]) from the pre-gate editor did the same). An all-of rule with
-        // any incomplete condition now matches nothing; any-of still ignores incomplete
-        // disjuncts (dropping one only narrows).
+        // "All of" can't be proven when one condition is unevaluatable: dropping it would broaden
+        // the rule to the others, as would a stored `.mentionsAll([])`. So all-of with any
+        // incomplete condition matches nothing; any-of ignores incomplete disjuncts (dropping one
+        // only narrows).
         let allOf = AutomationRule(name: "r", matchMode: .all,
                                    conditions: [.kindIs(.pdf), .mentionsAll([""])],
                                    destinationTemplate: "X")
@@ -167,12 +164,11 @@ import Testing
     }
 
     @Test func yearMonthTokenNeverMixesYearSources() {
-        // {yyyy-mm} must take BOTH components from one clock. {year} alone may prefer the
-        // filename's year (Taxes/2023 for a 2023 form downloaded in 2024), but the month can
-        // only come from the mtime — composing filename-2023 with mtime-May-2024 minted
-        // "2023-05", a date belonging to neither source, and batch-eligible rules blind-filed
-        // into it. A filename year that CONTRADICTS the mtime year makes the composite
-        // unknowable → unresolved (flagged, never blind-filed).
+        // {yyyy-mm} must take both components from one clock. {year} alone may prefer the
+        // filename's year (Taxes/2023 for a 2023 form downloaded in 2024), but the month can only
+        // come from the mtime, and mixing them would mint a date from neither source that
+        // batch-eligible rules file into blind. A filename year that contradicts the mtime year
+        // leaves the composite unresolved (flagged, never blind-filed).
         let contradicting = facts("chase-statement-2023.pdf", modified: now)   // now = 2024
         #expect(AutomationEvaluator.resolveDestination("Docs/{yyyy-mm}", for: contradicting,
                                                        providerName: nil, now: now)
@@ -184,16 +180,15 @@ import Testing
                                                        providerName: nil, now: now)
                 == .resolved("Docs/2024-07"))
 
-        // {year} alone keeps its filename preference (the round-4 pinned behavior).
+        // {year} alone keeps its filename preference.
         #expect(AutomationEvaluator.resolveDestination("Docs/{year}", for: contradicting,
                                                        providerName: nil, now: now)
                 == .resolved("Docs/2023"))
 
-        // The COMPOSITE ban must survive hand-composition: "{year}-{month}" (both tokens sit
-        // side by side in the Insert-token menu) resolved {year} from the filename and {month}
-        // from the mtime — minting the exact neither-source date {yyyy-mm} forbids. {month}
-        // therefore carries the same contradiction guard: when the filename names a different
-        // year, the document's month is unknowable and the token goes unresolved.
+        // The composite ban must survive hand-composition: "{year}-{month}" would take {year}
+        // from the filename and {month} from the mtime, the neither-source date {yyyy-mm}
+        // forbids. So {month} carries the same guard: when the filename names a different year,
+        // the month is unknowable and the token goes unresolved.
         #expect(AutomationEvaluator.resolveDestination("Docs/{year}-{month}", for: contradicting,
                                                        providerName: nil, now: now)
                 == .unresolved(token: "{month}"))
@@ -228,7 +223,7 @@ import Testing
                 == .resolved("Docs/Invoices"))
         #expect(AutomationEvaluator.resolveDestination("Docs/../secret/./x", for: f, providerName: nil, now: now)
                 == .resolved("Docs/secret/x"))
-        // A leading slash marks an ABSOLUTE destination (a migrated F3 rule) — cleaned, but kept
+        // A leading slash marks an absolute destination (a migrated rule): cleaned, but kept
         // absolute so callers can provider-scope it.
         #expect(AutomationEvaluator.resolveDestination("/Docs//Invoices/", for: f, providerName: nil, now: now)
                 == .resolved("/Docs/Invoices"))
@@ -266,14 +261,11 @@ import Testing
             facts("scan svc.pdf", modified: now), now: now))
     }
 
-    /// **One semantic: substring of the raw excerpt, on every surface.** There was a token-subset
-    /// fallback for facts carrying content tokens but no snippet, and it was a second meaning
-    /// wearing the first's name — "acme invoice" matched a file whose page said "invoice …
-    /// acme", order and adjacency gone. The broad reading lived on the Organize scan (the path
-    /// that MOVES files) while the preview answered with the strict one, so the preview honestly
-    /// described a different rule than the one that executed. Decided 2026-08-25: contains means
-    /// contains; a file whose text was never read matches no text condition. The first two
-    /// expectations here are the mutation test for the fallback — reintroduce it and both flip.
+    /// One semantic on every surface: substring of the raw excerpt. A token-subset fallback would
+    /// be a second meaning under the same name ("acme invoice" matching "invoice … acme"), and if
+    /// the scan that moves files read it while the preview didn't, the preview would describe a
+    /// different rule. A file whose text was never read matches no text condition. A token-subset
+    /// fallback must flip the first two expectations.
     @Test func contentContainsNeverMatchesOnTokensAlone() {
         var f = facts("scan.pdf", modified: now)
         f.contentTokens = ["invoice", "acme"]
@@ -292,8 +284,8 @@ import Testing
         #expect(AutomationEvaluator.matches(
             AutomationRule(name: "T", conditions: [.contentContains("acme corp")], destinationTemplate: "X"),
             f, now: now))
-        // …so a term whose words are all present but not adjacent does NOT match. This is the
-        // half the old fallback got wrong, and `mentionsAll` is the condition for that meaning.
+        // …so a term whose words are all present but not adjacent does not match; `mentionsAll` is
+        // the condition for that meaning.
         #expect(!AutomationEvaluator.matches(
             AutomationRule(name: "T", conditions: [.contentContains("corp invoice")], destinationTemplate: "X"),
             f, now: now))
@@ -318,11 +310,11 @@ import Testing
     }
 
     @Test func yearTokenPrefersTheFilenameYearOverMtime() {
-        // A 2023 form downloaded in 2024 belongs in Taxes/2023 (round 4's rule, now shared here) —
-        // rule matches are batch-eligible, so a wrong-year {year} would blind-file wrongly.
+        // A 2023 form downloaded in 2024 belongs in Taxes/2023: rule matches are batch-eligible,
+        // so a wrong-year {year} would file blind into the wrong folder.
         #expect(AutomationEvaluator.resolveDestination("Taxes/{year}", for: facts("2023-tax-form.pdf", modified: now),
                                                        providerName: nil, now: now) == .resolved("Taxes/2023"))
-        // No (single) filename year → mtime decides, as before.
+        // No (single) filename year → mtime decides.
         #expect(AutomationEvaluator.resolveDestination("Taxes/{year}", for: facts("tax-form.pdf", modified: now),
                                                        providerName: nil, now: now) == .resolved("Taxes/2024"))
         // Two plausible years name no single year — mtime decides (same rule as the Organize engine).
@@ -335,7 +327,7 @@ import Testing
         // folder name are literal, never a token to resolve (or trip over).
         #expect(AutomationEvaluator.resolveDestination("/p/Docs/{drafts}", for: facts("a.pdf", modified: now),
                                                        providerName: nil, now: now) == .resolved("/p/Docs/{drafts}"))
-        // Relative templates still resolve (and flag) tokens as before.
+        // Relative templates still resolve (and flag) tokens.
         #expect(AutomationEvaluator.resolveDestination("Docs/{drafts}", for: facts("a.pdf", modified: now),
                                                        providerName: nil, now: now) == .unresolved(token: "{drafts}"))
     }

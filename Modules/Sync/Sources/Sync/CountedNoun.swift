@@ -3,12 +3,10 @@ import Foundation
 /// A count and its noun, inflected for the count and with the number grouped the way the reader's
 /// locale writes it: "1 Item", "2 Items", "7,363 Items".
 ///
-/// Undo action names ("Move 2 Items to Trash", read in the Edit menu as "Undo Move 2 Items to
-/// Trash") and progress titles ("Moving 7,363 items to the Trash", sitting over "3,336 of 7,363")
-/// are built from this, so a single item never reads as "1 Items" and a title's count is grouped
-/// like the counter under it. Each call site keeps its own noun and case: an undo name is a menu
-/// item, so Title Case ("Item"); a progress title is sentence case, as Finder's are ("item",
-/// "file") (FD7).
+/// Builds undo action names ("Move 2 Items to Trash") and progress titles ("Moving 7,363 items to
+/// the Trash"), so one item never reads "1 Items" and a title's count is grouped like the counter
+/// under it. Callers pick the case: an undo name is a menu item, so Title Case ("Item"); a
+/// progress title is sentence case, as Finder's are ("item").
 enum CountedNoun {
     /// - Parameters:
     ///   - count: How many.

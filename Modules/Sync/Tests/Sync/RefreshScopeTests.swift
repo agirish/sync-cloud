@@ -3,20 +3,14 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// **Which panes a refresh asks to walk, and why it is a question the sender has to answer.**
+/// Which panes a refresh asks to walk: the sender knows which pane moved, and must say so. Walking
+/// both on every request means one pane navigating re-walks the other, which the user sees as the
+/// untouched pane reloading; with the prefetch cache dropped (after a file operation, sort change
+/// or force refresh) that is a full walk of a tree that was already correct.
 ///
-/// `refreshSubject` carried no payload, so every request it made was honoured as "walk both panes" —
-/// including the commonest request in the app, one pane navigating. The other pane's root was then
-/// re-walked on a source and a focus that navigation had not touched: warm, a cache hit the user
-/// still sees as the untouched pane reloading; cold — after any file operation, sort change or
-/// force refresh, all of which drop the prefetch cache — a full walk of tens of thousands of nodes
-/// for a tree that was already correct.
-///
-/// The scope is asserted at the SUBJECT rather than by watching for a walk. That is the seam where
-/// the decision is made and the only one a test can hold still: a walk needs a real tree on a real
-/// disk, and counting walks would be a test of `refreshTreesAndScan`'s scheduling (which has its own
-/// coverage, including the union rule that stops a narrow request stranding a pane) rather than of
-/// the thing that was wrong here — a sender that knew which pane moved and threw the answer away.
+/// Asserted at `refreshSubject`, where the decision is made, rather than by counting walks, which
+/// would test `refreshTreesAndScan`'s scheduling; that has its own coverage, including the union
+/// rule that stops a narrow request stranding a pane.
 @Suite struct RefreshScopeTests {
 
     /// Every scope `refreshSubject` publishes while `body` runs, in order.
@@ -43,9 +37,8 @@ import Combine
                 "navigating the right pane asked for the left pane's root to be walked as well")
     }
 
-    /// Back and forward move a pane exactly as a click does, and are the buttons this is most
-    /// visible from — a walk back and forth through one pane's history re-walked the other pane
-    /// every time.
+    /// Back and forward move a pane exactly as a click does, and are where an unscoped refresh is
+    /// most visible: stepping through one pane's history would re-walk the other every time.
     @MainActor
     @Test func backAndForwardAreScopedToTheirOwnPaneToo() {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -56,9 +49,8 @@ import Combine
         #expect(scopes(from: manager) { manager.goForward(isLeft: true, drawsColumns: true) } == [.leftOnly])
     }
 
-    /// **Linked navigation moves both, so it walks both.** The scope follows what actually moved
-    /// rather than which pane was clicked — a one-pane scope here would leave the sibling pointing
-    /// at a folder whose tree was never loaded.
+    /// Linked navigation moves both, so it walks both. The scope follows what moved, not which pane
+    /// was clicked; a one-pane scope would leave the sibling at a folder whose tree never loaded.
     @MainActor
     @Test func aLinkedMoveWalksBothPanes() {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -69,15 +61,10 @@ import Combine
                 "a move that took both panes somewhere new walked only one of them")
     }
 
-    /// **A provider switch walks the pane that switched, and only that one.**
-    ///
-    /// This test used to assert the opposite, and the reason it could is the whole of the bug it
-    /// now guards against: `resetNavigation` emptied BOTH pane trees, so `.both` was not a
-    /// preference but a repair — scoped on movement alone the untouched pane would have kept an
-    /// empty tree and rendered blank. `retargetPane` drops one pane's tree, so the sibling has a
-    /// real tree to contribute and the narrow scope is honest. The premise, not the rule, is what
-    /// changed; the rule a narrow scope depends on is still "the unmoved pane HOLDS a usable tree",
-    /// and the assertion below is what keeps that premise checkable rather than remembered.
+    /// A provider switch walks the pane that switched, and only that one. The narrow scope is safe
+    /// only while the unmoved pane holds a usable tree: `retargetPane` drops just one pane's tree.
+    /// Were both emptied, the untouched pane would render blank; the second assertion keeps that
+    /// premise checked.
     @MainActor
     @Test func aProviderSwitchWalksOnlyThePaneThatSwitched() {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -95,11 +82,10 @@ import Combine
                 "the untouched pane's tree was thrown away, so a narrow scope leaves it blank — re-derive the scope rule before keeping it")
     }
 
-    /// The same call with the switched pane landing on the folder it was already on — a source
-    /// whose Open-at names the pane's current folder. **Still the switched pane**, and worth its
-    /// own case because it is the one the movement booleans get wrong: nothing moved, so inferring
-    /// the scope from the paths says `.both`, and the pane that needs walking is the one whose
-    /// ROOT changed under it — which no path comparison can see.
+    /// The switched pane landing on the folder it was already on (a source whose Open-at names the
+    /// current folder) still walks only that pane. Inferred from the paths, nothing moved and the
+    /// scope would say `.both`; the pane to walk is the one whose root changed, which no path
+    /// comparison can see.
     @MainActor
     @Test func aSwitchOntoTheCurrentFolderStillWalksTheSwitchedPane() {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -109,21 +95,20 @@ import Combine
         #expect(seen == [.rightOnly], "a switch that moved no folder widened to both panes: \(seen)")
     }
 
-    /// `describedPanes` is a log string, and a log string that names the wrong panes is worse than
-    /// none — a reader chasing "why did my left pane reload?" is sent to the wrong pane. Three cases,
-    /// each spelled out, because the mapping is the whole of the property.
+    /// `describedPanes` is a log string, and one naming the wrong panes is worse than none: it sends
+    /// a reader chasing a reload to the wrong pane. Three cases, each spelled out.
     @Test func theScopeNamesThePanesItMeans() {
         #expect(FileSyncManager.PaneReloadScope.both.describedPanes == "both panes")
         #expect(FileSyncManager.PaneReloadScope.leftOnly.describedPanes == "the left pane")
         #expect(FileSyncManager.PaneReloadScope.rightOnly.describedPanes == "the right pane")
-        // Not the case name, which is what a bare interpolation gives and what this exists to
-        // replace. The widening line keeps that spelling on purpose — it is quoting a request.
+        // Not the case name, which a bare interpolation gives. The widening line keeps that
+        // spelling on purpose: it is quoting a request.
         #expect(FileSyncManager.PaneReloadScope.leftOnly.describedPanes != "\(FileSyncManager.PaneReloadScope.leftOnly)")
     }
 
-    /// **The senders that are not navigation still say both, and must.** A date-tolerance change
-    /// alters what a scan makes of BOTH trees, so a scope narrowed here would leave one pane's
-    /// differences computed under the old setting with nothing on screen saying so.
+    /// Senders that aren't navigation still say both, and must: a date-tolerance change alters what
+    /// a scan makes of both trees, and narrowed, one pane's differences would silently keep the old
+    /// setting.
     @MainActor
     @Test func aScanConfigChangeWalksBothPanes() {
         let manager = FileSyncManager(fileManager: MockFileManager())

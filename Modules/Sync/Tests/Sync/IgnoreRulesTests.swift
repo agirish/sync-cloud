@@ -30,10 +30,9 @@ import Foundation
     }
 
     @Test func testMatchingFoldsUnicodeNormalization() {
-        // Patterns arrive NFC (keyboard input); on-disk names are often NFD (HFS+ heritage,
-        // NFD-normalizing providers). Scalar-exact comparison made an NFC "Résumé*" silently
-        // never match an NFD folder — and "caf?" failed against decomposed "café" because the
-        // é was two scalars. Both sides precompose before matching.
+        // Patterns arrive NFC (keyboard input); on-disk names are often NFD (HFS+, some
+        // providers). Both sides precompose before matching, so an NFC "Résumé*" matches an NFD
+        // folder and "caf?" counts a decomposed é as one character.
         let nfdResume = "Re\u{0301}sume\u{0301}"          // decomposed é, as HFS+ stores it
         #expect(IgnoreRules.nameMatches(nfdResume, pattern: "R\u{E9}sum\u{E9}*"))
         #expect(IgnoreRules.nameMatches("\(nfdResume)-2024", pattern: "R\u{E9}sum\u{E9}*"))

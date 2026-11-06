@@ -4,18 +4,18 @@ import Testing
 
 /// `FilingConfidence`'s ordering, and the shape that keeps it answering for a case not yet written.
 ///
-/// The enum's own header says to APPEND new cases, because the raw values are persisted in
-/// `FilingVerdictCache`. `rank` was a ternary chain — `high ? 2 : (medium ? 1 : 0)` — which has no
-/// arm for a case it does not name: a fourth confidence would have ranked 0, indistinguishable from
-/// `.low`, and every comparison built on it would have read the surest new answer as the least sure.
+/// The enum's header says to append new cases, since the raw values are persisted in
+/// `FilingVerdictCache`. A ternary `rank` (`high ? 2 : (medium ? 1 : 0)`) has no arm for a case it
+/// doesn't name: a fourth confidence would rank 0 like `.low`, and every comparison built on it
+/// would read the surest new answer as the least sure.
 @Suite struct FilingConfidenceOrderingTests {
 
     @Test func theOrderingIsLowThenMediumThenHigh() {
         #expect(FilingConfidence.low < FilingConfidence.medium)
         #expect(FilingConfidence.medium < FilingConfidence.high)
         #expect(FilingConfidence.low < FilingConfidence.high)
-        // Not merely "some order": the ranks are distinct, which is what `.low` and a new case
-        // sharing 0 would have broken while leaving `<` looking correct for the three that exist.
+        // Not merely "some order": the ranks are distinct, which `.low` and a new case sharing 0
+        // would break while `<` still looked correct for the three that exist.
         #expect(Set([FilingConfidence.low, .medium, .high].map(\.rank)).count == 3)
     }
 

@@ -3,24 +3,16 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A source switch keeps the walk the OTHER pane is showing, so the Compare after it stays warm.**
+/// A source switch keeps the walk the other pane is showing, so the Compare after it stays warm.
+/// The scan uses cached pane trees only when both sides hit (`executeScan` asks `prefetchedTrees`
+/// for both foci together), and the refresh after a switch reloads only the pane that moved. Drop
+/// the still pane's walk and the scan walks both folders cold, which is slower and can stop at the
+/// entry budget somewhere other than the pane's walk did, so the answer changes. Keeping it costs
+/// no memory: it is the array the pane shows (`theKeptEntryIsTheArrayThePaneIsShowing`).
 ///
-/// The scan derives its maps from cached pane trees only when BOTH sides hit — `executeScan` asks
-/// `prefetchedTrees` for the left focus and the right focus together. A switch emptied the whole
-/// cache "for memory", and the refresh after it reloads only the pane that moved, so the still
-/// pane's side always missed and the scan walked both folders from disk. On his Home vs Dropbox
-/// pair that was 4.2–5.8 s and 19 differences after a switch, against 1.5–1.8 s and 75–78 at
-/// launch: the cold walk stops at the 200,000-entry budget somewhere else than the pane's walk did,
-/// so the answer moved with the time.
-///
-/// The memory never came back either: the still pane's entry is the array its pane is showing
-/// (`theKeptEntryIsTheArrayThePaneIsShowing`), so dropping it freed nothing.
-///
-/// A kept walk can be old, though, and the comparison read from it is exactly as old: it is dated
-/// by its walks (`lastScanReadAt`), not by when it ran.
-///
-/// Every fixture is on `MockFileManager`, with an empty link table, so nothing here depends on the
-/// iCloud links or folders of the Mac it runs on.
+/// A kept walk can be old, and the comparison read from it is as old: it is dated by its walks
+/// (`lastScanReadAt`), not by when it ran. Every fixture is on `MockFileManager` with an empty link
+/// table, so nothing depends on the iCloud links or folders of the Mac it runs on.
 @Suite struct SourceSwitchKeepsTheStillPaneTests {
 
     /// Two sources for the pane that moves, and one for the pane that stays. No root is a prefix of
@@ -31,9 +23,9 @@ import Testing
             try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
         }
         let date = Date(timeIntervalSince1970: 1_700_000_000)
-        // No file differs only in size or date: a walk through a mock file manager carries no
-        // metadata (`buildTree`'s `stat`), so a warm scan here could not see such a difference and a
-        // cold one could — a mock artifact, not the comparison this suite is about.
+        // No file differs only in size or date: a mock walk carries no metadata (`buildTree`'s
+        // `stat`), so a warm scan couldn't see such a difference and a cold one could, a mock
+        // artifact unrelated to this suite.
         let files: [String: Int] = [
             "/alpha/Docs/same.txt": 1,
             "/beta/Docs/same.txt": 1, "/beta/OnlyBeta/inside.txt": 4,
@@ -84,13 +76,11 @@ import Testing
                           Panes(movedLeft: true, stillFocus: "Docs"), Panes(movedLeft: false, stillFocus: "Docs")]
     }
 
-    /// **The scan after a switch reads the still pane's tree, not its folder.** Driven the way the
-    /// app drives it: the switch, then the refresh `ContentView` runs for the moved pane. Any listing
-    /// under the still pane's root after the switch can only be the scan's cold walk — the refresh
-    /// walks the moved pane alone, which is what the scope says. Both panes take a turn at moving,
-    /// because each call site picks the other pane's walk by side, and the still pane is also met
-    /// below its root, where its walk is cached under the folder's path and the scan must compose
-    /// the same one.
+    /// The scan after a switch reads the still pane's tree, not its folder. Driven as the app does:
+    /// the switch, then the refresh `ContentView` runs for the moved pane, which walks that pane
+    /// alone, so any listing under the still pane's root can only be the scan's cold walk. Both
+    /// panes take a turn at moving, since each call site picks the other pane's walk by side, and
+    /// the still pane is also focused below its root, where its walk is cached under that folder.
     @MainActor
     @Test(arguments: Switch.allCases, Panes.all)
     func theScanAfterASwitchReadsTheStillPanesTree(_ how: Switch, _ panes: Panes) async throws {
@@ -147,7 +137,7 @@ import Testing
                 "the Compare after the switch read the still pane's folder from disk again: \(stillReads)")
         #expect(all.contains("/beta"), "premise: the moved pane was walked")
 
-        // **And it gives a launch scan's answer for the same pair** — a sanity check, not the
+        // And it gives a launch scan's answer for the same pair. A sanity check, not the
         // discriminator: on the mock both branches answer this pair alike (see `disk()`), so only the
         // read log above tells a warm scan from a cold one.
         fm.onEnumerate = nil
@@ -163,12 +153,10 @@ import Testing
                 "premise: the pair has something on each side only: \(Self.rows(m))")
     }
 
-    /// **A walk that could not list its folder is not kept, so the next Compare reads it.** It knows
-    /// nothing — the folder itself marked unexplored — and kept, the scan after a switch compared
-    /// against it as a side with nothing to say, and a pane switched onto that folder was served it
-    /// empty: once access came back, nothing read the folder until Refresh. Measured in the app on
-    /// 2026-10-03, after macOS's Documents prompt: a switch and back found 0 differences, a refresh
-    /// 917. Both panes take a turn at staying.
+    /// A walk that couldn't list its folder is not kept, so the next Compare reads it. It knows
+    /// nothing (the folder itself is marked unexplored); kept, the scan after a switch would compare
+    /// against a side with nothing to say, and once access came back (after macOS's Documents
+    /// prompt, say) nothing would read the folder until Refresh. Both panes take a turn at staying.
     @MainActor
     @Test(arguments: [true, false])
     func aWalkThatCouldNotListItsFolderIsReadAgain(movedLeft: Bool) async throws {
@@ -196,12 +184,11 @@ import Testing
                 "the Compare after the switch compared against the walk that could not list: \(Self.rows(m))")
     }
 
-    /// **The Compare after a switch is as old as the walk it read.** The kept walk was taken when
-    /// the still pane last loaded, maybe hours ago, and nothing re-reads it on the way into the
-    /// scan — so a comparison dated by when it RAN said "just now" over it, and the pill's hour-old
-    /// warning never came. Dated by the older of its two walks, it says how old it is, here and on
-    /// the not-scanned card. Both sides take a turn at staying, so reading one side's stamp alone
-    /// cannot pass.
+    /// The Compare after a switch is as old as the walk it read. The kept walk dates from when the
+    /// still pane last loaded, maybe hours ago, and nothing re-reads it on the way into the scan, so
+    /// dating the comparison by when it ran would say "just now" and suppress the pill's stale
+    /// warning. Dated by the older of its two walks, here and on the not-scanned card. Both sides
+    /// take a turn at staying, so reading one side's stamp alone can't pass.
     @MainActor
     @Test(arguments: [true, false])
     func theComparisonAfterASwitchIsAsOldAsTheStillPanesWalk(movedLeft: Bool) async throws {
@@ -239,11 +226,10 @@ import Testing
         #expect(m.lastScanSummary?.date == completed)
     }
 
-    /// **The kept entry costs nothing, because it is the array on screen.** Every writer of a pane's
-    /// cache entry hands the pane the same array — `adoptFreshDeepTree`, the cache-hit path, a
-    /// column's graft — so the two share one buffer, and dropping the entry while the pane shows the
-    /// tree frees no memory at all. Asserted on the buffer itself rather than on equality, because
-    /// equal arrays can still be two copies.
+    /// The kept entry costs nothing, because it is the array on screen. Every writer of a pane's
+    /// cache entry (`adoptFreshDeepTree`, the cache-hit path, a column's graft) hands the pane the
+    /// same array, so the two share one buffer. Asserted on the buffer itself, since equal arrays
+    /// can still be two copies.
     @MainActor
     @Test func theKeptEntryIsTheArrayThePaneIsShowing() async throws {
         let m = FileSyncManager(fileManager: try Self.disk())
@@ -261,11 +247,11 @@ import Testing
         #expect(kept.withUnsafeBufferPointer { $0.baseAddress } == m.rawRightTree.withUnsafeBufferPointer { $0.baseAddress })
     }
 
-    /// **One walk is kept with everything that describes it, and nothing else survives.** The four
-    /// stores part company at no drop site (`dropPrefetchedTrees()`'s own rule): the walk-stopped
-    /// bit is what makes a warm scan banner a truncated tree, the read stamp is the pane's freshness,
-    /// and the link targets are what a write below a link drops the entry by. A record with no tree
-    /// is cleared too, exactly as the whole-cache drop clears it.
+    /// One walk is kept with everything that describes it, and nothing else survives. The four
+    /// stores never part company at a drop site (`dropPrefetchedTrees()`'s rule): the walk-stopped
+    /// bit makes a warm scan banner a truncated tree, the read stamp is the pane's freshness, and the
+    /// link targets are how a write below a link drops the entry. A record with no tree is cleared
+    /// too, as the whole-cache drop clears it.
     @MainActor
     @Test func keepingOneWalkKeepsItsRecordsAndDropsEveryOther() {
         let m = FileSyncManager(fileManager: MockFileManager())
@@ -288,7 +274,7 @@ import Testing
         #expect(m.prefetchedTreeReadAt == ["/still": stamp])
         #expect(m.prefetchedTreeLinkTargets == ["/still": ["/target/still"]])
 
-        // A kept walk the budget did NOT stop keeps no bit, whatever the others had: marked, a
+        // A kept walk the budget did not stop keeps no bit, whatever the others had: marked, a
         // complete walk would be bannered as a partial comparison by the next warm scan.
         m.prefetchedTrees = ["/still": [], "/alpha": []]
         m.prefetchedTreeWalkStopped = ["/alpha"]
@@ -301,8 +287,8 @@ import Testing
                 && m.prefetchedTreeReadAt.isEmpty && m.prefetchedTreeLinkTargets.isEmpty)
     }
 
-    /// **A focus with no walk keeps nothing**, records included: a still pane whose deep walk has
-    /// not landed has no entry, and its records — if any were left — would describe some other walk.
+    /// A focus with no walk keeps nothing, records included: a still pane whose deep walk hasn't
+    /// landed has no entry, and any records left would describe some other walk.
     @MainActor
     @Test func keepingAFocusWithNoWalkDropsEverything() {
         let m = FileSyncManager(fileManager: MockFileManager())

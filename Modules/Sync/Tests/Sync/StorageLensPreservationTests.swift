@@ -4,16 +4,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Both writers are read-modify-writes over a read that answered `[]` for everything.**
-///
-/// `load` returned an empty list for a file that is absent, one it could not decode, and one
-/// written under another schema alike — and the doc said that costs a re-scan. It cost more than
-/// that: the next analysis wrote a file holding ONE snapshot with the other eleven roots gone, and
-/// "Forget this root" filtered `[]` to `[]`, which trips the guard that deletes the file. Forget
-/// one silently meant forget all, with the request itself as the trigger.
-///
-/// `FilingProfileStore.indexForAmending` is the sibling that gets this right: it refuses to amend
-/// what it could not read.
+/// Both `StorageLensStore` writers are read-modify-writes, so the read must tell an absent file
+/// from one it couldn't decode or one written under another schema. Read as `[]`, the next analysis
+/// would write one snapshot over every other root's, and "Forget this root" would filter `[]` to
+/// `[]` and trip the guard that deletes the file: forget one would mean forget all.
+/// `FilingProfileStore.indexForAmending` follows the same rule: it refuses to amend what it
+/// couldn't read.
 @Suite struct StorageLensPreservationTests {
 
     private func storeURL(_ name: String) throws -> URL {
@@ -48,11 +44,8 @@ import Testing
         #expect(StorageLensStore.load(from: url).map(\.root) == ["/b"])
     }
 
-    /// **The sharper half: a file from a NEWER build is good data, not corruption.** A schema this
-    /// build does not know used to read as empty and be overwritten.
-    ///
-    /// It is now kept **where it is** rather than kept aside — see
-    /// `aForeignSchemaIsNotAnUnreadableEpisode` for why the difference matters.
+    /// A file from a newer build is good data, not corruption: it is kept where it is, not set
+    /// aside (`aForeignSchemaIsNotAnUnreadableEpisode` says why).
     @Test func aForeignSchemaIsKeptRatherThanOverwritten() throws {
         let url = try storeURL("schema")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -66,19 +59,12 @@ import Testing
                 "a newer build's file was overwritten")
     }
 
-    /// **A newer build's file is not an "episode" — it is the steady state, and it repeats.**
-    ///
-    /// Corruption and permission failures are self-clearing: the set-aside frees the path, the
-    /// next launch writes a fresh readable file, and that episode is over. A foreign schema is
-    /// not. This build sets the newer file aside and writes its own; the newer build then finds
-    /// a schema IT does not know, sets that aside, and writes its own — so an old/new ping-pong
-    /// mints another dated set-aside on every single launch, forever, and nothing anywhere
-    /// sweeps them. For `FilingVerdictCache` each one is ~12 MB.
-    ///
-    /// So the foreign schema stops being routed through the unreadable machinery altogether. The
-    /// file is left exactly where it is, this build works from memory, and the write is refused.
-    /// Recovery is the user's to make and is said in the log — the alternative was a directory
-    /// that grows without bound to protect a file that was never in danger.
+    /// A newer build's file is not a self-clearing episode. Corruption clears: the set-aside frees
+    /// the path and the next write lands a readable file. A foreign schema repeats: this build would
+    /// set the newer file aside and write its own, the newer build would do the same back, and every
+    /// launch would mint another set-aside that nothing sweeps (about 12 MB each for
+    /// `FilingVerdictCache`). So the file stays where it is, this build works from memory, the write
+    /// is refused, and the log tells the user how to recover.
     @Test func aForeignSchemaIsNotAnUnreadableEpisode() throws {
         let url = try storeURL("pingpong")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -101,15 +87,10 @@ import Testing
                 "the newer build's file did not survive")
     }
 
-    /// **The half of the ping-pong the two tests above cannot see.** Both of them write
-    /// `{"schema":99,"snapshots":[]}` — a foreign VERSION whose payload this build still decodes
-    /// perfectly. The schema check was asked *after* a successful full decode, so that fixture is
-    /// the easy case and it passed with the ordering wrong.
-    ///
-    /// The version that matters is a newer build that CHANGED the snapshot record, because that is
-    /// what a schema bump is normally FOR. Then this build's `Payload` decode fails, the read
-    /// answers `.unreadable`, and the file goes to the set-aside — reinstating the exact ping-pong
-    /// the test above pins the absence of, on the one input a real schema bump produces.
+    /// The tests above write `{"schema":99,"snapshots":[]}`, a foreign version whose payload this
+    /// build still decodes. A real schema bump usually changes the record, so this build's `Payload`
+    /// decode fails; if the schema check ran only after a full decode, the read would answer
+    /// `.unreadable` and the ping-pong would return. This pins the check before the decode.
     @Test func aForeignSchemaWhoseRecordsThisBuildCannotDecodeIsStillNotAnEpisode() throws {
         let url = try storeURL("pingpongShape")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -134,9 +115,9 @@ import Testing
                 "the newer build's file did not survive")
     }
 
-    /// The other direction, so the case above cannot become "nothing is ever set aside": genuinely
-    /// unreadable bytes still are, and exactly once — the path is free afterwards, so the next
-    /// launch writes a fresh file and there is no second episode to mint a second name.
+    /// The other direction, so the case above can't become "nothing is ever set aside": genuinely
+    /// unreadable bytes still are, and only once, since the path is free afterwards and the next
+    /// write lands a fresh file.
     @Test func aGenuinelyUnreadableFileIsStillSetAsideAndOnlyOnce() throws {
         let url = try storeURL("oneepisode")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -150,11 +131,9 @@ import Testing
                 "one corruption episode minted \(setAsidesBeside(url).count) set-asides")
     }
 
-    /// **The read layer has the same two states as the parse layer, and it lost them** — in the
-    /// same file that fixed the parse layer. A file that EXISTS but cannot be opened — mode 000,
-    /// an ACL, an I/O error — failed the `try?` read exactly like no file at all and answered
-    /// `.absent`, so `saveInBackground` merged into `[]` and overwrote one snapshot over up to
-    /// twelve roots.
+    /// The read layer has the same two states as the parse layer. A file that exists but can't be
+    /// opened (mode 000, an ACL, an I/O error) must read as `.unreadable`, not `.absent`, or
+    /// `saveInBackground` merges into `[]` and writes one snapshot over every root's.
     @Test func aFileTheProcessCannotOpenReadsAsUnreadableNotAbsent() throws {
         let url = try storeURL("mode000")
         let fm = FileManager.default
@@ -171,7 +150,7 @@ import Testing
         }
     }
 
-    /// A genuinely absent file still reads `.absent` — a first scan stays quiet and ordinary.
+    /// A genuinely absent file still reads `.absent`, so a first scan stays quiet and ordinary.
     @Test func aGenuinelyAbsentFileStillReadsAsAbsent() throws {
         let url = try storeURL("absent")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -181,8 +160,8 @@ import Testing
         }
     }
 
-    /// The end-to-end consequence: a new analysis must not replace a file the process cannot
-    /// open — the same promise `anUnreadableFileIsKeptRatherThanReplaced` makes for corrupt bytes.
+    /// End to end: a new analysis must not replace a file the process can't open, the promise
+    /// `anUnreadableFileIsKeptRatherThanReplaced` makes for corrupt bytes.
     @Test func aNewAnalysisDoesNotReplaceAFileTheProcessCannotOpen() throws {
         let url = try storeURL("mode000save")
         let fm = FileManager.default
@@ -193,7 +172,7 @@ import Testing
             }
             try? fm.removeItem(at: url.deletingLastPathComponent())
         }
-        // A perfectly good file holding another root's snapshot — only the read fails.
+        // A good file holding another root's snapshot; only the read fails.
         StorageLensStore.saveInBackground(snapshot("/a"), to: url)
         StorageLensStore.waitForPendingWrites()
         let original = try #require(fm.contents(atPath: url.path))
@@ -211,7 +190,7 @@ import Testing
         #expect(StorageLensStore.load(from: url).map(\.root) == ["/b"])
     }
 
-    /// **"Forget this root" may not empty a file it could not read.**
+    /// "Forget this root" may not empty a file it couldn't read.
     @Test func forgettingOneRootDoesNotForgetAllOfAnUnreadableFile() throws {
         let url = try storeURL("clear")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -226,7 +205,7 @@ import Testing
                 "forgetting one root destroyed the whole file")
     }
 
-    /// The ordinary paths are untouched — the refusals must not be "the store stopped working".
+    /// The ordinary paths still work: the refusals must not mean "the store stopped working".
     @Test func aReadableFileStillSavesAndForgetsOneRoot() throws {
         let url = try storeURL("ordinary")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -242,7 +221,7 @@ import Testing
         #expect(setAsidesBeside(url).isEmpty, "a readable file was set aside")
     }
 
-    /// Forget-all still deletes the file — that is what the user asked for either way.
+    /// Forget-all still deletes the file, which is what the user asked for either way.
     @Test func forgettingEverythingStillRemovesTheFile() throws {
         let url = try storeURL("clearall")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -253,8 +232,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: url.path) == false)
     }
 
-    /// And forgetting the last remaining root removes it too — an empty store has no file, which is
-    /// the existing rule and not what this change is about.
+    /// Forgetting the last remaining root removes the file too: an empty store has no file.
     @Test func forgettingTheLastRootRemovesTheFile() throws {
         let url = try storeURL("last")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -267,10 +245,9 @@ import Testing
 
     // MARK: - The kept name is per-episode, and the log says what actually happened
 
-    /// **A second unreadable episode must not destroy the first episode's rescue.** Lower stakes
-    /// than the verdict cache — a snapshot is re-scannable — but the single fixed slot plus its
-    /// unconditional `removeItem` is the same shape, and it is the one the other two stores were
-    /// fixed out of. There is now one destination helper for all three.
+    /// A second unreadable episode must not destroy the first episode's rescue. A snapshot can be
+    /// re-scanned, but a single fixed slot cleared with `removeItem` would lose it; all three stores
+    /// share one destination helper that names each episode's file afresh.
     @Test func aSecondUnreadableEpisodeDoesNotDestroyTheFirstEpisodesRescue() throws {
         let url = try storeURL("episodes")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -292,8 +269,8 @@ import Testing
         #expect(StorageLensStore.load(from: url).map(\.root) == ["/b"])
     }
 
-    /// A leftover under the old fixed `storage-lens.json.unreadable` name a previous build wrote
-    /// must neither block this episode's rescue nor be destroyed by it.
+    /// A leftover under the fixed `storage-lens.json.unreadable` name an older build wrote must
+    /// neither block this episode's rescue nor be destroyed by it.
     @Test func aLeftoverSetAsideNeitherBlocksNorIsDestroyed() throws {
         let url = try storeURL("leftover")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -312,10 +289,9 @@ import Testing
         #expect(keptBytes.contains(corrupt), "the leftover blocked this episode's set-aside")
     }
 
-    /// **The refusal line claimed a rescue that did not happen.** `clearInBackground` discarded
-    /// `setAsideUnreadable`'s result and logged "It has been kept beside the fresh one" whatever
-    /// happened — so a failed move read as a successful rescue, and a user going looking for the
-    /// kept file found nothing. (It also promised a "fresh one": forget writes no file at all.)
+    /// The refusal line must report what happened: if `setAsideUnreadable` failed, it says the file
+    /// couldn't be moved aside, not that it was kept. Forget writes no file, so it never promises a
+    /// "fresh one" either.
     @MainActor
     @Test func aFailedSetAsideIsNotLoggedAsARescue() async throws {
         let log = LogCapture()
@@ -344,8 +320,8 @@ import Testing
         #expect(setAsidesBeside(url).isEmpty)
     }
 
-    /// The other outcome, said as precisely: the move landed, so the line may name the kept file —
-    /// and must not promise a fresh one, because forgetting writes none.
+    /// The other outcome, as precisely: the move landed, so the line names the kept file, and it
+    /// promises no fresh one, because forgetting writes none.
     @MainActor
     @Test func aSuccessfulSetAsideNamesTheKeptFileAndPromisesNoFreshOne() async throws {
         let log = LogCapture()
@@ -373,26 +349,17 @@ import Testing
 
 }
 
-/// **A half-wired seam proves less than it reads as proving.**
-///
-/// `StorageLensStore.clearInBackground(root:from:fileManager:)` forwarded its injected manager to
-/// `setAsideUnreadable` but called `read(from:)`, which took no manager and hardcoded
-/// `FileManager.default`; `saveInBackground` called the set-aside with no manager at all. A test
-/// handing in a double therefore got the double for the rename and the real filesystem for the
-/// decision about whether a rename was needed at all — the half that decides everything.
-///
-/// The seam covers the *probe* and the *moves*. `Data(contentsOf:)` takes no `FileManager` and is
-/// deliberately not faked: what the doubles here exist for is the present-vs-absent decision, and
-/// pinning that is what these assert.
+/// `StorageLensStore`'s injected `FileManager` must reach the read as well as the moves. A seam
+/// that reached only the moves would hand a double the rename and the real filesystem the decision
+/// whether a rename is needed, which is the half that decides everything. The seam covers the
+/// presence probe and the moves; `Data(contentsOf:)` takes no `FileManager` and is deliberately not
+/// faked, since the present-vs-absent decision is what these pin.
 @Suite struct StorageLensSeamTests {
 
-    /// Claims ONE path is present, whatever the disk says — the seam's decision half in isolation.
-    ///
-    /// **Scoped to that path deliberately.** A first version answered "present" for everything and
-    /// hung the test host at 100% CPU: `UnreadableSetAside.destination` probes candidate names with
-    /// this same call until one comes back absent, so a manager that never says absent is an
-    /// infinite loop. Real filesystems terminate it; a double is under no such obligation, and the
-    /// loop is now bounded (see `UnreadableSetAside`).
+    /// Claims one path is present, whatever the disk says: the seam's decision half in isolation.
+    /// Scoped to that one path on purpose: `UnreadableSetAside.destination` probes candidate names
+    /// with this same call until one is absent, so a double that never says absent would loop (now
+    /// bounded, see `UnreadableSetAside`).
     private final class ClaimsPresent: FileManager, @unchecked Sendable {
         let path: String
         init(_ url: URL) { self.path = url.path; super.init() }
@@ -403,14 +370,11 @@ import Testing
         }
     }
 
-    /// **The name goes in the FILE, not only in the directory.** `clearAndSaveBothCarryTheManagerIntoTheRead`
-    /// asserts on the log line, and the seven lines `StorageLensStore` can write all name the file
-    /// by `lastPathComponent` alone — so a fixture whose file is always `storage-lens.json` gives
-    /// every test in this package the same fragment, and `entries.last` returns whichever sibling
-    /// logged most recently. That assertion exists precisely because "an assertion on emptiness
-    /// would pass on both wirings"; a fragment a sibling can satisfy hands back the same false
-    /// pass by another route. `aFailedSetAsideIsNotLoggedAsARescue` above already names this and
-    /// builds its own unique file; this helper had been left behind.
+    /// The name goes in the file, not only in the directory.
+    /// `clearAndSaveBothCarryTheManagerIntoTheRead` asserts on a log line, and every line
+    /// `StorageLensStore` writes names the file by `lastPathComponent` alone, so a fixed
+    /// `storage-lens.json` would give every test in the package the same fragment and
+    /// `entries.last` could return a sibling's line: a false pass.
     private func storeURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "StorageSeam-\(name)")
         return dir.appendingPathComponent("storage-lens-\(name)-\(UUID().uuidString).json")
@@ -423,9 +387,8 @@ import Testing
         await log.entries.last { $0.message.contains(fragment) }?.message
     }
 
-    /// With nothing on disk, the answer is `absent` from the real manager and `unreadable` from a
-    /// manager that says the entry is there. Only a `read` that actually uses the injected one can
-    /// tell them apart — so this fails on any wiring that reaches past it.
+    /// With nothing on disk, the real manager answers `absent` and one that says the entry is there
+    /// answers `unreadable`. Only a `read` that uses the injected manager can tell them apart.
     @Test func readHonoursTheInjectedManagersPresenceProbe() throws {
         let url = try storeURL("read")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -444,19 +407,16 @@ import Testing
         }
     }
 
-    /// And the wiring through the two background entry points, which is where a caller's double
-    /// actually has to arrive.
+    /// And through the two background entry points, which is where a caller's double has to arrive.
     @Test @MainActor func clearAndSaveBothCarryTheManagerIntoTheRead() async throws {
         let log = LogCapture()
         let url = try storeURL("wired")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         // Nothing on disk, but the injected manager insists there is: both writers must take the
-        // unreadable path rather than treating it as a first scan.
-        //
-        // The forget is asserted on its LOG line, not on the file: with the manager reaching past
-        // to `FileManager.default` the read answers `.absent`, the forget returns silently, and
-        // the file is empty either way — an assertion on emptiness would pass on both wirings.
+        // unreadable path rather than treat it as a first scan. The forget is asserted on its log
+        // line, not the file: with the real manager the read answers `.absent` and the forget
+        // returns silently, leaving the file empty either way.
         StorageLensStore.clearInBackground(root: "/a", from: url, fileManager: ClaimsPresent(url))
         StorageLensStore.waitForPendingWrites()
         #expect(await loggedLine(log, containing: url.lastPathComponent) != nil,

@@ -2,12 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The `kind × subject` identity every Restructure section keys on (ROADMAP v5 §5.0).
-///
-/// The kind went into `StructureFinding.id` before the second detector landed, because
-/// `RestructureLens` renders one `ForEach(findings)` and the second kind to fire on a family
-/// would have collided with the first. The subject — not the family — is the other half, because
-/// one family can hold two findings of the *same* kind about different children.
+/// The `kind × subject` identity every Restructure section keys on. The kind is in
+/// `StructureFinding.id` because `RestructureLens` renders one `ForEach(findings)`, and two kinds
+/// firing on one family would collide. The subject, not the family, is the other half, because
+/// one family can hold two findings of the same kind about different children.
 @Suite struct RestructureIdentityTests {
 
     @Test func theIdCarriesTheKindSoTwoKindsOnOneFamilyDoNotCollide() {
@@ -19,8 +17,8 @@ import Foundation
     }
 
     @Test func theSubjectSeparatesTwoFindingsOfOneKindInOneFamily() {
-        // Echo-name can fire twice in one family, on two different sibling pairs — the case that
-        // made kind × family insufficient as an identity.
+        // Echo-name can fire twice in one family, on two different sibling pairs, which is why
+        // kind × family is not enough as an identity.
         let first = StructureFinding(kind: .echoName, family: "Forms",
                                      subject: "Forms/Form W2", schemes: [])
         let second = StructureFinding(kind: .echoName, family: "Forms",
@@ -34,9 +32,6 @@ import Foundation
         #expect(finding.subject == "Finance/US/Income Tax")
     }
 
-    /// Raw values are a file format — `restructure.json` serialises them — so they are pinned
-    /// here the way `GlassLevel`'s are: append-only, never renamed, never reused. A failure here
-    /// is a failure to keep that promise, not a test to update.
     /// One spelling of the composite identity: a store key joined back to rendered findings must
     /// produce exactly ``StructureFinding/id``, or the two drift apart in silence.
     @Test func aKeysFindingIdMatchesTheFindingsOwnId() {
@@ -47,6 +42,9 @@ import Foundation
         #expect(RestructureKey(finding).findingId == finding.id)
     }
 
+    /// Raw values are a file format (`restructure.json` serialises them), so they are pinned the
+    /// way `GlassLevel`'s are: append-only, never renamed, never reused. A failure here is a
+    /// failure to keep that promise, not a test to update.
     @Test func theRawValuesAreAFileFormatAndStayPinned() {
         let pinned: [FindingKind: String] = [
             .shape: "shape", .backlog: "backlog", .shadowAxis: "shadowAxis",
@@ -58,7 +56,7 @@ import Foundation
         for (kind, raw) in pinned { #expect(kind.rawValue == raw) }
     }
 
-    /// The rail badge counts only plan-bearing kinds (§5.1): `ask` is the stated exclusion,
+    /// The rail badge counts only plan-bearing kinds: `ask` is the stated exclusion,
     /// `deadWeight` renders as the crowding strip rather than as cards, and `looseAboveSeries`
     /// hands its per-file fix to To File rather than growing an Apply.
     @Test func onlyThePlanBearingKindsCountTowardTheBadge() {
@@ -72,16 +70,15 @@ import Foundation
 
 /// `restructure.json` — the one app-owned file for everything Restructure remembers.
 ///
-/// Each proof here is §5.0's, verbatim: a round-trip per section, a suppression that outlives the
-/// profile that was active when it was made, and a manifest rename that re-keys every section that
-/// named the old path while leaving a sibling that merely shares a name prefix alone.
+/// Covered here: a round-trip per section, a suppression that outlives the profile that was active
+/// when it was made, and a manifest rename that re-keys every section that named the old path while
+/// leaving a sibling that merely shares a name prefix alone.
 @MainActor
 @Suite final class RestructureStoreTests {
 
-    // A class suite so `deinit` can sweep what each test created — the struct version leaked
-    // one fixture directory per test per run into the temp dir, standing debris on the
-    // self-hosted runner. Swift Testing instantiates one suite per test, so the sweep runs
-    // right after each test finishes.
+    // A class suite so `deinit` can sweep what each test created; otherwise each test leaves a
+    // fixture directory in the temp dir on the self-hosted runner. Swift Testing makes one suite
+    // instance per test, so the sweep runs right after each test finishes.
     private var scratch: [URL] = []
     deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
 
@@ -130,9 +127,9 @@ import Foundation
         #expect(RestructureStore(directory: dir, profileId: "p").answer(for: key) == nil)
     }
 
-    /// §5.0: "a suppressed finding stays suppressed after the profile is swapped for a derived
-    /// one." The store's keys are paths, not profile ids — so a finding regenerated from a
-    /// *different* profile object still matches, as long as it is about the same place.
+    /// A suppressed finding stays suppressed after the profile is swapped for a derived one. The
+    /// store's keys are paths, not profile ids, so a finding regenerated from a different profile
+    /// object still matches, as long as it is about the same place.
     @Test func aSuppressionSurvivesTheProfileBeingReplacedUnderneathIt() throws {
         let dir = try makeDirectory()
         let fromHandBuilt = StructureFinding(kind: .shape, family: "Finance/US/Income Tax",
@@ -164,7 +161,7 @@ import Foundation
         #expect(reread.answer(for: RestructureKey(kind: .ask, path: "Home/ATT")) == "keep")
     }
 
-    /// The nudge section round-trips, and — the point of it being a **year** rather than a flag —
+    /// The nudge section round-trips, and, the point of it being a year rather than a flag,
     /// re-acknowledging under a new year replaces the old value rather than accumulating.
     @Test func aNudgeAcknowledgementRoundTripsAndCarriesItsYear() throws {
         let dir = try makeDirectory()
@@ -182,13 +179,13 @@ import Foundation
         #expect(third.nudgesAcknowledged.count == 1)
     }
 
-    /// A store written before this section existed decodes with it absent — the tolerant-decoder
-    /// rule every section here follows, and the reason the fifth one needed no migration.
+    /// A store written before this section existed decodes with it absent: the tolerant-decoder
+    /// rule every section here follows, so a new section needs no migration.
     @Test func aStoreWithNoNudgeSectionDecodesWithoutOne() throws {
         let dir = try makeDirectory()
         let before = RestructureStore(directory: dir, profileId: "p")
         before.suppress(RestructureKey(kind: .shape, path: "Finance"))
-        // Strip the section the way a v5.0 file would not have had it at all.
+        // Strip the section, as a file older than it would lack it.
         var object = try #require(try JSONSerialization.jsonObject(with: fileBytes(dir))
                                     as? [String: Any])
         #expect(object["nudgesAcknowledged"] != nil, "a positive control: this build writes it")
@@ -204,10 +201,9 @@ import Foundation
 
     // MARK: The trend (proposal O16)
 
-    /// **One point per profile.** The findings are a pure function of the profile, so two stamps
-    /// under one id are the same survey counted twice — which would flatten the line's shape by
-    /// however often the memo happened to drop, and the memo's churn rate is not a fact about
-    /// the tree.
+    /// One point per profile. The findings are a pure function of the profile, so two stamps under
+    /// one id are the same survey counted twice, which would shape the line by how often the memo
+    /// dropped, not by the tree.
     @Test func theTrendRecordsOnePointPerProfile() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -221,7 +217,7 @@ import Foundation
         store.recordTrend(point("b", 19))
         #expect(store.trend.map(\.total) == [33, 19])
 
-        // A landing stamp REPLACES an ordinary one for the same profile: "this survey came from
+        // A landing stamp replaces an ordinary one for the same profile: "this survey came from
         // a landing" is the more informative of the two claims, and a re-derive stamps before
         // anything downstream knows a manifest caused it.
         store.recordTrend(point("b", 19, landing: true))
@@ -265,8 +261,8 @@ import Foundation
         #expect(reread.trend.isEmpty)
     }
 
-    /// A backlog subject IS a folder path, so a landing that renames it must move this key with
-    /// the rest — otherwise the nudge re-fires for a year already dismissed, under the new name.
+    /// A backlog subject is a folder path, so a landing that renames it must move this key with
+    /// the rest, or the nudge re-fires for a year already dismissed, under the new name.
     @Test func aRenameRekeysANudgeAcknowledgement() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -301,9 +297,9 @@ import Foundation
         let store = RestructureStore(directory: dir, profileId: "p")
         store.suppress(RestructureKey(kind: .shape, path: "Tax/Forms"))
 
-        // §5.4's vacate-before-fill: Forms is vacated to Tax Records, then Federal fills Forms.
-        // The suppression about the ORIGINAL Forms must follow the vacating rename and must not
-        // be picked up by the fill.
+        // Vacate before fill: Forms is vacated to Tax Records, then Federal fills Forms. The
+        // suppression about the original Forms must follow the vacating rename and must not be
+        // picked up by the fill.
         store.rekey(renames: [(from: "Tax/Forms", to: "Tax/Tax Records"),
                               (from: "Tax/Federal", to: "Tax/Forms")])
 
@@ -363,10 +359,9 @@ import Foundation
         #expect(try fileBytes(dir) == before)
     }
 
-    /// A section this build does not model — hand-added, or written by a future schema this build
-    /// happens to half-understand — must survive a save untouched. (`drafts` was this test's
-    /// example while §5.4 was unbuilt; it is modelled now, so the foreign section here is one no
-    /// planned schema claims.)
+    /// A section this build does not model (hand-added, or written by a future schema this build
+    /// half-understands) must survive a save untouched. The foreign section here is one no planned
+    /// schema claims.
     @Test func sectionsThisBuildDoesNotModelSurviveASave() throws {
         let dir = try makeDirectory()
         let url = dir.appendingPathComponent("p/restructure.json")
@@ -389,7 +384,7 @@ import Foundation
         #expect((object["suppressed"] as? [[String: Any]])?.count == 1)
     }
 
-    /// A `drafts` section in a shape this build cannot decode is an UNREADABLE file, not an empty
+    /// A `drafts` section in a shape this build cannot decode is an unreadable file, not an empty
     /// section: every save is whole-file, so writing would flatten what could not be read. Refusal
     /// is the same protection the syntax-error case gets.
     @Test func anUndecodableDraftsSectionRefusesWritesRatherThanFlattening() throws {
@@ -417,7 +412,7 @@ import Foundation
                             dst: "\(family)/2013/Forms", filesCarried: 3)])
     }
 
-    /// §5.7's *Planned, not applied*: the draft survives the sheet closing and the app quitting —
+    /// *Planned, not applied*: the draft survives the sheet closing and the app quitting, with
     /// mapping rows, actions and export mark all intact.
     @Test func aDraftRoundTripsThroughTheFileWhole() throws {
         let dir = try makeDirectory()
@@ -425,7 +420,7 @@ import Foundation
         let record = RestructureStore.DraftRecord(
             manifest: Self.draftManifest(), savedAt: "2026-08-28T10:00:00",
             exportedTo: "restructure-2026-08-28-Finance-US-Income Tax.json",
-            // The picker vocabulary, UNUSED names included — what lets a reopened draft offer
+            // The picker vocabulary, unused names included — what lets a reopened draft offer
             // the same choices instead of only the targets its rows happen to use.
             vocabulary: ["Forms", "Payments", "Correspondence"])
         RestructureStore(directory: dir, profileId: "p").saveDraft(record, for: key)
@@ -437,7 +432,7 @@ import Foundation
         #expect(RestructureStore(directory: dir, profileId: "p").draft(for: key) == nil)
     }
 
-    /// A rename replays onto the draft's KEY — the section survives an Apply of another plan —
+    /// A rename replays onto the draft's key (the section survives an Apply of another plan)
     /// while the manifest inside keeps the paths it was derived against: Apply re-validates a
     /// draft against the tree as it stands, and a stale path there is a card sentence, not a
     /// silent rewrite of a plan the user reviewed.
@@ -478,10 +473,10 @@ import Foundation
         #expect(json.contains("rename-dir") && json.contains("\"mapping\""))
     }
 
-    /// A root-level family has no name to put in the filename, and TWO unrelated plans can be
-    /// root-level — a top-level pair and a scattered empties removal. Sharing one bucket meant
-    /// the second export silently replaced the first, and the first draft's `exportedTo` then
-    /// named a file holding a different plan.
+    /// A root-level family has no name to put in the filename, and two unrelated plans can be
+    /// root-level: a top-level pair and a scattered empties removal. Sharing one bucket, the second
+    /// export would replace the first, and the first draft's `exportedTo` would name a different
+    /// plan.
     @Test func rootLevelPlansDoNotShareOneExportName() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -499,15 +494,15 @@ import Foundation
             #expect(FileManager.default.fileExists(
                 atPath: dir.appendingPathComponent("p/\(name)").path))
         }
-        // A shape plan's name is untouched by any of this — one shape finding per family, and
-        // this is the spelling that shipped.
+        // A shape plan's name is untouched by any of this: one shape finding per family, and
+        // existing exports keep this spelling.
         #expect(try store.exportPlan(manifest(family: "Finance/US", kind: .shape))
                     == "restructure-2026-08-29-Finance-US.json")
     }
 
-    /// **Date plus family stopped being unique when six kinds could export.** One parent carries
-    /// two shadow-axis findings on the real tree, and both wrote one filename: the second
-    /// replaced the first, and the first draft's `exportedTo` then named a different plan.
+    /// Date plus family is not unique when several kinds can export. One parent carries two
+    /// shadow-axis findings on the real tree; under one filename the second would replace the
+    /// first, and the first draft's `exportedTo` would name a different plan.
     @Test func twoFindingsUnderOneParentExportToTwoFiles() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -535,7 +530,7 @@ import Foundation
 
     /// A landing can rename the finding's own subject — a shadow-axis rename does exactly that —
     /// and `rekey(renames:)` moves the draft's key before the caller drops it. Dropping the
-    /// pre-landing key alone strands the draft forever behind a "Review N operations" trigger.
+    /// pre-landing key alone would strand the draft behind a "Review N operations" trigger.
     @Test func aDraftIsDroppedThroughTheLandingsOwnRenames() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -577,8 +572,8 @@ import Foundation
     }
 }
 
-/// The store under imperfect input and colliding history — every one of these used to trap
-/// (`Dictionary(uniqueKeysWithValues:)`) or silently lie (a swallowed ledger write).
+/// The store under imperfect input and colliding history: each must neither trap
+/// (`Dictionary(uniqueKeysWithValues:)`) nor silently lie (a swallowed ledger write).
 @MainActor
 @Suite final class RestructureStoreRobustnessTests {
 
@@ -617,9 +612,8 @@ import Foundation
         #expect(store.answer(for: RestructureKey(kind: .ask, path: "Tax/Tax Records")) == "fresh")
     }
 
-    /// A hand-edited file with a duplicated row loads (last row wins, JSON's own object rule) —
-    /// the whole philosophy here is refusal over trap, and `load` used to crash the store's
-    /// construction on exactly this input.
+    /// A hand-edited file with a duplicated row loads (last row wins, JSON's own object rule):
+    /// refusal over trap, never a crash in the store's construction.
     @Test func aDuplicatedAnswerRowLoadsInsteadOfTrapping() throws {
         let dir = try makeDirectory()
         let json = """
@@ -634,7 +628,7 @@ import Foundation
         #expect(store.answer(for: RestructureKey(kind: .ask, path: "A")) == "second")
     }
 
-    /// §5.5's licence to move files: `recordApplied` reports whether the record REACHED the
+    /// The licence to move files: `recordApplied` reports whether the record reached the
     /// disk, and the engine refuses the whole landing on false — tested here at the seam, with
     /// an unwritable directory standing in for a full disk.
     @Test func aFailedLedgerWriteIsReportedToTheCaller() throws {
@@ -685,8 +679,8 @@ import Foundation
     }
 
     /// A landing whose re-derive failed never re-pointed the survey (`producedProfileId` nil,
-    /// summary set): it anchors on the directory it was applied under, and is still undoable —
-    /// the first gate compared produced ids and stranded exactly these records forever.
+    /// summary set): it anchors on the directory it was applied under, and is still undoable. A
+    /// gate comparing produced ids would strand exactly these records.
     @Test func aLandingWhoseRederiveFailedIsStillOffered() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -715,13 +709,10 @@ import Foundation
     }
 }
 
-/// **The ledger's write path: how often it writes, and in what shape.**
-///
-/// A landing rewrote `restructure.json` five times, each a whole-file encode of an append-only
-/// ledger whose every record carries a manifest AND its inverse with an evidence sentence per
-/// action — and it pretty-printed them, which roughly doubles the bytes. These pin the two fixes
-/// and, more importantly, the ONE thing that must not have moved with them: a record only counts
-/// as on disk when it really is.
+/// The ledger's write path: how often it writes, and in what shape. Every write is a whole-file
+/// encode of an append-only ledger whose records carry a manifest and its inverse, so writes are
+/// batched and not pretty-printed. These pin both, and the one thing that must not move with
+/// them: a record only counts as on disk when it really is.
 @MainActor
 @Suite final class RestructureLedgerWriteTests {
 
@@ -762,8 +753,8 @@ import Foundation
 
     // MARK: The shape
 
-    /// **Not pretty-printed, still sorted, still readable by the loader.** Sorted keys are what
-    /// make the bytes a function of the state; the whitespace was never part of that.
+    /// Not pretty-printed, still sorted, still readable by the loader. Sorted keys make the bytes a
+    /// function of the state; whitespace plays no part in that.
     @Test func theLedgerIsWrittenCompactAndSortedAndReadsBack() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -785,13 +776,13 @@ import Foundation
         #expect(reopened.isSuppressed(RestructureKey(kind: .shape, path: "F")))
     }
 
-    /// A file an older build wrote — pretty-printed, same schema — still loads. The format did
-    /// not change; only the whitespace did.
+    /// A pretty-printed file with the same schema, as older builds wrote, still loads: only the
+    /// whitespace differs.
     @Test func aPrettyPrintedFileFromAnOlderBuildStillLoads() throws {
         let dir = try makeDirectory()
         let seed = RestructureStore(directory: dir, profileId: "p")
         seed.recordApplied(record(id: "m1"))
-        // Re-write the very same content pretty-printed, as the previous build did.
+        // Re-write the very same content pretty-printed, as older builds did.
         let object = try JSONSerialization.jsonObject(with: try snapshot(dir))
         try JSONSerialization.data(withJSONObject: object,
                                    options: [.prettyPrinted, .sortedKeys])
@@ -804,7 +795,7 @@ import Foundation
 
     // MARK: The batch
 
-    /// Mutations inside a batch reach the disk exactly ONCE, at the end.
+    /// Mutations inside a batch reach the disk exactly once, at the end.
     @Test func aBatchWritesOnceAtTheEnd() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -828,9 +819,9 @@ import Foundation
         #expect(reopened.answer(for: RestructureKey(kind: .shape, path: "G")) == "later")
     }
 
-    /// **`recordApplied` writes even inside a batch.** Its `true` is the licence to start moving
-    /// files — "the inverse is on disk before the first operation" — so a batched `true` meaning
-    /// "queued" would be that invariant lost in one word.
+    /// `recordApplied` writes even inside a batch. Its `true` is the licence to start moving files
+    /// ("the inverse is on disk before the first operation"), so a batched `true` meaning "queued"
+    /// would lose that invariant.
     @Test func recordAppliedReachesDiskEvenInsideABatch() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
@@ -840,7 +831,7 @@ import Foundation
         store.batchingSaves {
             store.suppress(RestructureKey(kind: .shape, path: "F"))
             #expect(store.recordApplied(self.record(id: "m2")))
-            // Read the file from a SECOND store: the record must be on disk right now.
+            // Read the file from a second store: the record must be on disk right now.
             let peek = RestructureStore(directory: dir, profileId: "p")
             wroteDuringBatch = peek.applied.map(\.manifest.manifestId) == ["m1", "m2"]
         }
@@ -860,7 +851,7 @@ import Foundation
         #expect((before[.modificationDate] as? Date) == (after[.modificationDate] as? Date))
     }
 
-    /// Nested batches flush at the OUTERMOST close, not the first one to finish.
+    /// Nested batches flush at the outermost close, not the first one to finish.
     @Test func nestedBatchesFlushOnceAtTheOutermostClose() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")

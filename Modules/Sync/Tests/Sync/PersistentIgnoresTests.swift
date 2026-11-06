@@ -44,9 +44,9 @@ import Foundation
 
     @MainActor
     @Test func testDivergentPaneFociKeepIgnoresSessionOnly() {
-        // With the panes on different folders a focus-relative path names DIFFERENT items on
-        // the two sides, so there is no well-defined root-relative identity to store: the
-        // durable mirror must stay out of it (both directions), leaving session behavior.
+        // With the panes on different folders a focus-relative path names different items on
+        // the two sides, so there is no root-relative identity to store: the durable mirror stays
+        // out of it in both directions, leaving session behavior.
         let (manager, store, defaults, suite) = makeManagerWithStore()
         defer { wipeDefaultsSuite(suite) }
 
@@ -82,8 +82,8 @@ import Foundation
 
         store.add(["Docs/draft.txt", "Docs/Sub/old", "Other/x", "Docs"])
         manager.focusOn(relativePath: "Docs", isLeft: true)
-        // Entries under the focus translate; entries elsewhere — and the focus itself —
-        // are dropped (navigating INTO an ignored folder shows its contents).
+        // Entries under the focus translate; entries elsewhere, and the focus itself, are
+        // dropped (navigating into an ignored folder shows its contents).
         #expect(manager.effectiveIgnoredPaths == ["draft.txt", "Sub/old"])
     }
 
@@ -116,10 +116,9 @@ import Foundation
 
     @MainActor
     @Test func testToggleUnignoringChildRemovesCoveringAncestorEntry() {
-        // "docs/report.txt" is effectively ignored via the "docs" entry, so the menu label
-        // reads "Include in comparison". The toggle must agree: remove the covering entry
-        // (from both layers), NOT insert the child's own path — which would leave the row
-        // struck through and silently excluded even after "docs" is later un-ignored.
+        // "docs/report.txt" is ignored via "docs", so the menu reads "Include in comparison".
+        // The toggle must agree: remove the covering entry from both layers, not insert the
+        // child's own path, which would keep the row excluded after "docs" is un-ignored.
         let (manager, store, defaults, suite) = makeManagerWithStore()
         defer { wipeDefaultsSuite(suite) }
 
@@ -225,22 +224,18 @@ import Foundation
         let pattern = FileNode(id: "/root/x/scratch.tmp", name: "scratch.tmp", isDirectory: false)
         let plain = FileNode(id: "/root/docs/other.txt", name: "other.txt", isDirectory: false)
         #expect(manager.isNodeIgnored(stored, currentPath: "/root"))
-        // Pattern matches must NOT read as node-ignored: this predicate drives the pane menu's
-        // Ignore/Include label, and `toggleIgnored` cannot except an item from a pattern — a
-        // pattern-derived "Include" label would promise an action the toggle can't deliver
-        // (and its formUnion used to mirror a phantom entry into the durable store).
+        // Pattern matches must not read as node-ignored: this predicate drives the pane menu's
+        // Ignore/Include label, and `toggleIgnored` can't except an item from a pattern, so an
+        // "Include" label would promise an action the toggle can't deliver.
         #expect(!manager.isNodeIgnored(pattern, currentPath: "/root"))
         #expect(!manager.isNodeIgnored(plain, currentPath: "/root"))
     }
 
     // MARK: - Which pane's root the entries are measured from
 
-    /// A pair whose two sources open at different depths, wired the way the app wires it.
-    ///
-    /// `leftId`/`rightId` are what `paneSourceId` answers and what the pair key is built from;
-    /// `leftOpenAt`/`rightOpenAt` are what `paneOpenAt` answers. Everything the durable store does
-    /// for a mixed pair depends on those four values agreeing with each other, which is exactly
-    /// what nothing checked before.
+    /// A pair whose two sources open at different depths, wired the way the app wires it. The ids
+    /// are what `paneSourceId` answers and the pair key is built from; the `openAt` values are what
+    /// `paneOpenAt` answers. The durable store needs all four to agree.
     @MainActor
     private func makeMixedPair(
         leftId: String, leftOpenAt: String,
@@ -257,14 +252,10 @@ import Foundation
         return (manager, store, suite)
     }
 
-    /// **Two panes showing the same folder through sources that land at different depths still
-    /// mirror into the store**, which is the whole reason `panesShareAPosition` replaced a raw
-    /// comparison of the two focus paths.
-    ///
-    /// iCloud lands at its root and OneDrive two components in, so the same folder is `Family` on
-    /// one side and `Documents/Family` on the other. The raw test can never be true for such a
-    /// pair, so Ignore worked for the session, wrote nothing, and the row was back after a relaunch
-    /// with nothing anywhere saying why.
+    /// Two panes showing one folder through sources that land at different depths still mirror
+    /// into the store, which is why `panesShareAPosition` doesn't compare raw focus paths. The same
+    /// folder is `Family` in iCloud and `Documents/Family` in OneDrive; compared raw, Ignore would
+    /// write nothing durable and the row would return after a relaunch.
     @MainActor
     @Test func aMixedPairShowingOneFolderStillWritesDurably() {
         let (manager, store, suite) = makeMixedPair(
@@ -277,18 +268,11 @@ import Foundation
                 "a mixed pair on one folder wrote nothing durably")
     }
 
-    /// **The entries survive a pane swap, which is what the unordered pair key promises.**
-    ///
-    /// `pairKey` sorts its two ids so one key serves the pair in either orientation — free while
-    /// both roots were documents folders, because a root-relative path then read the same from
-    /// either side. It is not free now: quoted against whichever source happens to be on the left,
-    /// the same item is `Family/draft.txt` one way and `Documents/Family/draft.txt` the other, so
-    /// a swap re-read yesterday's entries in the other source's coordinates, matched nothing, and
-    /// brought every ignored row back — the un-ignore direction, which is the damaging one.
-    ///
-    /// Asserted through `effectiveIgnoredPaths` rather than through the stored strings, because
-    /// what the user is promised is that the row stays hidden, not that a particular spelling is
-    /// on disk.
+    /// The entries survive a pane swap, as the unordered pair key promises. Quoted against
+    /// whichever source is on the left, one item is `Family/draft.txt` one way and
+    /// `Documents/Family/draft.txt` the other, so a swap would match nothing and bring every
+    /// ignored row back. Asserted through `effectiveIgnoredPaths`, since the promise is that the
+    /// row stays hidden, not a particular spelling on disk.
     @MainActor
     @Test func theDurableSetSurvivesAPaneSwap() {
         let (manager, store, suite) = makeMixedPair(
@@ -306,12 +290,9 @@ import Foundation
         manager.paneOpenAt = { $0 ? "Documents" : "" }
         manager.leftRelativePath = "Documents/Family"
         manager.rightRelativePath = "Family"
-        // **The session layer has to go, or this test cannot fail.** `effectiveIgnoredPaths` is the
-        // union of the session set and the store, so a live session entry answers the question the
-        // store is supposed to answer — the first draft of this test passed against the very defect
-        // it was written for. Clearing it is also what actually happens: `clearSessionIgnoredPaths`
-        // runs on every navigation, and a relaunch — the case the durable store exists for — starts
-        // with the session layer empty.
+        // Clear the session layer, or this test can't fail: `effectiveIgnoredPaths` is the union
+        // of session and store, so a session entry would answer for the store. It is also what
+        // happens: every navigation clears it, and a relaunch starts with it empty.
         manager.clearSessionIgnoredPaths()
 
         #expect(store.rootRelativePaths == written,
@@ -320,12 +301,9 @@ import Foundation
                 "the ignored row came back after a swap — the store was read against the other source's root")
     }
 
-    /// The same claim from the write side: ignoring the same item from each orientation must
-    /// produce ONE entry, not one per orientation.
-    ///
-    /// This is the accumulation half of the swap defect. It is not merely cosmetic — a second
-    /// spelling is an entry the Settings list shows, the user cannot recognise, and un-ignoring
-    /// the visible row does not remove.
+    /// The write side: ignoring one item from each orientation produces one entry. A second
+    /// spelling would show in Settings as an entry the user can't recognise, and un-ignoring the
+    /// visible row wouldn't remove it.
     @MainActor
     @Test func ignoringTheSameItemFromEitherOrientationWritesOneEntry() {
         let (manager, store, suite) = makeMixedPair(
@@ -346,13 +324,9 @@ import Foundation
                 "the two orientations wrote two spellings of one item: \(store.sortedPaths)")
     }
 
-    /// **The anchor is chosen by the pair key's own ordering, not by which pane is left.**
-    ///
-    /// Directly, because it is the one decision every assertion above rests on and the shape of
-    /// the answer matters: `pairKey` joins the two ids SORTED, so quoting entries against the id
-    /// that sorts first is the only choice that both panes can compute and that a swap cannot
-    /// change. Ties and unknown ids fall back to the left pane, which is what this did before the
-    /// closure existed.
+    /// The anchor follows the pair key's own ordering, not which pane is left. `pairKey` joins the
+    /// two ids sorted, so the id that sorts first is the only anchor both panes can compute and a
+    /// swap can't change. Ties and unknown ids fall back to the left pane.
     @MainActor
     @Test func theIgnoreAnchorFollowsTheSortedPairKey() {
         let (manager, _, suite) = makeMixedPair(

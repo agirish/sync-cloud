@@ -2,15 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Adversarial inputs across the whole pass, holding the invariants no individual fixture states.
-///
-/// The hand-written suites each pin one behaviour on one shape. These pin the properties that must
-/// hold for *every* shape — and they are the properties whose violation is silent: two steps
-/// wanting one name, a step landing on a file that stays, a rename to itself. A folder-scoped
-/// planner can get any of those wrong on a combination nobody thought to write down.
-///
-/// Cheap enough to keep (~0.6 s for ~2,200 planner configurations) and fully deterministic — the
-/// inputs are enumerated, not random, so a failure here reproduces exactly.
+/// Adversarial inputs across the whole pass, holding invariants no single fixture states: no two
+/// steps wanting one name, no step landing on a file that stays, no rename to itself. Their
+/// violation is silent, and a folder-scoped planner can break them on a combination nobody wrote
+/// down. Cheap (under a second for about 2,200 planner configurations) and deterministic: the
+/// inputs are enumerated, not random, so a failure reproduces exactly.
 @Suite struct RenamePlannerFuzzTests {
 
     @Test("No name traps the grammar, and nothing it accepts is nonsense")
@@ -56,8 +52,8 @@ import Testing
                 }
             }
         }
-        // A malformed key must not accidentally ACCEPT everything — that is the direction that
-        // would let a bill be renamed into a year its folder does not own.
+        // A malformed key must not accept everything, which would let a bill be renamed into a
+        // year its folder doesn't own.
         #expect(!RenamePlanner.yearFits(2014, month: 6, ownedBy: "abc"))
         #expect(!RenamePlanner.yearFits(2014, month: 6, ownedBy: ""))
         #expect(!RenamePlanner.yearFits(2014, month: 6, ownedBy: "2014-2015-2016"))

@@ -27,8 +27,8 @@ public struct OneWaySyncFolderChoice: Equatable, Sendable, Identifiable {
     public var isListed: Bool { canTick || canAddToDropbox }
 }
 
-/// **Setting one-way sync up**: where the parents are, which folders it can offer, and the record
-/// a first run starts from. Reads only folder names and IDs; writes nothing.
+/// Setting one-way sync up: where the parents are, which folders it can offer, and the record a
+/// first run starts from. Reads only folder names and IDs; writes nothing.
 public enum OneWaySyncSetup {
 
     /// iCloud Drive ▸ Documents. With Desktop & Documents on, a link to the Mac's own Documents.

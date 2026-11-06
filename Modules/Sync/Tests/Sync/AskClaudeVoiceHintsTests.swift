@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The words a spoken question is listened for (TE311): only what the screen card shows Claude.
+/// The words a spoken question is listened for: only what the screen card shows Claude.
 @Suite struct AskClaudeVoiceHintsTests {
 
     private func row(_ path: String, folder: Bool = false) -> AskClaudeScreen.Row {

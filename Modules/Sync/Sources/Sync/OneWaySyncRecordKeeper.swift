@@ -18,7 +18,7 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     /// in Dropbox. The record keeps it as a pending upload, read again before the next pass looks
     /// (`OneWaySyncRun.recheckPending`), which hears a refusal reported later.
     case unconfirmed
-    /// Written, and Dropbox won't take it (ES): never synced, and listed as skipped until iCloud's
+    /// Written, and Dropbox won't take it: never synced, and listed as skipped until iCloud's
     /// file changes (`OneWaySyncRecord.refused`). `why` is Dropbox's words; `copy` is the refused
     /// copy's size and date as read after the write, nil when it couldn't be read.
     case refused(why: String, copy: OneWaySyncExpectedState? = nil)
@@ -49,7 +49,7 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
     }
 }
 
-/// **The record after a pass**: what both sides agree on once the plan's steps landed, or didn't.
+/// The record after a pass: what both sides agree on once the plan's steps landed, or didn't.
 ///
 /// Pure. The rule is the record's own: it holds the last state both sides agreed on. So
 ///
@@ -63,7 +63,7 @@ public enum OneWaySyncStepOutcome: Equatable, Sendable {
 /// - the folders below the synced ones are recorded again from what both sides now hold, so a
 ///   later rename of one is one move in Dropbox;
 /// - a file whose copy Dropbox refused is listed in `refused`, never recorded as synced, and stays
-///   there until a retry lands (ES); each agreed file keeps iCloud's change time (ET).
+///   there until a retry lands; each agreed file keeps iCloud's change time.
 public enum OneWaySyncRecordKeeper {
 
     /// `outcomes` is one per `plan.steps`. `dropboxFolderID` reads a Dropbox folder's identity at a
@@ -331,7 +331,7 @@ private struct Keeper {
                     file.take(i, dropboxSecond: dMatch.item?.second, hash: dMatch.item?.contentHash)
                 } else {
                     if fate.tagged { file.tags = i.tags }
-                    // ET: a change time moved with nothing else is taken once the contents read as
+                    // A change time moved with nothing else is taken once the contents read as
                     // unchanged; until then the old one stays, so the next pass reads them again.
                     // One recorded while offloaded, or before change times were kept, is taken as is.
                     if !i.isDownloaded {

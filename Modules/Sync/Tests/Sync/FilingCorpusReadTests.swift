@@ -2,15 +2,14 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The read-layer half of ``FilingSurveyStore/CorpusRead``.**
+/// The read-layer half of ``FilingSurveyStore/CorpusRead``.
 ///
-/// The type exists so a caller about to write over learned state can tell "never surveyed" from
-/// "on disk and could not be read". `corpusRead` reached `.unreadable` only through a DECODE
-/// failure, so every way a file can be present and unopenable — mode 000, an ACL, an I/O error, a
-/// symlink whose target is gone — answered `.absent`, and the survey's refusal (which is correct
-/// and byte-preserving) never ran. `absent` starts from an empty corpus, merges this pass into
-/// nothing and writes the result over `filing-memory.json`; the fingerprint moves with those bytes
-/// and up to 50,000 paid verdicts stop being reachable.
+/// The type lets a caller about to write over learned state tell "never surveyed" from "on disk
+/// and couldn't be read". Every way a file can be present and unopenable (mode 000, an ACL, an I/O
+/// error, a symlink whose target is gone) must answer `.unreadable`, not only a decode failure, so
+/// the survey's byte-preserving refusal runs. `.absent` starts from an empty corpus, merges this
+/// pass into nothing and writes the result over `filing-memory.json`; the fingerprint moves with
+/// those bytes and up to 50,000 paid verdicts stop being reachable.
 ///
 /// The probe is `attributesOfItem` rather than `fileExists` for the reason the four sibling stores
 /// give: `fileExists` follows symlinks and answers false for one pointing at an unmounted volume,
@@ -61,9 +60,9 @@ import Testing
         }
     }
 
-    /// A symlink whose target is gone. `Data(contentsOf:)` fails and `fileExists` — which follows
-    /// the link — answers **false**, so only `attributesOfItem` sees the directory entry that an
-    /// atomic write would replace.
+    /// A symlink whose target is gone. `Data(contentsOf:)` fails and `fileExists`, which follows
+    /// the link, answers false, so only `attributesOfItem` sees the directory entry that an atomic
+    /// write would replace.
     @Test func aDanglingSymlinkCorpusIsUnreadableNotAbsent() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -109,9 +108,9 @@ import Testing
 
     /// The shared probe behind the memory's refusal, on the case only `attributesOfItem` sees.
     ///
-    /// Its own test because the corpus tests exercise `corpusRead`, not this helper, and a probe
-    /// that quietly regressed to `fileExists` would leave `filing-memory.json` — reached through
-    /// a link whose target is gone — reading as absent and being atomically replaced.
+    /// Its own test because the corpus tests exercise `corpusRead`, not this helper: a probe that
+    /// fell back to `fileExists` would read `filing-memory.json`, behind a link whose target is
+    /// gone, as absent, and it would be atomically replaced.
     @Test func theSharedProbeSeesADanglingSymlink() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }

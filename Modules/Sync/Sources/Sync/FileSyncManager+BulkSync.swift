@@ -4,32 +4,21 @@ import Foundation
 extension FileSyncManager {
 
     /// Verify All's "Match Dates": the right file of each pair it proved byte-identical takes the
-    /// left file's modification date (`matchDatesOfProvenPairs`). No per-file confirmation. Kept
-    /// under its old name, from when the run copied each pair over whole.
-    /// Internal (not private) because `confirmVerifiedCopy` in FileSyncManager+Verify.swift starts it.
-    /// - Parameter asOf: The `fileOperationsEpoch` the copied-from verdicts were taken under —
-    ///   `VerifiedCopyOffer.asOf`. Re-checked here, at the point the write is actually ordered.
+    /// left file's modification date (`matchDatesOfProvenPairs`). No per-file confirmation. The
+    /// name is from when the run copied each pair. Internal because `confirmVerifiedCopy` in
+    /// FileSyncManager+Verify.swift starts it.
+    /// - Parameter asOf: The `fileOperationsEpoch` the verdicts were taken under
+    ///   (`VerifiedCopyOffer.asOf`), re-checked here where the write is ordered.
     /// - Parameter stamps: `VerifiedCopyOffer.stamps`, each pair as it stood when it was hashed.
     ///
-    /// **"Copy to match dates" copied every pair over whole, and every pair it is offered is one
-    /// Verify All has just read in full and found byte-identical.** So the copy changed no byte and
-    /// still cost everything a copy costs: each file re-uploaded by its cloud app, a backup of the
-    /// identical original sent to the Trash, and the right side's tags, labels and other metadata
-    /// replaced by the left's. What the user asked for is the one thing the two files do not
-    /// share — the date — so a proven pair gets just that (FR41).
+    /// Nothing is copied: the files are identical, and a copy would re-upload each one, trash a
+    /// backup of an identical original and replace the right side's tags. Only the date differs,
+    /// so only the date is set. A pair with no date to set is left alone and counted.
     ///
-    /// **There is no copy path any more** (review E6). One stayed for a pair handed no stamp, and
-    /// none can reach it: Verify All stamps every pair it offers, and `confirmVerifiedCopy` refuses
-    /// an offer holding an unstamped pair (`VerifiedCopyOffer.firstStaleness`) or one whose stamp no
-    /// longer matches the disk — so a pair arriving here reads now as it did when it was hashed,
-    /// both ends present. A pair with no date to set is left alone and counted, never copied.
-    ///
-    /// **A link on either side is never written through** (FR41, FR8). Verify reads a link as the
-    /// file it points to, but a copy writes the LINK — over the real file on the right — and a
-    /// date set on a link path lands on its target. `FileDifference.heldBack` already keeps link
-    /// rows out of bulk runs, but only for the side the row copies FROM, and this run always writes
-    /// the right file whatever the row's suggested direction, so both sides are checked on disk too.
-    /// A held row is left out and said so, as `syncAll` does.
+    /// A link on either side is never written through: a date set on a link path lands on its
+    /// target. `FileDifference.heldBack` covers only the side a row copies from, and this run always
+    /// writes the right file, so both sides are checked on disk too. Held rows are left out and
+    /// named, as `syncAll` does.
     func bulkCopyDifferencesLeftToRight(_ allPairs: [FileDifference], asOf: Int,
                                         stamps: [UUID: FilePairStamp] = [:]) async {
         let activeFMForHold = fileManager
@@ -49,13 +38,10 @@ extension FileSyncManager {
         }
         let total = toCopy.count
         guard total > 0 else { return }
-        // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
-        // defer, so overlapping a bulk sync would interleave the shared counter and tear down
-        // the survivor's overlay — and syncAll's up-front destination stats would be staled by
-        // these overwrites. A concurrent Verify All would hash files mid-overwrite. And a
-        // single-row syncFile in flight (possibly parked at its prompt) may target one of
-        // these very differences; this run's defer would also clearSyncing the parked row's
-        // id out from under it. Refuse visibly, mirroring syncAll's guards.
+        // Same exclusion as syncAll. Overlapping a bulk sync would interleave `bulkSyncProgress`
+        // and tear down its overlay; a Verify All would hash files mid-write; a single-row
+        // syncFile (perhaps parked at its prompt) may target one of these rows, and this run's
+        // defer would clear its syncing mark. Refuse visibly.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before copying")
             return
@@ -72,18 +58,10 @@ extension FileSyncManager {
         markSyncing(ids: toCopyIDs)
         bulkSyncProgress = (0, total)
 
-        // **A deliberate YIELD, not a stray isolation hop — do not delete it as one.** This method
-        // is already on the main actor, so the block buys nothing for isolation, and
-        // `enqueueFileOperation` now carries a prominent note that exactly this shape "was
-        // redundant for isolation" where IT used it. The difference is the whole point: there the
-        // hop was pure cost, here the hop IS the work. `MainActor.run` is a *nonisolated* async
-        // function, so awaiting it from the main actor really does suspend (SE-0338) — which hands
-        // the main thread back long enough for the overlay this method just published
-        // (`activeProgress`, `bulkSyncProgress`) to render before the copy work blocks it.
-        //
-        // It is also the last one of its kind in `Modules/Sync/Sources`: every other
-        // `MainActor.run` there is inside a detached task, a `nonisolated` body, or a `@Sendable`
-        // closure, where it is doing real isolation work.
+        // **A deliberate yield; don't delete it as a redundant hop.** We're already on the main
+        // actor, but `MainActor.run` is nonisolated async, so awaiting it really suspends
+        // (SE-0338). That lets the overlay just published (`activeProgress`, `bulkSyncProgress`)
+        // render before the work blocks the main thread.
         await MainActor.run { }
 
         defer {
@@ -93,28 +71,13 @@ extension FileSyncManager {
             clearSyncing(ids: toCopyIDs)
         }
 
-        // Re-assert the confirm-time guard HERE, where the write is about to be ordered, rather
-        // than trusting the reading it took at the click. Between the two there are TWO
-        // main-actor hops — the `Task` this runs in starting, and the overlay yield just above.
-        // (There used to be a third, inside `enqueueFileOperation`, and this paragraph named it as
-        // where "the epoch is bumped and the operation chain is claimed". That hop is gone: the
-        // claim is straight-line now, and for the undo/redo paths both the epoch bump and the
-        // chain claim happen synchronously in `undo()` itself, via `claimFileOperationSlot()`.)
-        //
-        // The guard is still needed, and the removed hop made it STRONGER rather than redundant.
-        // A ⌘Z delivered into either remaining window runs its handler synchronously on the main
-        // actor, and that handler now claims the queue and bumps the epoch before it returns — so
-        // by the time this line runs, `fileOperationsEpoch != asOf` and the count is non-zero, and
-        // this run refuses instead of queueing behind the undo and overwriting the bytes it just
-        // restored. Before the slot, only the COUNT term caught that case; the epoch had not moved
-        // yet, because the undo's bump waited on its own `Task`.
-        //
-        // Both terms stay, because they still answer different questions for a different caller:
-        // a confirmation-gated transfer counts at `preCountFileOperation()` and bumps the epoch
-        // only when the user confirms, so a pending one is visible in the count alone. The window
-        // is sub-millisecond and keystroke-only either way, so this closes the last check-then-act
-        // in the path rather than a reachable bug; a guard resting on a value read before a
-        // suspension point is the shape, not the timing.
+        // Re-check the confirm-time guard here, where the write is ordered: two main-actor hops
+        // (this `Task` starting, and the yield above) separate it from the click. A ⌘Z in either
+        // window claims its slot (`claimFileOperationSlot()`) and bumps the epoch synchronously,
+        // so this run refuses instead of queueing behind the undo and overwriting what it
+        // restored. Both terms are needed: a confirmation-gated transfer counts at
+        // `preCountFileOperation()` but bumps the epoch only once confirmed, so a pending one
+        // shows in the count alone.
         guard fileOperationsEpoch == asOf, activeFileOperationsCount == 0 else {
             banner = .warning("A file operation ran or is pending — run Verify All again")
             return
@@ -128,17 +91,16 @@ extension FileSyncManager {
     /// the file it touched from one written since.
     typealias DateMatchState = (url: URL, previous: Date, matched: Date, size: Int64)
 
-    /// FR41's write: for each pair Verify All proved byte-identical, the right file takes the left
-    /// file's modification date, and nothing else about it changes — no bytes, no backup, no tags.
+    /// For each pair Verify All proved byte-identical, the right file takes the left file's
+    /// modification date; nothing else changes (no bytes, no backup, no tags).
     ///
-    /// Each pair is re-stamped immediately before its date is set and compared with the stamp
-    /// taken when it was hashed; a pair that moved since is left alone and counted as changed. The
-    /// confirm already checks this, but these readings are an operation-queue wait old by now, and
-    /// matching the dates over a file rewritten since would make two DIFFERENT files read as in
-    /// sync to every later scan — the one thing this must never manufacture.
+    /// Each pair is re-stamped just before its date is set and compared with its hash-time stamp;
+    /// one that changed since is left alone and counted. The confirm checked this too, but a queue
+    /// wait has passed, and matching dates over a rewritten file would make two different files
+    /// read as in sync to every later scan.
     ///
-    /// Undoable as one step: ⌘Z puts each right file's previous date back, but only on a file that
-    /// still reads as this run left it (same size, the date it was given).
+    /// Undoable as one step: ⌘Z puts each previous date back, but only on a file that still reads
+    /// as this run left it (same size, the date it was given).
     private func matchDatesOfProvenPairs(_ pairs: [FileDifference], stamps: [UUID: FilePairStamp],
                                          held: [FileDifference]) async {
         let activeFM = fileManager
@@ -170,10 +132,8 @@ extension FileSyncManager {
         if !outcome.matched.isEmpty {
             registerDateMatchUndo(outcome.matched.map(\.1), restoringPrevious: true,
                                   actionName: "Match \(CountedNoun.phrase(outcome.matched.count, "Date"))", fileManager: activeFM)
-            // **In Sync History, and paired for Undo Last Run, like every other run** (FR41). The
-            // match changed files on disk and recorded nothing, so the History window never
-            // listed it and Undo Last Run refused it as "not a sync run". One record per file,
-            // armed in this turn — the one that registered the step (FR26).
+            // Recorded in Sync History and paired for Undo Last Run, like every other run: one
+            // record per file, armed in the same turn that registered the undo step.
             let runId = UUID()
             recordSyncHistory(outcome.matched.map { diff, state in
                 SyncHistoryRecord(runId: runId, action: .matchDates,
@@ -205,18 +165,14 @@ extension FileSyncManager {
         }
     }
 
-    /// What a run says about the held rows it left out, one phrase per kind: the rows that need the
-    /// user's decision, with where they make it — the row's right-click menu, which copies a held
-    /// row either way — and the links, which nothing in the app copies right (`syncFile` refuses a
-    /// row copying FROM one), so no path is named for them.
+    /// What a run says about the held rows it left out, one phrase per kind. Rows needing a
+    /// decision point to the row's right-click menu, which copies a held row either way. Links get
+    /// no such pointer: nothing in the app copies them right (`syncFile` refuses a row copying from
+    /// one). A one-sided folder holding a link gets its own phrase: its menu offers the single
+    /// copy, which proceeds for one row at a time.
     ///
-    /// `linkOnEitherSide` words the link half for Match Dates, which also leaves out a pair
-    /// with a link on the side it would write — such a row carries no hold, so a row without one
-    /// counts as a link there.
-    ///
-    /// **A missing folder holding a link gets its own phrase** (review E12). It was counted with
-    /// the rows to "choose which to keep", but it exists on one side only, so its menu offers the
-    /// one copy — which goes ahead, link and all, when asked for one row at a time.
+    /// `linkOnEitherSide` words the link phrase for Match Dates, which also leaves out a pair with a
+    /// link on the side it writes; such a row has no hold, so a row without one counts as a link.
     static func leftOutPhrases(_ held: [FileDifference], linkOnEitherSide: Bool = false) -> [String] {
         let links = held.filter { $0.heldBack == nil || $0.heldBack == .sourceIsSymbolicLink }.count
         let folderLinks = held.filter {
@@ -246,10 +202,10 @@ extension FileSyncManager {
         return phrases
     }
 
-    /// Registers one undo step over a date match: it sets each file's date back toward
-    /// `restoringPrevious ? previous : matched`, but only on a file that still reads with the
-    /// other date and the recorded size — a file saved since is not this step's to re-date — and
-    /// registers its own inverse as the redo.
+    /// Registers one undo step over a date match: it sets each file's date to
+    /// `restoringPrevious ? previous : matched`, but only on a file that still has the other date
+    /// and the recorded size (a file saved since isn't this step's to re-date), and registers its
+    /// own inverse as the redo.
     func registerDateMatchUndo(_ items: [DateMatchState], restoringPrevious: Bool, actionName: String,
                                fileManager fm: FileManaging) {
         invalidateUndoableBanner()
@@ -270,9 +226,9 @@ extension FileSyncManager {
                             changed += 1
                             continue
                         }
-                        // Exact, so the inverse step's `now.modified == expected` holds on the
-                        // file this one leaves: `setAttributes` rounds to the microsecond, and a
-                        // Redo after an Undo then found ~9 in 10 files "changed since".
+                        // Exact, so the inverse step's `now.modified == expected` holds:
+                        // `setAttributes` rounds to the microsecond, and most files would then read
+                        // as "changed since".
                         if (try? fm.setModificationDate(goal, ofItemAtPath: item.url.path)) != nil {
                             reset += 1
                         } else {
@@ -285,9 +241,8 @@ extension FileSyncManager {
                 var outcome = "re-dated \(reset) of \(items.count) file(s)"
                 if changed > 0 { outcome += ", \(changed) left alone — changed since" }
                 if unwritable > 0 { outcome += ", \(unwritable) could not be re-dated" }
-                // **A file left alone is said, not only logged** (review E1). The step reported
-                // nothing on screen, so an Undo that put back no date at all read exactly like one
-                // that put back every date.
+                // A file left alone is shown, not only logged, or an Undo that re-dated nothing
+                // would look like one that re-dated everything.
                 let leftAlone = changed + unwritable
                 guard leftAlone > 0 else {
                     Logger.shared.info("\(verb) (\(actionName)): \(outcome)")
@@ -307,12 +262,11 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
 
-    /// Shared scaffolding for the parallel bulk-sync / verify workers: a work queue drained by
-    /// up to `concurrency` tasks, stopping early once the progress is cancelled. After each item
-    /// the shared completed count (offset by `completedBase`, for items resolved before the
-    /// workers started) is mirrored into the `Progress` and reported on the MainActor.
-    /// Internal (not private) because `verifyAllWithChecksum` in FileSyncManager+Verify.swift
-    /// runs its checksum workers on the same scaffolding.
+    /// Shared scaffolding for the parallel bulk-sync and verify workers: a work queue drained by up
+    /// to `concurrency` tasks, stopping once the progress is cancelled. After each item the
+    /// completed count (offset by `completedBase`, for items resolved before the workers started)
+    /// goes into the `Progress` and is reported on the main actor. Internal because
+    /// `verifyAllWithChecksum` in FileSyncManager+Verify.swift uses it too.
     nonisolated static func processInParallel<Item: Sendable>(
         items: [Item],
         concurrency: Int,
@@ -337,16 +291,13 @@ extension FileSyncManager {
         }
     }
 
-    /// Runs the copy/move I/O for a prepared bulk work list on the parallel scaffolding,
-    /// collecting per-difference successes and failures. `syncAll`'s; Match Dates copies nothing.
+    /// Runs `syncAll`'s copy/move I/O for a prepared work list on the parallel scaffolding,
+    /// collecting per-difference successes and failures.
     ///
-    /// Each COPY success also carries its identity walk (`startCopyIdentityWalk`), started right
-    /// here, the moment that item's own copy landed — not at registration time, which comes only
-    /// after the ENTIRE run (minutes on slow volumes). Post-run, a walk would record an edit the
-    /// user made inside an already-landed copy while the rest of the run ground on as that
-    /// copy's BASELINE, and ⌘Z would trash the edit as `.unchanged`. Per item, the edit
-    /// postdates the recording and refuses. Moves carry nil: their undo records shallow, at
-    /// registration, deliberately (see `registerMoveUndo`).
+    /// Each copy success carries its identity walk (`startCopyIdentityWalk`), started the moment
+    /// that copy landed. A walk after the whole run (minutes on slow volumes) would record the
+    /// user's edits inside a landed copy as its baseline, and ⌘Z would trash them as `.unchanged`.
+    /// Moves carry nil: their undo records shallow, at registration (`registerMoveUndo`).
     private nonisolated static func performBulkSyncIO(
         workList: [(FileDifference, URL, URL, Bool)],
         concurrency: Int,
@@ -364,9 +315,8 @@ extension FileSyncManager {
             reportCompleted: reportCompleted
         ) { item in
             let (diff, fromURL, toURL, isMove) = item
-            // RD24: each worker's copy also watches Cancel, so a run holding a very large file stops
-            // inside it rather than after it. The dialog's item line is not touched here — four
-            // copies share it, so a byte count would describe whichever wrote last.
+            // Each copy watches Cancel, so a run stops inside a very large file, not after it. The
+            // dialog's item line is left alone: four copies share it.
             let progress = progressRef.progress
             let observer = CopyObserver(shouldContinue: { !progress.isCancelled })
             do {
@@ -375,8 +325,8 @@ extension FileSyncManager {
                     : FileSyncManager.startCopyIdentityWalk(at: syncResult.to, fileManager: fileManager)
                 await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to), identityWalk)
             } catch where CopyObserver.isCancellation(error) && progress.isCancelled {
-                // Abandoned inside its staging copy: not synced, and not a failure to report — the
-                // row simply stays in the list, as the items the cancel never reached do.
+                // Abandoned inside its staging copy: not synced and not a failure. The row stays in
+                // the list, like the items the cancel never reached.
             } catch {
                 await collector.addFailure(diff, error)
             }
@@ -390,21 +340,19 @@ extension FileSyncManager {
     ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
     ///   - isMove: If true, moves each file; otherwise copies.
     ///   - subset: When non-nil, only differences in this array are considered (e.g. the currently filtered list). When nil, uses the full `differences` array.
-    ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
-    ///     for this exact run (e.g. review mode's "Copy Remaining N" button, which names the
-    ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
+    ///   - confirmed: True when the calling UI already is the user's confirmation for this run
+    ///     (review mode's "Copy Remaining N" names the count), so `transferConfirmer` is skipped.
     public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false, postBanner: Bool = true) async {
         _ = await syncAllResolving(direction: direction, isMove: isMove, subset: subset, confirmed: confirmed, postBanner: postBanner)
     }
 
-    /// `syncAll`, returning the ids of the rows the run resolved — empty when it copied nothing —
-    /// for a caller that has to say which ones landed (`copyRemaining`).
+    /// `syncAll`, returning the ids of the rows it resolved (empty when it copied nothing), for a
+    /// caller that has to say which landed (`copyRemaining`).
     func syncAllResolving(direction: FileDifference.SyncAction, isMove: Bool, subset: [FileDifference]?, confirmed: Bool, postBanner: Bool) async -> Set<UUID> {
         let source = subset ?? differences
-        // **A row whose direction is a guess is not taken in bulk** (`FileDifference.heldBack`:
-        // FR8, FR39, FR40). The user approves a count here, not each row, so a guess inside the
-        // count overwrote whichever side it guessed against. Held rows are left on the list,
-        // logged with their reason, and named in the outcome — never silently dropped.
+        // A row whose direction is a guess (`FileDifference.heldBack`) is not taken in bulk: the
+        // user approves a count, not each row, so a wrong guess would overwrite the other side.
+        // Held rows stay on the list, logged with their reason and named in the outcome.
         let inDirection = source.filter { $0.action == direction }
         let toSync = inDirection.filter { $0.heldBack == nil }
         let heldBack = inDirection.filter { $0.heldBack != nil }
@@ -422,31 +370,27 @@ extension FileSyncManager {
         }
         // Drop, don't queue, a bulk run started while another is in flight (see the flag's doc).
         guard !isBulkSyncRunning else { return [] }
-        // A Verify All in flight is hashing the very files this run would overwrite; starting
-        // anyway would feed it half-written content. Tell the user rather than silently drop.
+        // A Verify All in flight is hashing the files this run would overwrite, and would read
+        // them half-written. Tell the user rather than drop silently.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for the current operation to finish before syncing")
             return []
         }
-        // A single-row syncFile in flight (possibly parked at its prompt — the latch is set
-        // before any prompt) may target the very rows this run would stat and copy; running
-        // anyway could double-write one difference from two flows. Mirrors Verify All's guard.
+        // A single-row syncFile in flight (perhaps parked at its prompt) may target these rows,
+        // and two flows could write one difference twice. Mirrors Verify All's guard.
         guard syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before syncing")
             return []
         }
-        // Latch the bulk-sync flag BEFORE the confirmation prompt, not after: the prompt's
-        // modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
-        // reads this flag) would otherwise pass its exclusion check while the prompt is up —
-        // reopening exactly the overlap these guards exist to prevent. The defer directly
-        // below releases it on EVERY exit — decline included — so no future early return
-        // can leak the flag and silently disable bulk syncs for the session.
+        // Latch the flag before the confirmation prompt: its modal spins the run loop, and a
+        // second syncAll or a Verify All would pass its guard while the prompt is up. The defer
+        // releases it on every exit, decline included, so no early return can leak it and
+        // disable bulk syncs for the session.
         isBulkSyncRunning = true
         defer { isBulkSyncRunning = false }
-        // Confirm before any I/O: a bulk sync is one header click away, so a mis-click must
-        // be cancellable while it still costs nothing. The prompt names the two compared
-        // folders of the first item — every item in one direction shares them. Callers that
-        // already embody the user's confirmation pass `confirmed: true`.
+        // Confirm before any I/O: a bulk sync is one header click away, so a mis-click must be
+        // cancellable while it costs nothing. The prompt names the first item's two folders,
+        // which every item in one direction shares.
         if !confirmed, let first = toSync.first {
             let containers = first.transferContainers
             let userConfirmed = transferConfirmer(TransferSummary(
@@ -457,8 +401,7 @@ extension FileSyncManager {
                 destinationDirectory: containers.to
             ))
             guard userConfirmed else {
-                // .info like the single-transfer decline: a bulk run's start is visible at Info
-                // level, so its cancellation has to be too, or the trace shows a run that never ends.
+                // .info, like the run's start, or the trace shows a run that never ends.
                 Logger.shared.info("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
                 return []
             }
@@ -475,7 +418,7 @@ extension FileSyncManager {
         markSyncing(ids: toSyncIDs)
 
         defer {
-            // isBulkSyncRunning is released by the defer installed at the latch above.
+            // isBulkSyncRunning is released by the defer at the latch above.
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
             if activeProgress === progress { activeProgress = nil }
@@ -483,12 +426,10 @@ extension FileSyncManager {
         }
 
         let activeFM = fileManager
-        // Resolve from/to URLs first (pure string work), then stat every destination in one
-        // detached pass: a per-file synchronous fileExists on the MainActor stalls the UI
-        // proportionally to file count on network/cloud volumes before any copying starts.
-        // Collision prompts still run afterwards on the MainActor, in list order, with the
-        // same resolutions; once a prompt has held the run, the loop below re-stats results
-        // the batch saw as missing so externally created destinations still get prompted.
+        // Resolve the URLs, then stat every destination in one detached pass: a per-file stat on
+        // the main actor stalls the UI on network and cloud volumes. Collision prompts still run
+        // on the main actor in list order; once a prompt has held the run, the loop re-stats the
+        // "missing" results so a destination created meanwhile still gets its prompt.
         var candidates: [(difference: FileDifference, fromURL: URL, toURL: URL)] = []
         candidates.reserveCapacity(toSync.count)
         for difference in toSync {
@@ -499,8 +440,8 @@ extension FileSyncManager {
         let statURLs = candidates.map(\.toURL)
         let statProgress = ProgressRef(progress)
         let destinationExists = await Task.detached(priority: .userInitiated) { () -> [(exists: Bool, isDirectory: Bool)] in
-            // A cancelled run stops stat-ing; the prepare loop below breaks on the same flag
-            // before ever reading the remaining (false) placeholders.
+            // A cancelled run stops stat-ing; the loop below breaks on the same flag before it
+            // reads the placeholder results.
             statURLs.map { url in
                 guard !statProgress.progress.isCancelled else { return (false, false) }
                 var isDir: ObjCBool = false
@@ -511,32 +452,21 @@ extension FileSyncManager {
 
         var preparedList: [(FileDifference, URL, URL, Bool)] = []
         var skippedCount = 0
-        // Destinations already claimed by earlier items in THIS batch. Targets are resolved here,
-        // up front, but the copies run later in parallel — so a disk-only uniqueness check can't
-        // see another pending target. Without this, a keep-both "report 2.txt" could coincide with
-        // a different item whose real target is "report 2.txt" (missing at the batch stat), and the
-        // workers would overwrite one with the other: silent data loss.
+        // Destinations already claimed by earlier items in this batch. The copies run later in
+        // parallel, so a disk-only uniqueness check can't see another pending target: a keep-both
+        // "report 2.txt" could coincide with another item's real target, and the workers would
+        // overwrite one with the other, losing data silently.
         var reservedTargets = Set<String>()
-        // Case sensitivity of the copy destination. On a case-insensitive volume two targets that
-        // differ only by case name the same file, so the reserved-target set must collapse case —
-        // otherwise two case-variant items pass the in-memory uniqueness check and the parallel
-        // workers write to the same file (the disk `fileExists` check already collapses case).
-        // Probed for a NOT-YET-EXISTING item: every candidate here is missing on the destination
-        // side, so the plain probe could never answer and always fell back to "folds case" — which
-        // on a case-sensitive volume uniquified `README.md` to `README 2.md` merely because
-        // `Readme.md` was in the same batch, and the next scan then reported the invented name
-        // forever.
+        // On a case-insensitive volume two targets differing only by case are one file, so the
+        // reserved set must fold case there, or the parallel workers write to the same file. On a
+        // case-sensitive volume it must not, or `README.md` beside `Readme.md` gets an invented
+        // `README 2.md`. The probe works for a not-yet-existing item, since every target here is.
         //
-        // Asked PER DESTINATION, not once for the batch. One batch can span volumes — a nested
-        // mount inside the destination root, or a pane rooted at /Volumes — and a single answer
-        // taken from the first candidate applies that volume's rule to items landing on a different
-        // one. Getting it wrong in the "case-sensitive" direction is the dangerous half: two
-        // case-variant targets on a case-INSENSITIVE volume both pass the reservation check, the
-        // parallel workers then write to the SAME file, and with `isMove` both sources are consumed
-        // — one file's content is gone, with a success banner and no Trash entry. (Before the probe
-        // could answer at all this was unreachable, because the failed probe folded case for
-        // everything; making it answer is what opened it.) Memoized per parent directory, so this
-        // costs one stat per distinct destination folder rather than one per item.
+        // Asked per destination, not once per batch. A batch can span volumes (a nested mount,
+        // a pane rooted at /Volumes). Wrongly answering "case-sensitive" is the dangerous half:
+        // two case-variant targets pass the check, the workers write the same file, and with
+        // `isMove` both sources are consumed, so one file is lost under a success banner with no
+        // Trash entry. Memoized per parent folder: one stat per destination folder.
         var caseSensitivityByParent: [String: Bool] = [:]
         let probeCaseSensitivity = destinationCaseSensitivity
         func destinationIsCaseSensitive(_ url: URL) -> Bool {
@@ -549,20 +479,17 @@ extension FileSyncManager {
         func reservedKey(_ path: String) -> String {
             destinationIsCaseSensitive(URL(fileURLWithPath: path)) ? path : path.lowercased()
         }
-        // The batch stat above ran before the first prompt. A prompt holds this loop for an
-        // unbounded time, during which a destination the batch saw as missing can be created
-        // externally — and would then be replaced without its overwrite prompt. Once a prompt
-        // has been shown, re-stat the "missing" results (still off the main actor) so such a
-        // file gets the same prompt a just-in-time stat would have produced.
+        // The batch stat ran before the first prompt, and a prompt can hold this loop for any
+        // length of time. A destination created meanwhile would be replaced without its prompt,
+        // so once a prompt has shown, re-stat the "missing" results (off the main actor).
         var promptShownSinceStatPass = false
         for (index, candidate) in candidates.enumerated() {
             if progress.isCancelled { break }
             var toURL = candidate.toURL
             var destinationOccupied = destinationExists[index].exists
             var destinationIsDirectory = destinationExists[index].isDirectory
-            // Provider name check first: it can redirect the item to a sanitized target,
-            // which invalidates this item's batch stat (re-stat below) — and its prompt holds
-            // the loop like a collision prompt does, so it sets the same re-stat flag.
+            // Provider name check first: a sanitized target needs a fresh stat, and its prompt
+            // holds the loop like a collision prompt, so it sets the same re-stat flag.
             switch checkDestinationName(for: toURL, isMove: isMove) {
             case .skip:
                 promptShownSinceStatPass = true
@@ -582,13 +509,10 @@ extension FileSyncManager {
             }
             if destinationOccupied {
                 let resolution: CollisionResolution
-                // A directory collision ALWAYS prompts and is never auto-resolved from the
-                // "Apply to all" cache — replacing a folder trashes every item that exists only in
-                // the destination, so it must never ride in on a decision the user made for a FILE.
-                // This mirrors ConflictPolicy.autoResolution's `guard !isDirectory` (which the
-                // single-file and standing-policy paths honor); the interactive bulk cache is the
-                // one path that otherwise skips it. A directory decision likewise never SEEDS the
-                // cache, so a folder Replace can't silently automate a later file (or folder).
+                // A folder collision always prompts, never taken from the "Apply to all" cache:
+                // replacing a folder trashes everything only the destination has, so it must not
+                // ride on a decision made for a file. Mirrors ConflictPolicy.autoResolution's
+                // `guard !isDirectory`. A folder decision never seeds the cache either.
                 if let cached = bulkApplyToAllResolution, !destinationIsDirectory {
                     resolution = cached
                 } else {
@@ -604,8 +528,7 @@ extension FileSyncManager {
                 }
                 switch resolution {
                 case .skip, .merge:
-                    // `.merge` is never offered here (the collision above does not set
-                    // `offersMerge`), so it can only be a stray answer — given the safe reading.
+                    // `.merge` isn't offered here (no `offersMerge`), so a stray one is skipped.
                     skippedCount += 1
                     continue
                 case .keepBoth:
@@ -619,9 +542,9 @@ extension FileSyncManager {
                     break
                 }
             }
-            // Final guard for the non-collision paths (a "missing" target, or a Replace): its plain
-            // name may still be one an earlier item's keep-both already claimed this batch. Uniquify
-            // against disk + the reserved set so no two items ever share a destination.
+            // For a missing target or a Replace, the plain name may be one an earlier keep-both
+            // claimed this batch. Uniquify against disk and the reserved set so no two items share
+            // a destination.
             if reservedTargets.contains(reservedKey(toURL.path)) {
                 let claimedURL = toURL
                 let claimed = reservedTargets
@@ -634,16 +557,14 @@ extension FileSyncManager {
             preparedList.append((candidate.difference, candidate.fromURL, toURL, isMove))
         }
 
-        // Skipped items still count toward the visible total; treat them as already completed
-        // so the progress can reach 100% instead of stalling at (total - skipped).
+        // Skipped items count as completed, so progress can reach 100%.
         progress.completedUnitCount = Int64(skippedCount)
         bulkSyncProgress = (skippedCount, total)
         let skipped = skippedCount
         let progressRef = ProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
-        // One @Published write per whole percent instead of one per file — see
-        // `ProgressPublishGate` for what the ungated version cost the window.
+        // One @Published write per whole percent, not per file (`ProgressPublishGate`).
         let publishGate = ProgressPublishGateBox()
         let workList = preparedList
 
@@ -661,16 +582,13 @@ extension FileSyncManager {
             )
         }
 
-        // Group the whole run's per-file undo registrations into ONE undo step so "Undo last
-        // sync run" (and ⌘Z) reverses the entire bulk sync at once, reusing the existing
-        // per-file reversal — no new mutation path. Named so the run reads as a unit in the Undo
-        // menu; the empty case opens no group.
+        // Group the run's per-file undos into one "Sync run" step, so ⌘Z and Undo Last Run reverse
+        // the whole bulk sync through the existing per-file reversal. An empty run opens no group.
         let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
-        // Same shape as the Verify All path above: each copy's identity walk was started inside
-        // `performBulkSyncIO` the moment its own copy landed; the registrations' wrapper tasks
-        // are collected and awaited after the grouping closes, so nothing can interleave into
-        // the "Sync run" undo step while the main actor suspends.
+        // Each copy's identity walk started in `performBulkSyncIO` as its copy landed. The
+        // registrations' tasks are awaited after the group closes, so nothing can slip into the
+        // "Sync run" step while the main actor suspends.
         var identityWalks: [Task<Void, Never>] = []
         if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
         for (diff, (trashed, from, to), identityWalk) in result.successes {
@@ -684,9 +602,8 @@ extension FileSyncManager {
                                     identity: identityWalk ?? Self.startCopyIdentityWalk(at: to, fileManager: activeFM))],
                     actionName: actionName, fileManager: activeFM))
             }
-            // Size is free from the difference (source side). Checksum is deliberately nil at op
-            // time: hashing inline would slow a bulk run of hundreds of files — the "with
-            // checksum" contract is met by the field existing, to be populated by a later Verify.
+            // Size comes free from the difference (source side). Checksum is nil: hashing inline
+            // would slow a bulk run, and a later Verify can fill it.
             let size = diff.action == .copyToRight ? diff.leftFileSize : diff.rightFileSize
             historyRecords.append(SyncHistoryRecord(
                 runId: runId,
@@ -703,24 +620,22 @@ extension FileSyncManager {
             undoManager?.setActionName("Sync run")
             undoManager?.endUndoGrouping()
         }
-        // The pairing is armed HERE, in the turn that closed the group, and not after the walks
-        // below (FR26): what tops the stack after an await may be a rename or a ⌘Z made during
-        // the tail, and "Undo Last Run" would then describe this run while reversing that.
+        // Armed here, in the turn that closed the group, not after the walks below: after an
+        // await the stack may be topped by a rename or a ⌘Z, and Undo Last Run would describe
+        // this run while reversing that.
         recordSyncHistory(historyRecords)
-        // Nothing left that Stop could stop: the capsule drops it, and so does the Differences
-        // list's Cancel — which reads the flag only when it redraws, so the count is published
-        // again to make it.
+        // Nothing left for Stop to stop: the capsule drops it, and so does the Differences list's
+        // Cancel, which reads the flag only on redraw, so the count is republished to force one.
         progress.markFinishing(isMove ? "the move" : "the sync")
         bulkSyncProgress = bulkSyncProgress
-        // Outside the group (see the note at `identityWalks`): the run does not report complete
-        // until every undo it registered is fully armed.
+        // Outside the group: the run isn't complete until every undo it registered is armed.
         for walk in identityWalks { await walk.value }
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
-        // The failures stay in the list — only successes were removed — so mark them while they
-        // are still in hand. Unconditional: a clean run clears the previous one's marks.
+        // Failures stay in the list, so mark them now. Unconditional: a clean run clears the
+        // previous run's marks.
         recordTransferFailures(result.failures)
-        // No per-failure isSyncing reset here: the defer above clears the flag for every
-        // item of this run, and nothing can observe the list before it runs.
+        // No per-failure isSyncing reset: the defer clears it for every item of this run before
+        // anything can observe the list.
         if result.failures.count == 1, let (diff, error) = result.failures.first {
             present(.syncFailed(
                 item: diff.relativePath,
@@ -729,8 +644,7 @@ extension FileSyncManager {
                 isRetryable: false
             ))
         } else if result.failures.count > 1 {
-            // The alert holds one error at a time, so presenting per failure would leave only
-            // the last one visible. Log each failure individually, then present one aggregate.
+            // The alert holds one error at a time, so log each failure, then present one aggregate.
             for (diff, error) in result.failures {
                 Logger.shared.error(SyncError.syncFailed(
                     item: diff.relativePath,
@@ -747,11 +661,8 @@ extension FileSyncManager {
                 firstReason: firstError.localizedDescription
             ))
         }
-        // Completion banner for the bulk transfer. This marquee Compare flow ("Copy N to →")
-        // previously finished with no confirmation at all — only the resolved differences vanished.
-        // On a clean run, offer Undo: the whole run's per-file undos are grouped into one "Sync run"
-        // step above, so ⌘Z reverses it in one go. On a partial run the failure alert already
-        // speaks, so stay quiet here rather than stacking a second message.
+        // Completion banner. A clean run offers Undo, which reverses the grouped "Sync run" step
+        // in one go. On a partial run the failure alert already speaks, so stay quiet.
         if postBanner, result.failures.isEmpty, !result.successes.isEmpty {
             let pastTense = isMove ? "Moved" : "Copied"
             banner = .success((result.successes.count == 1
@@ -759,8 +670,7 @@ extension FileSyncManager {
                 : "\(pastTense) \(result.successes.count) items") + heldNote, undoable: true)
         }
 
-        // Summary breadcrumb for the bulk path (parity with the single-file "Synced file:" line):
-        // a "Sync All" of hundreds of files otherwise leaves no successful-outcome record.
+        // Summary log line, matching the single-file "Synced file:" line.
         if !result.successes.isEmpty {
             let verb = isMove ? "Moved" : "Synced"
             Logger.shared.info("\(verb) \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
@@ -768,22 +678,18 @@ extension FileSyncManager {
         return Set(result.successes.map { $0.0.id })
     }
 
-    /// Review's "Copy Remaining N" when some of the rows left need the user's decision.
-    ///
-    /// **It left them out and said nothing** (owner decision 2026-10-25). Each direction is its own
-    /// `syncAll`, and a remainder holding both ran them with their banners off — so the held rows
-    /// were dropped from the outcome, and with one direction only the held rows going that way
-    /// were named. Here every row that can go is copied, both directions, and one banner names the
-    /// held rows in the words every bulk run uses (`leftOutPhrases`); they stay on the list.
+    /// Review's "Copy Remaining N" when some of the rows left need the user's decision. Every row
+    /// that can go is copied, in both directions, and one banner names the held rows in the words
+    /// every bulk run uses (`leftOutPhrases`); they stay on the list.
     ///
     /// The prompt is skipped: the button names the count and is the confirmation. Undo is offered
-    /// only for one direction — two runs are two undo steps, and one Undo would reverse half.
-    /// - Returns: The ids of the rows it resolved, so Review can mark them and stay on the rest —
+    /// only for one direction: two runs are two undo steps, and one Undo would reverse half.
+    /// - Returns: The ids of the rows it resolved, so Review can mark them and stay on the rest,
     ///   or nil when it refused to start (another operation is running), having said so.
     @discardableResult
     public func copyRemaining(_ remaining: [FileDifference], isMove: Bool) async -> Set<UUID>? {
         // syncAll's own guards, up front: a refusal inside it would read here as "nothing
-        // copied", and this banner would cover the reason.
+        // copied", and this banner would hide the reason.
         guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before syncing")
             return nil
@@ -816,17 +722,16 @@ extension FileSyncManager {
 
 // MARK: - Bulk sync helpers (Sendable-safe refs and actors for parallel workers)
 
-// ProgressRef and WeakSyncManagerRef are internal (not private) because the verify machinery
-// in FileSyncManager+Verify.swift shares the parallel-worker scaffolding.
-// @unchecked: NSProgress is itself thread-safe; the ref exists only to be the Sendable wrapper.
+// ProgressRef and WeakSyncManagerRef are internal because FileSyncManager+Verify.swift shares the
+// parallel-worker scaffolding. @unchecked: NSProgress is thread-safe; this only wraps it.
 final class ProgressRef: @unchecked Sendable {
     let progress: Progress
     init(_ progress: Progress) { self.progress = progress }
 }
 
 final class WeakSyncManagerRef: @unchecked Sendable {
-    // `weak let`: never reassigned after init (all construction sites pass `self` once), so the
-    // only mutation is the runtime nil-ing on deallocation — which is what makes this Sendable-safe.
+    // `weak let`: never reassigned, so the only mutation is the runtime nil-ing on deallocation,
+    // which is what makes this Sendable-safe.
     weak let value: FileSyncManager?
     init(_ value: FileSyncManager?) { self.value = value }
 }

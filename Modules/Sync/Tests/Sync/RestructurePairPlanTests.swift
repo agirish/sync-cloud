@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// §5.4's plan surface on the merge kinds — the routing that decides which surface a finding
-/// opens, and the cross-parent derivation the family mapping cannot express (the audit's G2).
+/// The plan surface on the merge kinds: the routing that decides which surface a finding opens,
+/// and the cross-parent derivation the family mapping cannot express.
 @Suite struct RestructurePairPlanTests {
 
     // MARK: - Fixtures
@@ -26,7 +26,7 @@ import Foundation
     // MARK: - The geometry split
 
     /// A sibling echo and a shadowed year are both one row of a family mapping — but the family
-    /// the mapping runs over is the pair's GRANDparent, because the mapping's unit is a child
+    /// the mapping runs over is the pair's grandparent, because the mapping's unit is a child
     /// name inside a member. Pointing it at the parent would map the parent's siblings instead.
     @Test func aPairUnderOneParentSeedsTheMappingOverThatParent() {
         let echo = Self.finding(
@@ -48,9 +48,9 @@ import Foundation
                                       source: "IRS Docs - 2023", target: "2023"))
     }
 
-    /// A shadowed year with no bare-year sibling is a rename rather than a merge — and it takes
-    /// the SAME route, because the planner decides rename-or-merge from whether the target is
-    /// standing. Two answers to that question is how the card and the plan disagree.
+    /// A shadowed year with no bare-year sibling is a rename rather than a merge, and it takes the
+    /// same route, because the planner decides rename-or-merge from whether the target is
+    /// standing. Two answers to that question would make the card and the plan disagree.
     @Test func aShadowedYearWithNoTargetTakesTheSameRoute() {
         let shadow = Self.finding(
             kind: .shadowAxis, family: "Immigration/H-1B",
@@ -235,9 +235,8 @@ import Foundation
                     == .failure(.unknownFiles(source: "A/Inbox")))
     }
 
-    /// The merge branch refuses a source it cannot read; the whole-move branch used to plan one
-    /// happily. Two sides of one function must not disagree about whether a missing source is a
-    /// plan.
+    /// The whole-move branch refuses a source it cannot read, as the merge branch does: two sides
+    /// of one function must not disagree about whether a missing source is a plan.
     @Test func aVanishedSourceIsRefusedOnBothBranches() {
         let tree = Self.view(["Work": (["Acme"], []), "Work/Acme": ([], [])])
         #expect(RestructurePlanner.pairMergeManifest(
@@ -248,7 +247,7 @@ import Foundation
     }
 
     /// A relocation declares itself, because two rules downstream read a `move-dir`'s source
-    /// PARENT and both would otherwise assume the plan is draining it.
+    /// parent and both would otherwise assume the plan is draining it.
     @Test func onlyTheWholeMoveBranchMarksItself() throws {
         let relocation = try #require(try RestructurePlanner.pairMergeManifest(
             source: "Work/Badge", destination: "Work/Acme/Badge",
@@ -293,7 +292,7 @@ import Foundation
         #expect(RestructurePlanRouting.route(for: ask) == nil)
     }
 
-    /// What a landing gets CALLED can differ from the path its members hang off — a seeded pair
+    /// What a landing gets called can differ from the path its members hang off: a seeded pair
     /// is planned with the grandparent as its family, and recording that would head its ledger
     /// card "Across the tree" for two folders inside one named parent.
     @Test func aPlanCanBeRecordedUnderADifferentFamilyThanItWalks() throws {

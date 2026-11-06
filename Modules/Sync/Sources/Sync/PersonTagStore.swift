@@ -1,27 +1,23 @@
 import Events
 import Foundation
 
-/// His verdicts on whose document is whose — `person-tags.json`, the second writable filing
-/// artifact after `people.json`.
+/// The user's verdicts on whose document is whose: `person-tags.json`, the second writable
+/// filing artifact after `people.json`.
 ///
-/// **Deliberately writable, and for the same reason the roster is.** The folder profile, the filing
-/// memory and the corpus all *describe* the tree, and a half-finished scan writing any of them back
-/// would be worse than not having them. Who a document belongs to is not a description of anything
-/// — it is a judgement, and the app is not entitled to make it. So the channels compute, the queue
-/// asks, and only the answer is kept.
+/// Writable for the same reason the roster is: the profile, memory and corpus describe the tree,
+/// but who a document belongs to is a judgement the app may not make. The channels compute, the
+/// queue asks, and only the answer is kept.
 ///
-/// **Confirming never moves a file.** Filing is Organize's verb and stays one click away on the same
-/// row; this store's whole vocabulary is "yes" and "no".
+/// Confirming never moves a file; filing is Organize's verb. This store only says "yes" and "no".
 @MainActor
 public final class PersonTagStore: ObservableObject {
-    /// Every verdict on disk. Published so the person view re-renders the instant a row is judged.
+    /// Every verdict on disk. Published so the person view re-renders as soon as a row is judged.
     @Published public private(set) var tags: [PersonTag] = []
 
-    /// Bumped **after** each successful write of `person-tags.json`, and never otherwise — the
-    /// signal ``PeopleStore/savedRevision`` gives the roster, for the same reason: `$tags` says
-    /// the array changed, not that the file did. The two diverge for a whole session when the
-    /// unreadable guard is armed and the set-aside keeps failing — every save refuses, and
-    /// without this there was nothing `record` could consult before claiming a verdict durable.
+    /// Bumped after each successful write of `person-tags.json`, and never otherwise, as
+    /// ``PeopleStore/savedRevision`` is: `$tags` says the array changed, not the file. They diverge
+    /// for a whole session while the set-aside keeps failing, and `record` checks this before
+    /// claiming a verdict was saved.
     @Published public private(set) var savedRevision: Int = 0
 
     private let directory: URL
@@ -29,9 +25,9 @@ public final class PersonTagStore: ObservableObject {
     private let fileManager: FileManager
     /// Verdicts written by a newer build, kept out of the way and written back untouched.
     private var carried: [PersonTag] = []
-    /// Entries this build could not decode into a tag at all, held verbatim so the next save does
-    /// not delete them. See ``PersonTagFile/unreadable`` — `carried` above is the milder case (a
-    /// tag that decoded, whose VERDICT is unknown); this one never became a tag.
+    /// Entries this build could not decode into a tag at all, held verbatim so the next save
+    /// doesn't delete them (``PersonTagFile/unreadable``). `carried` is the milder case: a tag
+    /// that decoded with an unknown verdict.
     private var unreadable: [JSONFragment] = []
     /// The schema the file on disk was written under, carried so a newer number is not stamped down.
     private var loadedSchema = PersonTagFile.currentSchema
@@ -47,7 +43,7 @@ public final class PersonTagStore: ObservableObject {
         load()
     }
 
-    /// A store with no file behind it, for tests and previews — verdicts stay in memory.
+    /// A store with no file behind it, for tests and previews: verdicts stay in memory.
     public init(tags: [PersonTag] = []) {
         self.directory = URL(fileURLWithPath: "/dev/null")
         self.profileId = ""
@@ -57,11 +53,11 @@ public final class PersonTagStore: ObservableObject {
 
     private var isPersistent: Bool { !profileId.isEmpty }
 
-    /// Writes an empty `person-tags.json` for `profileId` when nothing is at its path — for a
-    /// Setup walk of a folder with no history of its own: the verdicts are keyed by paths in the
-    /// folder walked, so another folder's must not come along, and a folder with no file would
-    /// leave the old one stranded for the retire sweep's "only copy" rule
-    /// (``RestructureRootMap/startEmptyHistory(in:profileId:)``). False when the write failed.
+    /// Writes an empty `person-tags.json` for `profileId` when nothing is at its path, for a Setup
+    /// walk of a folder with no history: verdicts are keyed by paths in the folder walked, so
+    /// another folder's must not come along, and a missing file would strand the old one under the
+    /// retire sweep's "only copy" rule (``RestructureRootMap/startEmptyHistory(in:profileId:)``).
+    /// False when the write failed.
     @discardableResult
     static func startEmptyFile(in directory: URL, profileId: String) -> Bool {
         let store = PersonTagStore(directory: directory, profileId: profileId)
@@ -76,68 +72,43 @@ public final class PersonTagStore: ObservableObject {
 
     /// The verdicts, indexed for the gather.
     ///
-    /// Built once per gather rather than searched per document: the sweep asks about every surveyed
-    /// document, and a linear scan of the verdict list inside that loop is the shape that turns a
-    /// 10,171-document walk into a quadratic one.
+    /// Built once per gather rather than searched per document, since a linear scan inside the
+    /// sweep would make it quadratic.
     public var index: PersonTagIndex { PersonTagIndex(tags: tags) }
 
     // MARK: - Writing
 
     /// Records a verdict, replacing any earlier one for the same person and document.
     ///
-    /// **Replaces rather than appends**, because the user changing their mind is ordinary: a
-    /// rejection followed by a confirmation must leave one tag saying yes, not two disagreeing ones
-    /// whose winner depends on read order.
+    /// Replaces rather than appends: a rejection then a confirmation must leave one tag saying
+    /// yes, not two disagreeing ones whose winner depends on read order.
     ///
-    /// **Matched on the document, not only on the key.** The key is decided at judgement time —
-    /// a fingerprint where the document has one, the path otherwise — and that answer can change
-    /// between two judgements of the same file: it is evicted to iCloud, or locked, and the
-    /// extractor declines. Matching on `(personId, key)` alone then stored the reversal *beside*
-    /// the original as a differently-keyed tag, which is the "two disagreeing ones whose winner
-    /// depends on read order" this method's own rule forbids, arriving by the other door.
+    /// Matched on the document, not only the key. The key (fingerprint if available, else path)
+    /// can change between two judgements of one file, say when it is evicted to iCloud and the
+    /// extractor declines, so the reversal must replace the differently-keyed original. Otherwise a
+    /// path-keyed tag would keep winning the lookup (`PersonFiles.gather` passes no fingerprint),
+    /// or a stale confirmation would linger in `confirmedPaths` and re-list a rejected document.
     ///
-    /// **Which one wins, precisely:** `PersonFiles.gather` asks `verdict(personId:path:)` with no
-    /// fingerprint, so `PersonTagIndex` consults `.path` first and falls back to the recorded path.
-    /// A *path*-keyed tag therefore beats a fingerprint-keyed one on the same document — so the
-    /// direction that went stale is a path-keyed "yes" followed by a fingerprint-keyed "no", where
-    /// the withdrawn confirmation kept winning. (An earlier version of this note had it the other
-    /// way round.) The reverse order was already answered correctly by that precedence, but it
-    /// left the confirmation in `confirmedPaths`, so the `unseenConfirmations` sweep re-listed a
-    /// rejected document as "theirs" — the same wrong answer by a different route. Both are gone.
-    ///
-    /// Two limits, deliberate: a tag written before the `at` field existed decodes with an empty
-    /// `recordedPath` and so is never matched here, and a path the user re-uses (a scanner writing
-    /// `Inbox/Scan.pdf` again) will supersede the previous document's tag. Both need document
-    /// identity to do better, which is the same thing `keyKind` says the gather does not yet have.
+    /// Two deliberate limits: a tag with an empty `recordedPath` (written before `at` existed) is
+    /// never matched here, and a reused path (a scanner writing `Inbox/Scan.pdf` again) supersedes
+    /// the previous document's tag. Both need document identity the gather doesn't have yet.
     public func record(personId: String, key: PersonTagKey, verdict: PersonTagVerdict,
                        path: String) {
         let tag = PersonTag(personId: personId, key: key, verdict: verdict, recordedPath: path)
         if let i = tags.firstIndex(where: { $0.personId == personId && $0.key == key }) {
-            // **Nothing to do only when the path is unchanged too.** The early return used to key
-            // on the verdict alone, which made re-answering a MOVED document a permanent no-op:
-            // the gather looks a fingerprint-keyed tag up by path (`byRecordedPath`), so after
-            // Organize files the file the row comes back as an open question — and pressing the
-            // same answer again computed the same key, saw the same verdict, and returned without
-            // ever updating `recordedPath`. The row reappeared on every gather and the button did
-            // nothing, for as long as the document stayed where it had been put.
+            // Nothing to do only when the path is unchanged too. The gather finds a
+            // fingerprint-keyed tag by path (`byRecordedPath`), so after a move the row returns as
+            // a question, and the same answer must refresh `recordedPath` or the button does nothing.
             guard tags[i].verdict != verdict || tags[i].recordedPath != path else { return }
             tags[i] = tag
         } else {
             tags.append(tag)
         }
-        // Any other tag this person holds on the same document, under the OTHER KIND of key, is a
-        // superseded answer to the question just answered. Dropped rather than left to lose a
-        // precedence contest it should never have been in.
-        //
-        // Only across kinds, and that is the narrow point: two fingerprint-keyed tags sharing a
-        // recorded path are two different DOCUMENTS that occupied it in turn — a scanner rewriting
-        // `Inbox/Scan.pdf` is ordinary — and the earlier one is a durable record about a document
-        // that still exists somewhere else. A path-keyed tag, by contrast, is a claim about
-        // "whatever is at this path", which the document being recorded now is.
-        //
-        // Not reached for a tag written before `recordedPath` existed: those decode with an empty
-        // path and cannot be matched to anything. Such a pair keeps the pre-fix behaviour, where
-        // the lookup precedence decides it.
+        // Any other tag this person holds on the same document under the other kind of key is a
+        // superseded answer: drop it. Only across kinds: two fingerprint-keyed tags at one recorded
+        // path are two documents that held it in turn, and the earlier is a durable record of a
+        // document now elsewhere. A path-keyed tag is about whatever is at the path. Tags with an
+        // empty recorded path can't be matched, and lookup precedence decides them.
         tags.removeAll { other in
             other.personId == personId && other.key != key
                 && !other.recordedPath.isEmpty && other.recordedPath == path
@@ -145,26 +116,21 @@ public final class PersonTagStore: ObservableObject {
         }
         let before = savedRevision
         save()
-        // The line may only claim what happened. While the set-aside is failing, `save` refuses
-        // to write and the verdict is held in memory — a session of refused saves used to log a
-        // run of success-looking lines right up to the quit that lost them all (the finding-1
-        // lockout logged nothing but these). Modeled on `PeopleStore.dismissSuggestion`, which
-        // conditions its claim on `savedRevision` the same way. A memory-only store makes no
-        // durability claim either way, so it stays unqualified.
+        // The log may only claim what happened: while the set-aside is failing, `save` refuses
+        // and the verdict is in memory only, lost at quit. Conditioned on `savedRevision`, as in
+        // `PeopleStore.dismissSuggestion`. A memory-only store makes no durability claim.
         let persisted = !isPersistent || savedRevision != before
         Logger.shared.info("People: \(path) is \(verdict == .rejected ? "NOT " : "")\(personId)'s "
                            + "— \(keyKind(key))"
                            + (persisted ? "" : " — NOT saved: held in memory only this session"))
     }
 
-    /// Whether two keys identify a document in different ways — a path against a fingerprint.
+    /// Whether two keys identify a document in different ways: a path against a fingerprint. Two
+    /// of the same kind at one recorded path are two documents, not one answered twice.
     ///
-    /// Two of the same kind at one recorded path are two documents, not one answered twice.
-    /// **Every pair spelled out, with no `default`.** `PersonTagKey` is persisted, and a third way
-    /// to identify a document would fall into a `default: false` here — silently keeping both the
-    /// new key's verdict and the old one for the same file, which is the bug this sweep exists to
-    /// prevent, reintroduced without a diagnostic. Exhaustive, so adding a case fails to compile
-    /// at the place the decision has to be made.
+    /// Every pair spelled out, with no `default`: `PersonTagKey` is persisted, and a new case
+    /// falling into `default: false` would silently keep two verdicts for one file. Exhaustive, so
+    /// a new case fails to compile here.
     static func isDifferentKind(_ a: PersonTagKey, _ b: PersonTagKey) -> Bool {
         switch (a, b) {
         case (.path, .fingerprint), (.fingerprint, .path): return true
@@ -175,36 +141,26 @@ public final class PersonTagStore: ObservableObject {
     /// Withdraws a verdict entirely, putting the document back in front of whatever the channels
     /// say about it. The undo for a misclick, and the only way a row returns to the queue.
     ///
-    /// **Withdraws what `record` would have replaced, not merely the exact key.** `record`
-    /// supersedes across key KINDS at one recorded path — a fingerprint-keyed verdict and a
-    /// path-keyed one about the same document are one answer given twice, and it drops the older.
-    /// Matching only the exact key here made the two halves disagree: clearing a document whose
-    /// verdict happens to be stored under the other kind removed nothing, said nothing, and left
-    /// the row judged. Whoever wires this to a control would have found a button that silently
-    /// does nothing for exactly the documents the durable key was introduced for.
+    /// Withdraws what `record` would have replaced, not only the exact key: a fingerprint-keyed and
+    /// a path-keyed verdict at one recorded path are one answer, so clearing one kind alone would
+    /// leave the row judged and the button doing nothing.
     ///
-    /// **No production caller yet** — the People queue takes a judged row off screen and offers no
-    /// way back, which is a UI gap this cannot close on its own. The correctness half is here so
-    /// the control, when it exists, is wired to something that works.
+    /// No production caller yet: the People queue offers no way back to a judged row.
     public func clear(personId: String, key: PersonTagKey, path: String? = nil) {
         let recordedPath = path ?? tags.first { $0.personId == personId && $0.key == key }?.recordedPath
         let countBefore = tags.count
         tags.removeAll { tag in
             guard tag.personId == personId else { return false }
             if tag.key == key { return true }
-            // The other kind of key naming the same document — what `record` would have superseded.
+            // The other kind of key naming the same document: what `record` would have superseded.
             guard let recordedPath, !recordedPath.isEmpty else { return false }
             return tag.recordedPath == recordedPath && Self.isDifferentKind(tag.key, key)
         }
         guard tags.count != countBefore else { return }
         let revisionBefore = savedRevision
         save()
-        // Conditioned on `savedRevision` exactly as `record` is, and for the same reason: a
-        // withdrawal is a save like any other, so while the unreadable guard is armed and the
-        // set-aside keeps failing it lives in memory until the quit that loses it. "Withdrew the
-        // verdict" is a durable claim, and this half of the store was still making it
-        // unconditionally after `record` stopped. A memory-only store makes no durability claim
-        // either way, so it stays unqualified.
+        // Conditioned on `savedRevision`, as in `record`: while the set-aside keeps failing a
+        // withdrawal lives in memory only, and "withdrew the verdict" is a durability claim.
         let persisted = !isPersistent || savedRevision != revisionBefore
         Logger.shared.info("People: withdrew the verdict on \(recordedPath ?? "(unknown path)") "
                            + "for \(personId)"
@@ -213,21 +169,14 @@ public final class PersonTagStore: ObservableObject {
 
     private func keyKind(_ key: PersonTagKey) -> String {
         switch key {
-        // Says what the KEY is, not what the lookup currently does with it. `PersonFiles.gather`
-        // asks `verdict(personId:path:)` and passes no fingerprint, so today a fingerprint-keyed
-        // tag is still found by its recorded path — and `record` refreshes that path when the same
-        // answer is given again somewhere new, which is what keeps a moved document answerable.
+        // Says what the key is, not what the lookup does with it: `PersonFiles.gather` passes no
+        // fingerprint, so a fingerprint-keyed tag is still found by its recorded path, which
+        // `record` refreshes on a re-answer.
         //
-        // **What closing the gap properly needs, since it is not obvious:** the gather would have
-        // to look a digest up per document without fingerprinting 10,171 of them, and the obvious
-        // source does not fit. `ContentHashCache.sharedFingerprints` is keyed on
-        // `(path, mtime, size)` with mtime at full `timeIntervalSince1970` precision
-        // (`FileSyncManager+Duplicates.contentHashKey`), while `FilingCorpusDocument.modified` is
-        // whole seconds — so keys built from the corpus would miss except by coincidence, and the
-        // feature would silently do nothing, which is the failure it exists to fix. Closing it
-        // means either widening the corpus's stored precision (a persisted-format change with a
-        // migration) or a path→digest index of its own. Not claimed here until one of those is
-        // done.
+        // Looking digests up per document can't reuse `ContentHashCache.sharedFingerprints`: its
+        // keys hold mtime at full precision (`FileSyncManager+Duplicates.contentHashKey`), while
+        // `FilingCorpusDocument.modified` is whole seconds, so lookups would silently miss. It
+        // needs a wider corpus precision (a format migration) or its own path→digest index.
         case .fingerprint: return "keyed to the document's text"
         case .path: return "keyed to its path, so moving the file loses the verdict"
         }
@@ -241,19 +190,14 @@ public final class PersonTagStore: ObservableObject {
         do {
             data = try Data(contentsOf: fileURL)
         } catch {
-            // **"Absent" and "there but unreadable" are different answers**, and the `try?` this
-            // used to be conflated them. A file that exists but cannot be opened — mode 000, an
-            // ACL, an I/O error — read as a first launch, so the set-aside below never armed, and
-            // the first verdict's atomic write (which needs permission on the *directory*, not the
-            // file) landed straight on top of every verdict already recorded. `attributesOfItem`
-            // rather than `fileExists`, because only the former sees a symlink that does not
-            // resolve: `fileExists` follows links and answers false for one whose target is on an
-            // unmounted volume — and the write then replaces the link itself. Genuinely absent
-            // stays silent, because a first launch has nothing to warn about.
+            // Absent and there-but-unreadable are different answers. An unopenable file (mode 000,
+            // an ACL, an I/O error) must arm the set-aside: the atomic write needs only directory
+            // permission and would land on every recorded verdict. `attributesOfItem`, not
+            // `fileExists`, which follows links and answers false for a dangling one, whose link
+            // the write would then replace. Truly absent stays silent: a first launch.
             guard (try? fileManager.attributesOfItem(atPath: fileURL.path)) != nil else { return }
-            // Like `PeopleStore`'s unreadable-roster warning, this says to relaunch: the store is
-            // built once per launch, so fixing the file mid-session does not re-read it — the
-            // first save still moves it aside.
+            // Says to relaunch, like `PeopleStore`'s warning: the store is built once per launch,
+            // so a fix mid-session isn't re-read, and the first save still moves the file aside.
             Logger.shared.warning("Couldn't open person-tags.json "
                                   + "(\(error.localizedDescription)) — verdicts are unavailable "
                                   + "this session. The file is kept: the first verdict you record "
@@ -265,12 +209,10 @@ public final class PersonTagStore: ObservableObject {
             return
         }
         guard let file = try? JSONDecoder().decode(PersonTagFile.self, from: data) else {
-            // The container decodes tag-by-tag, so reaching here means the *file* is not JSON at
-            // all. A corrupt file the user can inspect is recoverable and one this build has
-            // replaced is not — but "left as it is" was only true until the next verdict, because
-            // `record` calls `save` and `save` wrote straight over it. So the bytes are set aside
-            // on the FIRST save instead (see `save`), which keeps both halves of the promise: the
-            // file is recoverable, and the app still works.
+            // The container decodes tag by tag, so reaching here means the file is not JSON at all.
+            // A corrupt file the user can inspect is recoverable; one this build replaced is not.
+            // So the first save sets the bytes aside (see `save`): the file stays recoverable and
+            // the app still works.
             Logger.shared.warning("Couldn't read person-tags.json — verdicts are unavailable this "
                                   + "session. The file is kept: the first verdict you record moves "
                                   + "it aside as a dated person-tags.json.unreadable-… file rather "
@@ -288,10 +230,8 @@ public final class PersonTagStore: ObservableObject {
             Logger.shared.info("People: \(carried.count) tag(s) carry a verdict this build does not "
                                + "know; they are kept as they are and written back unchanged")
         }
-        // Said out loud, because the whole defect was that it was not. An entry that cannot be
-        // decoded at all is a judgement the user made that this build cannot show them — the log
-        // line is the only place it can be noticed at all, and its absence is what let the next
-        // save destroy them silently.
+        // Logged, because an entry that can't be decoded is a judgement this build can't show,
+        // and the log is the only place it can be noticed.
         if !unreadable.isEmpty {
             Logger.shared.warning("People: \(unreadable.count) entry/entries in person-tags.json "
                                   + "could not be read by this build. They are NOT shown and are "
@@ -300,12 +240,11 @@ public final class PersonTagStore: ObservableObject {
         }
     }
 
-    /// True when the file on disk could not be read or parsed at all, so the next save must not
-    /// land on top of it. Cleared only once the bytes have actually been set aside — a failed
-    /// set-aside leaves it armed, so every later save re-attempts the move and keeps refusing to
-    /// write until one succeeds; see `save`. The move there
-    /// works where the read did not: `moveItem` renames the directory entry, which no file-level
-    /// permission gates, and a symlink is moved as itself rather than through its target.
+    /// True when the file on disk could not be read or parsed, so the next save must not land on
+    /// it. Cleared only once the bytes are set aside: a failed set-aside leaves it armed, and every
+    /// later save retries the move and refuses to write until one succeeds (see `save`). The move
+    /// works where the read didn't: `moveItem` renames the directory entry, which no file-level
+    /// permission gates, and moves a symlink as itself.
     private var fileWasUnreadable = false
 
     private func save() {
@@ -313,53 +252,37 @@ public final class PersonTagStore: ObservableObject {
         do {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
-            // **On the first save after an unreadable read — and again on every save until it
-            // works.** `moveItem` rather than a copy, so the working file this build is about to
-            // write cannot be mistaken for the original. The flag clears only on a SUCCESSFUL
-            // move: clearing it up front meant one failed set-aside disarmed the guard, and the
-            // next verdict's save ran unguarded and landed its atomic write on the user's
-            // still-in-place file — the exact loss this path exists to prevent, one save later.
-            // ("A second attempt would be moving this build's file" was only true after a move
-            // that worked.) Retrying is safe precisely because the armed flag is the invariant:
-            // while it is set, this method has never written `fileURL`, so every attempt moves
-            // the user's bytes and never this build's. The costs are accepted as the honest
-            // state — the error line below repeats once per verdict while the move keeps
-            // failing, and verdicts live only in memory until it stops.
+            // On the first save after an unreadable read, and on every save until it works.
+            // `moveItem`, not a copy, so the file this build writes can't be mistaken for the
+            // original. The flag clears only on a successful move: cleared up front, one failed
+            // set-aside would let the next save write over the user's file. Retrying is safe:
+            // while the flag is set this method has never written `fileURL`, so every attempt moves
+            // the user's bytes. Accepted cost: the error repeats per verdict while the move fails,
+            // and verdicts stay in memory until it succeeds.
             if fileWasUnreadable {
-                // The kept name is unique PER EPISODE — see ``UnreadableSetAside``. An earlier
-                // episode's set-aside is the ONLY copy of that episode's rescued verdicts (it is
-                // never re-ingested), so nothing here may ever delete one: the old single-slot
-                // name made a second unreadable episode's collision handling do exactly that,
-                // under a comment claiming what moved in was "the more current of the two
-                // records" — which is not a defence when the earlier record was never read back.
-                // With per-episode names there is no collision to handle and no remove to
-                // justify; the pathological same-instant case is disambiguated inside the
-                // helper, and anything that still lands at the chosen path between the probe and
-                // the move falls into the refusal below and is retried on the next save.
+                // The kept name is unique per episode (``UnreadableSetAside``). An earlier
+                // episode's set-aside is the only copy of its verdicts (never re-read), so nothing
+                // here may delete one. The helper disambiguates a same-instant name; anything that
+                // lands at the chosen path before the move falls into the refusal below and is
+                // retried on the next save.
                 let kept = UnreadableSetAside.destination(for: fileURL, at: Date(),
                                                          fileManager: fileManager)
                 do {
                     try fileManager.moveItem(at: fileURL, to: kept)
                     fileWasUnreadable = false
-                    // "Will be", not "has been": the fresh write is still ahead of this line, and
-                    // it can throw — a past-tense claim here contradicted the failure line below
-                    // whenever it did. The set-aside itself is the fact this line is entitled to.
+                    // "Will be", not "has been": the fresh write is still ahead and can throw.
+                    // Only the set-aside has happened.
                     Logger.shared.warning("person-tags.json could not be read, so it has been kept "
                                           + "as \(kept.lastPathComponent); a fresh file will be "
                                           + "written beside it. Nothing you recorded before now is "
                                           + "lost — it is in that file.")
                 } catch {
-                    // **A source that is no longer there is not an obstruction — it is the
-                    // protection having arrived by other means.** The user hand-deleting (or
-                    // moving) the unreadable file mid-session makes the move fail source-absent,
-                    // and that failure can never clear: retrying moves nothing, so a guard that
-                    // stays armed refuses every save for the rest of the session and silently
-                    // loses every verdict at quit. There is nothing left at the path to protect,
-                    // so the fresh write below cannot overwrite anything of the user's. Probed
-                    // with `attributesOfItem` rather than matched on the error code, because the
-                    // probe also keeps the dangling-symlink case refusing: the link is still a
-                    // directory entry, and `attributesOfItem` sees it where `fileExists` follows
-                    // it and answers false.
+                    // A source that is gone is not an obstruction: if the user deleted or moved
+                    // the file mid-session, retrying can never succeed, and an armed guard would
+                    // refuse every save and lose every verdict at quit. With nothing at the path,
+                    // the fresh write overwrites nothing of the user's. Probed with
+                    // `attributesOfItem`, not the error code, so a dangling symlink, still a
+                    // directory entry, keeps refusing.
                     if (try? fileManager.attributesOfItem(atPath: fileURL.path)) == nil {
                         fileWasUnreadable = false
                         Logger.shared.warning("The unreadable person-tags.json is no longer there "
@@ -378,9 +301,8 @@ public final class PersonTagStore: ObservableObject {
             }
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            // Carried tags go back in. Dropping them would make this build's *read* of a newer
-            // file destructive, which is the failure the tag-by-tag decode exists to prevent —
-            // and it would be undone here if the write forgot them.
+            // Carried tags go back in, or merely opening a newer build's file in this one would
+            // destroy them.
             let all = (tags + carried).sorted { $0.id < $1.id }
             let data = try encoder.encode(PersonTagFile(schemaVersion: loadedSchema, tags: all,
                                                         unreadable: unreadable))
@@ -400,13 +322,11 @@ public final class PersonTagStore: ObservableObject {
 public struct PersonTagIndex: Sendable, Equatable {
     /// `personId` → key → verdict, for the key the tag was actually stored under.
     private var byKey: [String: [PersonTagKey: PersonTagVerdict]] = [:]
-    /// `personId` → the path a **fingerprint-keyed** tag was recorded at → verdict.
+    /// `personId` → the path a fingerprint-keyed tag was recorded at → verdict.
     ///
-    /// **This is what makes the durable key usable before anything has fingerprinted the tree.**
-    /// A digest identifies a document but says nothing about where it is, and a gather walks paths:
-    /// nothing computes 10,171 fingerprints to answer "whose is this?", and the persisted
-    /// fingerprint index only exists once a duplicates scan has run. So a fingerprint-keyed tag is also
-    /// findable at the path it was made at — the weaker match, used only when no digest is in hand.
+    /// Makes the durable key usable before anything has fingerprinted the tree: a gather walks
+    /// paths and computes no digests, so a fingerprint-keyed tag is also found at the path it was
+    /// made at. The weaker match, used only when no digest is in hand.
     private var byRecordedPath: [String: [String: PersonTagVerdict]] = [:]
     /// `personId` → every path a confirmation was recorded at, so the gather can surface documents
     /// no channel would have found.
@@ -428,9 +348,8 @@ public struct PersonTagIndex: Sendable, Equatable {
 
     /// Every path this person was confirmed at.
     ///
-    /// The gather needs these because a confirmation can name a document **no channel would ever
-    /// produce** — the design's own example is a photo, which carries no text and no name either
-    /// way. Without this the verdict would be recorded and then invisible.
+    /// A confirmation can name a document no channel would produce (a photo with no text and no
+    /// name), and without these the verdict would be recorded and then invisible.
     public func confirmedPaths(for personId: String) -> Set<String> {
         confirmedPaths[personId] ?? []
     }
@@ -438,8 +357,8 @@ public struct PersonTagIndex: Sendable, Equatable {
     /// The verdict on this document for this person. Nil means unjudged, which is what puts a row
     /// in the queue.
     ///
-    /// **The fingerprint wins where one is in hand**, because it is the identity that survives the
-    /// file being renamed or moved. The path key is next, and the recorded-path fallback last.
+    /// The fingerprint wins where one is in hand, since it survives renames and moves; then the
+    /// path key, then the recorded-path fallback.
     public func verdict(personId: String, path: String, fingerprint: String? = nil)
         -> PersonTagVerdict? {
         if let fingerprint, let v = byKey[personId]?[.fingerprint(fingerprint)] { return v }

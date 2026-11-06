@@ -2,20 +2,15 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **A file written outside the file-operation queue is listed by the next re-read only if the
-/// re-read is prepared the way the queue prepares one** — TE44.
+/// A file written outside the file-operation queue is listed by the next re-read only if the
+/// re-read is prepared the way the queue prepares one. Edit's ⌘N writes straight to disk
+/// (`EditorFileStore.createEmptyFile`), skipping `enqueueFileOperation`'s epilogue. A pane that
+/// finished a deep walk keeps it in `prefetchedTrees`, and a re-read without dropping it is served
+/// the walk taken before the file existed.
 ///
-/// Edit's ⌘N writes its new file straight to disk (`EditorFileStore.createEmptyFile`), not through
-/// `enqueueFileOperation`, so it does not get that function's epilogue: drop the prefetch cache,
-/// bump the scan-config epoch, send `refreshSubject`. The app now asks for the same re-read with
-/// `prepareForcedRescan()` and a `.both` send. This pins why the first half is not optional: a
-/// pane that has finished a deep walk keeps it in `prefetchedTrees`, and a re-read of the same
-/// folder without the drop is served that walk — the one taken before the file existed.
-///
-/// **The app now asks for the targeted form** (TE47 review): `prepareReread(afterWritingAt:)`
-/// drops only the walks that list the new file's folder, and the app re-reads only the pane that
-/// shows it, without a comparison. The second test proves the targeted drop still defeats the
-/// cache — the point the first one makes — and that it keeps what it has no business dropping.
+/// The first test uses the full drop, `prepareForcedRescan()`. The app uses the targeted form,
+/// `prepareReread(afterWritingAt:)`: it drops only the walks that list the new file's folder, and
+/// re-reads only the pane that shows it, without a comparison.
 @Suite struct OutOfQueueWriteRereadTests {
 
     private static func makeFixture() throws -> (root: URL, left: URL, right: URL) {
@@ -42,9 +37,8 @@ import Foundation
         let (left, right) = Self.providers(fixture)
         let m = FileSyncManager()
         await m.refreshTreesAndScan(left: left, right: right)
-        // The walk's own spelling of the folder (`/private/var/…` for a temp dir, which
-        // `resolvingSymlinksInPath` spells `/var/…`) — the spelling the pane, and so the app's
-        // `editorFolder`, would hand to the create.
+        // The walk's own spelling of the folder (`/private/var/…`, where `resolvingSymlinksInPath`
+        // gives `/var/…`): what the pane, and so the app's `editorFolder`, hands to the create.
         let finance = try #require(m.leftTree.first { $0.name == "Finance" },
                                    "the fixture's own folder is not listed — nothing below means anything")
         try #require(finance.children?.map(\.name).sorted() == ["IN", "US"])
@@ -53,14 +47,13 @@ import Foundation
         // What ⌘N does: one file, straight to disk, nobody told.
         try Data().write(to: URL(fileURLWithPath: created))
 
-        // The control: a re-read of the same target WITHOUT the preparation is served the cached
-        // walk. If this ever lists the file, the cache no longer behaves as described above, and
-        // the assertion below has stopped proving that the preparation is what lists it.
+        // Control: unprepared, the re-read is served the cached walk. If this ever lists the file,
+        // the assertion below no longer proves the preparation is what lists it.
         await m.refreshTreesAndScan(left: left, right: right)
         #expect(m.leftNodes(for: [created]).isEmpty,
                 "an unprepared re-read listed the file — the cache this test is about did not serve it")
 
-        // The fix: prepared the way a file operation's epilogue prepares one.
+        // Prepared the way a file operation's epilogue prepares one.
         m.prepareForcedRescan()
         await m.refreshTreesAndScan(left: left, right: right)
         let node = try #require(m.leftNodes(for: [created]).first,
@@ -69,9 +62,8 @@ import Foundation
         #expect(node.id == created, "listed under another spelling — the pane selection could not name it")
     }
 
-    /// **The targeted form: the walks listing the folder go, the rest stay, and a one-pane
-    /// re-read with no comparison lists the file.** The control is the first test's: unprepared,
-    /// the same one-pane re-read is served the pre-write walk.
+    /// The targeted form: the walks listing the folder go, the rest stay, and a one-pane re-read
+    /// with no comparison lists the file. Unprepared, the same re-read is served the pre-write walk.
     @MainActor
     @Test func aTargetedRereadListsTheNewFileAndKeepsWhatItDoesNotHold() async throws {
         let fixture = try Self.makeFixture()
@@ -112,10 +104,9 @@ import Foundation
         #expect(node.id == created)
     }
 
-    /// **"Lists" includes a linked folder.** The iCloud container's walk lists `~/Documents` under
-    /// the link's name, so a file written in `~/Documents/Finance` makes the container's entry
-    /// stale though its key is no prefix of the file's path. A synthetic table, so no real iCloud
-    /// is needed; the keys are never read from disk.
+    /// "Lists" includes a linked folder. The iCloud container's walk lists `~/Documents` under the
+    /// link's name, so a file written in `~/Documents/Finance` makes the container's entry stale
+    /// though its key is no prefix of the file's path. A synthetic table; nothing is read from disk.
     @MainActor
     @Test func aWalkReachingTheFolderThroughALinkIsDroppedToo() {
         let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/h/Documents"]]
@@ -160,15 +151,11 @@ import Foundation
         nodes.contains { $0.id == id || lists(id, in: $0.children ?? []) }
     }
 
-    /// **A walk rooted ABOVE the container lists the linked folder too, so a write there drops it.**
-    /// The walk substitutes a link wherever it lists the container, not only at its own root, so a
-    /// pane on `~/Library/Mobile Documents` lists `~/Documents` as surely as one on iCloud Drive —
-    /// and a file written in `~/Documents/Finance` makes that walk stale though its key is no
-    /// prefix of the file's path and its root is not the container. Served stale, a warm Compare
-    /// at that root disagrees with a cold one. The table goes in through the manager's seam; the
-    /// machine's own links are never read.
-    ///
-    /// The control is the right pane's walk, which reaches nothing the write touched and stays.
+    /// A walk rooted above the container lists the linked folder too, so a write there drops it.
+    /// The walk substitutes a link wherever it lists the container, so a pane on
+    /// `~/Library/Mobile Documents` lists `~/Documents` too. Served stale, a warm Compare at that
+    /// root would disagree with a cold one. The table goes in through the manager's seam; the
+    /// machine's own links are never read. The control is the right pane's walk, which stays.
     @MainActor
     @Test func aWalkAboveTheContainerIsDroppedByAWriteWhereTheLinkLeads() async throws {
         let f = try Self.makeLinkedFixture()
@@ -208,10 +195,9 @@ import Foundation
         #expect(node.id == created)
     }
 
-    /// **…and a warm Compare at that root sees the write.** Against a mirror of the tree the scan
-    /// reports nothing, and both panes are cached, so it is warm. Served the walk from before the
-    /// write it went on reporting nothing; with the walk dropped it reports the new file, keyed
-    /// under the container's name as the cold walk keys it.
+    /// …and a warm Compare at that root sees the write. Against a mirror the scan reports nothing,
+    /// and both panes are cached. With the walk dropped it reports the new file, keyed under the
+    /// container's name as the cold walk keys it.
     @MainActor
     @Test func aWarmCompareAboveTheContainerSeesAWriteWhereTheLinkLeads() async throws {
         let f = try Self.makeLinkedFixture()
@@ -249,11 +235,10 @@ import Foundation
         #expect(cold[key] != nil, "the disk walk keys the file elsewhere: \(cold.keys.sorted())")
     }
 
-    /// **The rule on paths alone: a folder holds what a link at its root OR BELOW it leads to.**
-    /// Not a folder below the container, whose walk never lists the link; not one beside it whose
-    /// name merely opens the same way; and only the link's own target. With no table, the same
-    /// folder holds nothing outside it — the answer the rule must differ from. A synthetic table;
-    /// nothing is read from disk.
+    /// The rule on paths alone: a folder holds what a link at its root or below it leads to. Not a
+    /// folder below the container, whose walk never lists the link, nor one beside it whose name
+    /// opens the same way, and only the link's own target. With no table, the same folder holds
+    /// nothing outside it. A synthetic table; nothing is read from disk.
     @Test func aFolderHoldsWhatALinkAtOrBelowItLeadsTo() {
         let links: PathBoundary.LinkedFolders = ["/u/Library/Mobile Documents/c": ["Documents": "/u/Documents"]]
         let file = "/u/Documents/Finance/x.md"
@@ -324,16 +309,12 @@ import Foundation
         return nil
     }
 
-    /// **A walk that followed a folder link is dropped by a new file where the link leads.** A
-    /// pane row's id names `T`, so a document opened from one and a file saved beside it do too,
-    /// and no prefix of `R` matches either. Measured before this was fixed: the walk survived the
-    /// write and the re-read pane was served the tree from before it. The control is the other
-    /// pane's walk, which reaches nothing of `T`'s and stays.
+    /// A walk that followed a folder link is dropped by a new file where the link leads. A pane
+    /// row's id names `T`, so a document opened from one and a file saved beside it do too, and no
+    /// prefix of `R` matches either. The control is the other pane's walk, which stays.
     ///
-    /// Twice: with `R` handed over canonically (`/private/var/…`), and spelled `/var/…`, the way
-    /// `NSTemporaryDirectory()` spells it. The walk's ids come back `/private/var/…` either way, and
-    /// the record is spelled `/var/…`; the write has to meet the record whichever spelling the
-    /// pane's root was given in.
+    /// Run with `R` spelled `/private/var/…` and `/var/…`: the walk's ids come back `/private/var/…`
+    /// either way, the record is `/var/…`, and the write must meet the record for both spellings.
     @MainActor
     @Test(arguments: [false, true])
     func aWalkThatFollowedAFolderLinkIsDroppedByANewFileWhereItLeads(varSpelledRoot: Bool) async throws {
@@ -364,9 +345,9 @@ import Foundation
         #expect(node.id == created)
     }
 
-    /// **…and by a rewrite of a file it lists there** — an autosave of a document opened from one
-    /// of those rows, which saves under the row's id. The walk carries the old size, and the re-read
-    /// pane, or a warm Compare, would go on showing it.
+    /// …and by a rewrite of a file it lists there, such as an autosave of a document opened from
+    /// one of those rows. The walk carries the old size, which the re-read pane or a warm Compare
+    /// would go on showing.
     @MainActor
     @Test func aWalkThatFollowedAFolderLinkIsDroppedByARewriteWhereItLeads() async throws {
         let f = try Self.makeFolderLinkFixture()
@@ -390,9 +371,9 @@ import Foundation
                 "the re-read pane still shows the size from before the rewrite")
     }
 
-    /// **What a walk followed is all it is dropped for.** A write in the other pane's folder drops
-    /// that walk and keeps `R`'s, whose recorded targets name `T` alone — so the record cannot have
-    /// grown into "every folder outside the root".
+    /// What a walk followed is all it is dropped for. A write in the other pane's folder drops that
+    /// walk and keeps `R`'s, whose recorded targets name `T` alone, so the record can't have grown
+    /// into "every folder outside the root".
     @MainActor
     @Test func aWalkThatFollowedAFolderLinkKeepsThroughAWriteElsewhere() async throws {
         let f = try Self.makeFolderLinkFixture()
@@ -406,12 +387,10 @@ import Foundation
         #expect(m.prefetchedTreeLinkTargets[f.r.path] != nil, "the kept walk lost its record of the link")
     }
 
-    /// **The rule on paths: a folder holds what its walk followed a link to** — at a recorded
-    /// target and below it, and not in a sibling sharing a target's opening. With nothing recorded
-    /// the same folder holds nothing outside it, which is the answer the rule must differ from; an
-    /// unset pane holds nothing whatever is passed. The two mechanisms compose: a link to a folder
-    /// above iCloud Drive's container leads on to what the container links in. Synthetic paths;
-    /// nothing is read from disk.
+    /// The rule on paths: a folder holds what its walk followed a link to, at a recorded target and
+    /// below, not in a sibling sharing a target's opening. With nothing recorded it holds nothing
+    /// outside it, and an unset pane holds nothing. The two mechanisms compose: a link to a folder
+    /// above iCloud Drive's container leads on to what the container links in. Synthetic paths.
     @Test func aFolderHoldsWhatItsWalkFollowedALinkTo() {
         let file = "/t/sub/x.md"
         #expect(FileSyncManager.folder("/r", holds: file, links: [:], linkTargets: ["/t"]))

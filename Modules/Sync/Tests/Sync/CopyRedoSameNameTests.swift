@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A redo re-applies the copy batch as it ended** (final review U5).
-///
-/// Copying `A/f.txt` and `B/f.txt` into `D` with Replace lands two copies on one name, and B's
-/// is what `D/f.txt` holds when the batch ends. The undo handles that destination once and skips
-/// the duplicate registration — and the redo param it kept named the source of the one it
-/// handled, so ⌘⇧Z re-copied A's file where B's had been.
+/// A redo re-applies the copy batch as it ended. Copying `A/f.txt` and `B/f.txt` into `D` with
+/// Replace lands two copies on one name, and `D/f.txt` ends holding B's. The undo handles that
+/// destination once and skips the duplicate registration, so its redo param must name B's
+/// source, or ⌘⇧Z re-copies A's file where B's had been.
 @Suite struct CopyRedoSameNameTests {
 
     @MainActor
@@ -43,9 +41,9 @@ import Testing
         #expect(text() == "from B", "the redo re-copied the source the batch did not end with")
     }
 
-    /// **L3.** The same batch with two spellings of one name, `F.txt` then `f.txt`, on a volume
-    /// that folds case: the redo re-copies B's file under the spelling the batch ended with, not
-    /// the first registration's.
+    /// The same batch with two spellings of one name, `F.txt` then `f.txt`, on a volume that folds
+    /// case: the redo re-copies B's file under the spelling the batch ended with, not the first
+    /// registration's.
     @MainActor
     @Test func redoingACopyThatLandedTwiceUnderTwoSpellingsUsesTheLaterSpelling() async throws {
         let base = try makeCanonicalTempRoot(prefix: "l3")

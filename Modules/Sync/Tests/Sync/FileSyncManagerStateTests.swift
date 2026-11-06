@@ -3,9 +3,9 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Coverage for FileSyncManager state-machine behavior the audit found untested: the Google-Drive
-/// date-noise filter in applyFilters(), the verified-same-content suppression (and its reset on a
-/// fresh scan), and the bulk syncAll happy path with its per-item undo registration.
+/// Coverage for FileSyncManager state-machine behavior: the Google Drive date-noise filter in
+/// applyFilters(), the verified-same-content suppression (and its reset on a fresh scan), and the
+/// bulk syncAll happy path with its per-item undo registration.
 @Suite struct FileSyncManagerStateTests {
 
     private func dateDiff(_ rel: String, action: FileDifference.SyncAction, leftSize: Int?, rightSize: Int?) -> FileDifference {
@@ -151,13 +151,13 @@ import Combine
 
         // Undoing the bulk op must remove every copied destination (source stays; it was a copy).
         func remainingDst() -> Int { names.filter { mockFM.virtualDisk["/dst/\($0)"] != nil }.count }
-        // ONE ⌘Z undoes the whole run (U10): this loop used to press it again while anything was
-        // left, so a run registered as three groups still passed as "undoes all".
+        // One ⌘Z undoes the whole run, so it is pressed once: pressing again while anything was
+        // left would pass a run registered as three groups.
         manager.undoManager?.undo()
         #expect(manager.undoManager?.canUndo == false, "the bulk run was registered as more than one undo")
-        // A bound, not a pace: the copy-undo's removals run as file-queue operations, and 3 s was
-        // short of them in loaded full-suite runs ("Fixed pumps and fixed sleeps",
-        // docs/flaky-tests.md). The copies are asserted present above, so this waits on a real
+        // A bound, not a pace: the copy-undo's removals run as file-queue operations, which a
+        // loaded full-suite run can hold up for seconds (docs/flaky-tests.md, "Fixed pumps and
+        // fixed sleeps"). The copies are asserted present above, so this waits on a real
         // transition.
         let deadline = Date().addingTimeInterval(30.0)
         while remainingDst() > 0 && Date() < deadline {

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// FR3 at the call site: whatever route named the destination, filing never moves a file into a
+/// At the call site: whatever route named the destination, filing never moves a file into a
 /// package. `FilingEngine` already leaves packages out of its candidates; this pins the backstop
 /// in `performFiling`, which the router, a model's answer and a typed folder all reach.
 @Suite struct FilingIntoPackageTests {
@@ -32,14 +32,14 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: data.path).isEmpty)
         #expect(manager.currentError?.reason?.contains("is a document, not a folder") == true,
                 "the refusal says why, not \"couldn't file this item\"")
-        // A filing's alert (E3).
+        // A filing's alert.
         #expect(manager.currentError?.title == "Filing Failed")
     }
 
-    /// **A folder the filing would CREATE can be a document too** (FR3). `enclosingPackage` asks
-    /// the disk, and a segment not made yet has nothing on disk to ask — so `Notes.rtfd` as a new
-    /// segment was created as a plain folder and the file moved inside what Finder then shows as
-    /// one document. The extension is what makes it a package, so the extension is what is asked.
+    /// A folder the filing would create can be a document too. `enclosingPackage` asks the disk,
+    /// and a segment not made yet has nothing on disk to ask, so `Notes.rtfd` as a new segment
+    /// would be created as a plain folder and the file moved into what Finder shows as one
+    /// document. The extension is what makes it a package, so the extension is what is asked.
     @MainActor
     @Test func aNewSegmentThatWouldBeAPackageIsRefused() async throws {
         for document in ["Notes.rtfd", "Helper.app"] {

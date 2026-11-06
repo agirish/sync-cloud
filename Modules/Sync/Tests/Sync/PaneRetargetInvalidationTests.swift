@@ -2,12 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins `invalidateDifferencesForPaneRetarget`, the targeted invalidation used by the
-/// suppressed provider-change paths (the Duplicates lens's "Compare copies" hand-off and its restore). Those
-/// paths deliberately suppress the provider-id onChange so the duplicate results survive —
-/// which means they must clear the OLD comparison's differences themselves (the rows carry
-/// absolute paths for roots the panes no longer show and stay actionable during the tree-load
-/// window), while leaving the lens state — the original reason for the suppression — untouched.
+/// Pins `invalidateDifferencesForPaneRetarget`, used by the provider-change paths that suppress
+/// the provider-id onChange so duplicate results survive (the Duplicates lens's "Compare copies"
+/// hand-off and its restore). They must clear the old comparison's differences themselves, since
+/// its rows carry absolute paths for roots the panes no longer show and stay actionable while the
+/// trees load, and must leave the lens state untouched.
 @Suite struct PaneRetargetInvalidationTests {
 
     private func makeDifference() -> FileDifference {
@@ -70,24 +69,20 @@ import Foundation
         #expect(manager.lastScanReadAt == nil)
         #expect(manager.hasScanned == false)
 
-        // Untouched: the duplicate state (the whole reason the callers suppress the
-        // provider-id onChange instead of letting retargetPane run).
+        // Untouched: the duplicate state, the reason the callers suppress the provider-id
+        // onChange instead of letting `retargetPane` run.
         #expect(manager.duplicateGroups == [group])
         #expect(manager.duplicateScanRoot == "/root")
         #expect(manager.hasFoundDuplicates == true)
 
-        // The insurance filter pass over the cleared raws must not resurrect anything. Waiting
-        // for it to PUBLISH is the point: this assertion is an absence, and a fixed sleep in
-        // front of one cannot tell "the pass ran and resurrected nothing" from "the pass has not
-        // run yet" — it would pass either way, and the 100ms it used to sleep was a guess at the
-        // main actor's load, not a bound on the pass (mechanism 2 in docs/flaky-tests.md).
+        // The insurance filter pass over the cleared raws must not resurrect anything. This is an
+        // absence, so wait for the pass to publish: a fixed sleep can't tell "ran and resurrected
+        // nothing" from "hasn't run yet" (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
         //
-        // `lastPublishedFilterGeneration` moves at the moment a pass commits, and nothing else
-        // does here: the pass finds every published property already at the value it computes,
-        // and each assignment is guarded by "assign only what changed", so it writes none of
-        // them. A queue marker cannot substitute either — `applyFilters` suspends on a detached
-        // compute, so a Task enqueued behind it runs during that suspension, well before it
-        // publishes. Started is not landed.
+        // `lastPublishedFilterGeneration` moves when a pass commits, and nothing else does here:
+        // each assignment is "only if changed", so the pass writes no property. A queued Task can't
+        // stand in either: `applyFilters` suspends on a detached compute, so the Task runs during
+        // that suspension, before it publishes.
         await waitUntil("the insurance filter pass publishes") {
             manager.lastPublishedFilterGeneration > publishedFilterGenerationBefore
         }
@@ -112,9 +107,8 @@ import Foundation
         #expect(manager.leftHistory.canGoBack)
     }
 
-    /// The full reset keeps its contract too: `invalidateComparisonState` (now routed through
-    /// the shared subset) still clears the trees AND the differences, and still leaves the
-    /// the duplicate state alone — pinning the refactor as behavior-preserving.
+    /// The full reset keeps its contract: `invalidateComparisonState`, routed through the shared
+    /// subset, clears the trees and the differences and leaves the duplicate state alone.
     @MainActor
     @Test func fullInvalidationStillClearsTreesAndDifferences() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -137,11 +131,9 @@ import Foundation
         #expect(manager.leftItemCount == 0)
         #expect(manager.duplicateGroups == [group])
 
-        // `invalidateComparisonState` clears the trees and then delegates to
-        // `invalidateDifferencesForPaneRetarget`, so it inherits the same insurance filter pass —
-        // and therefore the same exposure the sibling test above gates against. Asserting only
-        // synchronously would leave this test blind to a pass that republished the very rows and
-        // trees it just checked were gone.
+        // `invalidateComparisonState` delegates to `invalidateDifferencesForPaneRetarget`, so it
+        // inherits the same insurance pass; asserting only synchronously would miss a pass that
+        // republished the rows and trees just checked gone.
         await waitUntil("the insurance filter pass publishes") {
             manager.lastPublishedFilterGeneration > publishedFilterGenerationBefore
         }
@@ -151,18 +143,12 @@ import Foundation
         #expect(manager.duplicateGroups == [group])
     }
 
-    /// **`invalidateComparisonState(reloading:)` drops the named panes' trees and no others.**
+    /// `invalidateComparisonState(reloading:)` drops the named panes' trees and no others. A
+    /// Settings Location edit asks `ContentView.paneRootEdits` which pane's root moved and uses
+    /// the answer here and on the rescan, so editing one source doesn't re-walk the other.
     ///
-    /// The scope arrived with the Settings Location edit, which asks `ContentView.paneRootEdits`
-    /// which pane's root actually moved and then spends the answer twice — here, and on the rescan.
-    /// Editing the right source's Location used to drop the left pane's tree as well and re-walk a
-    /// root that had not changed.
-    ///
-    /// **Both arms of both scopes, because one assertion cannot see a flipped comparison.** The
-    /// implementation is a pair of `scope != .rightOnly` / `scope != .leftOnly` guards; swapping
-    /// them drops exactly the wrong tree, and a test that only checked "the left tree went" for
-    /// `.leftOnly` would pass on the swap. `.both` is covered by the test above, which is the
-    /// default and the shape every pre-existing caller still uses.
+    /// Both arms of both scopes are checked, so swapping the `scope != .rightOnly` /
+    /// `scope != .leftOnly` guards fails. `.both`, the default, is covered by the test above.
     @MainActor
     @Test func aScopedInvalidationDropsOnlyTheNamedPanesTree() async throws {
         for scope in [FileSyncManager.PaneReloadScope.leftOnly, .rightOnly] {
@@ -186,17 +172,16 @@ import Foundation
             #expect((droppedIsLeft ? manager.leftTree : manager.rightTree).isEmpty, "\(context): the named pane's tree survived")
             #expect((droppedIsLeft ? manager.rawLeftTree : manager.rawRightTree).isEmpty, "\(context): the named pane's raw tree survived")
             #expect((droppedIsLeft ? manager.leftItemCount : manager.rightItemCount) == 0, "\(context): the named pane's count survived")
-            // …and the sibling's is untouched, INCLUDING its loaded-focus marker. That marker is
-            // what `pruneBrowsePath` reads to tell "this tree is empty" from "this tree is not
-            // loaded yet"; nulling it for a pane that still has its tree makes the next republish
-            // flatten a perfectly valid column stack.
+            // …and the sibling's is untouched, including its loaded-focus marker: `pruneBrowsePath`
+            // reads it to tell "empty" from "not loaded yet", and nulling it would let the next
+            // republish flatten a valid column stack.
             #expect((droppedIsLeft ? manager.rightTree : manager.leftTree).count == 1, "\(context): the sibling's tree was dropped")
             #expect((droppedIsLeft ? manager.rawRightTree : manager.rawLeftTree).count == 1, "\(context): the sibling's raw tree was dropped")
             #expect((droppedIsLeft ? manager.rightItemCount : manager.leftItemCount) == 1, "\(context): the sibling's count was reset")
             #expect((droppedIsLeft ? manager.lastLoadedRightFocusPath : manager.lastLoadedLeftFocusPath) != nil,
                     "\(context): the sibling was marked unloaded, so its columns prune against a tree it still has")
-            // **And its cached walk stays, alone**: the rescan reloads only the named pane, and
-            // compares from cached trees only when both sides hit — dropped, it walked both folders.
+            // And its cached walk alone stays: the rescan reloads only the named pane and compares
+            // from cached trees only when both sides hit, so dropping it would walk both folders.
             #expect(Array(manager.prefetchedTrees.keys) == [droppedIsLeft ? "/right" : "/left"],
                     "\(context): cached walks after the invalidation: \(manager.prefetchedTrees.keys.sorted())")
 

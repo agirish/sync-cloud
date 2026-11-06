@@ -3,31 +3,26 @@ import Foundation
 
 /// Re-deriving the filing memory from the tree as it stands now.
 ///
-/// The scan already learns the folder *list* on every run — it walks the provider root and hands the
-/// result to the router, so a folder created five minutes ago is a candidate destination
-/// immediately. What it could not learn was what that folder is *for*: the memory was a static
-/// artifact produced offline, and a folder created after that survey ranked on its name alone.
-///
-/// This closes it, and the cost is the point. See ``FilingSurvey`` for why only extraction is
-/// expensive and how the corpus keeps it from being repeated.
+/// The scan learns the folder list on every run, so a new folder is a candidate at once. What it
+/// can't learn is what a folder is for: that comes from the memory, and a folder created after the
+/// last survey would rank on its name alone. This pass learns it, reading only what changed. See
+/// ``FilingSurvey`` for why only extraction is expensive and how the corpus avoids repeating it.
 extension FileSyncManager {
 
     /// What a re-survey did, in the terms the user cares about.
     public struct FilingSurveyReport: Sendable, Equatable {
         /// Folders that were new, or whose contents had moved, since the memory last learned them.
         public let foldersChanged: Int
-        /// Documents whose page 1 was actually read. **Net of anything the provider withdrew
-        /// part-way through the batch** — those were chosen for reading and never stamped, so
-        /// counting them here would credit the survey with work it did not do.
+        /// Documents whose page 1 was actually read, net of any the provider withdrew mid-batch:
+        /// those were chosen but never stamped, and counting them would credit work not done.
         public let documentsRead: Int
         /// Documents that had only moved, so their tokens travelled with them instead.
         public let documentsRelocated: Int
         /// Documents that are no longer in the tree and have stopped counting.
         public let documentsDropped: Int
         /// Documents that needed reading but are not downloaded, so a later survey will do it.
-        /// **Includes the ones withdrawn part-way through the batch**: availability is asked
-        /// before the batch and the batch takes minutes, and a document evicted in between is in
-        /// exactly this state by the time the pass ends.
+        /// Includes those withdrawn mid-batch: availability is asked before a batch that takes
+        /// minutes, and a document evicted in between ends in exactly this state.
         public let documentsUnavailable: Int
         /// Folders with learned content afterwards.
         public let foldersLearned: Int
@@ -39,8 +34,8 @@ extension FileSyncManager {
                                                     documentsUnavailable: 0, foldersLearned: 0,
                                                     changed: false)
 
-        /// One line, and honest about both ends of it: the case that costs nothing says so, and the
-        /// case that left work undone says that too rather than reporting only what it managed.
+        /// One line, honest at both ends: the case that costs nothing says so, and a pass that left
+        /// work undone says that too rather than reporting only what it managed.
         public var summary: String {
             guard changed || documentsRead > 0 || documentsUnavailable > 0 else {
                 return "Everything learned here is up to date."
@@ -64,38 +59,35 @@ extension FileSyncManager {
 
     /// Re-derives the filing memory, reading only what changed since the last survey.
     ///
-    /// **It surveys the folder the profile was built from, never the one it is asked about.** `root`
-    /// is where the request came from — Organize passes the pane's source — and it is named in the
-    /// log when it is not the profile's folder, and decides whether `taxonomy` describes that folder.
-    /// Nothing else reads it: see the guard below for what surveying any other folder cost.
+    /// It surveys the folder the profile was built from, never the one it is asked about. `root` is
+    /// where the request came from (Organize passes the pane's source); it is only named in the log
+    /// when it differs, and decides whether `taxonomy` describes the profile's folder.
     ///
-    /// `taxonomy` is the walk the caller already did — the Filing scan walks the whole provider, so
-    /// handing that array over makes the staleness pass cost **nothing at all**. Omit it, or walk a
-    /// folder that is not the profile's, and the survey walks for itself.
+    /// `taxonomy` is the walk the caller already did: the Filing scan walks the whole provider, so
+    /// handing it over makes the staleness pass free. Omit it, or pass a walk of another folder, and
+    /// the survey walks for itself.
     ///
-    /// Returns ``FilingSurveyReport/none`` when the machine has no filing artifacts to update or no
-    /// extractor to read with: both are the ordinary state for anyone whose tree was never surveyed,
-    /// and neither is an error.
-    /// `now` is the instant the survey stamps the corpus's `surveyedAt` with — injected, not read
-    /// from a clock (`docs/flaky-tests.md` mechanism 5), and published as
-    /// ``FileSyncManager/filingSurveyedAt`` when the write lands.
+    /// Returns ``FilingSurveyReport/none`` when there are no filing artifacts to update or no
+    /// extractor: the ordinary state for a tree never surveyed, not an error. `now` stamps the
+    /// corpus's `surveyedAt`, injected rather than read from a clock (`docs/flaky-tests.md`, "Tests
+    /// racing a real-time window"), and is published as ``FileSyncManager/filingSurveyedAt`` once
+    /// the write lands.
     @discardableResult
     public func resurveyFilingMemory(root requested: URL, taxonomy: [FileNode]? = nil,
                                      now: Date = Date()) async -> FilingSurveyReport {
         guard !filingSurveyLifecycle.isRunning else { return .none }
-        // A survey a cut-off re-derive left behind is being carried in, off the main actor, a
-        // moment after launch (`finishInterruptedSurveyReplay`). A Refresh in that window could read
-        // the corpus as absent while the replay writes one, then write over it.
+        // A survey a cut-off re-derive left behind is being carried in, off the main actor, just
+        // after launch (`finishInterruptedSurveyReplay`). A Refresh then could read the corpus as
+        // absent while the replay writes one, then write over it.
         guard surveyReplaysInFlight == 0 else {
             Logger.shared.info("Refresh refused — a survey left by an earlier reorganisation is still being "
                 + "read back; run it again in a moment")
             return .none
         }
-        // The landing guard's OTHER direction: a landing refuses to start while this survey
-        // runs, but this survey could start while a landing sat suspended in its re-derive
-        // awaits — walking a tree the inverse was mid-reshape, then writing memory and the
-        // fingerprint over (or racing) the landing's own step-7 writes. One mutator at a time,
-        // in both orders.
+        // The other direction of the landing guard: a landing refuses to start while this runs,
+        // and this must not start while a landing is suspended in its re-derive, or it walks a
+        // half-reshaped tree and writes memory and fingerprint over the landing's own writes. One
+        // mutator at a time, in both orders.
         guard !restructureLandingInProgress else {
             Logger.shared.info("Refresh refused — a reorganisation is landing; "
                 + "run it again once the landing finishes")
@@ -105,43 +97,34 @@ extension FileSyncManager {
             Logger.shared.info("No filing profile directory — nothing to re-survey")
             return .none
         }
-        // A survey with nothing to read cannot learn anything, and reporting "0 documents read" as
-        // success would be indistinguishable from a tree that genuinely had not changed.
+        // A survey with nothing to read can't learn anything, and "0 documents read" would look
+        // like a tree that hadn't changed.
         guard let extractor = filingSnippetExtractor else {
             Logger.shared.warning("No content extractor — what was learned cannot be refreshed")
             return .none
         }
-        // **The folder the artifacts were read from wins over the field inside them.**
-        // ``FilingProfileStore/active(in:)`` decides identity by directory and logs the
-        // disagreement; the app hands that id over as ``FileSyncManager/filingProfileDirectoryId``
-        // and already keys the roster, the tag store and the fingerprint on it. This pass used to
-        // key on `profileId` — a field that decodes to `"default"` when a hand-built profile simply
-        // omits it — and that value drives BOTH ends of the pass: the corpus it reads, the memory
-        // it overwrites, and the fingerprint it republishes. A tree read from `work/` therefore had
-        // its re-survey merged into `default/`'s corpus and written there, where nothing reads it,
-        // while the fingerprint was rehashed against that folder and turned the verdict cache off
-        // for every file. The corpus and memory refusals below are keyed on it too, so they stat
-        // the wrong files, find nothing, and wave the pass through.
-        //
-        // The field remains the fallback, for a caller that never set the directory id — every test
-        // predating this, and any future non-app host.
+        // The folder the artifacts were read from wins over the `profileId` field inside them.
+        // ``FilingProfileStore/active(in:)`` decides identity by directory, and the app hands it over
+        // as ``FileSyncManager/filingProfileDirectoryId``, the key of the roster, tag store and
+        // fingerprint. The field decodes to `"default"` when a hand-built profile omits it, and this
+        // id picks the corpus read, the memory overwritten, the fingerprint republished and the
+        // files the refusals below stat; keyed on the field, a tree read from `work/` would be
+        // merged into `default/` and turn the verdict cache off. The field is only the fallback
+        // for a caller that never sets the directory id (tests, a non-app host).
         guard let profileId = filingProfileDirectoryId
                 ?? filingMemory?.profileId ?? filingFolderProfile?.profileId else {
             Logger.shared.info("No filing profile on this machine — nothing to re-survey")
             return .none
         }
-        // **The profile's own folder, whatever the pane shows.** The corpus and the memory are keyed
-        // by paths RELATIVE to the folder the profile was built from, and Organize asked with the
-        // left source's landing folder — so under any other source every learned document read as
-        // gone: the merge dropped it, the walk's own documents were read in its place, and `write`
-        // recorded that folder as the memory's root. With the left source on Home, one click would
-        // have rebuilt the `~/Documents` memory from `~`. Restructure's re-derive has always walked
-        // `profile.root`; this pass now does too.
+        // The profile's own folder, whatever the pane shows. The corpus and memory are keyed by
+        // paths relative to that folder, so surveying any other folder would read every learned
+        // document as gone, read its own in their place and record it as the memory's root: with
+        // the left source on Home, one click would rebuild the `~/Documents` memory from `~`.
+        // Restructure's re-derive walks `profile.root` for the same reason.
         //
-        // **A profile that records no folder is refused, not guessed at.** A file without `root`
-        // decodes as `~`, and surveying the whole home folder on that guess is the same harm. So is
-        // a recorded root that is not absolute once `~` is expanded: it would resolve against the
-        // process's working directory.
+        // A profile that records no folder is refused, not guessed at: a file without `root`
+        // decodes as `~`, and surveying the whole home folder is the same harm. So is a root that
+        // isn't absolute once `~` is expanded, which would resolve against the working directory.
         guard let folder = filingFolderProfile?.recordedFolderPath else {
             Logger.shared.warning("Refresh: the filing profile "
                                   + "\(Self.missingFolderPhrase(filingFolderProfile)), so there is no "
@@ -150,8 +133,8 @@ extension FileSyncManager {
             return .none
         }
         let root = URL(fileURLWithPath: folder, isDirectory: true)
-        // Spelling only, no disk: this runs on the main actor, and it decides a log line and whether
-        // a handed-over walk is of this folder — a miss costs a walk, never a wrong answer.
+        // Spelling only, no disk: this runs on the main actor and decides only a log line and
+        // whether a handed-over walk is of this folder, so a miss costs a walk, never a wrong answer.
         let askedAboutIt = PathBoundary.normalizedRoot(requested.path) == PathBoundary.normalizedRoot(root.path)
         Logger.shared.info("Refresh: surveying \(root.path), the folder this profile was built from"
                            + (askedAboutIt ? "" : " — not \(requested.path), which it was asked about"))
@@ -163,11 +146,9 @@ extension FileSyncManager {
         if let taxonomy, askedAboutIt {
             walked = taxonomy
         } else {
-            // **The same ask-first the other whole-tree passes make.** "Refresh" is
-            // one click in Organize, and the sidebar has made promoting `~` or a whole volume to
-            // a source a one-click act too — this was the one Organize-reachable whole-tree walk
-            // left unbounded after the four gates landed. Reuses `.filing`: the memory belongs to
-            // the Filing feature, and the prompt should name what the user knows.
+            // The same ask-first the other whole-tree passes make: Refresh is one click, and a
+            // source can be `~` or a whole volume. Reuses `.filing`, since the memory belongs to the
+            // Filing feature and the prompt should name what the user knows.
             let probe = NodeBudget(wholeTreeProbeBudget)
             var tree = await Self.buildTree(url: root, sortOption: .name,
                                             fileManager: fileManager, maxDepth: nil, budget: probe)
@@ -186,20 +167,13 @@ extension FileSyncManager {
             walked = tree
         }
         if Task.isCancelled { return .none }
-        // **A root that could not be listed must never reach the merge.** `buildTree` reports a
-        // permission-denied or briefly-unreachable root as a single unexplored marker; `flatten`
-        // skips it, and what comes out the other side is an EMPTY tree — indistinguishable from a
-        // tree whose every document was deleted. The merge would then drop the whole corpus, and
-        // `write` would atomically replace both artifacts with empty ones and publish them. That is
-        // months of page-1 reads gone, top-1 routing back to a fraction of what it was, and no
-        // error anywhere: the pass reports "0 documents read" and looks like an unchanged tree.
-        //
-        // Recovery is not a second click either — the surveyed *region* is derived from the corpus
-        // that was just emptied, so the next run would re-survey the entire tree unscoped,
-        // including branches the original survey deliberately left out.
-        //
-        // The rename pass, the risky-name scan and the name normalizer have all carried this guard
-        // since they were written. This one writes a file, and did not.
+        // A root that couldn't be listed must never reach the merge. `buildTree` reports a
+        // permission-denied or briefly unreachable root as one unexplored marker, which `flatten`
+        // skips, leaving an empty tree that looks like every document was deleted. The merge would
+        // drop the whole corpus and `write` would replace both artifacts with empty ones: months of
+        // page-1 reads gone, with no error. Nor would a second click recover it, since the surveyed
+        // region is derived from the emptied corpus and the next run would survey the whole tree
+        // unscoped. The rename pass, risky-name scan and name normalizer carry the same guard.
         if Self.isUnreadableRootMarker(walked, root: root) {
             Logger.shared.warning("Refresh: could not read \(root.lastPathComponent) — "
                                   + "permission denied or unavailable. Nothing was re-surveyed, and "
@@ -209,11 +183,9 @@ extension FileSyncManager {
         let previousMemory = filingMemory
         let isAvailable = filingDocumentIsAvailable
         let witness = filingResurveyOffMainWitness
-        // **The heavy steps run off this actor, in two hops** — the snippet read awaits between
-        // them. Flattening, decoding a corpus of megabytes and building the memory held the window
-        // for over a second on a real tree; the document survey and Restructure's re-derive
-        // already did the same steps detached. Everything that refuses is in the first hop,
-        // unchanged and in the same order, and nothing in either hop touches `self`.
+        // The heavy steps run off this actor, in two hops with the snippet read between them:
+        // flattening, decoding a corpus of megabytes and building the memory can hold the window for
+        // over a second. Every refusal is in the first hop, in order, and neither hop touches `self`.
         guard let prepared = await Task.detached(priority: .userInitiated, operation: {
             let prepared = Self.prepareResurvey(walked: walked, root: root, previousMemory: previousMemory,
                                                 profileId: profileId, directory: directory,
@@ -231,9 +203,8 @@ extension FileSyncManager {
         let dropped = prepared.dropped
 
         var read: [String: FilingCorpusDocument] = [:]
-        // Documents chosen for this batch that stopped being downloaded before their result was
-        // stamped. Declared out here because the REPORT is built from the pre-batch counts and has
-        // to be corrected by it — see below.
+        // Documents chosen for this batch that stopped being downloaded before they were stamped.
+        // Declared here because the report, built from the pre-batch counts, is corrected by it.
         var evictedMidRead = 0
         if !toRead.isEmpty {
             updateScan(\.filingSurveyLifecycle, epoch: epoch,
@@ -243,18 +214,14 @@ extension FileSyncManager {
             if Task.isCancelled { return .none }
             for path in toRead {
                 guard let stamp = tree.documents[path] else { continue }
-                // Absent text is a document that was opened and gave up nothing — recorded as blank
-                // so the next survey does not open it again. That is the whole reason a blank entry
-                // exists rather than the path simply being left out.
+                // Absent text is a document that was opened and gave up nothing, recorded as blank
+                // so the next survey doesn't open it again.
                 let page = text[root.appendingPathComponent(path).path] ?? ""
-                // **A blank stamp is permanent, so it is only earned by a file that was there.**
-                // Availability was asked before the batch and the batch takes minutes; a file the
-                // provider evicts in between extracts as `""`, and the stamp that records it is
-                // keyed on size and mtime, neither of which moves when the content comes back. So
-                // the write-off would never invalidate — the exact outcome `isAvailable` exists to
-                // prevent, arrived at through the door of a stale answer. Re-asked only for the
-                // blank ones (one lstat apiece, and a survey's blanks are a handful), because a
-                // document that produced text plainly had its content on disk.
+                // A blank stamp is permanent, so only a file that was there earns it. A file the
+                // provider evicts mid-batch extracts as `""`, and its stamp is keyed on size and
+                // mtime, neither of which moves when the content returns, so the write-off would
+                // never be undone. Availability is re-asked for the blank ones only (one lstat each,
+                // and blanks are few); a document that produced text plainly was on disk.
                 if page.isEmpty,
                    !isAvailable(root.appendingPathComponent(path).path) {
                     evictedMidRead += 1
@@ -292,23 +259,20 @@ extension FileSyncManager {
             Logger.shared.error("Couldn't save what the re-survey learned: \(error.localizedDescription)")
             return .none
         }
-        // The stamp moved even when nothing else did — that is §4.1's whole point: "last surveyed"
-        // answers when the survey LOOKED, and the guard above already returned on a failed write.
+        // The stamp moves even when nothing else did: "last surveyed" says when the survey looked,
+        // and a failed write already returned above.
         filingSurveyedAt = now
         if wrote {
             // Publishing the memory drops the router's prepared index, so the next scan builds it
-            // from the folders learned here. The fingerprint moves with the bytes, which is what
-            // keeps cached classifications from replaying answers composed against the old tree.
+            // from the folders learned here. The fingerprint moves with the bytes, so cached
+            // classifications never replay answers composed against the old tree.
             filingMemory = memory
             filingArtifactFingerprint = fingerprint
         }
-        // **Both counts are corrected by the mid-read evictions, in opposite directions.** They
-        // are derived from `toRead`/`candidates`, which were fixed BEFORE the batch ran, so a
-        // document withheld part-way through was counted as read — its page 1 never was — and was
-        // excluded from the unavailable column, which is precisely what it became. Wrong twice,
-        // and `summary` is the user-facing sentence built from them: a survey that left work
-        // undone read as one that had covered the tree. The `continue` that skips the stamp
-        // reached only a `Logger.info`, which nothing in the report can see.
+        // Both counts are corrected for mid-read evictions, in opposite directions: they come
+        // from `toRead`, fixed before the batch ran, so a document withdrawn mid-batch would count
+        // as read and not as unavailable, and `summary` would report a survey that left work
+        // undone as one that covered the tree.
         let report = FilingSurveyReport(foldersChanged: stale.count,
                                         documentsRead: toRead.count - evictedMidRead,
                                         documentsRelocated: relocated,
@@ -336,8 +300,8 @@ extension FileSyncManager {
     }
 
     /// The re-survey's first hop, off the main actor: flatten, decode the corpus, decide what to
-    /// read. **nil is a refusal**, already logged — an unreadable memory or corpus, or a folder
-    /// that holds no documents while the corpus remembers some — and nothing has been written.
+    /// read. nil is a refusal, already logged (an unreadable memory or corpus, or a folder with no
+    /// documents while the corpus remembers some), and nothing has been written.
     nonisolated static func prepareResurvey(walked: [FileNode], root: URL,
                                             previousMemory: FilingMemory?, profileId: String,
                                             directory: URL,
@@ -346,30 +310,20 @@ extension FileSyncManager {
         let stale = FilingSurvey.staleFolders(tree: tree, memory: previousMemory)
 
         // The salt binds the corpus to the memory: every stored identifier is hashed under it, so a
-        // corpus written under one salt cannot contribute to a memory written under another. Prefer
-        // what is already on disk, in that order, and mint one only for a tree that has neither.
-        // **An unreadable corpus must not be treated as an absent one.** Absent means "never
-        // surveyed" and starting from empty is right; unreadable says nothing about the tree, and
-        // starting from empty there means this pass merges whatever it happened to read into
-        // nothing and writes the result over the memory. With the display asleep or files
-        // offloaded that is a near-empty memory over megabytes of learned content, and the moved
-        // fingerprint throws away every cached classification with it — the same harm the
-        // unreadable-ROOT guard above refuses, arriving through the corpus door.
+        // corpus under one salt can't contribute to a memory under another. Prefer what is on disk,
+        // in that order, and mint one only for a tree that has neither.
         //
-        // Refusing costs a survey; continuing costs the survey history. The file itself is left
-        // exactly as it is, so it can be inspected or removed by hand.
-        // **The same refusal for the memory, which reaches the merge as a plain nil.**
-        // `FilingProfileStore.decode` answers nil for an unreadable `filing-memory.json` exactly as
-        // it does for an absent one, so `previousMemory` is nil, `memory != previousMemory` is
-        // trivially true, and `write` atomically replaces a file this process never read — an
-        // atomic write needs permission on the DIRECTORY, not on the file, so the bytes are
-        // destroyed rather than protected.
+        // An unreadable corpus or memory must not be treated as absent. Absent means "never
+        // surveyed", where starting empty is right; unreadable says nothing about the tree, and
+        // starting empty would merge whatever this pass read into nothing and write it over
+        // megabytes of learned content (likely with the display asleep or files offloaded), and
+        // the moved fingerprint would drop every cached classification. Refusing costs a survey;
+        // continuing costs the history. The file is left as it is, to inspect or remove by hand.
         //
-        // Mitigated in substance and still refused: the fingerprint already returns nil for an
-        // unreadable component so the cache is off, and a readable corpus makes the rebuild
-        // faithful — but a read failure is not evidence about what the file holds, which is the
-        // whole law the corpus guard above states. Asked only when nothing was loaded, so an
-        // ordinary launch pays nothing for it.
+        // The memory needs its own check: `FilingProfileStore.decode` answers nil for an unreadable
+        // `filing-memory.json` as for an absent one, and an atomic write needs permission only on
+        // the directory, so `write` would replace a file this process never read. Asked only when
+        // nothing was loaded, so an ordinary launch pays nothing.
         if previousMemory == nil,
            FilingProfileStore.isPresentButUnreadable(
                at: FilingSurveyStore.memoryURL(id: profileId, in: directory)) {
@@ -395,13 +349,11 @@ extension FileSyncManager {
         case .loaded(let corpus):
             existing = corpus
         }
-        // **A folder that holds no documents at all is not evidence that every one was deleted.**
-        // The guard above catches a root that could not be LISTED; this one catches a root that was
-        // listed and came back empty — which merges into the same harm, every learned document
-        // dropped and both files replaced. Since this pass walks the recorded folder whatever the
-        // pane shows, the likeliest way here is iCloud's Desktop & Documents being turned off: the
-        // tree stays in iCloud Drive and macOS leaves a new, empty `~/Documents` in its place. A
-        // tree whose documents really were all deleted is refused too, and that costs a click.
+        // A folder with no documents at all is not evidence that every one was deleted. The guard
+        // above catches a root that couldn't be listed; this one a root listed empty, which merges
+        // into the same harm. The likeliest cause is iCloud's Desktop & Documents being turned
+        // off, which leaves a new, empty `~/Documents` in place of the tree. A tree whose documents
+        // really were all deleted is refused too, which costs a click.
         if tree.documents.isEmpty, let existing, !existing.isEmpty {
             Logger.shared.warning("Refresh: \(root.path) holds no documents, while what was learned "
                                   + "there remembers \(existing.documents.count). Nothing was "
@@ -412,16 +364,16 @@ extension FileSyncManager {
             : (previousMemory?.salt.isEmpty == false ? previousMemory!.salt : newSurveySalt())
         var corpus = existing ?? FilingCorpus(profileId: profileId, salt: salt)
         if corpus.salt != salt {
-            // A corpus whose salt disagrees with the memory's would silently contribute identifiers
-            // nothing can match. Start it again rather than mixing two hash spaces.
+            // A corpus whose salt disagrees with the memory's would contribute identifiers nothing
+            // can match. Start it again rather than mix two hash spaces.
             Logger.shared.warning("Filing corpus salt does not match the memory's — rebuilding it")
             corpus = FilingCorpus(profileId: profileId, salt: salt)
         }
 
-        // **Say what was left outside the survey's scope, by name.** A branch nothing was ever
-        // surveyed in is skipped deliberately (see ``FilingSurvey/surveyedRegion(corpus:memory:)``),
-        // and a survey that reports only what it did read is indistinguishable from one that
-        // covered the tree. Named at the top level, which is the granularity a person can act on.
+        // Name what was left outside the survey's scope. A branch never surveyed is skipped on
+        // purpose (``FilingSurvey/surveyedRegion(corpus:memory:)``), and a survey reporting only
+        // what it read looks like one that covered the tree. Named at the top level, the
+        // granularity a person can act on.
         let region = FilingSurvey.surveyedRegion(corpus: corpus, memory: previousMemory)
         if !region.isEmpty {
             let outside = Set(tree.documents.keys
@@ -439,15 +391,13 @@ extension FileSyncManager {
         let toRead = candidates.filter { isAvailable(root.appendingPathComponent($0).path) }
         let unavailable = candidates.count - toRead.count
         if unavailable > 0 {
-            // Named rather than folded into the "read" count: these are documents the survey chose
-            // not to learn from, and a survey that reports only what it managed to do reads as
-            // complete when it was not.
+            // Named rather than folded into the "read" count: a survey that reports only what it
+            // managed reads as complete when it wasn't.
             Logger.shared.info("\(unavailable) document(s) are not downloaded — left for a later survey")
         }
         let relocated = FilingSurvey.relocations(tree: tree, corpus: corpus).count
-        // The same predicate `merge` and `relocations` decide by, so the report cannot claim a drop
-        // the merge did not make: a document under a folder the walk never entered is not dropped
-        // and is not news.
+        // The predicate `merge` and `relocations` decide by, so the report can't claim a drop the
+        // merge didn't make: a document under a folder the walk never entered is not dropped.
         let dropped = corpus.documents.keys.filter { tree.showsGone($0) }.count - relocated
         return ResurveyPreparation(tree: tree, stale: stale, corpus: corpus, salt: salt,
                                    toRead: toRead, unavailable: unavailable, relocated: relocated,

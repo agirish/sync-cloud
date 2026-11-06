@@ -3,26 +3,25 @@ import Foundation
 
 // Phase 2.5 of the filing scan: the tree's own profile and memory, applied with no model call.
 //
-// It sits between the keyword engine and the classifier because that is exactly what it is worth —
-// better than filename overlap, free, and able to answer for files the on-device model would be
-// asked about. Measured over 9,558 filed documents, it takes top-1 routing from 28.9% (profile
-// alone) to 58.2%. Every part of it is gated on the tree having been surveyed; with no artifacts
-// loaded, `filingRouterIndex` is nil and this whole phase is a no-op.
+// It sits between the keyword engine and the classifier because that is what it is worth: better
+// than filename overlap, free, and able to answer for files the on-device model would be asked
+// about. Over 9,558 filed documents it takes top-1 routing from 28.9% (profile alone) to 58.2%.
+// Gated on the tree having been surveyed: with no artifacts, `filingRouterIndex` is nil and this
+// phase is a no-op.
 extension FileSyncManager {
 
     /// Builds the router index for a taxonomy, reusing the last one when the taxonomy has not moved.
     func prepareFilingRouter(destinations: Set<String>, providerRoot: String? = nil) {
-        // Which survey answers for this tree (GK–GN) — decided first, since everything below reads
-        // the profile and memory it picks.
+        // Which survey answers for this tree, decided first: everything below reads the profile
+        // and memory it picks.
         if let providerRoot { resolveFilingSurvey(providerRoot: providerRoot, folders: destinations) }
         guard filingRoutingProfile != nil || filingRoutingMemory != nil, !destinations.isEmpty else {
             invalidateFilingRouterIndex()
             return
         }
-        // Refreshed before the early-out below, not after it: the satellite map and the taxonomy
-        // move independently — a duplicates scan writes new fingerprints without adding a folder —
-        // and gating it on the taxonomy having changed would leave the map stale for as long as the
-        // tree's shape held still, which is most of the time.
+        // Refreshed before the early-out: the satellite map moves independently of the taxonomy (a
+        // duplicates scan writes fingerprints without adding a folder), so gating it on the
+        // taxonomy would leave it stale while the tree's shape holds still.
         let before = filingSatelliteHomes
         refreshSatelliteHomes(providerRoot: providerRoot)
         // Before the early-out too: an undone filing moves the generation the index is keyed on.
@@ -30,9 +29,9 @@ extension FileSyncManager {
         if filingRouterIndex != nil, filingRouterIndexKey == destinations,
            before == filingSatelliteHomes,
            filingRouterIndexFiledGeneration == filingFiledSinceSurveyGeneration { return }
-        // What was filed here since the survey last read its documents (GW), folded in — and kept
-        // out of `filingRoutingFingerprint`, which is read from the survey's files on disk, so a
-        // filing does not throw away the Refine answers already paid for.
+        // What was filed here since the survey last read its documents, folded in, and kept out of
+        // `filingRoutingFingerprint`, which is read from the survey's files on disk, so a filing
+        // doesn't throw away Refine answers already paid for.
         let filed = providerRoot.map { filedSinceSurvey(under: $0) } ?? [:]
         var memory = filingRoutingMemory
         if !filed.isEmpty {
@@ -50,22 +49,21 @@ extension FileSyncManager {
         filingRouterIndexBuilds += 1
     }
 
-    /// The context handed to a classifier — the taxonomy plus whatever has been learned about it.
+    /// The context handed to a classifier: the taxonomy plus whatever has been learned about it.
     func filingContext(taxonomyFolders: [String]) -> FilingContext {
         FilingContext(taxonomyFolders: taxonomyFolders,
                       profile: filingRoutingProfile, memory: filingRoutingMemory)
     }
 
-    /// The folders worth spending the classifier's budget on, most-deserving first — the router's
-    /// shortlist for each file being classified, plus the homes the earlier phases already proposed
-    /// for files the router did not rank (a file with a confident home is skipped by phase 2.5, and
-    /// its heuristic candidates are the best evidence there is about it).
+    /// The folders worth spending the classifier's budget on, most deserving first: the router's
+    /// shortlist for each file being classified, plus the homes earlier phases proposed for files
+    /// the router didn't rank (a file with a confident home skips phase 2.5, and its heuristic
+    /// candidates are the best evidence there is).
     ///
-    /// **Round-robin, not concatenated.** A hundred loose files times eight candidates is eight
-    /// hundred paths for a budget of a few hundred, and taking them in file order would spend the
-    /// whole thing on the first twenty files — leaving the rest with a menu that says nothing about
-    /// them, which is the failure this list exists to prevent. Taking every file's first choice,
-    /// then every file's second, degrades evenly instead.
+    /// Round-robin, not concatenated: a hundred files times eight candidates far exceeds a budget
+    /// of a few hundred, and file order would spend it all on the first twenty, leaving the rest a
+    /// menu that says nothing about them. Every file's first choice, then every second, degrades
+    /// evenly.
     nonisolated static func preferredFolders(for files: [FilingCandidateFile],
                                              shortlists: [String: [String]],
                                              in suggestions: [FilingSuggestion],
@@ -94,18 +92,14 @@ extension FileSyncManager {
     }
 
     /// Overlays router homes onto suggestions, giving the main actor a turn every `chunk` files.
+    /// Ranking costs a few milliseconds per file against a tree of thousands of folders, so a few
+    /// hundred homeless files is seconds: in one synchronous pass, a frozen window. Yielding keeps
+    /// the scan painting, and unlike a detached task keeps the enclosing scan's cancellation, which
+    /// `Task.detached` wouldn't inherit.
     ///
-    /// Ranking one file costs a few milliseconds against a real 2,979-folder tree, so a few hundred
-    /// homeless files is seconds of arithmetic — and run as one synchronous pass that is a frozen
-    /// window with no progress moving. Yielding between chunks keeps the scan painting, and unlike
-    /// handing the work to a detached task it leaves cancellation working: what is checked here is
-    /// the enclosing scan's own cancellation, which `Task.detached` would not inherit.
-    /// `shortlists` carries each ranked file's top destinations back out, keyed by file path. They
-    /// are what phase 3 builds the classifier's folder menu from, and they are free here: the
-    /// ranking that picks the winner has already ordered the whole field, so asking it for the top
-    /// few costs a wider insertion into a six-element buffer. Ranking those same files again in
-    /// phase 3 would not be free — it is milliseconds per file against a few thousand folders, and
-    /// a real root inbox holds hundreds of files.
+    /// `shortlists` carries each ranked file's top destinations out, keyed by file path: phase 3
+    /// builds the classifier's menu from them. They are nearly free here, since the ranking already
+    /// ordered the field; ranking again in phase 3 would cost milliseconds per file.
     func applyRoutesYielding(
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
@@ -119,8 +113,8 @@ extension FileSyncManager {
         for (i, s) in suggestions.enumerated() {
             if i > 0, i.isMultiple(of: chunk) {
                 await Task.yield()
-                // A cancelled scan discards these suggestions anyway; returning the input unchanged
-                // keeps this function total rather than leaving a half-routed list behind.
+                // A cancelled scan discards these anyway; returning the input unchanged keeps this
+                // total rather than leaving a half-routed list.
                 if Task.isCancelled { return (suggestions, 0, [:]) }
             }
             let outcome = Self.route(s, index: index, snippets: snippets,
@@ -153,46 +147,36 @@ extension FileSyncManager {
         return (updated, routed, shortlists)
     }
 
-    /// One file, and the only place the rules live — so the chunked driver and the batch helper
-    /// cannot drift apart.
+    /// One file, and the only place the rules live, so the chunked driver and the batch helper
+    /// can't drift apart.
     ///
-    /// **Outranks what was guessed, never what was taught.** A router home leads over a home the
-    /// keyword engine found, at any confidence (GT, GY); over a model's answer, or with no home at
-    /// all, it leads only when it is at least as confident. A rule or Automation is never touched. Content-derived
-    /// homes are marked `fromContent`, which keeps them out of the blind "File recommended" batch on
-    /// purpose: reading words out of a document is a weaker, less checkable signal than a filename,
-    /// and that batch moves files nobody has looked at.
+    /// Outranks what was guessed, never what was taught. A router home leads over a keyword
+    /// engine's home at any confidence; over a model's answer, or with no home, only when at least
+    /// as confident. A rule or Automation is never touched. Content-derived homes are marked
+    /// `fromContent`, which keeps them out of the blind "File recommended" batch on purpose: words
+    /// read from a document are a weaker, less checkable signal than a filename, and that batch
+    /// moves files nobody has looked at.
     nonisolated static func route(
         _ s: FilingSuggestion, index: FilingRouter.Index, snippets: [String: String],
         providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8,
         peerNames: ((String) -> [String])? = nil
     ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
         if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
-        // Rejections are recorded as ABSOLUTE paths; the router answers in relative ones. Passing
-        // the absolute set straight through made the exclusion a silent no-op — one domain,
-        // converted once, at the boundary.
+        // Rejections are recorded as absolute paths and the router answers in relative ones, so
+        // convert once, here at the boundary, or the exclusion silently does nothing.
         let excluded = Set((rejectedByFile[s.filePath] ?? []).compactMap {
             relativePath($0, under: providerRoot)
         })
-        // **Every file is RANKED; only the homeless ones are OVERLAID.** These were one decision
-        // and should never have been: the ranking is also what tells phase 3 which folders to put
-        // in front of the model, and skipping it for a file that already had a home meant the model
-        // was asked about that file against a menu describing every file except it. That is how a
-        // T-Mobile bill the router ranks first out of 4,967 folders came back as a new
-        // `Finance/US/Accounts` — the router had simply never been asked.
+        // Every file is ranked; only the homeless ones are overlaid. The ranking also tells phase 3
+        // which folders to show the model, so skipping it for a file with a home would ask the
+        // model about that file against a menu built from every file except it.
         let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
                                        index: index, excluding: excluded, limit: shortlistLimit)
-        // **The peer-name rerank is applied HERE, and this line is the whole of its effect.** The
-        // lookup was built by every scan and threaded through three signatures to reach this
-        // function, which then ranked without it — so the one case it exists for
-        // (`Son OCI Photo.jpg`, where a folder and its own subfolder sit 1% apart and only the
-        // filenames already in them can separate the two) went on being decided by the content
-        // score that cannot see the difference. A parameter accepted and not read is worse than one
-        // that was never added: the cache is built, the closure is passed, and every test of the
-        // helper passes, while nothing in the app calls it.
-        //
+        // The peer-name rerank takes effect here and nowhere else. It is for a folder and its own
+        // subfolder a percent apart (`Son OCI Photo.jpg`), which only the filenames already in them
+        // can separate; without this line the lookup is built and passed and nothing uses it.
         // The router speaks in paths relative to the provider root and the lookup lists real
-        // directories, so the join is the adapter between the two — see `peerNameLookup`.
+        // directories, so the join adapts between the two (see `peerNameLookup`).
         let ranking = peerNames.map { namesIn in
             FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
                 namesIn(providerRoot + "/" + relative)
@@ -201,31 +185,23 @@ extension FileSyncManager {
         let shortlist = ranking.candidates.map(\.relativePath)
         guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
-        // **A home that has to CREATE a folder is a weaker claim than one that names a folder the
-        // documents are already in.** The keyword engine hands out `.high` for rules as generic as
-        // "receipt or invoice — filed by year", which reads the word `bill` out of a filename and
-        // proposes a new `Purchases/2025`. A T-Mobile bill got exactly that while five siblings
-        // named `DetailedBill{Jan,Feb,Mar,May,Jun}2025.pdf` sat in an existing
-        // `Home/Utilities/T-Mobile/2025` that the router ranks first out of 4,967 folders. Confidence
-        // is not comparable across those two claims, so it is not what decides between them.
+        // A home that has to create a folder is a weaker claim than one naming a folder documents
+        // are already in. The keyword engine gives `.high` to rules as generic as "receipt or
+        // invoice, filed by year", so a phone bill can be offered a new `Purchases/2025` while its
+        // siblings sit in an existing `Home/Utilities/T-Mobile/2025`. Confidence isn't comparable
+        // across those claims, so it doesn't decide between them. The router only names taxonomy
+        // folders, so the trade is always existing-for-new.
         //
-        // The router only ever names folders from the taxonomy, so this trade is always
-        // existing-for-new, never the reverse.
-        //
-        // **And a home found by matching words is a weaker claim than the survey's (GT).** The
-        // keyword engine's confidence is claimed; the router's is its calibrated margin. A FedEx
-        // courier invoice led with `Health/Medical/India`, High on the single word "india", and the
-        // old rule here — leave any confident home alone — meant nothing the survey knew could
-        // reach that card. So a home no one taught (not a rule, not an Automation: those returned
-        // above) gives way to the router's home, **at whatever confidence the router has (GY)**.
-        // Measured on the held-out fifth of the household's filed documents
-        // (`FilingCardReplayTests`): where the router was only Low against a keyword home, it was
-        // right 393 times in 1,274 and the keyword home 111. Leading with the router there takes
-        // cards right first time from 5% to 42%, and the badge then means what it says — High
-        // right 77% of the time, Medium 57%, Low 30%, against a keyword High right 4%.
+        // And a home found by matching words is weaker than the survey's: the keyword engine's
+        // confidence is claimed, the router's is its calibrated margin (a courier invoice can score
+        // High for `Health/Medical/India` on the one word "india"). So a home nobody taught (rules
+        // and Automations returned above) gives way to the router's at whatever confidence it has.
+        // On held-out filed documents (`FilingCardReplayTests`) that takes cards right first time
+        // from 5% to 42%, and the badge means what it says: High right 77%, Medium 57%, Low 30%,
+        // against 4% for a keyword High.
         if let current = s.best, current.path == providerRoot + "/" + best.relativePath {
-            // The two agree. Keep whichever claim is surer — the router taking over at a lower
-            // confidence would drop a name-derived High out of the blind batch for nothing.
+            // The two agree. Keep the surer claim: the router taking over at a lower confidence
+            // would drop a name-derived High out of the blind batch for nothing.
             guard confidence > current.confidence else { return (s, false, shortlist) }
         } else if let current = s.best, !current.fromAI {
             // A guess gives way to the measured signal, and the card carries its confidence.
@@ -234,21 +210,21 @@ extension FileSyncManager {
             guard confidence >= (s.best?.confidence ?? .low) else { return (s, false, shortlist) }
         }
         let fromContent = best.evidenceToken != nil
-        // **No file count.** `FilingDestination.neighborMatches` means "how many files in the
-        // target contain this word", and the card prints it as "N similar files already here".
-        // The memory records which words a folder's documents use, not how many use each one, so
-        // that number cannot be produced honestly — it stays 0 and the sentence stays true.
+        // No file count. `FilingDestination.neighborMatches` means "how many files in the target
+        // contain this word", printed as "N similar files already here", but the memory records
+        // which words a folder's documents use, not how many use each, so it stays 0 and the
+        // sentence stays true.
         let reason = fromContent
             ? "Matched “\(best.evidenceToken ?? "")” read from the file — a word this folder’s documents use"
             : "Fits how this folder is used"
         let dest = FilingDestination(
-            // `.measuredContent`, not `.content`: the router's confidence is its calibrated
-            // margin — measured, not claimed — so the heuristic content cap does not apply to it.
-            // `fromContent` still keeps a content-derived home out of the blind batch.
+            // `.measuredContent`, not `.content`: the router's confidence is a calibrated margin,
+            // so the heuristic content cap doesn't apply. `fromContent` still keeps a
+            // content-derived home out of the blind batch.
             path: providerRoot + "/" + best.relativePath,
             base: confidence, evidence: fromContent ? .measuredContent : .name, reasons: [reason],
-            // The router only ever names folders that came from the taxonomy, so nothing here is
-            // ever a folder to create — an empty `newSegments` is a fact, not a default.
+            // The router only names folders from the taxonomy, so nothing here is a folder to
+            // create: an empty `newSegments` is a fact, not a default.
             newSegments: [],
             evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
         let others = s.candidates.filter { $0.path != dest.path }
@@ -258,16 +234,16 @@ extension FileSyncManager {
 
 // MARK: - Filed since the survey (GW)
 
-/// One document filed in SyncCloud since the survey last read its folder (GW): the folder, and the
-/// words it brought. Kept until a survey newer than it has read the folder for itself.
+/// One document filed in SyncCloud since the survey last read its folder: the folder, and the words
+/// it brought. Kept until a survey newer than it has read the folder for itself.
 public struct FilingFiledSinceSurvey: Codable, Sendable, Equatable {
     /// Absolute path of the folder it was filed into.
     public let folder: String
-    /// Page 1's readable words and the name's — see ``FilingSurvey/filedAnchors(fileName:page1:)``.
+    /// Page 1's readable words and the name's; see ``FilingSurvey/filedAnchors(fileName:page1:)``.
     public let anchors: [String]
     public let filedAt: Date
-    /// Where the file landed, so a filing undone — the file gone from there — stops teaching.
-    /// Nil for entries saved before it was recorded; those are kept.
+    /// Where the file landed, so a filing undone (the file gone from there) stops teaching. Nil for
+    /// entries saved before it was recorded; those are kept.
     public let filedPath: String?
 
     public init(folder: String, anchors: [String], filedAt: Date, filedPath: String? = nil) {
@@ -300,10 +276,10 @@ extension FileSyncManager {
         }
     }
 
-    /// Teaches the router what `folder` now holds (GW): the next scan ranks by it, without waiting
-    /// for the survey. Called for every filing SyncCloud makes, whatever chose the folder — To
-    /// File's and Ask Claude's. `filedPath` is where the file landed: a filing undone stops
-    /// teaching (``forgetUndoneFilings()``).
+    /// Teaches the router what `folder` now holds, so the next scan ranks by it without waiting for
+    /// the survey. Called for every filing SyncCloud makes, whatever chose the folder (To File or
+    /// Ask Claude). `filedPath` is where the file landed: a filing undone stops teaching
+    /// (``forgetUndoneFilings()``).
     func learnFromFiling(fileName: String, sourcePath: String, into folder: String, filedPath: String? = nil,
                          now: Date = Date()) {
         let anchors = FilingSurvey.filedAnchors(fileName: fileName, page1: filingPageSamples[sourcePath])
@@ -313,8 +289,8 @@ extension FileSyncManager {
         filingFiledSinceSurveyGeneration += 1
     }
 
-    /// Drops what a filing taught once its file is no longer where it was filed — Undo moved it
-    /// back, or he moved it on — so the folder stops ranking for words it does not hold. One stat
+    /// Drops what a filing taught once its file is no longer where it was filed (Undo moved it
+    /// back, or he moved it on), so the folder stops ranking for words it doesn't hold. One stat
     /// per entry, at most ``filedSinceSurveyCap``, before each router build.
     func forgetUndoneFilings() {
         let entries = filingFiledSinceSurvey
@@ -325,12 +301,11 @@ extension FileSyncManager {
         filingFiledSinceSurveyGeneration += 1
     }
 
-    /// The filings under `providerRoot` the survey in use has not read yet, by folder relative to
-    /// it — the shape ``FilingSurvey/memory(_:addingFiled:)`` takes.
-    ///
-    /// "Not read yet" is newer than the survey's last look at documents: the primary survey's, or a
-    /// source's own once its documents were read. A survey that has looked since has the document
-    /// in its own corpus, and counting it twice would double its words.
+    /// The filings under `providerRoot` the survey in use hasn't read yet, by folder relative to
+    /// it, in the shape ``FilingSurvey/memory(_:addingFiled:)`` takes. "Not read yet" means newer
+    /// than the survey's last look at documents: the primary survey's, or a source's own once its
+    /// documents were read. A survey that has looked since holds the document in its corpus, and
+    /// counting it again would double its words.
     func filedSinceSurvey(under providerRoot: String) -> [String: [Set<String>]] {
         let lookedAt = filingSurveyInUse?.kind == .own ? filingSurveyInUse?.ownDocumentsReadAt : filingSurveyedAt
         var out: [String: [Set<String>]] = [:]
@@ -347,12 +322,9 @@ extension FileSyncManager {
 extension FileSyncManager {
 
     /// A per-scan cache of "what files are already in this folder", for
-    /// ``FilingRouter/rerankedByPeerNames(_:fileName:namesInFolder:)``.
-    ///
-    /// Only the handful of folders on a file's own shortlist are ever asked about, and a folder is
-    /// listed once however many files land on it — a scan of a few hundred loose files touches tens
-    /// of folders, not thousands. Rebuilt each scan rather than persisted: it describes the tree as
-    /// it is right now, and a stale answer here would quietly re-order a ranking.
+    /// ``FilingRouter/rerankedByPeerNames(_:fileName:namesInFolder:)``. Only folders on a file's
+    /// own shortlist are asked about, each listed once, so a scan touches tens of folders, not
+    /// thousands. Rebuilt each scan, not persisted: a stale answer would quietly reorder a ranking.
     func peerNameLookup() -> (String) -> [String] {
         let box = PeerNameCache()
         return { absoluteFolder in box.names(in: absoluteFolder) }
@@ -368,10 +340,9 @@ final class PeerNameCache: @unchecked Sendable {
         lock.lock()
         if let hit = cache[absoluteFolder] { lock.unlock(); return hit }
         lock.unlock()
-        // Files only: a subfolder's NAME is not a peer document, and counting it as one would let
+        // Files only: a subfolder's name isn't a peer document, and counting it would let
         // `Application` cover an incoming `…Application….pdf` on the strength of the folder itself.
-        // Asked through the resource keys rather than a `fileExists` per entry — one syscall for
-        // the listing instead of one more for every name in it.
+        // Asked through resource keys: one syscall for the listing, not one more per name.
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: URL(fileURLWithPath: absoluteFolder),
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -390,35 +361,33 @@ extension FileSyncManager {
 
     /// Recovers a scanned PDF's text with OCR and re-routes that one file.
     ///
-    /// **Offered, never spent.** Rendering a page and running Vision over it measured 0.5–2.1 s per
-    /// file on a real tree (a lease at 1.39 s, an amenity agreement at 2.14 s, an eOCI card at
-    /// 0.70 s). For the file in front of the user that is a click; for the 500-file inbox this app
-    /// is built for it is ten minutes of fans, spent on files the user may not care about. So the
-    /// scan records which files would benefit (``filingUnreadableScans``) and this runs on request.
+    /// Offered, never spent: rendering a page and running Vision takes 0.5–2.1 s per file. For the
+    /// file in front of the user that is a click; for a 500-file inbox it is ten minutes of fans on
+    /// files the user may not care about. So the scan records which files would benefit
+    /// (``filingUnreadableScans``) and this runs on request.
     ///
-    /// Re-routes through the router alone — no model call, so the answer costs nothing beyond the
-    /// OCR and comes from the measured path rather than an uncalibrated one. The recovered text is
-    /// exactly what that path was missing: `Son - eOCI.pdf` extracts nothing and OCRs to
-    /// "eOCI Card | Government of India | Bureau of Immigration | OVERSEAS CITIZEN OF INDIA".
+    /// Re-routes through the router alone, with no model call, so the answer costs nothing beyond
+    /// the OCR and comes from the measured path. The OCR text is what that path lacked:
+    /// `Son - eOCI.pdf` extracts nothing and OCRs to "eOCI Card | Government of India | …".
     @discardableResult
     public func readScan(for suggestion: FilingSuggestion) async -> Bool {
-        // **The cached router and root must belong to this card's provider (FR44).** A Filing scan
-        // of another provider overwrites both before it walks — and one CANCELLED mid-run never
-        // republishes, so this provider's old cards stay on screen over the other provider's index.
-        // Routing against it would put this file on a folder in the other account's tree, and
-        // "File here" would then move it across accounts. The same guard `tryAnotherFolder` has.
+        // The cached router and root must belong to this card's provider. A Filing scan of
+        // another provider overwrites both before it walks, and one cancelled mid-run never
+        // republishes, so this provider's cards can sit over the other's index. Routing against it
+        // would put the file on a folder in the other account's tree, and "File here" would move it
+        // across accounts. `tryAnotherFolder` has the same guard.
         guard let ocr = filingOCRExtractor else { return false }
         guard let index = filingRouterIndex, let root = filingLastProviderRoot,
               root == suggestion.providerRoot else {
-            // **Said, and the dead offer retired.** Refused in silence, the click did nothing and
-            // the button stayed up to be clicked again for the same nothing. The cards on screen
-            // are older than the scan the cache came from; a new scan of this folder rebuilds both.
+            // Say so, and retire the dead offer, or the button stays up to do nothing again. The
+            // cards are older than the scan the cache came from; a new scan of this folder
+            // rebuilds both.
             filingUnreadableScans.remove(suggestion.filePath)
             Logger.shared.info("Filing: Read scan of “\(suggestion.fileName)” refused — the cached index is from another scan (\(filingLastProviderRoot ?? "none"))")
             banner = .warning("Couldn’t read “\(suggestion.fileName)” — this list is from an earlier scan. Scan this folder again to read it.")
             return false
         }
-        // One render per file at a time — a second click while Vision is out would start a second.
+        // One render per file at a time: a second click while Vision is out would start a second.
         guard !filingOCRInFlight.contains(suggestion.filePath) else { return false }
         filingOCRInFlight.insert(suggestion.filePath)
         defer { filingOCRInFlight.remove(suggestion.filePath) }
@@ -430,7 +399,7 @@ extension FileSyncManager {
             Logger.shared.info("Filing: OCR found no text in “\(suggestion.fileName)”")
             return false
         }
-        // The list this is about must still be the list on screen — same rule as the refine pass.
+        // The list this is about must still be the list on screen, as in the refine pass.
         guard filingSuggestionsGeneration == generation,
               let live = filingSuggestions.first(where: { $0.id == suggestion.id })
         else { return false }
@@ -449,13 +418,13 @@ extension FileSyncManager {
         return true
     }
 
-    /// Routes one card again now that its first page is in hand — the half of ``readScan(for:)``
-    /// that does not care where the text came from, shared with ``downloadAndReadFiling(_:)``
-    /// (TE287), whose text comes from a file that was only in the cloud when the scan ran.
+    /// Routes one card again now that its first page is in hand: the half of ``readScan(for:)``
+    /// that doesn't care where the text came from, shared with ``downloadAndReadFiling(_:)``, whose
+    /// text comes from a file that was cloud-only when the scan ran.
     ///
-    /// Records the page sample and applies the cross-person rule, exactly as the scan would.
-    /// Returns the home to show, or nil — with `refused` saying whether a home was found and then
-    /// refused as another person's folder. Changes no card: the caller does.
+    /// Records the page sample and applies the cross-person rule, as the scan would. Returns the
+    /// home to show, or nil, with `refused` saying whether a home was found and refused as another
+    /// person's folder. Changes no card; the caller does.
     func routeWithPage(_ live: FilingSuggestion, text: String, providerRoot root: String,
                        index: FilingRouter.Index) -> (best: FilingDestination?, refused: Bool) {
         let rejected = filingRejections(under: URL(fileURLWithPath: root))
@@ -470,24 +439,19 @@ extension FileSyncManager {
                                      modificationDate: live.modificationDate, candidates: [],
                                      providerRoot: live.providerRoot,
                                      sourceIdentity: live.sourceIdentity)
-        // `peerNames:` too, because the scan passes it — without it this pass and the scan can
-        // answer differently about the same file in the one case peer names exist for (a folder
-        // against its own subfolder, a percent apart), which is two answers to one question.
+        // `peerNames:` too, because the scan passes it: without it this pass and the scan could
+        // answer differently about the same file in the case peer names exist for.
         let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
                                  providerRoot: root, rejectedByFile: rejectedByFile,
                                  peerNames: peerNameLookup())
-        // The scan recorded nothing for this file — it had no text to record. Now it has, and a
-        // rule offered after filing it should key on what the OCR found rather than on a filename
-        // that says `Son - eOCI.pdf`.
+        // The scan recorded nothing for this file, having no text. Now it has, so a rule offered
+        // after filing it keys on what the OCR found, not a filename like `Son - eOCI.pdf`.
         filingPageSamples[live.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
-        // **The same cross-person rule the scan applies, on the one card this replaces.** This
-        // path routes and writes a home without going near `applyVerdicts`, so before the sweep
-        // existed it was a second live way for one family member's document to land on another's
-        // folder — and the rule's own worked example, `Son - eOCI.pdf`, is a scan with no text
-        // layer, which is to say exactly the file this button exists for.
-        //
-        // After the page sample is recorded, not before: the OCR text is what lets the rule
-        // attribute a file whose name names nobody, which is the case it could never reach.
+        // The scan's cross-person rule, on the one card this replaces. This path writes a home
+        // without going through `applyVerdicts`, so without it one family member's document could
+        // land on another's folder, and a scan with no text layer is exactly the file this is for.
+        // After the page sample is recorded: the OCR text is what lets the rule attribute a file
+        // whose name names nobody.
         var refused = false
         let swept = FilingEngine.refusingCrossPersonHomes(
             [outcome.suggestion], providerRoot: root,

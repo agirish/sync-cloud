@@ -1,30 +1,26 @@
 import Foundation
 
-/// **Where a node sits in a walked tree is the names down to it from the folder the walk started
-/// at — not its id.**
+/// Where a node sits in a walked tree is the names down to it from the walk's root, not its id.
 ///
 /// The walk names most nodes by their parent's id plus their name, and two things break that:
-/// - `contentsOfDirectory(at:)` hands back symlink-RESOLVED URLs for a folder reached through a
-///   link, so ids go where the link leads from two levels below any folder symlink (`R/link → T`
-///   lists `R/link/sub`, then `T/sub/deeper`), and from the first level under a root reached
-///   through one — a pane focused below a link, or a root spelled `/var/…`, which lists
-///   `/private/var/…`;
+/// - `contentsOfDirectory(at:)` returns symlink-resolved URLs for a folder reached through a link,
+///   so ids follow the link from two levels below any folder symlink (`R/link → T` lists
+///   `R/link/sub`, then `T/sub/deeper`), and from the first level under a root reached through one
+///   (a root spelled `/var/…` lists `/private/var/…`);
 /// - the walk lists a folder linked in from outside as the folder it points at
 ///   (`FileSyncManager.buildTree`; iCloud Drive's `Desktop` and `Documents`).
 ///
-/// A path composed from a root and folder names — a pane's focus, every Columns directory — names
-/// a node by this shape, so a lookup by id prefix misses wherever the two part. These find the node
-/// the way the path was composed. `FileDiffEngine.filesInfo` keys a warm Compare by the same shape,
-/// and `PaneChildrenIndex` keys a column by it.
+/// A path composed from a root and folder names (a pane's focus, every Columns directory) follows
+/// this shape, so a lookup by id prefix misses wherever the two part. `FileDiffEngine.filesInfo`
+/// and `PaneChildrenIndex` key by the same shape.
 public enum TreeShape {
 
     /// The last component of `id`, as a slice of its storage — the node's name in the shape.
     ///
-    /// Cut on the scalar view, where a boundary just after a `/` is always exact: a name can open
-    /// with a combining mark, so it is not always a Character boundary. **The id's leaf, not
-    /// `FileNode.name`**: the two are the same bytes for every node a walk builds — both come off one
-    /// URL — but `name` is left bridged on purpose (see `FileSyncManager.nativePath`), and keying or
-    /// comparing on it pays the bridge on every node.
+    /// Cut on the scalar view, where a boundary after a `/` is always exact; a name can open with a
+    /// combining mark, so it isn't always a Character boundary. The id's leaf, not `FileNode.name`:
+    /// the same bytes, but `name` stays bridged (`FileSyncManager.nativePath`), and comparing on it
+    /// pays the bridge on every node.
     public static func leaf(of id: String) -> Substring {
         guard let slash = id.utf8.lastIndex(of: UInt8(ascii: "/")) else { return id[...] }
         return Substring(id.unicodeScalars[id.utf8.index(after: slash)...])
@@ -46,12 +42,10 @@ public enum TreeShape {
     /// Where the directory at `path` sits in a tree walked at `root` — its index at each level,
     /// outermost first — or nil when the tree does not hold it as a directory.
     ///
-    /// **By the names down from `root` first**: that is how a column composes its paths, and below a
-    /// link it is the only thing that finds them. **Failing that, by id prefix**, the lookup this
-    /// replaced: the outline asks with a row's id, and where the walk spelled every id one way from
-    /// the top — a root reached through a link, a pane focused below one — the ids still find what
-    /// the names cannot, as they always did. Either way the node found IS the folder at `path`: a
-    /// composed path reaches its folder through the same links the walk followed.
+    /// By the names down from `root` first: that is how a column composes its paths, and below a
+    /// link it is the only thing that finds them. Failing that, by id prefix: the outline asks with
+    /// a row's id, which still works where the walk spelled every id one way from the top. Either
+    /// way the node found is the folder at `path`.
     static func position(of path: String, under root: String, in nodes: [FileNode],
                          links: PathBoundary.LinkedFolders) -> [Int]? {
         if let names = PathBoundary.relativize(path, under: root, links: links)?.split(separator: "/"),
@@ -99,10 +93,9 @@ public enum TreeShape {
         return nil
     }
 
-    /// ``names(downTo:in:)`` for many ids in ONE walk (B4): the names down to each id found, by id.
-    /// A pane transfer asks this for every row it carries whose id is not spelled under the root,
-    /// and asking one id at a time walked the whole tree per row, on the main actor. Stops once
-    /// every id is found.
+    /// ``names(downTo:in:)`` for many ids in one walk: the names down to each id found, by id. A
+    /// pane transfer asks this for many rows on the main actor, where a walk per row is too slow.
+    /// Stops once every id is found.
     public static func names(downTo ids: Set<String>, in nodes: [FileNode]) -> [String: [String]] {
         var found: [String: [String]] = [:]
         guard !ids.isEmpty else { return found }

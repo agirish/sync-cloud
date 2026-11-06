@@ -23,8 +23,8 @@ import Testing
                                     rightProviderID: "r", rightPath: "/right/Docs"))
     }
 
-    /// The gate that keeps the card honest. Each fixture moves exactly ONE of the four fields, so
-    /// a rule that compared only some of them cannot pass.
+    /// Keeps the card honest. Each fixture changes exactly one of the four fields, so a rule that
+    /// compared only some of them can't pass.
     @Test func testItRefusesEveryOtherComparison() {
         let s = summary()
         #expect(!s.describes(leftProviderID: "other", leftPath: "/left/Docs", rightProviderID: "r", rightPath: "/right/Docs"))
@@ -33,16 +33,15 @@ import Testing
         #expect(!s.describes(leftProviderID: "l", leftPath: "/left/Docs", rightProviderID: "r", rightPath: "/right/Other"))
     }
 
-    /// A↔B is not B↔A. The counts would coincide, but the swap asks the opposite question of each
-    /// side and Compare's own actions are directional.
+    /// A↔B is not B↔A: the counts would match, but Compare's actions are directional.
     @Test func testASwappedPairIsADifferentComparison() {
         #expect(!summary().describes(leftProviderID: "r", leftPath: "/right/Docs",
                                      rightProviderID: "l", rightPath: "/left/Docs"))
     }
 
-    /// A provider path is whatever the user typed into Settings, trailing slash and all, and the
-    /// scan and the pane normalize it differently. Without the trim the summary would compare
-    /// unequal to itself and silently never show — a failure with no symptom but an absence.
+    /// A provider path is whatever the user typed in Settings, trailing slash and all, and the scan
+    /// and the pane normalize it differently. Without the trim the summary would never match itself
+    /// and would silently never show.
     @Test func testATrailingSlashIsNotADifferentFolder() {
         #expect(summary(leftPath: "/left/Docs/").describes(
             leftProviderID: "l", leftPath: "/left/Docs",
@@ -71,8 +70,8 @@ import Testing
         #expect(relaunched.lastScanSummary == summary())
     }
 
-    /// No injected store means no reads and no writes — the rule every persisted fact on this
-    /// manager follows, so the CLI and a bare test manager never touch the user's real defaults.
+    /// No injected store means no reads and no writes, as for every persisted fact on this manager,
+    /// so the CLI and a bare test manager never touch the user's real defaults.
     @Test func testWithNoStoreItPersistsNothingButStillPublishes() {
         let m = FileSyncManager(fileManager: MockFileManager())
         m.recordLastScanSummary(summary())
@@ -84,8 +83,8 @@ import Testing
         #expect(relaunched.lastScanSummary == nil)
     }
 
-    /// Garbage in the key is dropped, not repaired and not crashed on. The whole feature is one
-    /// line of reassurance; there is nothing here worth a migration.
+    /// Garbage in the key is dropped, not repaired or crashed on. The feature is one line of
+    /// reassurance, not worth a migration.
     @Test func testAnUndecodableValueIsIgnored() {
         let defaults = freshDefaults()
         defaults.set(Data("not json".utf8), forKey: FileSyncManager.lastScanSummaryKey)
@@ -115,9 +114,9 @@ import Testing
                                    rightProviderID: "r", rightPath: "/right"))
     }
 
-    /// The count is the SCAN's, not the filtered list's. `differences` is `rawDifferences` minus
-    /// the hidden/ignored filter and it keeps moving after the scan — toggling hidden files or
-    /// ignoring a row would otherwise leave the card disagreeing with a number it never measured.
+    /// The count is the scan's, not the filtered list's. `differences` is `rawDifferences` minus the
+    /// hidden/ignored filter and keeps changing after the scan, so counting it would leave the card
+    /// disagreeing with a number it never measured.
     @Test func testTheCountIsTheScansOwnNotTheFilteredList() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)

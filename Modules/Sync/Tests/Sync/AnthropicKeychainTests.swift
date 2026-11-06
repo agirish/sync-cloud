@@ -15,16 +15,16 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
     private(set) var lastAddedAttributes: [String: Any]?
     /// The attributes of the last successful `update`.
     private(set) var lastUpdatedAttributes: [String: Any]?
-    /// The query of the last `copyMatching`. What a lookup ASKS FOR is the whole difference
-    /// between a silent existence check and one that raises the Keychain password prompt.
+    /// The query of the last `copyMatching`. What a lookup asks for is the difference between a
+    /// silent existence check and one that raises the Keychain password prompt.
     private(set) var lastCopyQuery: [String: Any]?
     /// The one item slot. Settable directly to pre-populate.
     var itemData: Data?
     /// When set, `copyMatching` returns this status regardless of the slot.
     var forcedCopyStatus: OSStatus?
-    /// When set, `delete` refuses with this status and LEAVES the item in place — what a locked
-    /// keychain, a denied prompt or an MDM policy actually does. The slot surviving is the point:
-    /// a fake that cleared it anyway could not tell a reported failure from a silent one.
+    /// When set, `delete` refuses with this status and leaves the item in place, as a locked
+    /// keychain, a denied prompt or an MDM policy does; a fake that cleared it couldn't tell a
+    /// reported failure from a silent one.
     var forcedDeleteStatus: OSStatus?
     /// When set, `update` and `add` refuse with this status and write nothing — a locked keychain
     /// refusing the write, which it can do after allowing a delete.
@@ -72,7 +72,7 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         let store = FakeKeychainStore()
         AnthropicKeychain.store("  sk-ant-test \n", in: store)
 
-        // Nothing to update, so the add — and never a delete (FR58).
+        // Nothing to update, so the add, and never a delete.
         #expect(store.ops == [.update, .add])
         #expect(AnthropicKeychain.read(from: store) == "sk-ant-test")
 
@@ -90,24 +90,20 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         AnthropicKeychain.store("first-key", in: store)
         AnthropicKeychain.store("second-key", in: store)
 
-        // Replaced in place: one update, no delete (FR58).
+        // Replaced in place: one update, no delete.
         #expect(store.ops == [.update, .add, .update])
         #expect(AnthropicKeychain.read(from: store) == "second-key")
-        // **The update carries the secret and nothing else** (E10). `kSecAttrAccessible` is a
-        // data-protection-keychain attribute; this item lives in the file-based keychain (no
-        // `kSecUseDataProtectionKeychain`), where changing it in `SecItemUpdate` is undocumented
-        // and is the one part of the write that could be refused. Accessibility stays as the add
-        // set it, which the test above pins.
+        // The update carries the secret and nothing else. Changing `kSecAttrAccessible` in
+        // `SecItemUpdate` on the file-based keychain is undocumented and could be refused, so
+        // accessibility stays as the add set it, which the test above pins.
         let attrs = try #require(store.lastUpdatedAttributes)
         #expect(Set(attrs.keys) == [kSecValueData as String],
                 "the update asks to change more than the key: \(attrs.keys.sorted())")
         #expect(attrs[kSecValueData as String] as? Data == Data("second-key".utf8))
     }
 
-    /// **A refused write keeps the key that was stored (FR58).** The replace used to delete and
-    /// then add, so a Keychain that allowed the delete and refused the add left no key at all —
-    /// and Settings cleared the field the new one was typed in, so both were gone. The status must
-    /// come back non-success AND the old key must still read back.
+    /// A refused write keeps the key that was stored: a replace that deleted first could leave no
+    /// key at all. The status must come back non-success and the old key must still read back.
     @Test func aRefusedReplaceLeavesTheOldKeyInPlace() {
         let store = FakeKeychainStore()
         AnthropicKeychain.store("old-key", in: store)
@@ -153,10 +149,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.read(from: store) == nil)
     }
 
-    /// `read`'s `String?` collapses "the user never configured a key" and "the Keychain refused to
-    /// hand the key over right now" (locked keychain, denied prompt, MDM policy) into one `nil`, so
-    /// the app fell back to the on-device model as though cloud Filing had never been opted into —
-    /// the same invisible failure `store` returns its status to avoid. `readOutcome` separates them.
+    /// `read`'s `String?` folds "never configured" and "the Keychain refused right now" into one
+    /// `nil`, which would silently drop cloud Filing to the on-device model. `readOutcome` keeps
+    /// them apart.
     @Test func readOutcomeTellsAMissingKeyApartFromAnUnreadableOne() {
         let empty = FakeKeychainStore()
         #expect(AnthropicKeychain.readOutcome(from: empty) == .notConfigured)
@@ -166,8 +161,8 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         locked.forcedCopyStatus = errSecInteractionNotAllowed  // …but the keychain is locked
         #expect(AnthropicKeychain.readOutcome(from: locked) == .unreadable(errSecInteractionNotAllowed))
 
-        // An item that is present but not decodable text is likewise "there but unusable", not
-        // "never configured" — telling the user to re-enter a key that is already there is wrong.
+        // Present but not decodable text is likewise "there but unusable", not "never configured":
+        // the user shouldn't be told to re-enter a key that is already there.
         let garbage = FakeKeychainStore()
         garbage.itemData = Data([0xFF, 0xFE, 0xFD])
         #expect(AnthropicKeychain.readOutcome(from: garbage) == .unreadable(errSecDecode))
@@ -189,13 +184,12 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.hasKey(in: locked) == false)
     }
 
-    /// A refusing keychain must also reach the log, so callers that keep the plain `String?`
-    /// spelling (the app's `readAPIKey` seam) still leave a trace of WHY cloud Filing went quiet.
+    /// A refusing keychain must also reach the log, so callers of the plain `String?` spelling
+    /// (the app's `readAPIKey` seam) still leave a trace of why cloud Filing went quiet.
     ///
-    /// **Captured, not read from the shared buffer.** `Logger.shared.entries` keeps the newest
-    /// 1,000 lines for the whole process, and in a full package run the other suites log past this
-    /// one before a poll can see it: on 2026-09-26 this waited out 160 polls for a line that had
-    /// been written. `LogCapture`, opened before the read, keeps each line as it is published.
+    /// Captured, not read from the shared buffer: `Logger.shared.entries` keeps only the newest
+    /// lines for the whole process, and in a full package run other suites log past this one.
+    /// `LogCapture`, opened before the read, keeps each line as it is published.
     @MainActor
     @Test func anUnreadableKeychainIsLogged() async {
         let log = LogCapture()
@@ -203,10 +197,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         locked.itemData = Data("sk-ant-test".utf8)
         locked.forcedCopyStatus = errSecInteractionNotAllowed
 
-        // What a parallel suite's logging leaves on the main actor in a full package run: a flush
-        // already queued AHEAD of the call under test. The capture's marker joins that flush
-        // instead of scheduling its own, so this holds only if the warning is enqueued by the time
-        // the call returns — a `Task { @MainActor in … }` hop lands it after the read, and red.
+        // Imitates a parallel suite's logging: a flush already queued ahead of the call. The
+        // capture's marker joins it, so this passes only if the warning is enqueued by the time the
+        // call returns; a `Task { @MainActor in … }` hop would land it late.
         Logger.shared.debug("a sibling suite's line, its flush still queued")
         _ = AnthropicKeychain.read(from: locked)
 
@@ -216,13 +209,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
     // MARK: - Existence without the prompt
 
-    /// The property the Settings tab depends on: asking whether a key is stored must never ask
-    /// the Keychain for the secret, because `kSecReturnData` is exactly what makes it evaluate
-    /// the item's ACL and put a password prompt on screen. Opening the Tidy tab used to run
-    /// `hasKey`, so merely *looking at* Settings demanded the password.
-    ///
-    /// Pinned on the QUERY rather than on a return value: a fake cannot show a prompt, so the
-    /// only honest way to assert "this can't prompt" is to assert what it asked for.
+    /// Asking whether a key is stored must never ask the Keychain for the secret: `kSecReturnData`
+    /// makes it evaluate the item's ACL and show a password prompt, so merely opening Settings
+    /// would demand the password. Pinned on the query, since a fake can't show a prompt.
     @Test func isConfiguredNeverAsksForTheSecret() {
         let store = FakeKeychainStore()
         store.itemData = Data("sk-ant-test".utf8)
@@ -236,9 +225,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(query?[kSecAttrService as String] as? String == "com.synccloud.anthropic-api-key")
     }
 
-    /// The counterpart, and the reason `isConfigured` had to be a second question rather than a
-    /// rewrite of `hasKey`: callers about to USE the key still read it, and the scan path's
-    /// "cloud is on but the key is unusable" downgrade rests on that read failing.
+    /// The counterpart, and why `isConfigured` is a second question rather than a rewrite of
+    /// `hasKey`: callers about to use the key still read it, and the scan's "key is unusable"
+    /// downgrade rests on that read failing.
     @Test func hasKeyStillReadsTheSecret() {
         let store = FakeKeychainStore()
         store.itemData = Data("sk-ant-test".utf8)
@@ -252,9 +241,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.isConfigured(in: store) == false)
     }
 
-    /// A key the Keychain refuses to hand over is still *configured* — the item is there. That
-    /// is the honest answer for a status line, and it is why this must not route a cloud call:
-    /// `hasKey` reports the same item as unusable, which is what the downgrade warning needs.
+    /// A key the Keychain refuses to hand over is still configured: the item is there. Right for
+    /// a status line, so this must not route a cloud call; `hasKey` reports the same item as
+    /// unusable, which the downgrade warning needs.
     @Test func isConfiguredAndHasKeyDisagreeOnAnUnreadableItem() {
         let locked = FakeKeychainStore()
         locked.itemData = Data("sk-ant-test".utf8)
@@ -276,9 +265,8 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.hasKey(in: store) == false)
     }
 
-    /// Deleting nothing is success from every caller's point of view — the item is gone, which is
-    /// what was asked for. Pinned so the status check above can't be tightened into treating an
-    /// already-absent key as a refusal.
+    /// Deleting nothing is success: the item is gone, as asked. Pinned so the status check can't
+    /// be tightened into treating an already-absent key as a refusal.
     @Test func deletingAnAbsentKeyIsNotAFailure() {
         let store = FakeKeychainStore()
 
@@ -286,14 +274,10 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.isConfigured(in: store) == false)
     }
 
-    /// The failure the returned status exists for. A delete can be refused exactly as a write can
-    /// — locked keychain, denied prompt, MDM policy — and the Settings row used to flip to "No key
-    /// yet" regardless, telling the user their API key was gone while it was still in the Keychain,
-    /// still used by every scan, and back on screen at the next launch.
-    ///
-    /// Two assertions, because either alone would pass against the broken version: the status must
-    /// come back non-success, AND the item must still be findable — which is what the row now
-    /// re-reads (via `isConfigured`) instead of assuming.
+    /// A delete can be refused like a write (locked keychain, denied prompt, MDM policy), and the
+    /// Settings row must not then say "No key yet" while the key is still stored and used. So the
+    /// status comes back non-success and the item is still findable, which the row re-reads via
+    /// `isConfigured`.
     @Test func aRefusedDeleteReportsFailureAndLeavesTheKeyInPlace() {
         let store = FakeKeychainStore()
         AnthropicKeychain.store("sk-ant-test", in: store)
@@ -306,9 +290,8 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
                 "the key is still stored, so anything reporting 'no key' after this is lying")
     }
 
-    /// A refused delete must reach the log too, for the same reason a refused read does: the app's
-    /// own key-clearing paths take the `@discardableResult` spelling and would otherwise leave no
-    /// trace of why the key kept coming back.
+    /// A refused delete must reach the log too: the app's key-clearing paths discard the result,
+    /// and would otherwise leave no trace of why the key kept coming back.
     ///
     /// Captured for the same reason as ``anUnreadableKeychainIsLogged``.
     @MainActor
@@ -318,10 +301,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         AnthropicKeychain.store("sk-ant-test", in: store)
         store.forcedDeleteStatus = errSecInteractionNotAllowed
 
-        // What a parallel suite's logging leaves on the main actor in a full package run: a flush
-        // already queued AHEAD of the call under test. The capture's marker joins that flush
-        // instead of scheduling its own, so this holds only if the warning is enqueued by the time
-        // the call returns — a `Task { @MainActor in … }` hop lands it after the read, and red.
+        // Imitates a parallel suite's logging: a flush already queued ahead of the call. The
+        // capture's marker joins it, so this passes only if the warning is enqueued by the time the
+        // call returns; a `Task { @MainActor in … }` hop would land it late.
         Logger.shared.debug("a sibling suite's line, its flush still queued")
         AnthropicKeychain.delete(from: store)
 

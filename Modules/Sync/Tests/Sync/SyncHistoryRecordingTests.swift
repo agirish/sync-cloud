@@ -3,10 +3,10 @@ import Foundation
 import Events
 @testable import Sync
 
-/// Integration coverage for the X2 recording wiring: each op site (transfer copy/move, delete,
-/// bulk sync) appends `SyncHistoryRecord`s to the injected `SyncHistoryStore`, with the right
-/// action, paths, direction, and a per-run id. Recording is synchronous at the op sites, so the
-/// records are present the moment the awaited call returns — no polling needed.
+/// Integration coverage for Sync History recording: each op site (transfer copy/move, delete, bulk
+/// sync) appends `SyncHistoryRecord`s to the injected `SyncHistoryStore` with the right action,
+/// paths, direction and a per-run id. Recording is synchronous at the op sites, so the records are
+/// there the moment the awaited call returns; no polling needed.
 @MainActor
 @Suite struct SyncHistoryRecordingTests {
 
@@ -91,14 +91,14 @@ import Events
 
         await manager.syncAll(direction: .copyToRight, confirmed: true)
 
-        // Both items recorded, sharing ONE run id, with size carried from the differences.
+        // Both items recorded, sharing one run id, with size carried from the differences.
         #expect(store.records.count == 2)
         #expect(Set(store.records.map(\.runId)).count == 1)
         #expect(store.records.allSatisfy { $0.action == .copy && $0.direction == "→ Right" })
         #expect(Set(store.records.compactMap(\.sizeBytes)) == [10, 20])
         #expect(store.recordsForRun(try #require(store.lastRunId)).count == 2)
 
-        // The whole run is ONE undo step: a single undo removes both copies.
+        // The whole run is one undo step: a single undo removes both copies.
         #expect(mockFM.virtualDisk["/dst/one.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/two.txt"] != nil)
         #expect(manager.undoManager?.canUndo == true)
@@ -108,10 +108,10 @@ import Events
         }
     }
 
-    /// **A row's Copy to … sent against its suggestion is recorded the way it went, and its undo
-    /// gives back the newer file it overwrote** (review E13). The row suggests left → right; the
-    /// user copies it right → left (`redirected(to:)`, what the menu item sends), over the NEWER
-    /// left file. Real disk, so the overwritten file goes to a real (scratch) Trash and comes back.
+    /// A row's Copy to … sent against its suggestion is recorded the way it went, and its undo gives
+    /// back the newer file it overwrote. The row suggests left → right; the user copies right → left
+    /// (`redirected(to:)`, what the menu item sends) over the newer left file. Real disk, so the
+    /// overwritten file goes to a scratch Trash and comes back.
     @Test func testARedirectedRowCopyRecordsLeftAndItsUndoRestoresTheNewerFile() async throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("RedirectedCopy-\(UUID().uuidString)")

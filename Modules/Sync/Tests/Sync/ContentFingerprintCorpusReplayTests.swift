@@ -3,29 +3,23 @@ import CryptoKit
 import Testing
 @testable import Sync
 
-/// Replays the fingerprint over a real document tree and measures it — the check that decided this
-/// feature's rules, kept so it can be re-run rather than re-derived.
+/// Replays the fingerprint over a real document tree and measures it: the check behind this
+/// feature's rules, kept so it can be re-run.
 ///
-/// **Off unless one of two environment variables is set.** Not `.enabled(if: fileExists)`: CI's
-/// runner is this Mac as this user, so a path test would happily find the real tree there and spend
-/// a minute of every CI run parsing it. An environment variable nothing but a deliberate invocation
-/// sets is what actually keeps it off.
+/// Off unless one of two environment variables is set. Not `.enabled(if: fileExists)`: the CI
+/// runner is this Mac as this user, so a path test would find the real tree and spend a minute of
+/// every run parsing it.
 ///
 ///     SYNCCLOUD_FINGERPRINT_REPLAY_ROOT=~/Documents swift test --filter CorpusReplay
 ///
-/// **`SYNCCLOUD_FINGERPRINT_REPLAY_LIST` takes a newline-delimited path list instead of walking**,
-/// and it exists because the walk is the fragile half. On the tree this was measured against,
-/// `FileManager.enumerator` blocked indefinitely in `open()` on one subtree mid-session — zero CPU,
-/// no error, nothing to time out against — while opening and reading those same documents by path
-/// stayed fine. That is a file-provider condition rather than anything the fingerprint does, but a
-/// measurement harness that can be stopped by it is a measurement that does not get taken.
+/// `SYNCCLOUD_FINGERPRINT_REPLAY_LIST` takes a newline-delimited path list instead of walking,
+/// because `FileManager.enumerator` can block indefinitely in `open()` on a file-provider subtree
+/// (no CPU, no error) while reading the same documents by path works.
 ///
-/// **Ground truth is byte-identity, which is the only label the tree carries for free.** Two files
-/// with the same SHA-256 are the same document, no argument. That gives recall a hard, unarguable
-/// assertion: a byte-identical pair whose fingerprints DISAGREE is a defect in the rules, and the
-/// count must be zero. It gives precision nothing directly — a pair the fingerprint matches and the
-/// bytes do not is either a find or a false claim, and only reading them says which — so the run
-/// prints those groups for the audit rather than asserting a number it cannot know.
+/// Ground truth is byte-identity: two files with the same SHA-256 are the same document, so a
+/// byte-identical pair whose fingerprints disagree is a defect, and the count must be zero.
+/// Precision has no free label (a fingerprint match the bytes don't share may be a find or a false
+/// claim), so the run prints those groups for review rather than asserting a number.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["SYNCCLOUD_FINGERPRINT_REPLAY_ROOT"] != nil
                     || ProcessInfo.processInfo.environment["SYNCCLOUD_FINGERPRINT_REPLAY_LIST"] != nil))
 struct ContentFingerprintCorpusReplayTests {
@@ -83,8 +77,7 @@ struct ContentFingerprintCorpusReplayTests {
         let found = documentPaths()
         try #require(!found.isEmpty, "no documents from \(source)")
         var documents = found.map { Document(path: $0.path, size: $0.size) }
-        // Byte hashes for the size-colliding files only — that is where byte-identical pairs can
-        // be, and hashing the whole tree buys nothing.
+        // Byte hashes only for files that share a size: byte-identical pairs can be nowhere else.
         var bySize: [Int: [Int]] = [:]
         for (i, d) in documents.enumerated() { bySize[d.size, default: []].append(i) }
         for indices in bySize.values where indices.count > 1 {
@@ -104,7 +97,7 @@ struct ContentFingerprintCorpusReplayTests {
             }
         }
 
-        // RECALL, against the only free ground truth there is.
+        // Recall, against byte-identity.
         var agreed = 0, disagreed = 0, declined = 0
         var disagreements: [String] = []
         for indices in bySize.values where indices.count > 1 {

@@ -1,9 +1,9 @@
 import Foundation
 
-/// Ask Claude’s own monthly spending limit (RD69, decision DZ): $25 to start, a warning at 80%,
-/// and no new questions once it’s reached, until the month turns.
+/// Ask Claude’s own monthly spending limit: $25 to start, a warning at 80%, and no new questions
+/// once it’s reached, until the month turns.
 ///
-/// **Separate from Filing’s spend record.** The two features have different limits and are read
+/// Separate from Filing’s spend record: the two features have different limits and are read
 /// separately in Settings; folding them into one would make either limit mean something else.
 /// Estimates only, from list prices: what Anthropic bills is in the Console.
 public enum AskClaudeSpend {

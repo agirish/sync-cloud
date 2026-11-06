@@ -5,20 +5,19 @@ import Foundation
 /// mid-operation.
 ///
 /// `safeCopyItem` / `safeMoveItem` stage content in `.tmp_<UUID>` siblings of the
-/// destination and remove them on every normal exit path (`defer`), so a surviving
-/// `.tmp_` artifact is almost always garbage: a partial duplicate of a source that still
-/// exists. ALMOST — one path deliberately preserves a temp that is the only copy of a
-/// consumed source (`replaceDestinationByMoving`'s double failure), which is why the sweep
-/// only ever Trashes (recoverable), never unlinks. Two gates keep the sweep from touching
+/// destination and remove them on every normal exit (`defer`), so a surviving `.tmp_` is
+/// almost always a partial duplicate of a source that still exists. Almost: one path keeps a
+/// temp that is the only copy of a consumed source (`replaceDestinationByMoving`'s double
+/// failure), so the sweep only ever Trashes (recoverable), never unlinks. Two gates keep it off
 /// live data:
-/// - the name must be exactly `.tmp_` followed by a parseable UUID — a user file that
-///   merely starts with ".tmp_" never matches, and
-/// - the artifact must be older than `minimumAge`, so an in-flight operation's staging
-///   file is never reaped.
+/// - the name must be exactly `.tmp_` plus a parseable UUID, so a user file that merely starts
+///   with ".tmp_" never matches, and
+/// - the artifact must be older than `minimumAge`, so an in-flight operation's staging file is
+///   never reaped.
 ///
-/// `.rollback_<UUID>` replacement backups are explicitly NOT swept: on Trash-less volumes
-/// they are the undo stack's restorable handle and may be the only copy of a replaced
-/// file. The scan only counts them so the caller can log their presence.
+/// `.rollback_<UUID>` replacement backups are never swept: on Trash-less volumes they are the
+/// undo stack's restorable handle and may be the only copy of a replaced file. The scan only
+/// counts them for the log.
 public enum OrphanSweeper {
 
     /// Minimum age before a `.tmp_` artifact counts as orphaned rather than in-flight.
@@ -89,11 +88,10 @@ public enum OrphanSweeper {
         }
     }
 
-    /// Trashes the given artifacts — Trash ONLY, no `removeItem` fallback: a `.tmp_` can be
-    /// the preserved only copy of a consumed source (`replaceDestinationByMoving`'s double
-    /// failure), so the sweep must stay recoverable. On a Trash-less volume the artifact
-    /// simply survives to the next sweep. Re-checks the name pattern as defense in depth:
-    /// only exact `.tmp_<UUID>` names are ever touched, whatever the caller passed.
+    /// Trashes the given artifacts, with no `removeItem` fallback: a `.tmp_` can be the only
+    /// copy of a consumed source (`replaceDestinationByMoving`'s double failure), so the sweep
+    /// must stay recoverable. On a Trash-less volume the artifact stays where it is. Re-checks the
+    /// name as defense in depth: only exact `.tmp_<UUID>` names are touched, whatever is passed.
     /// - Returns: The number of artifacts actually removed.
     @discardableResult
     public static func removeTempArtifacts(atPaths paths: [String], fileManager: FileManaging) -> Int {
@@ -105,21 +103,19 @@ public enum OrphanSweeper {
                 do {
                     try fileManager.trashItem(at: url, resultingItemURL: nil)
                 } catch where FileSyncManager.isLocked(url, fileManager: fileManager) {
-                    // **A locked staging copy is unlocked, then Trashed** (FR31). Before staging
-                    // lifted a copied lock, every attempt to copy a locked file left a `.tmp_`
-                    // carrying the lock, which the Trash refuses (EPERM) — so it survived every
-                    // sweep at full size. Lifting it here touches no user item: a `.tmp_` that IS
-                    // a user's original (the double failure above) got there by a rename, and the
-                    // kernel refuses to rename a locked item, so a locked one is always a copy.
+                    // A locked staging copy is unlocked, then Trashed: the Trash refuses a locked
+                    // item (EPERM), so it would survive every sweep. This touches no user item: a
+                    // `.tmp_` that is a user's original (the double failure above) got there by a
+                    // rename, and the kernel refuses to rename a locked item, so a locked one is
+                    // always a copy.
                     try fileManager.setAttributes([.immutable: false, .appendOnly: false], ofItemAtPath: path)
                     try fileManager.trashItem(at: url, resultingItemURL: nil)
                 }
                 removed += 1
             } catch {
                 Task { @MainActor in
-                    // "Left in place", not "left for the next sweep": on a Trash-less volume — the
-                    // very condition this sweep is Trash-only to protect — no future sweep can
-                    // succeed either, so promising a retry described a loop that never terminates.
+                    // "Left in place", not "left for the next sweep": on a Trash-less volume no
+                    // later sweep can succeed either.
                     Logger.shared.debug("Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left in place")
                 }
             }

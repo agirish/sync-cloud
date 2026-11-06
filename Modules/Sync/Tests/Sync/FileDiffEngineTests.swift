@@ -27,8 +27,8 @@ import Foundation
 
     /// The URL enumerator refuses to enter a symlinked folder and reports it as an error; the
     /// manual descent then walks the target. The folder must come out explored, with its
-    /// contents, or the diff suppresses every Missing row beneath it — which is what a Compare at
-    /// the iCloud Drive container did over its linked `Documents`.
+    /// contents, or the diff suppresses every Missing row beneath it, as a Compare at the iCloud
+    /// Drive container would over its linked `Documents`.
     @Test func aSymlinkedFolderTheWalkDescendsIsNotMarkedUnexplored() throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
@@ -48,11 +48,11 @@ import Foundation
         #expect(files[""] == nil, "the walk root was marked unexplored")
     }
 
-    /// **The same link, as the walk's ROOT** — a Compare focused on iCloud Drive → Documents, when
-    /// the scan path was spelled through the container. The enumerator lists nothing at a root
-    /// whose last component is a link (ENOTDIR), and the forgiveness above is right only for a link
-    /// the walk then descends; nothing descends a root. So the side read as authoritatively empty,
-    /// and every item on the other side became "Folder missing on left". Walked where it leads.
+    /// The same link as the walk's root: a Compare focused on iCloud Drive → Documents, with the
+    /// scan path spelled through the container. The enumerator lists nothing at a root whose last
+    /// component is a link (ENOTDIR), and the forgiveness above is right only for a link the walk
+    /// then descends. Unless the root is walked where it leads, the side reads as authoritatively
+    /// empty and everything on the other side becomes "Folder missing on left".
     @Test func aWalkRootedAtALinkToAFolderListsTheFolder() throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
@@ -388,9 +388,9 @@ import Foundation
     }
 
     // MARK: - Direction of resolution
-    // Existing tests assert one direction of the type-mismatch branch and count/type of the same-type
-    // date branch; these pin the *opposite* directions so a sign-flip (syncing the wrong way, which
-    // would overwrite newer data with older) can't pass silently.
+    // The tests above assert one direction of the type-mismatch branch and count/type of the
+    // same-type date branch; these pin the opposite directions so a sign-flip (syncing the wrong
+    // way, overwriting newer data with older) can't pass silently.
 
     @Test func testTypeMismatchPrefersNewerSource() async throws {
         let mockFM = MockFileManager()
@@ -799,7 +799,7 @@ import Foundation
 
     @Test func testCaseVariantFilePairStaysTwoRowsWhenCaseSensitive() async throws {
         // caseInsensitive=false (a case-sensitive volume in play): "Readme.txt" and
-        // "readme.txt" can genuinely coexist, so the old two-row behavior must hold.
+        // "readme.txt" can genuinely coexist, so they stay two rows.
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -902,8 +902,8 @@ import Foundation
     }
 
     /// A walk over a subtree where thousands of entries are unreadable must not throw, must
-    /// still return every readable entry, and (per the aggregated-logging fix) collects the
-    /// failures for one summary log line instead of one MainActor task per bad entry.
+    /// still return every readable entry, and collects the failures for one summary log line
+    /// instead of one main-actor task per bad entry.
     @Test func testWalkWithManyUnreadableEntriesReturnsReadableOnesAndDoesNotThrow() throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -929,8 +929,8 @@ import Foundation
     /// A folder whose own attributes cannot be read is left out of the walk's map while what is
     /// inside it is still listed: the entry's read fails, and the enumerator descends regardless.
     /// The file inside must not pair across on its near-name into the right's `Swimming`, which
-    /// pairs with nothing on the left and is reported missing — that pair was a both-sides row
-    /// inside a missing folder, and the folder's copy carried the same `log.txt` again.
+    /// pairs with nothing on the left and is reported missing: that would be a both-sides row
+    /// inside a missing folder, and the folder's copy would carry the same `log.txt` again.
     @Test func aFileInAFolderTheWalkCouldNotReadDoesNotPairIntoAMissingFolder() throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

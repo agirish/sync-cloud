@@ -2,14 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// When each pane's published tree was read from disk — the fact Browse's status bar puts through
-/// `ScanFreshness` (roadmap RD6).
-///
-/// **The whole of the interesting behaviour is the cache hit.** Stamping the moment a tree is
-/// *published* is one line and always compiles; the question is whether a tree served from the
-/// prefetch cache carries the age of the walk that built it, or claims to have been read at the
-/// moment it was handed over. The second is a freshness segment that resets to "Scanned just now"
-/// every time you navigate back into a folder you were just in.
+/// When each pane's published tree was read from disk, which Browse's status bar puts through
+/// `ScanFreshness`. The interesting case is the cache hit: a tree served from the prefetch cache
+/// must carry the age of the walk that built it, or the bar would reset to "Scanned just now" every
+/// time you navigate back into a folder you were just in.
 @MainActor
 @Suite struct PaneTreeReadStampTests {
 
@@ -19,8 +15,8 @@ import Foundation
         return FileSyncManager(fileManager: fm)
     }
 
-    /// A cold walk stamps the pane, and a pane that has loaded nothing carries no stamp at all —
-    /// which is what makes the bar omit the segment rather than invent a date.
+    /// A cold walk stamps the pane, and a pane that has loaded nothing carries no stamp, so the bar
+    /// omits the segment rather than invent a date.
     @Test func aColdWalkStampsThePaneAndAnUnloadedPaneCarriesNothing() async throws {
         let manager = try manager { fm in
             try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -35,9 +31,8 @@ import Foundation
         #expect(manager.rightTreeReadAt == nil, "loading one pane stamped the other")
     }
 
-    /// **A cache hit reports the WALK's time, not the hit's.** Navigating away and back serves the
-    /// tree from `prefetchedTrees`, and the age has to survive that round trip — otherwise the
-    /// freshest-looking listing in the app is the one nobody has re-read.
+    /// A cache hit reports the walk's time, not the hit's. Navigating away and back serves the tree
+    /// from `prefetchedTrees`, and the age must survive, or the listing nobody re-read looks freshest.
     @Test func aCacheHitCarriesTheAgeOfTheWalkThatBuiltIt() async throws {
         let manager = try manager { fm in
             try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -47,8 +42,7 @@ import Foundation
         await manager.loadTree(path: "/src", isLeft: true)
         let walked = try #require(manager.leftTreeReadAt)
 
-        // Age the walk by hand — the alternative is sleeping, and the point is a difference the
-        // clock can see rather than a specific number of seconds.
+        // Age the walk by hand rather than sleeping: the point is a difference the clock can see.
         let aged = walked.addingTimeInterval(-600)
         manager.prefetchedTreeReadAt["/src"] = aged
         manager.leftTreeReadAt = nil
@@ -77,8 +71,8 @@ import Foundation
                 "drilling into a cached folder re-dated the listing to now")
     }
 
-    /// Dropping the cache drops the stamps with it — one verb, so the two stores cannot part
-    /// company and leave a stale date to be inherited by the next tree cached at the same path.
+    /// Dropping the cache drops the stamps with it, in one verb, so a stale date can't be inherited
+    /// by the next tree cached at the same path.
     @Test func droppingTheCacheDropsTheStamps() async throws {
         let manager = try manager { fm in
             try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

@@ -5,8 +5,8 @@ import Testing
 /// Characterization ("golden") test for `FilingEngine.suggest`. Pins the classification of a broad
 /// set of loose files against one taxonomy as a single snapshot — destination, confidence, and
 /// batch-eligibility per file — so a change to the filing heuristic (a token rule, the year handling,
-/// the confidence/batch gate) flips the snapshot and must be consciously re-blessed. Guards the class
-/// of regression the year-misfile fix addressed: a file becoming (or ceasing to be) batch-eligible.
+/// the confidence/batch gate) flips the snapshot and must be consciously re-blessed. Above all it
+/// catches a file becoming (or ceasing to be) batch-eligible.
 @Suite struct FilingEngineGoldenTests {
 
     // Mid-2024 so the derived year is 2024 in every timezone.
@@ -44,7 +44,7 @@ import Testing
     @Test func filingSnapshotIsStable() {
         let taxonomy = [
             dir("/root/Documents", [dir("/root/Documents/Vehicles", [dir("/root/Documents/Vehicles/Tesla")])]),
-            // Photos and Receipts already file by year, so their by-year rules may claim High (GS).
+            // Photos and Receipts already file by year, so their by-year rules may claim High.
             dir("/root/Photos", [dir("/root/Photos/2022")]),
             dir("/root/Finance"),
             dir("/root/Receipts", [dir("/root/Receipts/2022")]),
@@ -62,13 +62,13 @@ import Testing
             file("/root/Downloads/DSC_1995.jpg"),
             file("/root/Downloads/Wedding 2023.jpg"),
             // GoPro pair: GOPR0001 is a genuine camera counter (mtime year), while a hand-named
-            // gopro video keeps its REAL 2023 — the old `gopr\w*` stem regex ate it.
+            // gopro video keeps its real 2023, which a loose `gopr\w*` stem regex would eat.
             file("/root/Downloads/GOPR0001.MP4"),
             file("/root/Downloads/gopro_hawaii_2023.mp4"),
             file("/root/Downloads/Screen Shot 2024-11-02.png"),     // screenshot rides the photo rule
             file("/root/Downloads/1099-INT 2024.pdf"),             // tax doc, filename year == mtime year
             // Filename year ≠ mtime year: the filename's 2023 must win the year segment (every
-            // other fixture's years coincide, which is exactly how the mtime-only bug hid).
+            // other fixture's years coincide, so only these tell the two sources apart).
             file("/root/Downloads/1099-INT 2023.pdf"),
             // ZERO filename years → the year segment falls back to the 2024 mtime.
             file("/root/Downloads/1099-INT.pdf"),
@@ -98,18 +98,18 @@ import Testing
         // GOLDEN — captured, hand-verified, pinned. Load-bearing classes:
         //  · 1099-INT 2023 files into Taxes/2023 (filename year) while 1099-INT.pdf (no year) and
         //    "2021-2022 tax summary" (a RANGE names no single year) both fall back to the 2024
-        //    mtime — the whole filenameYear contract of 87f1e2f in one block;
+        //    mtime — the whole filenameYear contract in one block;
         //  · chase statement 2023 pins the same filename-year-wins rule in a second category;
         //  · amazon order receipt hits the HIGH path (existing Receipts folder); honda geico
         //    insurance builds new Honda/Insurance segments under the existing Vehicles anchor;
         //  · Screen Shot …png rides the photo rule into Photos/<year>;
         //  · IMG_2023 / DSC_1995 / GOPR0001 file by MTIME year (2024): a camera-sequence counter
         //    that looks like a year is not a filing year — while Wedding 2023 AND the hand-named
-        //    gopro_hawaii_2023 keep their real filename years (the latter pins the gopr regex fix);
+        //    gopro_hawaii_2023 keep their real filename years (the latter pins the gopr stem rule);
         //  · scan0001.pdf finds a home ONLY via a content token: medium-capped, marked `content`,
         //    and NOT batch — a content match must never join the blind batch;
         //  · 2024-overview (bare year) and blorf.xyz still have no confident home;
-        //  · GS: the blind batch takes High only, so every Medium line lost `batch`, and tesla
+        //  · the blind batch takes High only, so no Medium line has `batch`, and tesla
         //    registration card — one word in common with Vehicles/Tesla — is Medium.
         // Re-bless only after confirming an intentional change to the filing heuristic is correct.
         let expected = """

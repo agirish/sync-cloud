@@ -2,23 +2,19 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Every listing asks a dataless folder through the reads, not just the two walks** — see
-/// `FileSyncManager.DatalessFolderReads` and `FileManaging.listing(of:)`.
+/// Every listing asks a dataless folder through the reads, not just the two walks
+/// (`FileSyncManager.DatalessFolderReads`, `FileManaging.listing(of:)`). The walks are covered by
+/// `UnansweredFolderTests`. Everything else that lists a folder would block on one whose cloud app
+/// isn't running: the destination picker's column and search, the move undo's identity (on the
+/// main actor), the copy undo's deep identity, a folder merge, the filing renamer, Look for Names,
+/// Edit's file rail and the filing card's item count.
 ///
-/// The walks were guarded first (`UnansweredFolderTests`). Everything else that lists a folder goes
-/// through the shared `listing(of:)` / `childCount(of:)`, or did a bare `contentsOfDirectory`, and
-/// each of those blocked on a folder whose cloud app is not running exactly as the walk did: the
-/// destination picker's column and its search, the move undo's identity (on the MAIN actor), the
-/// copy undo's deep identity, a folder merge, the filing renamer, Look for Names, Edit's file rail
-/// and the filing card's item count.
-///
-/// The disk is `UnansweredFolderDisk`: one folder is dataless and listing it parks until the test
-/// lets the provider answer. Each case holds the folder unanswered, asserts the caller came back
-/// within a bound far below the park's own, and only then releases it.
+/// The disk is `UnansweredFolderDisk`. Each case holds the folder unanswered, asserts the caller
+/// came back while the provider is still parked, and only then releases it.
 @Suite struct UnansweredListingTests {
 
-    /// One tree per test, under a root of its own — the registry is keyed by path, and parallel
-    /// cases must not answer each other's folders.
+    /// One tree per test, under its own root: the registry is keyed by path, and parallel cases
+    /// must not answer each other's folders.
     struct Shelf {
         let root: String
         var cloud: String { root + "/Cloud" }
@@ -39,13 +35,11 @@ import Testing
         }
     }
 
-    /// Runs `body` where production runs these listings — off the main actor, on the pool.
+    /// Runs `body` where production runs these listings: off the main actor, on the pool.
     ///
-    /// **"In time" is asserted as "while the provider is still parked", not against a clock.** The
-    /// park lasts until the test releases it (or two minutes); a caller that asks through the reads
-    /// returns after their deadline with the provider still parked, one that blocks on the provider
-    /// returns only once the park ends. A wall-clock bound measured the machine instead: in a full
-    /// FileExplorer run, cases that never park at all took 43 s.
+    /// "In time" means "while the provider is still parked", not a clock bound. A caller that asks
+    /// through the reads returns after their deadline with the provider parked; one that blocks
+    /// returns only once the park ends. A wall-clock bound would measure machine load instead.
     static func offThePool<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
         await Task.detached { body() }.value
     }
@@ -66,8 +60,8 @@ import Testing
 
     // MARK: - The shared listing
 
-    /// **A listing of the folder comes back unanswered — unknown, not empty — and the provider is
-    /// asked off the pool, once.** A second listing is refused at once rather than asking again.
+    /// A listing of the folder comes back unanswered (unknown, not empty), and the provider is asked
+    /// off the pool, once. A second listing is refused at once rather than asking again.
     @Test(.parksAThread) func aListingOfAFolderThatNeverAnswersComesBackUnanswered() async throws {
         let shelf = Shelf(root: "/listing")
         let gate = ParkGate()
@@ -91,10 +85,9 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **A recursive listing steps around the folder.** The enumerator reads a folder's contents on
-    /// the call after the one that yielded it, so without a `skipDescendants()` there it asks the
-    /// provider inline. The folder's own entry is there; nothing under it is; it is named as the
-    /// part withheld.
+    /// A recursive listing steps around the folder. The enumerator reads a folder's contents on the
+    /// call after the one that yielded it, so without a `skipDescendants()` there it asks the
+    /// provider inline. The folder's entry is listed, nothing under it is, and it is named withheld.
     @Test(.parksAThread) func aRecursiveListingStepsAroundAFolderThatNeverAnswers() async throws {
         let shelf = Shelf(root: "/recursive")
         let gate = ParkGate()
@@ -113,10 +106,9 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **A dataless folder whose provider answers is listed in full — the healthy case, and the
-    /// one a read that asked through the reads ITSELF would break:** it would join its own read and
-    /// wait out the deadline, so every dataless folder would come back unanswered. The deadline here
-    /// is a minute, so that mistake shows as a wait, not as a pass.
+    /// A dataless folder whose provider answers is listed in full. A read that asked through the
+    /// reads itself would join its own read and wait out the deadline, so every dataless folder
+    /// would come back unanswered; the minute-long deadline makes that show as a wait, not a pass.
     @Test(.parksAThread) func aDatalessFolderWhoseProviderAnswersIsListedInFull() async throws {
         let shelf = Shelf(root: "/answers")
         let gate = ParkGate()
@@ -146,8 +138,8 @@ import Testing
         #expect(gate.didPark)
     }
 
-    /// **A count is a listing too** — the folder-replace warning's `childCount`. The folder itself
-    /// is unreadable; a count of its parent counts around it and says it is a floor.
+    /// A count is a listing too (the folder-replace warning's `childCount`). The folder itself is
+    /// unreadable; a count of its parent counts around it and says it is a floor.
     @Test(.parksAThread) func aCountStepsAroundAFolderThatNeverAnswers() async throws {
         let shelf = Shelf(root: "/count")
         let gate = ParkGate()
@@ -162,7 +154,7 @@ import Testing
         let around = await Self.offThePool {
             disk.childCount(of: URL(fileURLWithPath: shelf.cloud), options: [], cap: 100)
         }
-        // Archive, Docs, Docs/b.txt and Docs/Old Notes — and nothing from inside Archive.
+        // Archive, Docs, Docs/b.txt and Docs/Old Notes, and nothing from inside Archive.
         #expect(around == DirectoryChildCount(count: 4, outcome: .listedWithUnreadableDescendants, isCapped: false))
         #expect(disk.providerReads == 1)
 
@@ -182,10 +174,9 @@ import Testing
         #expect(count == DirectoryChildCount(count: 6, outcome: .listed, isCapped: false))
     }
 
-    /// **What the guard reads off the real enumerator: every folder it yields is marked as one**,
-    /// spelled absolutely (`childCount`) or relatively (`listing`). The recursive guards ask
-    /// `isDataless` only of entries marked so — a folder that came back unmarked would be walked
-    /// into, provider and all. Measured 2026-10-15 and pinned here, on the real disk.
+    /// On the real disk, the enumerator marks every folder it yields as one, spelled absolutely
+    /// (`childCount`) or relatively (`listing`). The recursive guards ask `isDataless` only of
+    /// marked entries, so an unmarked folder would be walked into, provider and all.
     @Test func theRealEnumeratorMarksEveryFolderItYields() throws {
         let root = try makeCanonicalTempRoot(prefix: "folder-marks")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -208,9 +199,8 @@ import Testing
 
     // MARK: - Asking without holding a thread
 
-    /// **`waitForContents` suspends; it does not block.** Run on an executor with ONE thread, a job
-    /// queued behind it still runs while the provider is being asked — which a caller blocked on
-    /// the answer would not let happen. The listing's own wait is the control: it does block.
+    /// `waitForContents` suspends rather than blocks: on a one-thread executor, a job queued behind
+    /// it still runs while the provider is asked. The synchronous listing is the control.
     @Test(.parksAThread) func waitingForAFolderThatNeverAnswersHoldsNoThread() async throws {
         let shelf = Shelf(root: "/suspends")
         let gate = ParkGate()
@@ -225,8 +215,8 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// The control: the synchronous listing DOES hold its thread for the deadline — so the test
-    /// above can tell the two apart, and is not passing because the executor runs everything.
+    /// The control: the synchronous listing does hold its thread, so the test above is not passing
+    /// just because the executor runs everything.
     @Test(.parksAThread) func theSynchronousListingHoldsItsThreadForTheDeadline() async throws {
         let shelf = Shelf(root: "/blocks")
         let gate = ParkGate()
@@ -272,8 +262,8 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **Search walks past the folder and says it could not look inside.** It finds the match
-    /// beside it, never the one within, and its footnote says some folders could not be read.
+    /// Search walks past the folder: it finds the match beside it, never the one within, and its
+    /// footnote says some folders couldn't be read.
     @Test(.parksAThread) func thePickersSearchWalksPastAFolderThatNeverAnswers() async throws {
         let shelf = Shelf(root: "/search")
         let gate = ParkGate()
@@ -291,8 +281,8 @@ import Testing
 
     // MARK: - Undo's identities
 
-    /// **The move undo takes its identity on the MAIN actor** — `registerMoveUndo` is synchronous,
-    /// and Rename, Move and Filing all call it there. A folder that did not answer froze the app.
+    /// The move undo takes its identity on the main actor: `registerMoveUndo` is synchronous, and
+    /// Rename, Move and Filing call it there, so blocking on the folder would freeze the app.
     @MainActor
     @Test(.parksAThread) func registeringAMoveOfAFolderThatNeverAnswersDoesNotFreezeTheMainActor() async throws {
         let shelf = Shelf(root: "/move-undo")
@@ -309,9 +299,9 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **The copy undo's deep identity walks the whole tree** — and a dataless folder anywhere in
-    /// it stopped the walk. It refuses instead, naming the folder: a tree it could not read
-    /// cannot vouch for an undo.
+    /// The copy undo's deep identity walks the whole tree, so a dataless folder anywhere in it
+    /// would stall the walk. It refuses instead, naming the folder: an unread tree can't vouch for
+    /// an undo.
     @Test(.parksAThread) func aDeepIdentityRefusesAtAFolderThatNeverAnswers() async throws {
         let shelf = Shelf(root: "/deep-identity")
         let gate = ParkGate()
@@ -328,7 +318,7 @@ import Testing
 
     // MARK: - Folder merge
 
-    /// **A merge cannot read the folder, and says why** — not "you don't have permission".
+    /// A merge can't read the folder and says why, not "you don't have permission".
     @Test(.parksAThread) func aMergeOfAFolderThatNeverAnswersFailsAsUnanswered() async throws {
         let shelf = Shelf(root: "/merge")
         let gate = ParkGate()
@@ -350,9 +340,8 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **The collision alert's count does not ask the provider at all.** It has a second to count
-    /// in before the alert opens; a dataless folder would spend five times that waiting. It gives
-    /// up instead — the alert says its sentence without numbers.
+    /// The collision alert's count never asks the provider: it has a second before the alert opens,
+    /// and a dataless folder would wait five. It gives up, and the alert drops its numbers.
     @Test(.parksAThread) func theMergePreviewGivesUpAtAFolderThatIsNotOnThisMac() async throws {
         let shelf = Shelf(root: "/merge-preview")
         let gate = ParkGate()
@@ -368,8 +357,8 @@ import Testing
         gate.release.signal()
     }
 
-    /// The other half of that rule: a folder the preview cannot read at all ends the count too,
-    /// instead of being skipped — a count that leaves it out is a number the app made up.
+    /// A folder the preview can't read ends the count too, rather than being skipped: a count that
+    /// leaves it out is a number the app made up.
     @Test func theMergePreviewGivesUpAtAFolderItCannotRead() throws {
         let mock = MockFileManager()
         for dir in ["/mp/src/F", "/mp/src/F/Locked", "/mp/dst/F"] {
@@ -404,8 +393,8 @@ import Testing
         try await Self.release(gate, disk, shelf.unanswered)
     }
 
-    /// **Look for Names skips the folder and reads the rest** — "a person's folder living on an
-    /// evicted iCloud path is an ordinary state" is the scanner's own premise.
+    /// Look for Names skips the folder and reads the rest: a person's folder on an evicted iCloud
+    /// path is an ordinary state.
     @Test(.parksAThread) func lookForNamesSkipsAFolderThatNeverAnswers() async throws {
         let shelf = Shelf(root: "/people")
         let gate = ParkGate()
@@ -425,8 +414,8 @@ import Testing
     }
 }
 
-/// A task executor with ONE thread, so whether an async call SUSPENDS or BLOCKS while it waits is
-/// visible from outside: a job queued behind a suspended call runs; behind a blocked one it cannot.
+/// A task executor with one thread, so whether an async call suspends or blocks while it waits is
+/// visible: a job queued behind a suspended call runs; behind a blocked one it can't.
 final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
     private let queue = DispatchQueue(label: "UnansweredListingTests.one-thread")
 
@@ -435,11 +424,10 @@ final class OneThreadExecutor: TaskExecutor, @unchecked Sendable {
         queue.async { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
     }
 
-    /// Runs `body` on a fresh one-thread executor and, once `gate` says the provider is being
-    /// asked, queues a second job on the same thread. The provider answers only AFTER that job has
-    /// had five seconds to run — so a blocked `body` keeps it out for the whole five, and a load
-    /// spike cannot let `body` finish first and pass for one that suspended. No deadline is raced:
-    /// give `body`'s reads one far longer than the test.
+    /// Runs `body` on a fresh one-thread executor and, once `gate` says the provider is being asked,
+    /// queues a probe job on the same thread. The provider answers only once the probe has run or
+    /// five seconds have passed, so `body` can't finish first and pass for one that suspended. Give
+    /// `body`'s reads a deadline far longer than the test, so none is raced.
     static func letsAnotherJobRun<T: Sendable>(
         whileWaitingOn gate: ParkGate,
         _ body: @escaping @Sendable () async -> T

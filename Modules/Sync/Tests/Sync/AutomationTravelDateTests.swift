@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// `{travel-month}`'s date (TE286, decision HI) on pages that print times beside their dates: a
-/// time is never read as a year.
+/// `{travel-month}`'s date on pages that print times beside their dates: a time is never read as a
+/// year.
 @Suite struct AutomationTravelDateTests {
 
     /// Page 1 of an e-ticket with its departure times, as the reader returns it.

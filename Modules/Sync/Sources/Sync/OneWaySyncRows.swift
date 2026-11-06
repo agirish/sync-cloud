@@ -29,7 +29,7 @@ public enum OneWaySyncStopReason: Equatable, Sendable {
     case failed(String)
 }
 
-/// **Activity ▸ Now's rows for one-way sync**, from what a pass found: the page's *What waits*
+/// Activity ▸ Now's rows for one-way sync, from what a pass found: the page's *What waits*
 /// table, row by row, with its buttons. Pure; the app raises them and clears what no longer holds.
 ///
 /// Every id starts with `prefix`. A whole-sync stop is `ows:stop:…`; a folder's row
@@ -106,7 +106,7 @@ public enum OneWaySyncRows {
         }
     }
 
-    /// DF: SyncCloud Removed past a tenth of this Mac's free space is an information row with one
+    /// SyncCloud Removed past a tenth of this Mac's free space is an information row with one
     /// notification; nil below it.
     public static let removedSpaceID = "ows:info:removed-space"
 

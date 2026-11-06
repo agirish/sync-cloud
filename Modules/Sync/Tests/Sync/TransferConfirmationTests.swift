@@ -39,8 +39,8 @@ import Foundation
 
     // MARK: - Declined confirmations leave the disk untouched
 
-    /// A declined copy transfers nothing, runs no primitive, and reports no error — cancelling
-    /// is a user choice, not a failure.
+    /// A declined copy transfers nothing, runs no primitive and reports no error: cancelling is a
+    /// user choice, not a failure.
     @MainActor
     @Test func testDeclinedCopyItemsTransfersNothing() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -76,10 +76,9 @@ import Foundation
         #expect(manager.currentError == nil)
     }
 
-    /// A declined single-row sync returns false, copies nothing, and leaves no in-flight
-    /// mark behind. (The row IS marked during the prompt — see
-    /// testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline, which pins that
-    /// ordering — but a decline must always clear it.)
+    /// A declined single-row sync returns false, copies nothing and leaves no in-flight mark. (The
+    /// row is marked during the prompt, as
+    /// testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline pins, but a decline clears it.)
     @MainActor
     @Test func testDeclinedSyncFileReturnsFalseAndCopiesNothing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -115,8 +114,8 @@ import Foundation
 
     // MARK: - The confirmer is asked once, with an accurate summary
 
-    /// copyItems describes the pruned batch: count, first item, its parent folder, and the
-    /// destination directory — and asks exactly once per user action.
+    /// copyItems describes the pruned batch (count, first item, its parent folder, the destination
+    /// directory) and asks exactly once per user action.
     @MainActor
     @Test func testCopyItemsSummaryDescribesBatch() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -216,10 +215,9 @@ import Foundation
 
     // MARK: - Prompts run behind the exclusion latches (not before them)
 
-    /// While the syncAll confirmation prompt is up, `isBulkSyncRunning` must already be
-    /// latched: the prompt's modal spins the run loop, so a queued second syncAll (or a
-    /// Verify All, whose guard reads the flag) would otherwise pass its exclusion check
-    /// mid-prompt. A decline must release the latch.
+    /// While the syncAll confirmation is up, `isBulkSyncRunning` must already be latched: the
+    /// prompt's modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
+    /// reads the flag) would otherwise pass its exclusion check mid-prompt. A decline releases it.
     @MainActor
     @Test func testBulkSyncFlagIsLatchedDuringConfirmPromptAndReleasedOnDecline() async throws {
         let (manager, _, _) = try makeDifferenceFixture()
@@ -235,9 +233,9 @@ import Foundation
         #expect(manager.isBulkSyncRunning == false)
     }
 
-    /// While the syncFile confirmation prompt is up, the row must already be marked syncing:
-    /// Verify All's guard documents that `syncingDifferenceIds` covers a syncFile parked at
-    /// a prompt. A decline must clear the mark.
+    /// While the syncFile confirmation is up, the row must already be marked syncing: Verify All's
+    /// guard relies on `syncingDifferenceIds` covering a syncFile parked at a prompt. A decline
+    /// clears the mark.
     @MainActor
     @Test func testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -254,10 +252,10 @@ import Foundation
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
-    /// While the transferItems confirmation prompt is up, the pending operation must already
-    /// be counted: the scan-time auto-verify pass is not click-gated (a modal doesn't block
-    /// it) and its guard reads `activeFileOperationsCount` — an unlatched prompt would let it
-    /// hash the very files this transfer overwrites. A decline reverts the count.
+    /// While the transferItems confirmation is up, the pending operation must already be counted:
+    /// the scan-time auto-verify pass isn't blocked by a modal and its guard reads
+    /// `activeFileOperationsCount`, so an uncounted prompt would let it hash the very files this
+    /// transfer overwrites. A decline reverts the count.
     @MainActor
     @Test func testOperationIsCountedDuringTransferPromptAndUncountedOnDecline() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -294,9 +292,9 @@ import Foundation
         #expect(manager.activeFileOperationsCount == 0)
     }
 
-    /// A row already marked in-flight refuses a second syncFile outright: a queued twin call
-    /// running during the first's prompt would otherwise stack a second prompt, and its exit
-    /// would clear the shared syncing mark the first call still owns.
+    /// A row already marked in-flight refuses a second syncFile outright: a queued twin running
+    /// during the first's prompt would stack a second prompt, and its exit would clear the shared
+    /// syncing mark the first call still owns.
     @MainActor
     @Test func testSyncFileRefusesRowAlreadyMarkedSyncing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -312,12 +310,12 @@ import Foundation
         #expect(ran == false)
         #expect(prompts == 0)
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
-        // The refused call must NOT have cleared the owner's mark.
+        // The refused call must not have cleared the owner's mark.
         #expect(manager.syncingDifferenceIds.contains(diff.id))
     }
 
-    /// A bulk sync refuses to start while any single-row sync is in flight (possibly parked
-    /// at its prompt): both flows could target the same difference. Mirrors Verify All.
+    /// A bulk sync refuses to start while any single-row sync is in flight (possibly parked at its
+    /// prompt): both could target the same difference. Mirrors Verify All.
     @MainActor
     @Test func testSyncAllRefusesWhileARowIsMarkedSyncing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -335,8 +333,8 @@ import Foundation
         #expect(manager.banner != nil)
     }
 
-    /// The Verify-copy bulk path refuses under the same condition — its defer clears syncing
-    /// ids wholesale and would strip a parked syncFile's mark out from under it.
+    /// The Verify-copy bulk path refuses under the same condition: its defer clears syncing ids
+    /// wholesale and would strip a parked syncFile's mark out from under it.
     @MainActor
     @Test func testVerifiedCopyRefusesWhileARowIsMarkedSyncing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -352,8 +350,8 @@ import Foundation
 
     // MARK: - Pre-confirmed callers skip the prompt (one gesture never asks twice)
 
-    /// `confirmed: true` skips the transferConfirmer entirely — for callers whose UI already
-    /// embodies the confirmation (review-card accepts, "Copy Remaining N").
+    /// `confirmed: true` skips the transferConfirmer entirely, for callers whose UI already is the
+    /// confirmation (review-card accepts, "Copy Remaining N").
     @MainActor
     @Test func testConfirmedSyncFileAndSyncAllSkipTheConfirmer() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -384,10 +382,9 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/b.txt"] != nil)
     }
 
-    /// `confirmed: true` skips ONLY the transfer confirmation — the collision prompt is a
-    /// data-safety boundary and must still run when the destination exists. A "skip all
-    /// prompts when pre-confirmed" misreading would make review accepts and Retry clicks
-    /// replace existing files unprompted.
+    /// `confirmed: true` skips only the transfer confirmation. The collision prompt is a data-safety
+    /// boundary and still runs when the destination exists, or review accepts and Retry clicks
+    /// would replace existing files unprompted.
     @MainActor
     @Test func testConfirmedSyncFileStillRunsTheCollisionPrompt() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -411,9 +408,9 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty) // nothing replaced
     }
 
-    /// **The newer-file note reaches both prompts** (review E4): a row's Copy to … sent against
-    /// the suggestion hands `syncFile` the sentence, and the confirmation and the collision prompt
-    /// each receive it — and a plain call hands them none.
+    /// The newer-file note reaches both prompts: a row's Copy to … sent against the suggestion
+    /// hands `syncFile` the sentence, the confirmation and the collision prompt each receive it,
+    /// and a plain call hands them none.
     @MainActor
     @Test func testSyncFileHandsTheNewerFileNoteToBothPrompts() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -432,10 +429,10 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty)
     }
 
-    /// The "Copy Remaining" engine contract: two sequential confirmed syncAll runs over a
-    /// mixed-direction subset transfer BOTH directions with zero prompts — the first run's
-    /// bulk-sync latch must be released by the time the awaited second run starts, or the
-    /// second direction's items are silently dropped after the review session is torn down.
+    /// The "Copy Remaining" contract: two sequential confirmed syncAll runs over a mixed-direction
+    /// subset transfer both directions with no prompts. The first run's bulk-sync latch must be
+    /// released before the awaited second starts, or the second direction's items are silently
+    /// dropped after the review session is torn down.
     @MainActor
     @Test func testSequentialConfirmedSyncAllRunsCoverBothDirections() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -473,9 +470,9 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/pull.txt"] != nil)
     }
 
-    /// Retry on a failed single-row sync must NOT re-ask the confirmer: the Retry click is
-    /// itself the confirmation, and re-prompting made an Escape reflex silently swallow the
-    /// retry. One prompt for the original attempt, zero for the retry.
+    /// Retry on a failed single-row sync must not re-ask the confirmer: the Retry click is the
+    /// confirmation, and a second prompt lets an Escape reflex swallow the retry. One prompt for the
+    /// original attempt, none for the retry.
     @MainActor
     @Test func testRetryAfterFailureDoesNotReconfirm() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -549,13 +546,13 @@ import Foundation
 
     // MARK: - Direction handling (.copyToLeft summaries and collisions)
 
-    /// A right-to-left sync must describe the transfer in its own direction: From the right
-    /// pane's folder, To the left's. All other summary tests use .copyToRight, so this is the
-    /// pin against a direction flip describing every right-to-left sync backwards.
+    /// A right-to-left sync must describe the transfer in its own direction: From the right pane's
+    /// folder, To the left's. The other summary tests use .copyToRight, so this guards against a
+    /// flip that would describe every right-to-left sync backwards.
     @MainActor
     @Test func testCopyToLeftSyncFileSummaryAndCollisionAreDirectionCorrect() async throws {
         let (manager, mockFM) = try makeTransferFixture()
-        // Item lives on the RIGHT (/dst); the difference copies it left into /src, where a
+        // The item lives on the right (/dst); the difference copies it left into /src, where a
         // same-named file already sits (collision).
         mockFM.virtualDisk["/dst/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -589,8 +586,8 @@ import Foundation
         #expect(collision?.destinationPath == "/src/pull.txt")
     }
 
-    /// The re-stat prompt (destination appears externally after the initial stat — the
-    /// single-file TOCTOU window) must carry the same full-path context as the first prompt.
+    /// The re-stat prompt (the destination appears after the initial stat, the single-file TOCTOU
+    /// window) must carry the same full-path context as the first prompt.
     @MainActor
     @Test func testSyncFileRestatCollisionCarriesFullPaths() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
@@ -617,8 +614,8 @@ import Foundation
 
     // MARK: - Summary accuracy under pruning and for moves
 
-    /// The prompt's item count reflects the PRUNED selection: selecting a folder plus its own
-    /// child transfers one top-level item, and the confirmation must say 1, not 2.
+    /// The prompt's item count reflects the pruned selection: a folder plus its own child transfers
+    /// one top-level item, so the confirmation says 1, not 2.
     @MainActor
     @Test func testCopyItemsSummaryCountsPrunedNodes() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -667,9 +664,9 @@ import Foundation
 
     // MARK: - Deliberate exemptions never consult the confirmer
 
-    /// Undo and redo of a copy run through the undo primitives, not the confirmed transfer
-    /// entry points — a refactor routing them through syncFile/transferItems would make Undo
-    /// silently do nothing under a declining confirmer.
+    /// Undo and redo of a copy run through the undo primitives, not the confirmed transfer entry
+    /// points; routed through syncFile/transferItems, Undo would silently do nothing under a
+    /// declining confirmer.
     @MainActor
     @Test func testUndoRedoNeverConsultTheConfirmer() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -700,14 +697,13 @@ import Foundation
         #expect(prompts == 1)
     }
 
-    /// The Verify-All "copy to match dates" bulk path has its own confirmation dialog
-    /// upstream (confirmVerifiedCopy); routing it through the transferConfirmer too would
-    /// double-prompt. Pin the exemption.
+    /// The Verify All "copy to match dates" bulk path has its own confirmation upstream
+    /// (confirmVerifiedCopy); asking the transferConfirmer too would double-prompt.
     @MainActor
     @Test func testVerifiedCopyBulkPathNeverConsultsTheConfirmer() async throws {
         let (manager, mockFM, _) = try makeDifferenceFixture()
-        // A verified pair: both sides, same size, a day apart. The run sets the right file's
-        // date and copies nothing (review E6).
+        // A verified pair: both sides, same size, a day apart. The run sets the right file's date
+        // and copies nothing.
         let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
         mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.modificationDate: leftDate, .size: 9], contents: nil)
@@ -732,9 +728,9 @@ import Foundation
         #expect((try? mockFM.attributesOfItem(atPath: "/dst/a.txt"))?[.modificationDate] as? Date == leftDate)
     }
 
-    /// A vanished destination root (provider dropped from settings mid-session) must not
-    /// prompt at all: confirming `Copy "x" to ""?` and then failing anyway helps nobody.
-    /// The operation still fails with its normal destination-unavailable error.
+    /// A vanished destination root (provider dropped from settings mid-session) must not prompt:
+    /// confirming `Copy "x" to ""?` and then failing helps nobody. The operation still fails with
+    /// its normal destination-unavailable error.
     @MainActor
     @Test func testEmptyDestinationRootFailsWithoutPrompting() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -773,8 +769,8 @@ import Foundation
         #expect(containers.to == "/left/root")
     }
 
-    /// A pane rooted at the filesystem root must yield "/" — the naive suffix strip of
-    /// "/a.txt" minus "a.txt" would leave "" and render blank From/To lines in the prompt.
+    /// A pane rooted at the filesystem root must yield "/": the naive suffix strip of "/a.txt"
+    /// minus "a.txt" would leave "" and blank From/To lines in the prompt.
     @Test func testTransferContainersAtFilesystemRootYieldSlash() {
         let diff = FileDifference(
             relativePath: "a.txt",
@@ -808,10 +804,9 @@ import Foundation
 
     // MARK: - The prompt names the landing folder, not the destination root
 
-    /// A cross-pane transfer of a NESTED item must name the folder it lands in. The summary used
-    /// to carry the destination root, so copying `Reports/2025/Q3.xlsx` told the user `To: /dst`
-    /// while the file went to `/dst/Reports/2025` — wrong for every item below the root, which is
-    /// most of them.
+    /// A cross-pane transfer of a nested item must name the folder it lands in, not the
+    /// destination root: copying `Reports/2025/Q3.xlsx` goes to `/dst/Reports/2025`, so the prompt
+    /// must say so rather than `To: /dst`.
     @MainActor
     @Test func testCrossPaneSummaryNamesTheDerivedTargetDirectory() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -832,11 +827,11 @@ import Foundation
 
         #expect(summary?.sourceDirectory == "/src/Reports/2025")
         #expect(summary?.destinationDirectory == "/dst/Reports/2025")
-        // The landing path itself is unchanged by the wording fix — that is the whole point.
+        // The landing path itself is unchanged; only the wording follows it.
         #expect(mockFM.virtualDisk["/dst/Reports/2025/Q3.xlsx"] != nil)
     }
 
-    /// An item at the pane root still names the root, so the shallow case reads exactly as before.
+    /// An item at the pane root still names the root.
     @MainActor
     @Test func testCrossPaneSummaryAtRootStillNamesTheRoot() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -855,8 +850,8 @@ import Foundation
         #expect(summary?.destinationDirectory == "/dst")
     }
 
-    /// The drop and paste routes derive `<dir>/<name>`, whose parent IS the directory they were
-    /// handed — so this fix must leave them reporting exactly what they reported before.
+    /// The drop and paste routes derive `<dir>/<name>`, whose parent is the directory they were
+    /// handed, so they report that directory.
     @MainActor
     @Test func testToPathSummaryStillNamesTheGivenDirectory() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -878,9 +873,8 @@ import Foundation
     // MARK: - A batch that moves nothing says so
 
     /// Both panes on one provider at the same relative path: every derived target equals its
-    /// source, every item is skipped, and the window used to say nothing at all — no banner, no
-    /// alert, one debug line. Confirming the prompt and seeing no change was indistinguishable
-    /// from a dropped click, which is exactly how this was reported.
+    /// source and every item is skipped. The window must say so, or confirming the prompt and
+    /// seeing no change looks like a dropped click.
     @MainActor
     @Test func testMoveWhereEveryItemIsAlreadyThereReportsIt() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -921,9 +915,8 @@ import Foundation
         #expect(banner.message.contains("All 2 items"))
     }
 
-    /// Skipping at a COLLISION prompt also transfers nothing, but that is a choice the user just
-    /// made and needs no restatement. Without this the new banner would fire on every declined
-    /// overwrite — a nag on the app's most common prompt.
+    /// Skipping at a collision prompt also transfers nothing, but that is a choice the user just
+    /// made and needs no restatement; otherwise the banner would nag on every declined overwrite.
     @MainActor
     @Test func testCollisionSkipDoesNotReportNothingToMove() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -941,9 +934,9 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
-    /// A move that actually happened must NOT raise the "already there" warning. The success
-    /// banner belongs to `FileActionHandler` (which skips it on an empty result, so the warning
-    /// set here survives) — the invariant this layer owns is that a real transfer stays quiet.
+    /// A move that happened must not raise the "already there" warning. The success banner belongs
+    /// to `FileActionHandler` (which skips it on an empty result, so the warning set here survives);
+    /// this layer's invariant is that a real transfer stays quiet.
     @MainActor
     @Test func testARealMoveDoesNotReportNothingToMove() async throws {
         let (manager, mockFM) = try makeTransferFixture()
@@ -960,12 +953,10 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
-    /// A batch mixing one already-placed item with one that genuinely moves stays quiet: the
-    /// warning is for a batch that did nothing at all, not for any batch containing a skip.
-    ///
-    /// Uses the `toPath:` route deliberately — with a single pair of pane roots every item's
-    /// target is derived the same way, so a cross-pane batch either skips wholly or not at all.
-    /// An explicit destination is the only route that can produce a genuine partial.
+    /// A batch mixing one already-placed item with one that moves stays quiet: the warning is for
+    /// a batch that did nothing at all. Uses the `toPath:` route on purpose: with one pair of pane
+    /// roots every target is derived the same way, so a cross-pane batch skips wholly or not at
+    /// all, and only an explicit destination can produce a genuine partial.
     @MainActor
     @Test func testPartiallyAlreadyThereDoesNotReportNothingToMove() async throws {
         let (manager, mockFM) = try makeTransferFixture()

@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// RD23: Merge as the answer to a folder collision. Real disk throughout — a merge's claims are
-/// about what is left in two trees, and the mock's enumerator is not the one production lists with.
+/// Merge as the answer to a folder collision. Real disk throughout: a merge's claims are about what
+/// is left in two trees, and the mock's enumerator is not the one production lists with.
 @Suite struct FolderMergeTests {
 
     private func write(_ text: String, _ url: URL) throws {
@@ -23,7 +23,7 @@ import Foundation
         }.sorted()
     }
 
-    /// Records every prompt, answering folders with `folderAnswer` and each child by file name.
+/// Every prompt `manager(prompts:)` raised: the folder collisions and the child collisions.
     @MainActor
     private final class Prompts {
         var top: [FileCollision] = []
@@ -87,9 +87,9 @@ import Foundation
         #expect(prompts.children.allSatisfy { !$0.offersMerge && !$0.isDirectory })
 
         #expect(transferred.map(\.id) == [src.path])
-        // `.DS_Store` is left out of the listings: Trashing the replaced a.txt's backup makes macOS
-        // drop the folder's `.DS_Store` — measured 2026-09-15 with `trashItem` alone, so every
-        // Replace has always done it. What matters here is that the source's never landed over it.
+        // `.DS_Store` is left out of the listings: trashing the replaced a.txt's backup makes macOS
+        // drop the folder's `.DS_Store`, as any Replace does. What matters is that the source's
+        // never landed over it.
         #expect(files(dst).filter { $0 != ".DS_Store" } == ["a.txt", "b.txt", "only.txt", "sub/c.txt", "sub/deep/d.txt", "sub/keep.txt"])
         #expect(read(dst.appendingPathComponent("a.txt")) == "new a")          // Replace
         #expect(read(dst.appendingPathComponent("sub/c.txt")) == "old c")      // Skip

@@ -6,11 +6,9 @@ import Testing
 /// cooperative pool at once — see `docs/flaky-tests.md`, "Every gate parks at once, on the pool
 /// their releases need".
 ///
-/// **Why the primitive needs tests of its own.** A gate that never engages and a gate that engages
-/// and is released look identical from the outside — that is the whole reason `releasedByTimeout`
-/// exists, and it is also the shape a bad "fix" for this flake would take: quietly stop the gates
-/// engaging and watch every suite go green. The three tests under *The park's two halves* pin both
-/// directions and the detector that tells them apart.
+/// A gate that never engages and one that engages and is released look the same from outside, and
+/// quietly disengaging the gates would turn every suite green. The three tests under "The park's
+/// two halves" pin both directions and the detector that tells them apart.
 @Suite struct ParkBudgetTests {
 
     /// Polls off the main actor. `waitUntil` is `@MainActor` and these tests are not: what they
@@ -30,9 +28,9 @@ import Testing
 
     /// The park engages, is released, and records no timeout.
     ///
-    /// Driven from `DispatchQueue.global()` — a NON-cooperative queue, which overcommits when its
-    /// threads block — rather than from a `Task`, so this test does not itself take a thread out of
-    /// the pool it exists to protect. That is also why it needs no `.parksAThread`.
+    /// Driven from `DispatchQueue.global()`, a non-cooperative queue that overcommits when its
+    /// threads block, so the test doesn't take a thread from the pool it protects and needs no
+    /// `.parksAThread`.
     @Test func aParkThatIsReleasedRecordsNoTimeout() async {
         let gate = ParkGate()
         DispatchQueue.global().async { gate.park(timeout: 5) }
@@ -43,9 +41,8 @@ import Testing
         #expect(!gate.releasedByTimeout, "a park that was released must not record a timeout")
     }
 
-    /// The bound expires, and THAT is recorded too — the half that is easiest to leave
-    /// load-bearing in name only. Delete the assignment behind `releasedByTimeout` and only this
-    /// test notices; every consumer's `try #require(!gate.releasedByTimeout)` still passes.
+    /// The bound expires, and that is recorded too. Fails if the assignment behind
+    /// `releasedByTimeout` is deleted, which every consumer's `#require` would miss.
     @Test func aParkThatIsNeverReleasedRecordsItsTimeout() async {
         let gate = ParkGate()
         DispatchQueue.global().async { gate.park(timeout: 0.2, turns: 0) }
@@ -56,9 +53,9 @@ import Testing
         #expect(gate.didPark)
     }
 
-    /// A gate that never parks never signals `entered`. That is what makes a silently-disengaged
-    /// gate detectable at all: `releasedByTimeout` is false in that case too, so a consumer's
-    /// `await awaitSignal(gate.entered)` is the assertion that fails, not the `#require` after it.
+    /// A gate that never parks never signals `entered`, which is what makes a disengaged gate
+    /// detectable: `releasedByTimeout` is false then too, so the consumer's `awaitSignal` on
+    /// `entered` is the assertion that fails.
     @Test func aGateThatNeverParksNeverSignalsEntered() {
         let gate = ParkGate()
         #expect(gate.entered.wait(timeout: .now()) == .timedOut,
@@ -98,8 +95,8 @@ import Testing
     }
 
     /// FIFO, so a wide reservation is not starved by narrow ones queueing behind it. Without the
-    /// ticket, `held == 0` never comes around under a steady stream of one-thread tests, and the
-    /// widest test — the one holding the most pool threads — is the one that reaches its bound.
+    /// ticket, `held == 0` never comes under a steady stream of one-thread tests, and the widest
+    /// test reaches its bound.
     @Test func aWideReservationIsNotOvertakenByNarrowOnesBehindIt() async {
         let budget = ParkThreadBudget()
         await budget.reserve(1)                              // something is already in flight
@@ -111,10 +108,8 @@ import Testing
         try? await Task.sleep(nanoseconds: 50_000_000)
         #expect(order.withLock { $0 }.isEmpty, "neither may enter while the first reservation is held")
 
-        // Bounded waits, not `await wide.value` — a queue that has stopped being FIFO leaves the
-        // wide reservation waiting for a `held` that never comes, and joining it turns a failing
-        // test into a package run that never finishes. That is not hypothetical: it is what
-        // dropping the FIFO clause actually did before this was written this way.
+        // Bounded waits, not `await wide.value`: without FIFO the wide reservation waits for a
+        // `held` that never comes, and joining it would hang the package run instead of failing.
         await budget.relinquish(1)
         await waitForCondition("the wide reservation is admitted first") {
             order.withLock { $0 }.first == "wide"
@@ -126,14 +121,10 @@ import Testing
         _ = (wide, narrow)
     }
 
-    /// **The bound is bounded, and it says so.** Both halves in one test: a reservation that can
-    /// never be served gives up rather than hanging the package run, and records why — a limiter
-    /// that has quietly stopped limiting must not read like one that is working.
-    /// **The bound is bounded, and it says so.** Both halves in one test: a reservation that can
-    /// never be served goes ahead rather than hanging the package run, and reports why.
-    ///
-    /// The time limit is this test's own bound — it is the one test here whose failure mode, if the
-    /// give-up check is ever removed, is a run that never finishes rather than a red one.
+    /// The bound is bounded, and says so: a reservation that can never be served goes ahead rather
+    /// than hanging the package run, and reports why, so a limiter that stopped limiting doesn't
+    /// look like one that works. The time limit is because without the give-up check this test
+    /// would hang rather than fail.
     @Test(.timeLimit(.minutes(1))) func aReservationThatCanNeverBeServedGivesUpAndSaysSo() async {
         let said = LockedBox<[String]>([])
         let budget = ParkThreadBudget(giveUpAfter: .milliseconds(200),
@@ -148,10 +139,8 @@ import Testing
                 "the report must say what happened, not merely that something did: \(reported)")
     }
 
-    /// The seam above is a test affordance, and this is the half it cannot prove by exercising it:
-    /// that a give-up in a REAL run is a test failure rather than a silent one. Read off the source
-    /// rather than triggered, because triggering it would leave a known issue on the summary line of
-    /// every package run — which is exactly the cost the seam exists to avoid.
+    /// A give-up in a real run is a test failure, not a silent one. Read off the source rather than
+    /// triggered, since triggering it would leave a known issue on every package run's summary.
     @Test func theGiveUpDefaultsToARealTestFailure() throws {
         let source = try Self.testSources.first { $0.name == "TestSupport.swift" }?.text
         let text = try #require(source)
@@ -176,23 +165,19 @@ import Testing
         }
     }
 
-    /// Every stand-in in this target that holds a seam call by BLOCKING the calling thread. A test
-    /// that builds one must declare it, because production reaches those seams from
-    /// `Task.detached` and the thread it blocks is a cooperative-pool thread.
-    ///
-    /// **Two were missing until 2026-09-06, and both had unbudgeted tests.** `GateFileManager`
-    /// (`RestructureApplyGuardTests`) is one letter from `GatedFileManager` and read as already
-    /// listed; `SamplerObservedTrash` (`MergeUndoGroupingAndGateTests`) is not gate-shaped by
-    /// name at all — it is a `FileManager` subclass whose trash holds a rendezvous. A name is a
-    /// weak key, which is why the second scan below is derived from the source instead.
+    /// Every stand-in in this target that holds a seam call by blocking the calling thread. A test
+    /// that builds one must declare it, because production reaches those seams from `Task.detached`
+    /// and the thread it blocks is a cooperative-pool thread. Names are a weak key (`GateFileManager`
+    /// is one letter from `GatedFileManager`; `SamplerObservedTrash` isn't gate-shaped at all), so
+    /// the second scan below works from the source instead.
     private static let threadBlockingGates = [
         "ParkGate", "FirstStatGate", "FirstOpGate", "FirstAttributesGate",
         "GatedFileManager", "GateFileManager", "DestinationStatGate", "BarrierCancelGate",
         "GatedWalkFileManager", "GatingFileManager", "SamplerObservedTrash", "LeftStatGate",
     ]
 
-    /// **Rot #1: a new gated test that forgets the trait.** It would pass on its own and go on
-    /// costing the whole package run a pool thread at the moment every suite starts.
+    /// Rot #1: a new gated test that forgets the trait. It would pass on its own and cost the whole
+    /// package run a pool thread at the moment every suite starts.
     @Test func everyTestThatBuildsAThreadBlockingGateDeclaresIt() throws {
         var undeclared: [String] = []
         var checked = 0
@@ -212,8 +197,7 @@ import Testing
                 }
             }
         }
-        // Non-vacuity: this scan finds nothing if the gates are ever renamed wholesale, and a scan
-        // that matches nothing passes exactly like one that matches everything.
+        // Non-vacuity: a wholesale rename would leave this scan matching nothing, which passes.
         #expect(checked >= 20, "the gate scan found only \(checked) constructions — it has stopped matching")
         #expect(undeclared.isEmpty, """
             these tests build a gate that blocks a cooperative-pool thread but do not declare it \
@@ -222,11 +206,10 @@ import Testing
             """)
     }
 
-    /// **Rot #2: a new park primitive nobody registered.** `threadBlockingGates` above is a list,
-    /// and a list is only ever as complete as its last edit — so this half is derived from the
-    /// source instead: every thread-blocking wait in the target must be one of these known lines.
-    /// A new `DispatchSemaphore.wait` or a new blocking sleep is the moment to decide whether the
-    /// test around it owes a reservation.
+    /// Rot #2: a new park primitive nobody registered. A list is only as complete as its last edit,
+    /// so this half works from the source: every thread-blocking wait in the target must be one of
+    /// these known lines. A new blocking wait or sleep is when to decide whether its test owes a
+    /// reservation.
     @Test func everyThreadBlockingWaitInThisTargetIsAccountedFor() throws {
         // file → the distinct blocking-wait lines it is allowed to contain, and why each is fine.
         let known: [String: Set<String>] = [
@@ -252,10 +235,9 @@ import Testing
                 "Thread.sleep(forTimeInterval: 0.005)",                   // brief: a scheduling nudge
             ],
             "ProgressAccountingTests.swift": ["if gate.wait(timeout: .now() + 10) == .timedOut {"],
-            // GateFileManager parks the landing's executor thread, which IS a cooperative-pool
-            // one — `enqueueFileOperation` runs its operation in `Task.detached`. Both of its
-            // tests declare `.parksAThread`; the test-side wait is `awaitSignal`, registered
-            // under TestSupport.swift above.
+            // `GateFileManager` parks the landing's executor thread, a cooperative-pool one
+            // (`enqueueFileOperation` runs in `Task.detached`). Both its tests declare
+            // `.parksAThread`; the test-side wait is `awaitSignal`, under TestSupport.swift above.
             "RestructureApplyGuardTests.swift": [
                 "if fire { entered.signal(); release.wait() }",
             ],
@@ -266,12 +248,10 @@ import Testing
             ],
             "FileSyncManagerDuplicatesTests.swift": ["if mustWait { semaphore.wait() }"],
             "ScanSupersedenceTests.swift": ["mockFM.enumeratorDelay = 0.05"],
-            // `MockFileManager`'s per-entry sleep blocks the walk's thread too, but its LENGTH
-            // lives at the call sites, so those are registered as well: a second one, or a longer
-            // one, is a new thread-hog that no reader of `MockFileManager.swift` would see.
-            // The one left (ScanSupersedenceTests, above) runs 50 ms per entry and always finishes
-            // on its own, which is why it holds no reservation — a gate, by contrast, is held until
-            // its test lets go.
+            // `MockFileManager`'s per-entry sleep blocks the walk's thread too, but its length is
+            // set at the call sites, so those are registered as well. The one there is
+            // (ScanSupersedenceTests, above) runs 50 ms per entry and always finishes on its own,
+            // so it holds no reservation; a gate is held until its test lets go.
             "MockFileManager.swift": ["Thread.sleep(forTimeInterval: enumeratorDelay)"],
             "MergeCancelMidCopyTests.swift": ["Thread.sleep(forTimeInterval: 0.005)"],
             // `ScriptedObservedCopy` polls for the run's Progress from the copying worker, a pool
@@ -290,22 +270,19 @@ import Testing
             // The MAIN thread, on purpose: holding the main actor is what that test measures. Not a
             // pool thread, so no reservation; bounded, and running out is the failure it records.
             "ColdScanStartsOffTheMainActorTests.swift": ["semaphore.wait(timeout: .now() + timeout)"],
-            // `OneThreadExecutor`'s wait for its probe job: on `DispatchQueue.global()`, which
-            // overcommits, never the pool; bounded at 5 s. The parks it measures are `ParkGate`'s,
-            // and every test that uses it declares `.parksAThread`.
-            // A volume that never answers, for `RestructureRootMap.whyGone`'s bound (review C11): on
+            // A volume that never answers, for `RestructureRootMap.whyGone`'s bound: on
             // `DispatchQueue.global`, never the pool; released by the test's `defer`, bounded at 10 s.
             "RestructureRootHistoryTests.swift": [
                 "probe: { _, _ in _ = stuck.wait(timeout: .now() + 10); return true })",
             ],
-            // The killed lock holder's "held" line (RD67), the same shape: on `DispatchQueue.global`,
-            // never the pool; bounded at 30 s.
+            // The killed lock holder's "held" line, the same shape: on `DispatchQueue.global`, never
+            // the pool; bounded at 30 s.
             "OneWaySyncWritersTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: read.wait(timeout: .now() + 30) == .success) }",
             ],
-            // RD67's coordination deadline: a detached Thread (not the pool) holds a coordinated
-            // write until released, bounded at 60 s; the test's own two waits are bounded at 30 s
-            // and it declares `.parksAThread`, since a coordinated read blocks its thread too.
+            // The coordination deadline: a detached Thread (not the pool) holds a coordinated write
+            // until released, bounded at 60 s; the test's own two waits are bounded at 30 s and it
+            // declares `.parksAThread`, since a coordinated read blocks its thread too.
             "OneWaySyncWriterTests.swift": [
                 "#expect(holding.wait(timeout: .now() + 30) == .success)",
                 "#expect(done.wait(timeout: .now() + 30) == .success)",
@@ -319,6 +296,9 @@ import Testing
                 "reading: { _ in started.signal(); _ = release.wait(timeout: .now() + 30); return .upload(.uploaded) },",
                 "DispatchQueue.global().async { _ = started.wait(timeout: .now() + 30); continuation.resume() }",
             ],
+            // `OneThreadExecutor`'s wait for its probe job: on `DispatchQueue.global()`, which
+            // overcommits, never the pool; bounded at 5 s. The parks it measures are `ParkGate`'s,
+            // and every test that uses it declares `.parksAThread`.
             "UnansweredListingTests.swift": [
                 "DispatchQueue.global().async { done.resume(returning: ran.wait(timeout: .now() + 5) == .success) }",
             ],
@@ -344,8 +324,8 @@ import Testing
                 """)
         }
         for (file, lines) in known where !lines.subtracting(found[file] ?? []).isEmpty {
-            // A registered line that no longer exists means this scan is guarding less than it
-            // claims — the same silent shrink `#expect(checked >= 20)` guards against above.
+            // A registered line that no longer exists means the scan guards less than it claims,
+            // the same silent shrink `#expect(checked >= 20)` guards against above.
             Issue.record("""
                 \(file) no longer contains \(lines.subtracting(found[file] ?? []).sorted()); \
                 drop it from this scan's registry.

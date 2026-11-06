@@ -30,8 +30,8 @@ import Testing
         #expect(json["version"] as? Int == 3)
     }
 
-    /// Version 1, before change times and refused files: read as this version, with neither, so
-    /// the first pass takes each file's change time as it finds it (ET).
+    /// Version 1, without change times or refused files: read as this version with neither, so the
+    /// first pass takes each file's change time as it finds it.
     @Test func aVersion1RecordReadsWithNoChangeTimesAndNothingRefused() throws {
         var record = Self.record
         record.files[0].changed = 1_790_000_000_123_456_789
@@ -87,7 +87,7 @@ import Testing
         let newer = try JSONSerialization.data(withJSONObject: json)
         #expect(OneWaySyncRecord.load(newer, on: OneWayWorld.binding) == .needsNewFirstRun(.unsupportedVersion(4)))
 
-        // A version 2 record (before Dropbox's own dates and pending uploads) still reads.
+        // A version 2 record (without Dropbox's own dates and pending uploads) still reads.
         json["version"] = 2
         json.removeValue(forKey: "pendingUploads")
         let older = try JSONSerialization.data(withJSONObject: json)

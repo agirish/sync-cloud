@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The model half of folder sources (roadmap 1a): the persisted record, the name-ruleset
-/// substitution a folder needs because it has no rules of its own, and — the one with teeth — what
-/// a folder source is allowed to CLAIM.
+/// The model half of folder sources: the persisted record, the name ruleset a folder borrows
+/// because it has no rules of its own, and, the one with teeth, what a folder source may claim.
 @Suite struct FolderSourceTests {
 
     // MARK: The record
@@ -14,9 +13,9 @@ import Testing
         #expect(FolderSource.abbreviated(inside) == "~/Projects")
     }
 
-    /// NSOpenPanel hands back paths that are not in their simplest spelling — a trailing slash,
-    /// and on some machines the `/System/Volumes/Data` firmlink prefix. Un-standardized, the same
-    /// folder stores under two different strings and the duplicate check below never fires.
+    /// NSOpenPanel hands back paths not in their simplest spelling (a trailing slash, sometimes the
+    /// `/System/Volumes/Data` firmlink prefix). Unstandardized, one folder stores under two strings
+    /// and the duplicate check below never fires.
     @Test func abbreviatedStandardizesBeforeFolding() {
         let trailing = (NSHomeDirectory() as NSString).appendingPathComponent("Projects/")
         #expect(FolderSource.abbreviated(trailing) == "~/Projects")
@@ -28,7 +27,7 @@ import Testing
         #expect(FolderSource.abbreviated("/Volumes/Backup") == "/Volumes/Backup")
     }
 
-    /// The default macOS volume is case-insensitive: the two spellings are ONE folder, and adding
+    /// The default macOS volume is case-insensitive: the two spellings are one folder, and adding
     /// `~/projects` while `~/Projects` is a source must not make a second row for it.
     @Test func sameFolderFoldsCaseAndSpelling() {
         #expect(FolderSource.sameFolder("~/Projects", "~/projects"))
@@ -37,9 +36,8 @@ import Testing
         #expect(FolderSource.sameFolder("~/Projects", "~/Projects2") == false)
     }
 
-    /// A sibling whose name merely starts with the same characters is a different folder. The
-    /// comparison is whole-path equality, not a prefix test — the failure a prefix test produces
-    /// here is silent (`~/Projects2` "already exists" and selects `~/Projects` instead).
+    /// A sibling whose name merely starts with the same characters is a different folder. A prefix
+    /// test would fail silently here: `~/Projects2` "already exists" and selects `~/Projects`.
     @Test func sameFolderIsNotAPrefixMatch() {
         #expect(FolderSource.sameFolder("~/Doc", "~/Documents") == false)
     }
@@ -50,7 +48,7 @@ import Testing
     }
 
     /// The home directory's last component is the account's short name, which reads as a person
-    /// rather than a place — "father" sitting in a list of sources next to "Dropbox".
+    /// rather than a place ("father" in a list of sources next to "Dropbox").
     @Test func defaultDisplayNameNamesTheHomeFolderAsAPlace() {
         #expect(FolderSource(id: "folder:x", path: "~").defaultDisplayName == "Home folder")
         #expect(FolderSource(id: "folder:x", path: NSHomeDirectory()).defaultDisplayName == "Home folder")
@@ -88,15 +86,15 @@ import Testing
         #expect(CloudProvider.nameRuleType(for: .localFolder, folderRule: .dropBox) == .dropBox)
     }
 
-    /// "Don't check" is `.localFolder` itself, which makes the substitution the identity — and
-    /// `.localFolder` reports no violations, so nothing is checked. One encoding, no third state.
+    /// "Don't check" is `.localFolder` itself, so the substitution is the identity and
+    /// `.localFolder` reports no violations. One encoding, no third state.
     @Test func passingLocalFolderAsTheRuleMeansDoNotCheck() {
         #expect(CloudProvider.nameRuleType(for: .localFolder, folderRule: .localFolder) == .localFolder)
         #expect(ProviderNameRules.violation(name: "CON.txt", provider: .localFolder) == nil)
     }
 
-    /// A local volume accepts what a local volume accepts. This is the honest answer for
-    /// `.localFolder` and the reason the substitution lives a layer up rather than in here.
+    /// A local volume accepts what a local volume accepts: the honest answer for `.localFolder`,
+    /// and why the substitution lives a layer up rather than in here.
     @Test func aFolderItselfRejectsNothing() {
         for name in ["CON.txt", "a:b", "trailing ", "trailing.", "*star*"] {
             #expect(ProviderNameRules.violation(name: name, provider: .localFolder) == nil,
@@ -119,11 +117,10 @@ import Testing
                       rootPath: path, type: .dropBox)
     }
 
-    /// The one that matters. A folder source added INSIDE a cloud root would win
-    /// `inferredType`'s longest-root-wins rule and type that subtree `.localFolder` — and
-    /// `.localFolder` has no rules, so a path-addressed CLI copy into it would quietly stop
-    /// skipping the names Dropbox cannot store. A claim exists to carry a STRICTER ruleset onto a
-    /// path; letting a folder claim can only ever remove a guard.
+    /// A folder source inside a cloud root must not win `inferredType`'s longest-root rule and type
+    /// that subtree `.localFolder`, which has no rules: a path-addressed CLI copy into it would stop
+    /// skipping the names Dropbox can't store. A claim carries a stricter ruleset onto a path, so
+    /// letting a folder claim could only remove a guard.
     @Test func aFolderSourceInsideACloudRootDoesNotStealItsRules() {
         let providers = [dropbox("/Users/u/Library/CloudStorage/Dropbox/Documents"),
                          folder("/Users/u/Library/CloudStorage/Dropbox/Documents/Scans")]
@@ -132,18 +129,15 @@ import Testing
             among: providers) == .dropBox)
     }
 
-    /// A folder source standing on its own claims nothing either, so a path under it resolves
-    /// exactly as it did before folder sources existed: unclaimed.
+    /// A folder source on its own claims nothing either, so a path under it stays unclaimed.
     @Test func aStandaloneFolderSourceClaimsNothing() {
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/report.txt",
                                            among: [folder("/Users/u/Projects")]) == nil)
     }
 
-    /// The roadmap's pinning test: `claimRoots` already refuses a root at or above a home
-    /// directory, written for "user points a PROVIDER at their home folder". A folder source at
-    /// `~` is the same shape and is covered by the same guard — worth a test, not new code. Both
-    /// arms are asserted because the folder rule alone would pass this even if the home guard were
-    /// deleted.
+    /// `claimRoots` refuses a root at or above a home directory, which covers a folder source at
+    /// `~` as well as a provider there. Both arms are asserted, because the folder rule alone would
+    /// pass the first even with the home guard deleted.
     @Test func aFolderSourceAtHomeClaimsNothingAndNeitherWouldAProviderThere() {
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/x.txt",
                                            among: [folder("/Users/u")]) == nil)
@@ -153,8 +147,8 @@ import Testing
                                            among: [providerAtHome]) == nil)
     }
 
-    /// Overlapping sources are legitimate and stay legitimate: the cloud account still claims its
-    /// own tree with a folder source sitting beside it, above it, and below it.
+    /// Overlapping sources stay legitimate: the cloud account still claims its own tree with a
+    /// folder source beside it, above it and below it.
     @Test func foldersBesideACloudRootLeaveItsOwnClaimIntact() {
         let providers = [dropbox("/Users/u/Library/CloudStorage/Dropbox/Documents"),
                          folder("/Users/u/Projects"),
@@ -173,15 +167,11 @@ import Testing
 
     // MARK: The claim the whole feature rests on
 
-    /// *Nothing downstream changes.* The roadmap's case for this being low-risk is that the app
-    /// talks to every source through one `CloudProvider`, so a fifth type needs no new data path —
-    /// and the only type-gated behaviour in the diff path (the Google Drive date-noise filter) is
-    /// simply never triggered.
-    ///
-    /// Asserted rather than assumed, over real directories on disk: two folder sources produce the
-    /// same differences the same comparison would produce between two cloud accounts. The failure
-    /// this catches is a type-gated branch someone adds later that quietly drops `.localFolder` —
-    /// a source that scans EMPTY reads as "these folders match".
+    /// Nothing downstream changes: the app talks to every source through one `CloudProvider`, and
+    /// the only type-gated behaviour in the diff path (the Google Drive date-noise filter) never
+    /// triggers. Asserted over real directories: two folder sources produce the same differences as
+    /// two cloud accounts. Catches a type-gated branch that drops `.localFolder`, where a source
+    /// that scans empty would read as "these folders match".
     @Test func twoFolderSourcesDiffLikeAnyOtherPairOfSources() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("FolderSourceDiff-\(UUID().uuidString)")
@@ -209,8 +199,8 @@ import Testing
             )
         }
 
-        /// Everything about a difference EXCEPT its freshly-minted UUID — comparing ids across two
-        /// runs could never match, and would make the equality below vacuously true.
+        /// Everything about a difference except its freshly minted UUID, which could never match
+        /// across two runs.
         func shape(_ diffs: [FileDifference]) -> [String] {
             diffs.map { "\($0.relativePath)|\($0.type)|\($0.action)|\($0.description)" }
         }
@@ -225,12 +215,9 @@ import Testing
     }
 }
 
-/// **What a source over a whole volume is called.**
-///
-/// Reported from the running build on 2026-08-24: clicking `Macintosh HD` in the sidebar added `/`
-/// as a folder source, and the tab strip then read `/`. The tab was only where it showed — a tab at
-/// a provider root wears the *source's* name — so the pane header capsule, ⌘K and Settings ▸ Sources
-/// all had it too.
+/// What a source over a whole volume is called. A source at `/` (clicking `Macintosh HD` in the
+/// sidebar adds one) should read as the volume's name, not `/`, and that name shows in the tab
+/// strip, the pane header capsule, ⌘K and Settings ▸ Sources.
 @Suite struct FolderSourceVolumeNameTests {
 
     /// The startup disk takes the volume's name, not its path.
@@ -241,17 +228,16 @@ import Testing
         #expect(name == "Macintosh HD")
     }
 
-    /// **A volume that will not name itself keeps the old answer.** Unhelpful beats missing, and
-    /// this is exactly the behaviour the app had before the lookup existed — so a filesystem that
-    /// declines the resource value costs nothing.
+    /// A volume that won't name itself falls back to the path: unhelpful beats missing, so a
+    /// filesystem that declines the resource value costs nothing.
     @Test func aVolumeThatWillNotNameItselfFallsBackToThePath() {
         #expect(FolderSource.defaultDisplayName(forPath: "/") { _ in nil } == "/")
         #expect(FolderSource.defaultDisplayName(forPath: "/") { _ in "" } == "/",
                 "an empty volume name is used verbatim, so the source is called nothing at all")
     }
 
-    /// **Every other path is unaffected**, and that matters: the lookup must not fire for the
-    /// ordinary case. `/Volumes/Backup` already has a real last component and answers from it.
+    /// Every other path is unaffected: the lookup must not fire for the ordinary case.
+    /// `/Volumes/Backup` already has a real last component and answers from it.
     @Test func aNamedVolumeAndAnOrdinaryFolderDoNotConsultTheVolume() {
         var consulted = 0
         let resolver: (String) -> String? = { _ in consulted += 1; return "WRONG" }
@@ -260,15 +246,15 @@ import Testing
         #expect(consulted == 0, "the volume was consulted \(consulted) times for a path that names itself")
     }
 
-    /// The home folder keeps its own special case, which predates this and is a different problem:
-    /// its last component is the account's short name, which reads as a person rather than a place.
+    /// The home folder keeps its own special case: its last component is the account's short name,
+    /// which reads as a person rather than a place.
     @Test func theHomeFolderKeepsItsOwnName() {
         #expect(FolderSource.defaultDisplayName(forPath: NSHomeDirectory()) { _ in "WRONG" } == "Home folder")
         #expect(FolderSource.defaultDisplayName(forPath: "~") { _ in "WRONG" } == "Home folder")
     }
 
-    /// And the name reaches the tab, which is where it was seen. A tab at a provider root wears the
-    /// source's name — the reason one bad name showed up in four places.
+    /// The name reaches the tab: a tab at a provider root wears the source's name, which is how
+    /// one bad name shows up in four places.
     @Test func aTabAtTheRootWearsTheSourcesName() {
         let tab = PaneTab(providerId: "folder-src", relativePath: "")
         #expect(tab.displayName(providerName: "Macintosh HD") == "Macintosh HD")

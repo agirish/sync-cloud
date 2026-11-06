@@ -6,7 +6,7 @@
 import Darwin
 import Foundation
 
-/// How RD67's saved state reaches the disk: whole files, replaced in one step, and on the disk
+/// How the one-way sync's saved state reaches the disk: whole files, replaced in one step, and on the disk
 /// itself before the call returns.
 ///
 /// `Data.write(options: .atomic)` replaces a file in one step but leaves the bytes in the drive's

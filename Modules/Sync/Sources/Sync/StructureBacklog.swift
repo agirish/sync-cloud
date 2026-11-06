@@ -3,26 +3,23 @@ import Foundation
 /// The newest instance of a recurring series has no folders yet (ROADMAP v5 §5.2).
 ///
 /// `Health/Dental/2025` holds this year's claims flat while `2019`–`2024` each hold `Claims/` and
-/// `Statements/` — worth saying the month it happens rather than thirteen years later, which is
-/// what makes this the everyday detector in a set whose flagship case took a decade to build up.
+/// `Statements/`. Worth saying the month it happens, so this is the everyday detector.
 ///
-/// Its fix is the cheapest one in the file: a **scaffold** — create the folders the family's
-/// vouched vocabulary expects, nothing else — and a hand-off of the flat files to To File, the
-/// surface that already makes per-file judgements. Where the shaped siblings vouch for no shared
-/// scheme (all drift), the finding still fires but the scaffold is empty and the card says so:
-/// there is nothing to copy, which is itself the observation.
+/// The fix is a scaffold: create the folders the family's vouched vocabulary expects, nothing
+/// else, and hand the flat files to To File for per-file judgements. When the shaped siblings
+/// vouch for no shared scheme, the finding still fires with an empty scaffold, and the card says
+/// there is nothing to copy.
 enum StructureBacklog {
 
-    /// The scaffold copies only a scheme this many shaped members vouch for. Two independent
-    /// folders agreeing is the cheapest evidence a convention exists — the same bar
-    /// ``StructureDivergence/AgreementRule/minimumMembers`` sets, for the same reason.
+    /// The scaffold copies only a scheme this many shaped members vouch for: two folders agreeing
+    /// is the least evidence of a convention, as in
+    /// ``StructureDivergence/AgreementRule/minimumMembers``.
     static let minimumVouchingMembers = 2
 
-    /// The firing bar is lower than the scaffold's: **one** older shaped sibling makes the newest
-    /// member's flatness a finding ("its siblings have folders; this one doesn't yet"), because
-    /// requiring two silences `Health/Dental/2025` — a family whose older years are shaped one at
-    /// a time. Swept against the reference tree on 2026-08-28: two-shaped returns 2, one-shaped
-    /// returns 11, all plausible, both of the roadmap's named examples among them.
+    /// The firing bar is lower than the scaffold's: one older shaped sibling makes the newest
+    /// member's flatness a finding. Requiring two would silence families like `Health/Dental`,
+    /// whose older years are shaped one at a time; on the reference tree, two finds 2 and one
+    /// finds 11, all plausible.
     static func findings(in profile: FolderProfile,
                          childrenByParent: [String: [String]]) -> [StructureFinding] {
         var out: [StructureFinding] = []
@@ -52,16 +49,13 @@ enum StructureBacklog {
         return out
     }
 
-    /// What to create: the vouched vocabulary of the shaped members — the scheme the most recent
-    /// of them belongs to, so a family mid-migration scaffolds its *current* shape, not its
-    /// oldest one. Empty when no two shaped members agree, which the card states rather than
-    /// papering over with one member's layout: a lone shaped sibling's idiosyncrasy
-    /// (`Benefits/2024/Archive`) must not become next year's convention.
+    /// What to create: the vouched vocabulary of the scheme the most recent shaped member belongs
+    /// to, so a family mid-migration scaffolds its current shape. Empty when no two shaped members
+    /// agree: one sibling's quirk (`Benefits/2024/Archive`) must not become next year's convention.
     ///
-    /// The names are the **most recent vouching member's own child names**, not the vocabulary —
-    /// ``StructureDivergence/vocabulary(of:in:)`` lowercases for comparison, and a scaffold of
-    /// `claims/` on a tree that spells it `Claims/` would be a new divergence created by the tool
-    /// that exists to remove them.
+    /// The names are that member's own child names, as spelled on disk:
+    /// ``StructureDivergence/vocabulary(of:in:)`` lowercases, and scaffolding `claims/` beside
+    /// `Claims/` would create a new divergence.
     static func scaffold(for shapedPaths: [String], in profile: FolderProfile,
                          childrenByParent: [String: [String]]) -> [String] {
         let vocabularies = shapedPaths.compactMap { path -> (name: String, words: Set<String>)? in
@@ -86,9 +80,9 @@ enum StructureBacklog {
             .sorted()
     }
 
-    /// A folder's non-axis child names as they are spelled on disk — the display-cased twin of
-    /// ``StructureDivergence/vocabulary(of:in:childrenByParent:)``, and it reads the same sibling
-    /// map for the same reason: it walked every folder in the profile per call.
+    /// A folder's non-axis child names as spelled on disk: the display-cased twin of
+    /// ``StructureDivergence/vocabulary(of:in:childrenByParent:)``. It reads the shared sibling map
+    /// so a call doesn't walk every folder in the profile.
     static func displayNames(of path: String, in profile: FolderProfile,
                              childrenByParent: [String: [String]]) -> [String] {
         var names: [String] = []

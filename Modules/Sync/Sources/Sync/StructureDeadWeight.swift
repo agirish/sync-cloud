@@ -2,12 +2,10 @@ import Foundation
 
 /// The crowding classification — dead weight by shape alone (ROADMAP v5 §5.2).
 ///
-/// Three classes, and only the empties carry an action, because only their rule survives contact
-/// with this tree's history: a single-file leaf can be a destination waiting for its next file
-/// (`Supporting Documents/Resume` was put back on 6 Aug after exactly that mistake), and hoisting
-/// a pass-through folder renames every path beneath it for a defect that costs one click in a
-/// column view. Say the number, offer the list, offer no button — except for the empties, which
-/// get §5.5's removal sheet with the date-bucket / category split.
+/// Three classes, and only the empties carry an action: a single-file leaf can be a destination
+/// waiting for its next file, and hoisting a pass-through folder renames every path beneath it to
+/// save one click in a column view. The others get a count and a list, no button; the empties get
+/// §5.5's removal sheet with the date-bucket / category split.
 enum StructureDeadWeight {
 
     /// Path → class, for every folder that has one. Pure counting; the profile already carries

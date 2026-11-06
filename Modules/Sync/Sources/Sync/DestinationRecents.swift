@@ -2,15 +2,12 @@ import Foundation
 
 /// The handful of folders you actually file into, remembered per provider.
 ///
-/// Filing is repetitive — a small set of folders absorbs most of it — so a picker that remembers
-/// nothing makes you re-navigate the same four columns every time. Five entries, because this is a
-/// shortcut list and not a history: past that it stops being scannable, and the browse columns are
-/// the better tool for anything further afield.
+/// Filing is repetitive, so the picker remembers where you filed instead of making you re-navigate
+/// the same columns. Five entries: a shortcut list, not a history.
 ///
-/// One defaults key holding a root → destinations dictionary, rather than a key per provider.
-/// Deriving a key from the root would mean encoding a path into a key name, and the obvious way to
-/// do that — hashing it — is a trap: Swift seeds `String.hashValue` per process, so the key would
-/// differ on every launch and the list would appear to persist while never once being read back.
+/// One defaults key holding a root → destinations dictionary, not a key per provider. **Never
+/// derive a key from `String.hashValue`**: Swift seeds it per process, so the list would be written
+/// every launch and never read back.
 public enum DestinationRecents {
 
     /// How many destinations are kept per provider.
@@ -22,10 +19,8 @@ public enum DestinationRecents {
     /// The remembered destinations for one provider, most recent first, with any that no longer
     /// resolve to a directory dropped.
     ///
-    /// Pruning on *read* rather than on delete: folders disappear behind the app's back all the
-    /// time — another Mac, the provider's web UI, the user's own Finder — and offering one that no
-    /// longer exists would hand the picker a destination the transfer would then refuse. Read is
-    /// also the only moment guaranteed to be on the picker's path.
+    /// Pruned on read: folders vanish behind the app's back (another Mac, the provider's web UI,
+    /// Finder), and offering one would hand the picker a destination the transfer then refuses.
     public static func load(
         providerRoot: String,
         in defaults: UserDefaults = .standard,
@@ -42,8 +37,7 @@ public enum DestinationRecents {
 
     /// Records a destination as the most recent, de-duplicating and trimming to `limit`.
     ///
-    /// Removes before inserting rather than appending and de-duplicating afterwards, so re-filing
-    /// into the folder you just used keeps it at the top instead of pushing it down.
+    /// Removes before inserting, so re-filing into the folder you just used keeps it at the top.
     public static func record(
         _ path: String,
         providerRoot: String,
@@ -53,10 +47,9 @@ public enum DestinationRecents {
         let destination = PaneBrowsePath.normalized(path)
         let root = PaneBrowsePath.normalized(providerRoot)
         guard !destination.isEmpty, !root.isEmpty else { return }
-        // Only remember destinations inside the provider. The system-panel escape can land
-        // anywhere, and this is a per-provider shortcut list, not a bookmark store.
-        // `PathBoundary`, not a prefix test: a folder the root links in from outside — iCloud
-        // Drive's `~/Documents` — is inside the provider without being a string prefix of it.
+        // Only destinations inside the provider; the system-panel escape can land anywhere.
+        // `PathBoundary`, not a prefix test: a folder the root links in from outside (iCloud
+        // Drive's `~/Documents`) is inside the provider without being a string prefix of it.
         guard PathBoundary.contains(destination, under: root, links: links) else { return }
 
         var all = (defaults.dictionary(forKey: defaultsKey) as? [String: [String]]) ?? [:]

@@ -2,16 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A dangling symlink is still an item on disk, and Delete has to remove it.**
-///
-/// `deleteItems(at:)` gated the trash on `fileExists(atPath:)`, which FOLLOWS the link. A symlink
-/// whose target has been deleted — or lives on a volume that is not mounted — therefore answered
-/// `false`, and the branch had no `else`: the entry was skipped with no error, no banner, and no
-/// place in the removed count. The user selected it, pressed Delete, and was told the operation
-/// succeeded while the link stayed exactly where it was.
-///
-/// The distinction is one the codebase already relies on elsewhere: `setAsideUnreadable` probes
-/// with `attributesOfItem` precisely because "the link is still a directory entry".
+/// A dangling symlink is still an item on disk, and Delete removes it. `fileExists(atPath:)`
+/// follows the link, so a link whose target is deleted or unmounted answers `false`; gating the
+/// trash on it would skip the entry silently, report success, and leave the link in place.
+/// `setAsideUnreadable` probes with `attributesOfItem` for the same reason: the link is still a
+/// directory entry.
 @Suite @MainActor struct DeleteDanglingSymlinkTests {
 
     private func makeManager() -> FileSyncManager {
@@ -50,8 +45,8 @@ import Testing
         #expect(fm.trashedPaths.contains { $0.hasSuffix("link-to-nowhere") })
     }
 
-    /// Mixed selection: the ordinary file must still go, and the count must cover both — a fix that
-    /// only ever counted one of them would pass the test above.
+    /// Mixed selection: the ordinary file still goes and the count covers both, which a count of
+    /// only one kind would fail.
     @Test func aDanglingSymlinkBesideAnOrdinaryFileTakesBoth() async throws {
         let manager = makeManager()
         let fm = try makeDisk()
@@ -65,8 +60,8 @@ import Testing
         #expect(fm.virtualDisk["/docs/real.txt"] == nil)
     }
 
-    /// And a path that is genuinely absent is still nothing to do — the guard must not become
-    /// "trash everything asked for", which would send the trash at paths nothing occupies.
+    /// A genuinely absent path is still nothing to do: the guard must not become "trash everything
+    /// asked for".
     @Test func aPathThatIsGenuinelyAbsentIsStillSkipped() async throws {
         let manager = makeManager()
         let fm = try makeDisk()
@@ -77,8 +72,8 @@ import Testing
         #expect(fm.trashedPaths.isEmpty)
     }
 
-    /// ⌘Z brings it back, like any other delete — the link is an item, so its removal is an
-    /// ordinary undoable one and not a special case.
+    /// ⌘Z brings it back like any other delete: the link is an item, so its removal is an ordinary
+    /// undoable one.
     @Test func trashingADanglingSymlinkIsUndoable() async throws {
         let manager = makeManager()
         let fm = try makeDisk()

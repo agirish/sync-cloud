@@ -11,7 +11,7 @@ import Foundation
         
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         
-        // This flag isn't natively in our mock yet, but we will add it to mockFM shortly to simulate ENXIO / EXDEV
+        // Fail the plain rename, as across volumes (EXDEV)
         mockFM.shouldFailMove = true
         
         let srcURL = URL(fileURLWithPath: "/src/data.bin")
@@ -177,9 +177,9 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/data.bin"] == nil)
     }
     
-    /// P5. Replacing a LINK that points at the source's ancestor replaces the link, not the folder
-    /// it leads to — so it is not "a folder the source sits in", and FR30 does not refuse it. The
-    /// real folder in the same place still is refused.
+    /// Replacing a link that points at the source's folder replaces the link, not the folder it
+    /// leads to, so it isn't "a folder the source sits in" and isn't refused. The real folder in the
+    /// same place still is.
     @Test func aLinkToTheSourcesFolderCanBeReplaced() throws {
         let base = try makeCanonicalTempRoot(prefix: "p5")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -197,10 +197,10 @@ import Foundation
         }
     }
 
-    /// B1. The Replace P5 lets through actually happens, copy and move alike: `T/Photos` is a link
-    /// to `Elsewhere/Photos`, and `T/Photos/Photos` — through the link — replaces it. The link goes
-    /// to the Trash, the folder it led to keeps everything else in it, and `T/Photos` is the real
-    /// folder now. `replaceItemAt` refused every link ("The file “Photos” doesn’t exist.").
+    /// The Replace the test above lets through really happens, copy and move alike: `T/Photos` is
+    /// a link to `Elsewhere/Photos`, and `T/Photos/Photos` (through the link) replaces it. The link
+    /// goes to the Trash, the folder it led to keeps everything else, and `T/Photos` is now the
+    /// real folder. `replaceItemAt` can't replace a link ("The file “Photos” doesn’t exist.").
     @Test(arguments: [false, true])
     func aLinkToTheSourcesFolderIsReplacedOnDisk(isMove: Bool) throws {
         let base = try makeCanonicalTempRoot(prefix: "b1-\(isMove ? "move" : "copy")")
@@ -231,9 +231,9 @@ import Foundation
         #expect(backup.path.hasPrefix(trash.folder.path))
     }
 
-    /// FR30. Pasting `/T/Photos/Photos` into `/T` targets `/T/Photos` — the source's own parent.
-    /// Answering Replace swapped the inner folder in and trashed the outer one with everything
-    /// else it held. The validation refuses that shape, on either case spelling, and nothing else.
+    /// Pasting `/T/Photos/Photos` into `/T` targets `/T/Photos`, the source's own parent: Replace
+    /// would swap the inner folder in and trash the outer one with everything else it holds.
+    /// Validation refuses that shape, on either case spelling, and nothing else.
     @Test func aFolderCannotReplaceTheFolderItSitsIn() throws {
         let inner = URL(fileURLWithPath: "/T/Photos/Photos")
         #expect(throws: FileSyncManager.FileOperationError.destinationContainsSource) {
@@ -253,11 +253,10 @@ import Foundation
                                                   caseSensitiveVolume: true)
     }
 
-    /// The same shape through the move a paste runs, with Replace answered, on a real disk: the
-    /// outer folder and everything else in it stay exactly where they were. (The mock disk stores
-    /// flat paths, so a moved folder leaves its children listed behind it — that version of this
-    /// test passed with the guard removed.) The Trash is refused, so even a regression leaves the
-    /// replaced folder beside the fixture rather than in the real Trash.
+    /// The same shape through a paste's move, Replace answered: the outer folder and everything in
+    /// it stay put. A real disk, because the mock stores flat paths and a moved folder leaves its
+    /// children listed, so the test would pass without the guard. The Trash is refused, so a
+    /// regression leaves the replaced folder beside the fixture, not in the real Trash.
     @MainActor
     @Test func replacingTheSourcesOwnParentLeavesItAlone() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr30-\(UUID().uuidString)")
@@ -302,9 +301,8 @@ import Foundation
         #expect(manager.currentError == nil, "\(manager.currentError?.reason ?? "")")
     }
 
-    /// FR23. Moving `/A/f.txt` and `/B/f.txt` into `/D` with Replace lands two items on one name.
-    /// ⌘Z must put each file back where it came from — before the fix both undo records described
-    /// B's file at `/D/f.txt`, so B's content went to `/A` and `/B` was left empty.
+    /// Moving `/A/f.txt` and `/B/f.txt` into `/D` with Replace lands two items on one name. ⌘Z must
+    /// put each file back where it came from, not B's content in `/A` and nothing in `/B`.
     @MainActor
     @Test func undoingAMoveThatLandedTwiceOnOneNamePutsEachFileHome() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr23-\(UUID().uuidString)")
@@ -346,15 +344,11 @@ import Foundation
         try #expect(FileSyncManager.validateFileOperation(source: parentDir, destination: URL(fileURLWithPath: "/src/otherFolder")) == ())
     }
 
-    /// **A source whose parent is the volume root.** The nesting guard builds its source prefix by
-    /// resolving the PARENT and re-appending the leaf (so a symlinked leaf is not followed — see
-    /// `aSymlinkCanBeMovedIntoTheDirectoryItPointsAt` below). At the root the parent's resolved
-    /// path is already `"/"`, so joining with another separator spelled the source `//Users`, and
-    /// the prefix `//Users/` matches no resolved destination path there is — the check came back
-    /// false for the one operation it exists to refuse, and a directory could be moved into itself.
-    ///
-    /// Every other depth was unaffected, which is why the ordinary tests above did not see it:
-    /// `/src/folder` has a parent of `/src`, with nothing to double.
+    /// A source whose parent is the volume root. The nesting guard builds the source prefix from
+    /// the resolved parent plus the leaf, so a symlinked leaf isn't followed (see
+    /// `testMovingASymlinkIntoTheDirectoryItPointsAtIsAllowed`). At the root the parent is already
+    /// `"/"`, and a naive join spells `//Users`, which matches no destination, so a folder could be
+    /// moved into itself. Only this depth can double the separator.
     @Test func testRecursivePathValidationHoldsForASourceAtTheVolumeRoot() async throws {
         let atRoot = URL(fileURLWithPath: "/Users")
 
@@ -368,8 +362,7 @@ import Foundation
                 source: atRoot, destination: URL(fileURLWithPath: "/users/child"),
                 caseSensitiveVolume: false)
         }
-        // And a sibling at the same depth is still legal — the fix must not turn the root into a
-        // blanket refusal.
+        // A sibling at the same depth stays legal: the root is not a blanket refusal.
         try #expect(FileSyncManager.validateFileOperation(
             source: atRoot, destination: URL(fileURLWithPath: "/Elsewhere/child"),
             caseSensitiveVolume: true) == ())
@@ -398,17 +391,12 @@ import Foundation
         ) == ())
     }
 
-    /// **A symlink is not a container, so moving one INTO the directory it points at is legal.**
-    ///
-    /// The nesting guard resolved the source's last component, so a link source read as its
-    /// target: `/base/alias` → `/base/realDir/sub` was checked as though the user had asked to move
-    /// `/base/realDir` into itself, and an ordinary move of one directory entry was refused with
-    /// `nestingViolation`. Moving the link creates no cycle — nothing traverses it.
-    ///
-    /// The identity check above still follows the link, deliberately, and
-    /// `testRecursivePathValidationResolvesSymlinks` pins that: an alias and its target ARE one
-    /// item, and moving the alias onto it would replace the real directory with a link to itself.
-    /// The two checks ask different questions and take different paths for the source.
+    /// A symlink is not a container, so moving one into the directory it points at is legal:
+    /// nothing traverses the link, so there is no cycle. The nesting guard must not resolve the
+    /// source's last component, or `/base/alias` → `/base/realDir/sub` reads as moving `realDir`
+    /// into itself. The identity check does follow the link
+    /// (`testRecursivePathValidationResolvesSymlinks`): an alias and its target are one item, and
+    /// moving one onto the other would replace the real directory with a link to itself.
     @Test func testMovingASymlinkIntoTheDirectoryItPointsAtIsAllowed() async throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("ValidateLinkMove-\(UUID().uuidString)")
@@ -422,8 +410,7 @@ import Foundation
         try #expect(FileSyncManager.validateFileOperation(
             source: linkURL, destination: realDir.appendingPathComponent("sub")) == ())
 
-        // And somewhere unrelated, which was never in doubt but keeps this from passing because
-        // validation stopped refusing anything at all.
+        // And somewhere unrelated, as a plain control.
         try #expect(FileSyncManager.validateFileOperation(
             source: linkURL, destination: base.appendingPathComponent("moved")) == ())
 
@@ -434,9 +421,9 @@ import Foundation
         }
     }
 
-    /// A destination reached through a symlink that points back inside the source must be
-    /// rejected: before symlink resolution, `/tmp/.../link/sub` shares no prefix with the real
-    /// source directory, so the guard passed and the copy recursed into itself.
+    /// A destination reached through a symlink back inside the source must be rejected: unresolved,
+    /// `/tmp/.../link/sub` shares no prefix with the real source, and the copy would recurse into
+    /// itself.
     @Test func testRecursivePathValidationResolvesSymlinks() async throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("ValidateSymlink-\(UUID().uuidString)")
@@ -494,13 +481,9 @@ import Foundation
         #expect(manager.undoManager?.canUndo == true)
         
         manager.undoManager?.undo()
-        // The undo handler removes the folder from inside `Task { await enqueueFileOperation … }`,
-        // so it lands at a time the test cannot predict. A fixed 100ms window was ample on an idle
-        // machine and short of it under full-suite load on the self-hosted runner, which failed
-        // this assertion on a commit that passed on a re-run of the same SHA (v2.x run
-        // 30823146574, 2026-08-03). Waiting on the effect makes a genuinely slow undo fail late
-        // rather than fail wrongly, and `waitUntil` records the timeout itself — the removal is
-        // never asserted only by a wait whose result went unread.
+        // The undo removes the folder inside `Task { await enqueueFileOperation … }`, at a time the
+        // test can't predict, so wait on the effect: a fixed window runs short under full-suite
+        // load. `waitUntil` records its own timeout, so the removal is still asserted.
         await waitUntil("undo removes the created folder") {
             mockFM.virtualDisk["/src/New Folder"] == nil
         }
@@ -561,12 +544,10 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/f2.txt"] == nil)
     }
     
-    /// The toPath variants must tilde-expand once and use the expanded value for BOTH the
-    /// root-existence guard and the per-item targets (like paneTargetURL). Deriving targets
-    /// from the raw "~/…" string relied on URL(fileURLWithPath:)'s expansion behavior, which
-    /// is Foundation-version dependent — on runtimes that don't expand, items landed at
-    /// "<cwd>/~/…" while the guard (which stats the expanded path) passed, and a move also
-    /// removed the sources.
+    /// The toPath variants must tilde-expand once and use the expanded value for both the
+    /// root-existence guard and the per-item targets (like paneTargetURL). Whether
+    /// URL(fileURLWithPath:) expands "~" depends on the Foundation version; where it doesn't, items
+    /// would land at "<cwd>/~/…" while the guard passed, and a move would also remove the sources.
     @MainActor
     @Test func testCopyAndMoveToTildePathExpandBeforeDerivingTargets() async throws {
         let manager = FileSyncManager()
@@ -764,9 +745,8 @@ import Foundation
     }
 
     /// The same distinction one layer down: safeMoveItem onto a case-variant destination on a
-    /// case-sensitive volume is a REPLACEMENT (atomic swap with a recoverable backup), not a
-    /// case-only rename excluded from the existence check — which used to end in a raw
-    /// "file exists" throw from the plain move.
+    /// case-sensitive volume is a replacement (atomic swap with a recoverable backup), not a
+    /// case-only rename skipping the existence check, which would end in a raw "file exists" throw.
     @Test func testSafeMoveOntoCaseVariantReplacesOnCaseSensitiveVolume() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

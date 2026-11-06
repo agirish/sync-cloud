@@ -2,16 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **To File moves the file the card is about, or nothing (FR45).**
-///
-/// `performFiling` checked only that something sat at the card's path. A queue is stepped through
-/// minutes after the scan, and in that time a browser can re-download over the name or an editor
-/// save a different document to it — and the move then carried that stranger into a folder chosen
-/// for the original, leaving nothing where the user last saw it. The scan now records each file's
-/// `ItemIdentity`, and the move refuses one that has drifted, as Automations' apply already did.
-///
-/// Real disk throughout: the identity is a real stat, and the outcome asserted is where the bytes
-/// end up.
+/// To File moves the file the card is about, or nothing. A queue is stepped through minutes after
+/// the scan, and a browser can re-download over the name or an editor save a different document
+/// there; a path check alone would carry that stranger into a folder chosen for the original. The
+/// scan records each file's `ItemIdentity`, and the move refuses one that has drifted, as
+/// Automations' apply does. Real disk throughout: the identity is a real stat.
 @Suite @MainActor struct FilingSourceIdentityTests {
 
     private static func write(_ url: URL, bytes: Int, fill: UInt8 = 0x41) throws {
@@ -31,7 +26,7 @@ import Testing
         try write(root.appendingPathComponent("Documents/Bills/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/\(fileName)"), bytes: 5000)
         let m = FileSyncManager()
-        // Content reading on explicitly — it is the default, but a stray `false` in the test
+        // Content reading on explicitly: it is the default, but a stray `false` in the test
         // process's defaults would switch phase 2 off and leave the content test vacuous.
         let settings = UserDefaults(suiteName: "FilingSourceIdentity-\(UUID().uuidString)")!
         settings.set(true, forKey: FileSyncManager.readContentsDefaultsKey)
@@ -47,8 +42,8 @@ import Testing
         return (root, m, card, folder)
     }
 
-    /// The scan records the file as the move will re-read it — the precondition for the guard
-    /// below, and what keeps it from refusing a file nobody touched.
+    /// The scan records the file as the move will re-read it, so the guard doesn't refuse a file
+    /// nobody touched.
     @Test func theScanRecordsEachFilesIdentity() async throws {
         let (root, _, card, _) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -61,8 +56,8 @@ import Testing
                                fileManager: FileManager.default) == .unchanged)
     }
 
-    /// The headline: a different document now sits at the card's path. It stays where it is,
-    /// nothing lands in the folder, and the alert says why.
+    /// A different document now sits at the card's path. It stays put, nothing lands in the
+    /// folder, and the alert says why.
     @Test func aFileReplacedSinceTheScanIsNotFiled() async throws {
         let (root, m, card, folder) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -82,11 +77,9 @@ import Testing
                 "the alert did not say why: \(m.currentError?.reason ?? "-")")
     }
 
-    /// **The refusal is a filing's, and says nothing untrue about a folder the user picked.** It
-    /// went out as "Sync Failed / Couldn't sync “invoice.pdf”" marked retryable, and said "the
-    /// folder suggested for it was chosen for a different file" — after "Choose a folder…", where
-    /// nothing suggested it and the user chose it. Pressing the same button again cannot change a
-    /// file that is no longer the one the card was about, so it is not retryable either.
+    /// The refusal is worded as a filing failure, not a sync one, and doesn't call a folder the user
+    /// chose (via "Choose a folder…") a suggestion. It isn't retryable: pressing the button again
+    /// can't make the file the one the card was about.
     @Test func theRefusalIsAFilingsAndFitsAChosenFolder() async throws {
         let (root, m, card, folder) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -105,8 +98,8 @@ import Testing
                 "the refusal calls a folder the user chose a suggestion: \(reason)")
     }
 
-    /// The other direction, so the refusal above is not a guard that refuses everything: the same
-    /// card, untouched, files.
+    /// The other direction, so the guard doesn't refuse everything: the same card, untouched,
+    /// files.
     @Test func anUntouchedFileStillFiles() async throws {
         let (root, m, card, folder) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -119,8 +112,8 @@ import Testing
             atPath: URL(fileURLWithPath: folder.path).appendingPathComponent("invoice.pdf").path))
     }
 
-    /// A re-answered card keeps the identity — "Try another", a refine and Read scan rebuild the
-    /// suggestion, and a rebuild that dropped it would silently switch the guard off.
+    /// A re-answered card keeps the identity: "Try another", a refine and Read scan rebuild the
+    /// suggestion, and dropping it would silently switch the guard off.
     @Test func aRebuiltCardKeepsTheIdentity() async throws {
         let (root, _, card, _) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -128,12 +121,10 @@ import Testing
         #expect(card.alreadyFiled(at: ["Documents"]).sourceIdentity == card.sourceIdentity)
     }
 
-    /// **Content reading's re-suggest keeps the identity.** Phase 2 replaces the whole list with a
-    /// fresh `FilingEngine.suggest`, which knows nothing of identities; with reading on — the
-    /// default — every card it rebuilt went out with none, and `performFiling` skips the check
-    /// for a card without one. The file's name says nothing, so it has no home before its page is
-    /// read; the reader returns a token that gives it one, which proves the re-suggest ran. The
-    /// card must still refuse a replaced file.
+    /// Content reading's re-suggest keeps the identity. Phase 2 replaces the list with a fresh
+    /// `FilingEngine.suggest`, which knows nothing of identities, and `performFiling` skips the
+    /// check for a card without one. The filename says nothing, so a home from content proves the
+    /// re-suggest ran; the card must still refuse a replaced file.
     @Test func contentReadingKeepsTheIdentity() async throws {
         let (root, m, card, folder) = try await Self.scanned(fileName: "scan0042.pdf",
                                                              contentTokens: ["bills"])

@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The correction has to reach the index, and it has to reach it when it is made.**
-///
-/// `PersonIdentityIndex.make` can now be handed the identifiers a rejection withdraws, but a rule
-/// extracted for testability is one revert away from being unused — and this one has two ways to be
-/// unused that a pure-function suite cannot see. The manager has to translate the tags through the
-/// corpus at all, and it has to rebuild when a verdict is recorded rather than at the next relaunch.
-/// A correction that takes effect only after a restart is most of what makes an app feel deaf.
+/// A correction has to reach the index, and when it is made. `PersonIdentityIndex.make` takes the
+/// identifiers a rejection withdraws, but a pure-function suite can't see whether the manager
+/// translates the tags through the corpus, or rebuilds when a verdict is recorded rather than at
+/// the next relaunch. A correction that waits for a restart makes the app feel deaf.
 @MainActor
 @Suite struct PersonUnlearnWiringTests {
 
@@ -28,7 +25,7 @@ import Testing
                              personTokens: ["granny", "daughter"])
     }
 
-    /// The number in both folders — hers eleven times, Daughter's once by mistake.
+    /// The number in both folders: hers, and Daughter's by mistake.
     static let contested = "z1234567"
     static let misfiled = "School/Daughter/Scan 2026-08-02.pdf"
 
@@ -66,8 +63,8 @@ import Testing
         return (m, dir)
     }
 
-    /// **The whole path, end to end.** Two claimants silence the identifier; pressing "not Daughter's"
-    /// hands it back to Granny — without a relaunch, and without anything else moving.
+    /// The whole path, end to end: two claimants silence the identifier, and pressing "not
+    /// Daughter's" hands it back to Granny without a relaunch.
     @Test func aVerdictRecordedNowChangesTheIndexNow() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -82,29 +79,22 @@ import Testing
         #expect(m.filingPersonIdentity.count(for: "granny") == 1,
                 "the index did not rebuild when the verdict was recorded")
         #expect(m.filingPersonIdentity.count(for: "daughter") == 0)
-        // And the tier that reads it now answers, which is what the user actually sees.
+        // And the tier that reads it now answers, which is what the user sees.
         #expect(Self.household.attribute(fileName: "Scan.pdf",
                                          pageSample: "passport no \(Self.contested)",
                                          identity: m.filingPersonIdentity) == ["granny"])
     }
 
-    /// **The same correction, on a tree whose folder name and `profileId` field disagree.**
-    ///
-    /// ``FilingProfileStore/active(in:)`` lets the folder win and warns when they differ — which
-    /// they do whenever a hand-built `folder-profile.json` omits `profileId`, since it decodes to
-    /// `"default"`. `rejectedIdentifiers()` read the corpus under the FIELD, so on a disagreement
-    /// it opened a path with nothing behind it, answered `[:]`, and every "not theirs" the user had
-    /// pressed silently stopped withdrawing anything. Nothing failed: the index simply rebuilt as
-    /// though no rejection existed, which is indistinguishable from a household that never pressed
-    /// the button.
-    ///
-    /// Same assertions as `aVerdictRecordedNowChangesTheIndexNow` above, so the only variable is
-    /// where the corpus is looked for.
+    /// The same correction on a tree whose folder name and `profileId` field disagree, as they do
+    /// when a hand-built `folder-profile.json` omits `profileId` (it decodes to `"default"`).
+    /// ``FilingProfileStore/active(in:)`` lets the folder win, so the corpus must be read under the
+    /// folder; under the field it isn't there, and every "not theirs" silently withdraws nothing.
+    /// Same assertions as `aVerdictRecordedNowChangesTheIndexNow`, so only the lookup varies.
     @Test func aRejectionStillAppliesWhenTheProfileFieldDisagreesWithItsFolder() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // The artifacts are under `p/`, which is what the app would hand over as the directory id;
-        // the field inside the profile says something else entirely.
+        // The artifacts are under `p/`, the directory id the app hands over; the profile's field
+        // says something else.
         m.filingProfileDirectoryId = "p"
         m.filingFolderProfile = FolderProfile(profileId: "default", root: "~",
                                               folders: Self.profile().folders,
@@ -120,7 +110,7 @@ import Testing
         #expect(m.filingPersonIdentity.count(for: "daughter") == 0)
     }
 
-    /// A confirmation moves nothing — it rebuilds, and the index is what it was.
+    /// A confirmation moves nothing: it rebuilds, and the index is what it was.
     @Test func aConfirmationLeavesTheIndexAlone() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -129,13 +119,10 @@ import Testing
         #expect(m.filingPersonIdentity.isEmpty)
     }
 
-    /// **And once per CHANGE to the rejections, not once per verdict.**
-    ///
-    /// This rebuild fires on every write to the tag store, and the queue's whole interaction is
-    /// pressing yes or no on rows — so an uncached read put a 100 ms main-actor decode of a 4,866 KB
-    /// corpus behind every press after the first rejection. The probe here is the same one the test
-    /// below uses: a corpus file that cannot be decoded. Recording the rejection while it is
-    /// READABLE fills the cache; breaking the file afterwards proves nothing reads it again.
+    /// The corpus is read once per change to the rejections, not once per verdict. The rebuild
+    /// fires on every tag-store write and the queue is all yes/no presses, so uncached each press
+    /// would decode megabytes on the main actor. A readable corpus fills the cache; breaking it
+    /// afterwards proves nothing reads it again.
     @Test func theCorpusIsNotReReadForEveryVerdict() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -154,7 +141,7 @@ import Testing
                 "the corpus was re-read for a verdict that changed no rejection")
     }
 
-    /// And a NEW rejection does re-read, because the answer really has changed.
+    /// A new rejection does re-read, because the answer really has changed.
     @Test func aNewRejectionReReadsTheCorpus() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -162,25 +149,25 @@ import Testing
                                        verdict: .rejected, path: Self.misfiled)
         try #require(m.filingPersonIdentity.count(for: "granny") == 1)
 
-        // A second rejection, this time for Granny's own claim, withdraws the identifier from her
-        // too — which can only happen if the corpus was consulted again.
+        // A second rejection, for Granny's own claim, withdraws the identifier from her too, which
+        // can only happen if the corpus was consulted again.
         m.filingPersonTagStore?.record(personId: "granny", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
         #expect(m.filingPersonIdentity.count(for: "granny") == 0,
                 "a new rejection was answered from the cache")
     }
 
-    /// **The corpus is read only when there is a rejection to translate.** It is megabytes, and the
-    /// rebuild runs whenever the roster, profile or memory moves — so a household that has never
-    /// pressed "not theirs" must not pay for it.
+    /// The corpus is read only when there is a rejection to translate. It is megabytes, and the
+    /// rebuild runs whenever the roster, profile or memory moves, so a household that never pressed
+    /// "not theirs" must not pay for it.
     @Test func theCorpusIsNotReadWithoutARejection() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("unlearn-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
                                                 withIntermediateDirectories: true)
-        // A corpus that would CRASH the decoder if it were read — the cheapest possible probe for
-        // "was this opened at all", and one that cannot pass by accident.
+        // An undecodable corpus. Read, it decodes to nil and withdraws nothing, the same as never
+        // read, so this can't tell whether it was opened.
         try Data("{ not json at all".utf8)
             .write(to: dir.appendingPathComponent("p/filing-corpus.json"))
 
@@ -192,8 +179,7 @@ import Testing
         m.filingPersonTagStore = PersonTagStore(directory: dir, profileId: "p")
         m.filingPersonTagStore?.record(personId: "granny", key: .path("a.pdf"),
                                        verdict: .confirmed, path: "a.pdf")
-        // Nothing threw, nothing hung: the unreadable corpus was never opened, and the index is
-        // exactly what the tree says.
+        // Nothing threw, nothing hung, and the index is exactly what the tree says.
         #expect(m.filingPersonIdentity.isEmpty)
     }
 }

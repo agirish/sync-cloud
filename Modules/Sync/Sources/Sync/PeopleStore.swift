@@ -1,50 +1,40 @@
 import Events
 import Foundation
 
-/// The people a tree files for, owned and edited by the app — the one writable filing artifact.
+/// The people a tree files for, owned and edited by the app: the one writable filing artifact.
+/// (Comments here say "household" for the file's contents; the user-facing word is "people", see
+/// ``PeopleList``.)
 ///
-/// The prose below still says "household" where it reasons about the FILE, and deliberately: it
-/// is describing what a torn or refused write would cost somebody, and that is a real family on
-/// the tree this was built against. The user-facing vocabulary is "people" — see ``PeopleList``.
+/// The exception to ``FilingProfileStore``'s read-only rule because the roster is not survey
+/// output. A survey can see a folder called `Mother`, but not that documents print "Mother Inlaw
+/// Maiden" or who is whose sibling; only the user knows that, so only the user writes it.
 ///
-/// **Deliberately the exception to ``FilingProfileStore``'s read-only rule, and the reason is that
-/// the roster is not survey output.** The folder profile and the filing memory describe a tree, and
-/// a half-finished scan writing either back would be worse than not having it. Who the people *are*
-/// is not derived from anything — a survey can see that a folder is called `Mother`, but not that
-/// documents print "Mother Inlaw Maiden", and certainly not which of them are siblings. Only the
-/// user knows that, so only the user can write it, and there has to be somewhere for them to.
-///
-/// Writes are whole-file and atomic: the roster is seven records, a rewrite costs nothing, and a
-/// partial write would leave the engine attributing documents through half a household.
+/// Writes are whole-file and atomic: the roster is small, and a partial write would leave the
+/// engine attributing documents through half a household.
 @MainActor
 public final class PeopleStore: ObservableObject {
-    /// The roster as it is on disk. Published so the Settings list and anything else reading the
-    /// registry re-render the instant a person is added, edited or removed.
+    /// The roster as it is on disk. Published so the Settings list and other registry readers
+    /// re-render as soon as a person is added, edited or removed.
     @Published public private(set) var people: [Person] = []
-    /// Where the roster came from — a file the user owns, or a seed from the survey's person axis.
-    /// Shown in Settings, because "seeded from your folder names" and "you wrote this" are
-    /// different claims about how much the app knows.
+    /// Where the roster came from: a file the user owns, or a seed from the survey's person axis.
+    /// Shown in Settings, since the two claim different amounts of knowledge.
     @Published public private(set) var source: PersonRegistry.Source = .profileAxis
-    /// Whether the user has arranged the list by hand. Until they have, the roster is shown and
-    /// saved in ``PeopleOrder``'s relationship order; once they have, the file's order IS the
-    /// order and nothing re-sorts it. Persisted as `"order": "custom"` — absent means default.
+    /// Whether the user has arranged the list by hand. Until then the roster is shown and saved in
+    /// ``PeopleOrder``'s relationship order; after, the file's order is the order and nothing
+    /// re-sorts it. Persisted as `"order": "custom"`; absent means default.
     @Published public private(set) var orderIsCustom = false
 
-    /// The compiled matcher. Recompiled on every change rather than cached: building it is a pass
-    /// over a handful of names, and a stale matcher would attribute documents through a roster the
-    /// user has already corrected.
+    /// The compiled matcher, rebuilt on every read rather than cached: it is cheap, and a stale
+    /// matcher would attribute documents through a roster the user has already corrected.
     public var registry: PersonRegistry { PersonRegistry(people: people, source: source) }
 
-    /// Where the roster was read from and is written to — the profiles directory and the FOLDER
-    /// inside it, both as handed over at construction.
+    /// Where the roster is read from and written to: the profiles directory and the folder inside
+    /// it, as handed over at construction.
     ///
-    /// **Internal, and the pair is the point.** `FilingArtifacts.attach` builds this store from
-    /// `loaded.id` — the folder the artifacts were actually read from — rather than from
-    /// `profile.profileId`, the field inside `folder-profile.json`, because the two can disagree
-    /// and when they do "the writes went where nothing reads". Anything re-deriving state from the
-    /// bytes this store just wrote has to ask the same pair rather than re-deriving the id from
-    /// the profile, which is how `FileSyncManager.refreshFilingArtifactFingerprint` came to digest
-    /// a folder holding no artifacts at all.
+    /// `FilingArtifacts.attach` passes `loaded.id`, the folder the artifacts were read from, not
+    /// `profile.profileId` inside `folder-profile.json`, which can disagree. Anything reading back
+    /// the bytes this store wrote (such as `FileSyncManager.refreshFilingArtifactFingerprint`) must
+    /// use this same pair, or it reads a folder that holds no artifacts.
     let directory: URL
     let profileId: String
     private let fileManager: FileManager
@@ -56,9 +46,8 @@ public final class PeopleStore: ObservableObject {
 
     /// Loads the roster, seeding from `profile` when no file exists yet.
     ///
-    /// **The seed is not written to disk.** A seeded roster is the app's reading of the survey, and
-    /// writing it would turn a guess into a record the user never made — the file appears the first
-    /// time they actually change something.
+    /// The seed is not written to disk: it is the app's guess from the survey, and writing it would
+    /// make a record the user never made. The file appears at the user's first change.
     public init(directory: URL, profileId: String, profile: FolderProfile?,
                 fileManager: FileManager = .default) {
         self.directory = directory
@@ -76,8 +65,8 @@ public final class PeopleStore: ObservableObject {
         rosterIsUnreadable = Self.rosterIsUnreadable(at: fileURL, loaded: loaded,
                                                      fileManager: fileManager)
         if rosterIsUnreadable {
-            // The store is built once per launch, so this state lasts the session: fixing the file
-            // now does not re-read it. Say so, rather than implying an edit will start working.
+            // The store is built once per launch, so this lasts the session: a fixed file isn't
+            // re-read until relaunch. Say so, rather than implying an edit will start working.
             Logger.shared.warning("people.json exists but could not be read — showing the roster "
                                   + "seeded from folder names, and REFUSING to write over the file. "
                                   + "Fix \(fileURL.path) and relaunch to edit the list again.")
@@ -88,24 +77,13 @@ public final class PeopleStore: ObservableObject {
 
     /// Says once, at load, that the roster on disk repeats a person id.
     ///
-    /// **The id is the roster's primary key everywhere except in the file itself**, and a hand-edit
-    /// that repeats one used to be tolerated by every consumer in a *different* way rather than
-    /// rejected by any of them. ``PersonRegistry`` now settles it in one place — one record per id,
-    /// the last one listed — so the readings no longer disagree; what does not change is that the
-    /// user's file still says something they did not mean, and the record they typed second is the
-    /// only one in effect. Copying a person to add a spelling and forgetting to change the `id` is
-    /// exactly how that happens.
+    /// The id is the roster's primary key, but a hand-edit can repeat one (say, copying a person to
+    /// add a spelling and keeping the `id`). ``PersonRegistry`` keeps the last record listed, so
+    /// the user's file says something they didn't mean and must be told.
     ///
-    /// **Taken from the registry rather than counted here.** The obvious version scanned the
-    /// roster this store had just been handed — which is the roster *after* the collapse, so it
-    /// found no repeats and said nothing, turning a warning into silence at the same moment the
-    /// app started discarding a record. Its own test caught that. `repeatedIds` is read off the
-    /// raw list before the collapse, which is the only place the answer still exists.
-    ///
-    /// One line, at load, rather than one per consumer: the fact is about the file, and the
-    /// consumers are only where it shows up. Said only for a roster that really came from
-    /// `people.json` — a seeded registry is the app's own reading of folder names, so pointing the
-    /// user at a file they never wrote would be wrong.
+    /// Taken from the registry's `repeatedIds`, read off the raw list: the roster this store holds
+    /// is already collapsed, so counting it would find nothing. One line at load, and only for a
+    /// roster read from `people.json`, never a seed.
     private static func warnAboutRepeatedIds(_ repeated: [String], source: PersonRegistry.Source,
                                              fileURL: URL) {
         guard source == .file, !repeated.isEmpty else { return }
@@ -116,97 +94,62 @@ public final class PeopleStore: ObservableObject {
                               + "unique id in \(fileURL.path).")
     }
 
-    /// True when `people.json` holds **structured data this build could not decode** — a hand-edit
-    /// that broke one `Person` entry, or a schema a newer build wrote — or when the file **exists
-    /// but could not be read at all**: mode 000, an ACL, an I/O error, a symlink whose target is
-    /// on a volume that is not mounted.
+    /// True when `people.json` holds structured data this build could not decode (a broken
+    /// hand-edit, or a newer build's schema), or exists but could not be read at all (mode 000, an
+    /// ACL, an I/O error, a symlink to an unmounted volume).
     ///
-    /// **This is the difference between "no roster yet" and "a roster I cannot read", and until it
-    /// existed the two were the same state.** A failed decode falls back to a registry seeded from
-    /// folder names, which looks populated in Settings — six or seven people, no full names — so
-    /// nothing tells the user their roster did not load. The first edit then calls `save()`, and a
-    /// whole-file atomic write replaces the real household with the seed: every full name, alias,
-    /// relationship, dismissed suggestion and the `_note` prose, gone, with no backup. The
-    /// carried-keys mechanism cannot help, because `people` is a key this build *models*, so the
-    /// real roster is exactly what a carry is defined not to preserve.
+    /// "No roster yet" and "a roster I can't read" must stay distinct. A failed load falls back to
+    /// a seed from folder names that looks populated, and the first edit's whole-file write would
+    /// replace the real household with it: every full name, alias, relationship, dismissed
+    /// suggestion and `_note`, with no backup. Carried keys can't help, since `people` is modelled.
     ///
-    /// **A file that is not JSON at all is deliberately NOT this case**, and that is not an
-    /// oversight — see `anUnreadableFileDoesNotBlockTheSave`. Bytes that parse as nothing hold no
-    /// roster to protect, and refusing every edit until the user hand-repairs a corrupt file would
-    /// trade a rare loss for a permanent lockout. The line is whether there is structured content
-    /// to lose: valid JSON that did not decode is a household this build merely failed to
-    /// understand, and rewriting it is the loss this flag exists to prevent. A file whose bytes
-    /// could not be fetched at all sits on the protected side of that line, because the question
-    /// "is there content to lose?" cannot be answered without them — and the failure that blocked
-    /// the read rarely blocks the write, since an atomic save needs only directory permission.
+    /// A file that isn't JSON at all is deliberately not this case
+    /// (`anUnreadableFileDoesNotBlockTheSave`): it holds no roster to protect, and refusing every
+    /// edit would be a permanent lockout. Unfetchable bytes are protected, because whether they
+    /// hold content can't be known, and an atomic save needs only directory permission, so the
+    /// write would likely succeed where the read failed.
     @Published public private(set) var rosterIsUnreadable = false
 
-    /// Ids `people.json` listed more than once, sorted and unique — empty for every ordinary roster.
+    /// Ids `people.json` listed more than once, sorted and unique; empty for an ordinary roster.
     ///
-    /// **This is a second reason not to rewrite the file, and it needed one of its own.**
-    /// ``rosterIsUnreadable`` asks "did this decode", which is the right question for a typo and the
-    /// wrong one here: a person block copy-pasted without changing its `id` decodes perfectly. The
-    /// registry then collapses it to one record — it has to, or an id names four different people
-    /// depending on which reader you ask — and `people` above becomes a roster with one of the
-    /// user's records missing. Writing that back is a deletion they never asked for, triggered by
-    /// an edit to anybody, and invisible: unmodelled keys are carried faithfully, so the rewritten
-    /// file looks intact.
-    ///
-    /// Only for a roster that came from the file. A seeded registry is the app's own reading of
-    /// folder names and there is nothing of the user's to protect.
+    /// A second reason not to rewrite the file: a repeated id decodes fine, but the registry
+    /// collapses it to one record, so `people` is missing one of the user's records. Writing it back,
+    /// on an edit to anybody, would delete that record invisibly. Only for a roster read from the
+    /// file; a seed has nothing of the user's to protect.
     @Published public private(set) var repeatedRosterIds: [String] = []
 
     /// Whether this session may write `people.json` at all, and why not when it may not.
     ///
-    /// Two independent reasons, deliberately kept apart in the UI: one says the roster on screen is
-    /// a guess, the other says it is real but incomplete. Both mean the same thing for `save()`.
+    /// Two reasons, kept apart in the UI: the roster on screen is a guess, or it is real but
+    /// incomplete. Both mean the same for `save()`.
     public var rosterIsReadOnly: Bool { rosterIsUnreadable || !repeatedRosterIds.isEmpty }
 
-    /// Bumped **after** each successful write of `people.json`, and never otherwise.
+    /// Bumped after each successful write of `people.json`, and never otherwise.
     ///
-    /// Exists because `$people` is the wrong signal for anything that reads the *file*. Publishing
-    /// happens when the array is assigned; the write happens after, at the end of `sortAndSave()`.
-    /// A subscriber refreshing the filing artifact fingerprint from `$people` therefore hashed the
-    /// bytes of the roster **before** this edit — so every edit left the fingerprint one save
-    /// stale, and `FilingVerdictCache`, keyed on it, went on replaying classifications composed
-    /// against the previous household until a relaunch or a re-survey. Silently serving answers
-    /// from the old roster is the exact thing the fingerprint was introduced to prevent.
+    /// Anything that reads the file must follow this, not `$people`: `$people` publishes on
+    /// assignment, before the write, so a fingerprint hashed then would be one save stale and
+    /// `FilingVerdictCache`, keyed on it, would replay answers for the previous roster.
     ///
-    /// A counter rather than a `Void` subject so it composes with `@Published` like everything
-    /// else here, and so a test can assert "the write happened" rather than only observe it. Not
-    /// bumped when the save is declined (no profile, or an unreadable roster): nothing changed on
-    /// disk, so nothing downstream needs to re-read it.
+    /// A counter so it composes with `@Published` and a test can assert the write happened. Not
+    /// bumped when the save is declined: nothing changed on disk.
     ///
-    /// **Every successful write, including ones that cannot move a classification.** An earlier
-    /// version of this split the counter in two so that `dismissSuggestion` would not re-derive the
-    /// filing artifact fingerprint (which keys `FilingVerdictCache`, so refreshing it re-bills a
-    /// paid pass). That was the wrong layer and it was worse than the problem: the fingerprint is
-    /// recomputed from disk at every launch and re-survey anyway, so the re-bill was only deferred
-    /// — and in the meantime verdicts were recorded against a digest that no longer described the
-    /// file and could never be reproduced, which makes them permanently unreachable.
-    ///
-    /// The fingerprint now hashes only the part of `people.json` that can change an answer (see
-    /// ``FilingProfileStore/classifyingBytes(ofPeople:)``), so a dismissal produces the same digest
-    /// and this counter can go back to meaning exactly what it says.
+    /// Bumped on every successful write, even one that can't change a classification (a dismissal):
+    /// the fingerprint hashes only the parts of `people.json` that can
+    /// (``FilingProfileStore/classifyingBytes(ofPeople:)``), so such a write keeps the same digest.
     @Published public private(set) var savedRevision: Int = 0
 
-    /// Decides the above from three independent facts: did the registry come from the file
-    /// (`source` is `.file` only on a successful decode), could the file be read at all, and is
-    /// there JSON in it.
+    /// Decides ``rosterIsUnreadable`` from three facts: did the registry come from the file
+    /// (`source` is `.file` only on a successful decode), could the file be read, and is it JSON.
     private static func rosterIsUnreadable(at url: URL, loaded: PersonRegistry,
                                            fileManager: FileManager) -> Bool {
         guard loaded.source != .file else { return false }        // decoded, nothing to protect from
         guard let data = fileManager.contents(atPath: url.path) else {
-            // **"Absent" and "there but unreadable" are different answers**, and a nil here alone
-            // conflates them. A `people.json` that exists and cannot be opened — mode 000, an ACL,
-            // an I/O error — would otherwise look like a fresh profile, and `save()`'s atomic
-            // rename needs permission on the *directory* rather than the file, so the first edit
-            // would succeed exactly where this read failed and replace the household with the seed.
-            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
-            // that does not resolve: `fileExists` follows links and answers false for one whose
-            // target is on an unmounted volume — and the atomic write then replaces the link
-            // itself. The is-it-JSON line below cannot run without the bytes, so whatever is here
-            // is protected without it: unreadable contents cannot be shown to hold no roster.
+            // Absent and there-but-unreadable are different answers, and nil alone conflates them.
+            // An unopenable file would look like a fresh profile, and `save()`'s atomic rename
+            // needs only directory permission, so the first edit would replace the household with
+            // the seed. `attributesOfItem`, not `fileExists`, which follows links and answers false
+            // for a dangling one, whose link the atomic write would then replace. Without the bytes
+            // the JSON test can't run, so whatever is here is protected.
             return (try? fileManager.attributesOfItem(atPath: url.path)) != nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) != nil
@@ -215,45 +158,31 @@ public final class PeopleStore: ObservableObject {
     /// Top-level keys in `people.json` that this build does not model, kept so writing the file
     /// back does not throw them away.
     ///
-    /// **The file is hand-written as much as it is app-written, and the prose in it is the part
-    /// worth keeping.** `_note` on the real roster explains why Uncle is on it, why listing a
-    /// full name is what makes a shared surname attributable, and why `Fath` and `Shwe` are
-    /// recorded — none of which the app can regenerate. Before this, the first edit made in
-    /// Settings ▸ People silently deleted all of it, because ``PeopleFileOut`` writes exactly three
-    /// keys and a whole-file atomic write replaces everything else with nothing.
+    /// The file is hand-written as much as app-written, and prose such as `_note` can't be
+    /// regenerated. ``PeopleFileOut`` writes only its own keys, and a whole-file write would drop
+    /// everything else, so these are merged back on save.
     ///
-    /// Carried generically rather than as a `note: String?` field, for the same reason
-    /// ``PersonTagVerdict/unrecognized(_:)`` exists one file over: the failure is not "the note is
-    /// missing", it is "this build rewrote a file it had only partly understood".
-    ///
-    /// **Top-level only — see ``carriedPersonKeys`` for the keys INSIDE a person record.** This
-    /// used to close by saying "a key added by a newer build, or by him in a text editor, survives
-    /// a round trip through this one", unqualified, which was true of `_note` beside `people` and
-    /// false of anything written on a person. The two need separate machinery because they are
-    /// merged back at different depths.
+    /// Carried generically rather than as a `note` field, as with
+    /// ``PersonTagVerdict/unrecognized(_:)``: the rule is never to rewrite a file only partly
+    /// understood. Top-level only; ``carriedPersonKeys`` holds the keys inside a person record,
+    /// which merge back at a different depth.
     private var carriedKeys: [String: Any] = [:]
 
     /// Unmodelled keys found INSIDE each person record, by person id.
     ///
-    /// **The same failure as ``carriedKeys``, one level down, and the top-level carry cannot see
-    /// it.** `Person` models exactly five keys (``Person/modelledKeys``) and its `init(from:)`
-    /// ignores everything else, so a `"nickname"` — added by a newer build, or typed into the file
-    /// by hand next to the person it describes — decodes to nothing, is absent from the re-encoded
-    /// record, and is gone from disk the first time anybody edits anybody. Silently: the file it
-    /// leaves behind is well-formed and looks complete.
+    /// ``carriedKeys`` one level down. `Person` decodes only ``Person/modelledKeys``, so a
+    /// `"nickname"` from a newer build or a hand-edit would vanish from disk at the first edit to
+    /// anybody, leaving a file that looks complete.
     ///
-    /// Keyed by id because id is the roster's primary key everywhere. Three consequences, all
-    /// deliberate: a person deleted from the roster takes their carried keys with them rather than
-    /// being resurrected by the merge; a person whose id is changed loses them, which is the same
-    /// thing that happens to every other per-person fact keyed on id; and a repeated id never
-    /// reaches here, because ``save()`` refuses to write at all in that state.
+    /// Keyed by id, deliberately: a person deleted from the roster takes their keys with them
+    /// rather than being resurrected by the merge; a changed id loses them, like every other
+    /// per-person fact; and a repeated id never gets here, since ``save()`` refuses to write.
     private var carriedPersonKeys: [String: [String: Any]] = [:]
 
     /// The keys of `people.json` that this build has no field for.
     ///
-    /// Read from the bytes rather than through `Codable`, because a `Decodable` that ignores
-    /// unknown keys is exactly what cannot report them. Failure is silent and total on purpose: an
-    /// unreadable file means nothing is carried, which is the same outcome as before this existed.
+    /// Read from the bytes, since a `Decodable` that ignores unknown keys can't report them. An
+    /// unreadable file means nothing is carried, silently.
     private static func unmodelledKeys(at url: URL) -> [String: Any] {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -263,11 +192,8 @@ public final class PeopleStore: ObservableObject {
 
     /// The keys inside each person record that this build has no field for, by person id.
     ///
-    /// Read from the bytes for the same reason ``unmodelledKeys(at:)`` is: a `Decodable` that
-    /// ignores unknown keys is exactly what cannot report them. A record with no id is skipped
-    /// rather than carried under a placeholder — it cannot be matched back to anything on write,
-    /// and `PersonRegistry` drops it on load too, so carrying it would mean re-attaching keys to a
-    /// record that is not in the file any more.
+    /// Read from the bytes, as in ``unmodelledKeys(at:)``. A record with no id is skipped: it
+    /// can't be matched back on write, and `PersonRegistry` drops it on load too.
     private static func unmodelledPersonKeys(at url: URL) -> [String: [String: Any]] {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -282,28 +208,26 @@ public final class PeopleStore: ObservableObject {
         return out
     }
 
-    /// A store with no file behind it, for tests and previews — edits stay in memory.
+    /// A store with no file behind it, for tests and previews: edits stay in memory.
     public init(people: [Person]) {
         self.directory = URL(fileURLWithPath: "/dev/null")
         self.profileId = ""
         self.fileManager = .default
-        // Arranged like a loaded roster, so a preview or a test sees the order users do. An
-        // in-memory store has no file to record a custom order in, so it is always the default.
+        // Arranged like a loaded roster, so previews and tests see the order users do. With no
+        // file to record a custom order, it starts in the default order.
         self.people = PeopleOrder.arranged(people)
         self.source = .file
     }
 
-    /// False for the in-memory store — there is no file behind it, so nothing it does can
-    /// change anything on disk.
+    /// False for the in-memory store: nothing it does touches disk.
     var isPersistent: Bool { !profileId.isEmpty }
 
     // MARK: - Editing
 
     /// Name forms the user has said are NOT theirs, so a rejected suggestion never returns.
     ///
-    /// Persisted with the roster rather than in defaults: it is a fact about these people, and a
-    /// roster copied to another machine should carry its refusals with it — otherwise every
-    /// suggestion the user has already dismissed comes back on the new machine.
+    /// Persisted with the roster, not in defaults: it is a fact about these people, and a roster
+    /// copied to another Mac should bring its refusals along.
     @Published public private(set) var dismissedSuggestions: Set<String> = []
 
     /// Records a name form as "not this person's". Keyed the same way the suggestion is, so the
@@ -313,9 +237,8 @@ public final class PeopleStore: ObservableObject {
         dismissedSuggestions.insert(suggestion.id)
         let before = savedRevision
         save()
-        // "again" is a claim about the next launch, and `save()` refuses outright when the roster
-        // on disk is one this build could not read. Said only when the write actually landed —
-        // the in-memory dismissal still holds for this session, and the sentence now says which.
+        // "again" is a claim about the next launch, and `save()` can refuse. Said only when the
+        // write landed; otherwise the dismissal holds for this session, and the log says so.
         let persisted = savedRevision != before
         Logger.shared.info("People: “\(suggestion.form)” is not \(suggestion.personId)'s — "
                            + (persisted ? "it will not be suggested again"
@@ -346,7 +269,7 @@ public final class PeopleStore: ObservableObject {
         return person
     }
 
-    /// Replaces a person, matched on id — so a rename keeps every folder and rule pointing at them.
+    /// Replaces a person, matched on id, so a rename keeps every folder and rule pointing at them.
     public func update(_ person: Person) {
         guard let i = people.firstIndex(where: { $0.id == person.id }) else { return }
         var cleanedPerson = person
@@ -362,9 +285,8 @@ public final class PeopleStore: ObservableObject {
 
     /// Removes a person from the roster.
     ///
-    /// **Touches no file and no folder.** Their folders keep their names and their contents; what
-    /// changes is that documents naming them stop being attributed, so the cross-person veto no
-    /// longer protects — or refuses — anything on their behalf.
+    /// Touches no file or folder. Documents naming them stop being attributed, so the cross-person
+    /// veto no longer protects or refuses anything on their behalf.
     public func remove(id: String) {
         guard let i = people.firstIndex(where: { $0.id == id }) else { return }
         let removed = people.remove(at: i)
@@ -377,7 +299,7 @@ public final class PeopleStore: ObservableObject {
 
     // MARK: - Order
 
-    /// Whether `move(id:up:)` would do anything — the ends of the list refuse.
+    /// Whether `move(id:up:)` would do anything: the ends of the list refuse.
     public func canMove(id: String, up: Bool) -> Bool {
         guard let i = people.firstIndex(where: { $0.id == id }) else { return false }
         return up ? i > 0 : i < people.count - 1
@@ -385,9 +307,8 @@ public final class PeopleStore: ObservableObject {
 
     /// Swaps a person with their neighbour, and from then on keeps the list in the user's order.
     ///
-    /// Returns whether anything moved. A refused move — at either end, or an id the roster does
-    /// not have — leaves the order flag alone too, so a click that did nothing cannot quietly turn
-    /// the default arrangement into a custom one.
+    /// Returns whether anything moved. A refused move (either end, or an unknown id) leaves the
+    /// order flag alone, so a click that did nothing can't turn the default order into a custom one.
     @discardableResult
     public func move(id: String, up: Bool) -> Bool {
         guard canMove(id: id, up: up), let i = people.firstIndex(where: { $0.id == id }) else { return false }
@@ -406,9 +327,8 @@ public final class PeopleStore: ObservableObject {
         Logger.shared.info("People: list returned to the default order")
     }
 
-    /// Reads the order flag straight off the file. `PeopleFile` in `FilingProfileStore` does not
-    /// model it — the registry has no use for the order — so the store reads the one key itself,
-    /// the same way it captures the keys it carries.
+    /// Reads the order flag straight off the file: `PeopleFile` in `FilingProfileStore` doesn't
+    /// model it, since the registry has no use for the order.
     private static func orderIsCustom(at url: URL) -> Bool {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -419,9 +339,8 @@ public final class PeopleStore: ObservableObject {
     // MARK: - Persistence
 
     private func sortAndSave() {
-        // The default arrangement, so the file and the list agree — unless the user has arranged
-        // the list themselves, in which case their order is the order and an add goes on the end.
-        // (This sorted by display name once; ``PeopleOrder`` says why it stopped.)
+        // The default arrangement, so the file and list agree, unless the user arranged the list
+        // themselves; then their order stands and an add goes on the end.
         if !orderIsCustom { people = PeopleOrder.arranged(people) }
         save()
     }
@@ -431,42 +350,31 @@ public final class PeopleStore: ObservableObject {
         let people: [Person]
         /// Omitted when empty, so an untouched file stays as short as it was.
         let notNames: [String]?
-        /// `"custom"` once the user has arranged the list; omitted while the order is the default,
-        /// so a file nobody has rearranged does not gain a key.
+        /// `"custom"` once the user has arranged the list; omitted for the default order, so an
+        /// untouched file gains no key.
         let order: String?
 
-        /// Everything this type writes. Anything else in the file belongs to somebody else and is
-        /// carried across a save — see ``PeopleStore/carriedKeys``.
-        ///
-        /// Spelled out rather than derived by encoding an empty value and reading its keys: that
-        /// trick omits `notNames` whenever it is nil, so the set would depend on the value it was
-        /// derived from and a nil-notNames save would "carry" the app's own key back in.
+        /// Everything this type writes. Anything else in the file is carried across a save
+        /// (``PeopleStore/carriedKeys``). Spelled out, not derived by encoding a value: nil
+        /// optionals are omitted, so the app's own `notNames` would get carried back in.
         static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames", "order"]
     }
 
     private func save() {
         guard isPersistent else { return }
-        // **A file this build could not read is a file it must not rewrite.** Everything below is a
-        // whole-file atomic write of the roster now in memory, and when the load fell back to the
-        // folder-name seed that roster is the app's guess, not the user's household. Writing it
-        // would replace a real `people.json` with the seed. See `rosterIsUnreadable`.
+        // **Never** rewrite a file this build could not read: the roster in memory is then the
+        // folder-name seed, and this whole-file write would replace the real `people.json` with
+        // it. See `rosterIsUnreadable`.
         guard !rosterIsUnreadable else {
             Logger.shared.warning("Refusing to write people.json — it exists but could not be read, "
                                   + "so this session's roster is a seed and would overwrite the real "
                                   + "one. The change is in memory only.")
             return
         }
-        // **A file this build REINTERPRETED is also a file it must not rewrite**, and this one gets
-        // past the guard above because it decodes perfectly. A person block copy-pasted without
-        // changing its `id` is collapsed to one record on load — it has to be, or the id names a
-        // different person depending on which reader is asked — so `people` here is the household
-        // minus a record the user typed. The write below is whole-file: it would delete that record
-        // from disk, triggered by an edit to ANYBODY, and leave no trace, since the unmodelled keys
-        // are carried faithfully and the result looks intact.
-        //
-        // Worse, the load-time warning tells them to go and give each person a unique id. If the
-        // first edit has already run, the record they need in order to decide is gone, and nothing
-        // warns again, because the file is now clean.
+        // **Never** rewrite a file this build reinterpreted either. A repeated id decodes fine but
+        // is collapsed to one record, so `people` is missing a record the user typed, and this
+        // whole-file write would delete it from disk on an edit to anybody, with no trace. The
+        // load-time warning asks the user to fix the ids, and they need that record to do so.
         guard repeatedRosterIds.isEmpty else {
             Logger.shared.warning("Refusing to write people.json — it lists "
                                   + "\(repeatedRosterIds.joined(separator: ", ")) more than once and "
@@ -488,25 +396,13 @@ public final class PeopleStore: ObservableObject {
             if let merged = Self.merging(carriedKeys, perPerson: carriedPersonKeys, into: data) {
                 data = merged
             } else if !carriedKeys.isEmpty || !carriedPersonKeys.isEmpty {
-                // **The loss is said, even though the write proceeds.** Writing the unmerged bytes
-                // is the deliberate trade (see `merging`) — the roster is what this file is for —
-                // but the whole carried-keys mechanism exists *because* silently dropping a
-                // hand-written `_note` from people.json was a defect once. Nil is also the
-                // ordinary "nothing to carry" case, which is lossless and must stay quiet; only
-                // the case that actually drops something speaks.
+                // The write proceeds with the unmerged bytes (see `merging`), but the loss is
+                // logged, both kinds named apart: keys dropped silently is what carrying exists to
+                // prevent. Nil with nothing to carry is lossless and stays quiet.
                 //
-                // **Both kinds, and named apart.** This used to test `carriedKeys` alone, so a
-                // file whose only hand-additions were INSIDE person records — the common shape,
-                // since that is where a nickname or a note about a person belongs — would have
-                // lost them without a word, through the one branch written to stop exactly that.
-                //
-                // **No test reaches here, and that is a property of `merging`, not an omission.**
-                // It answers nil in exactly two cases: nothing to carry, which fails the condition
-                // above and is lossless; or `JSONSerialization` failing to re-read bytes
-                // `JSONEncoder` just produced, which cannot happen for an object encode. The
-                // branch is kept because the nil is a shape a future edit to `merging` could give
-                // a real reason — and a silent drop is the one outcome this whole mechanism
-                // exists to prevent, so it should already be correct when that day comes.
+                // No test reaches here: `merging` returns nil with something to carry only if
+                // `JSONSerialization` can't re-read bytes `JSONEncoder` just produced. Kept so a
+                // future change to `merging` can't drop keys silently.
                 var lost: [String] = []
                 if !carriedKeys.isEmpty {
                     lost.append("\(carriedKeys.count) top-level "
@@ -522,21 +418,15 @@ public final class PeopleStore: ObservableObject {
                                       + "was saved")
             }
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
-            // torn write would be a half-household that looks like a whole one.
+            // torn write would be half a household that looks whole.
             try data.write(to: fileURL, options: .atomic)
-            // **Only now are the bytes on disk what this roster says**, which is what anything
-            // hashing the file has to wait for. See `savedRevision`.
+            // Only now do the bytes on disk match this roster, which anything hashing the file
+            // must wait for (`savedRevision`).
             savedRevision &+= 1
-            // And only now is the file the household of record. Set here rather than by the
-            // callers — `sortAndSave()` set it before `save()`, and `dismissSuggestion` was given
-            // the same shape — so a save this build REFUSES (an unreadable roster, which is the
-            // one case that matters) can no longer leave the list claiming "saved in people.json"
-            // beside the banner saying edits will not be saved. Provenance follows the write, for
-            // the same reason the fingerprint does.
-            //
-            // Guarded because `source` is `@Published` and this runs on every save: assigning the
-            // value it already holds would announce a change on each edit, waking every observer
-            // of the store for nothing.
+            // And only now is the file the roster of record. Set here, not by callers, so a
+            // refused save can't leave the list claiming "saved in people.json" beside a banner
+            // saying edits won't be saved. Guarded because `source` is `@Published`: reassigning
+            // the same value would wake every observer on each save.
             if source != .file { source = .file }
         } catch {
             Logger.shared.warning("Couldn't save people.json — the change is in memory only "
@@ -546,28 +436,25 @@ public final class PeopleStore: ObservableObject {
 
     /// Puts the carried keys back into freshly encoded JSON.
     ///
-    /// **Returns nil rather than throwing, and the caller writes the unmerged bytes on nil.** The
-    /// roster is what this file is *for*; losing an edit to it because a comment could not be
-    /// re-attached would be the worse trade, and the note is already lost in that case either way.
+    /// Returns nil rather than throwing, and the caller then writes the unmerged bytes: the roster
+    /// is what the file is for, and losing an edit because a comment couldn't be re-attached would
+    /// be the worse trade.
     ///
-    /// The modelled keys win by construction — `carriedKeys` never contains them — so a stale
-    /// `people` array read at launch can never overwrite the roster being saved now.
+    /// The modelled keys win by construction (`carriedKeys` never holds them), so a stale `people`
+    /// array read at launch can't overwrite the roster being saved.
     private static func merging(_ carried: [String: Any], perPerson: [String: [String: Any]],
                                 into encoded: Data) -> Data? {
         guard !carried.isEmpty || !perPerson.isEmpty,
               var object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         else { return nil }
         object.merge(carried) { fresh, _ in fresh }
-        // The per-record half, merged at the depth it was read from. Driven by the ENCODED array
-        // rather than by the carried map, so a person removed from the roster this session is
-        // simply not here to merge into — their keys go with them, instead of the merge putting a
-        // record back that the user just deleted.
+        // The per-record half, at the depth it was read from. Driven by the encoded array, not the
+        // carried map, so a person removed this session isn't put back by the merge.
         if !perPerson.isEmpty, let records = object["people"] as? [[String: Any]] {
             object["people"] = records.map { record -> [String: Any] in
                 guard let id = record["id"] as? String, let extras = perPerson[id] else { return record }
-                // `fresh` wins on a collision, exactly as at the top level: a key this build now
-                // models is this build's to write, and preferring the carried copy would pin a
-                // value the user can no longer change from the UI.
+                // `fresh` wins on a collision, as at the top level: a key this build models is its
+                // to write, and the carried copy would pin a value the UI can no longer change.
                 return record.merging(extras) { fresh, _ in fresh }
             }
         }
@@ -579,9 +466,8 @@ public final class PeopleStore: ObservableObject {
 
     // MARK: - Helpers
 
-    /// An id that no one else in the roster holds. Collisions are real — two people can share a
-    /// first name — so a numeric suffix is appended rather than letting the second overwrite the
-    /// first's folders.
+    /// An id no one else in the roster holds. Two people can share a first name, so a numeric
+    /// suffix is appended rather than letting the second take over the first's folders.
     private func uniqueId(from displayName: String) -> String {
         let base = Person.idCandidate(from: displayName)
         guard people.contains(where: { $0.id == base }) else { return base }
@@ -595,8 +481,8 @@ public final class PeopleStore: ObservableObject {
         return t.isEmpty ? nil : t
     }
 
-    /// Trimmed, de-duplicated case-insensitively, blanks dropped, order preserved — the user's
-    /// typing order is the order they will look for it in.
+    /// Trimmed, de-duplicated case-insensitively, blanks dropped, order kept: the user's typing
+    /// order is the order they'll look for it in.
     private static func cleanedList(_ list: [String]) -> [String] {
         var out: [String] = []
         for raw in list {

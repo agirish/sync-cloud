@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Records what the classifier was asked — same shape as the verdict-cache tests' log, private to
+/// Records what the classifier was asked. Same shape as the verdict-cache tests' log, private to
 /// each file because test targets share one namespace.
 private final class CallLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -11,7 +11,7 @@ private final class CallLog: @unchecked Sendable {
     var count: Int { lock.lock(); defer { lock.unlock() }; return calls.count }
 }
 
-/// Counts spend-confirmer invocations — the line an auto-scan must never cross.
+/// Counts spend-confirmer calls: the line an auto-scan must never cross.
 private final class PromptProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
@@ -20,10 +20,9 @@ private final class PromptProbe: @unchecked Sendable {
 }
 
 /// Auto-rescan on lens open: Duplicates and Organize re-run a scan the user has run before,
-/// provided it cannot cost money. Two contracts under test — **consent** (only the exact target
-/// of the last COMPLETED scan is ever re-scanned unasked, and only when the app injected the
-/// store that remembers it) and **money** (an Organize auto-scan must stop, prompting nothing,
-/// the moment classification would reach the paid backend).
+/// provided it can't cost money. Two contracts: consent (only the exact target of a completed
+/// scan is re-scanned unasked, and only when the app injected the store that remembers it) and
+/// money (no scan, automatic or clicked, ever reaches the spend prompt).
 @Suite struct LensAutoRescanTests {
 
     private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
@@ -57,8 +56,8 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aCancelledDuplicateScanRecordsNothing() async throws {
-        // The recorded target is CONSENT — "the user scanned exactly this" — and a scan that
-        // never finished is not that.
+        // The recorded target is consent ("the user scanned exactly this"), and a scan that never
+        // finished is not that.
         let root = try duplicateFixture("cancelled")
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
@@ -84,8 +83,8 @@ private final class PromptProbe: @unchecked Sendable {
         #expect(!manager.autoRescanDuplicatesIfEligible(root: root))
         #expect(manager.duplicateScanTask == nil)
 
-        // The matching root starts a scan that really completes and publishes the group — the
-        // outcome the feature exists for, not just a task having been spawned.
+        // The matching root starts a scan that really completes and publishes the group, not just
+        // a spawned task.
         defaults.set([root.path], forKey: FileSyncManager.lastDuplicatesScanRootKey)
         #expect(manager.autoRescanDuplicatesIfEligible(root: root))
         await manager.duplicateScanTask?.value
@@ -98,8 +97,8 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func withoutAnInjectedStoreTheFeatureIsOff() async throws {
-        // Same rule as the cache-store URLs: nil — what the CLI and bare test managers get —
-        // means off, so nothing outside the real app ever reads or writes real defaults.
+        // As with the cache-store URLs, nil (what the CLI and bare test managers get) means off,
+        // so nothing outside the real app reads or writes real defaults.
         let root = try duplicateFixture("nostore")
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
@@ -109,9 +108,9 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func oneAttemptPerTargetUntilAProviderSwitchRearms() async throws {
-        // A cancelled attempt must not be retried by the next workspace switch — the triggers
-        // overlap and would otherwise re-pay the walk each time — but a provider switch clears
-        // the lens's results, and coming back should behave like a fresh launch.
+        // A cancelled attempt must not be retried by the next workspace switch, since the triggers
+        // overlap and would re-pay the walk each time. A provider switch clears the lens's results,
+        // though, and coming back should behave like a fresh launch.
         let root = try duplicateFixture("latch")
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
@@ -133,9 +132,8 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func scanningASecondProviderDoesNotWithdrawTheFirstsConsent() async throws {
-        // Two panes on two providers is the ordinary way this app is used. With a single
-        // remembered target, scanning the right pane silently withdrew consent for the left, and
-        // the feature fired or didn't depending on which provider happened to be scanned last.
+        // Two panes on two providers is the ordinary way the app is used, so scanning the right
+        // pane must not withdraw consent for the left: several targets are remembered, not one.
         let first = try duplicateFixture("provider-a")
         defer { try? FileManager.default.removeItem(at: first) }
         let second = try duplicateFixture("provider-b")
@@ -178,9 +176,9 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aRememberedTargetThatIsGoneIsNotScannedIntoAnEmptyResult() async throws {
-        // An unmounted cloud folder still scans "successfully" and publishes zero rows, and
-        // "no duplicates found" is a very different claim from "not scanned" — it reads as a
-        // result about the user's files. A manual scan may say it; an automatic one must not.
+        // An unmounted cloud folder still scans "successfully" and publishes zero rows, and "no
+        // duplicates found" reads as a result about the user's files. A manual scan may say it;
+        // an automatic one must not.
         let root = try duplicateFixture("vanished")
         let defaults = ScratchDefaults("autoRescanVanished")
         let manager = FileSyncManager()
@@ -204,9 +202,9 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func aManuallyCompletedScanIsNotRepeatedByTheTriggers() async throws {
-        // The `hasCompleted` guard, as distinct from the attempt latch: a MANUAL scan never sets
-        // the latch, so without this guard the next workspace switch would silently re-run a
-        // scan whose results are already on screen — for both lenses.
+        // The `hasCompleted` guard, distinct from the attempt latch: a manual scan never sets the
+        // latch, so without this guard the next workspace switch would re-run a scan whose results
+        // are already on screen, for both lenses.
         let root = try duplicateFixture("manual")
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = FileSyncManager()
@@ -248,13 +246,10 @@ private final class PromptProbe: @unchecked Sendable {
         var tiers: [FilingClassifierTier] { lock.lock(); defer { lock.unlock() }; return seen }
     }
 
-    /// A manager wired the way the **app** wires one: the identity resolver answers per tier, with
-    /// `.free` pinned to on-device exactly as `SyncCloudApp` pins it. `identity` is therefore the
-    /// REFINE identity — the only one a route can vary.
-    ///
-    /// Mirroring the app's shape here is the point. A helper that returned one identity for both
-    /// tiers would be testing a wiring nothing ships, and would hide the case
-    /// ``theFreePassIsSkippedRatherThanBilledIfTheAppMisroutesIt`` exists to catch.
+    /// A manager wired the way the app wires one: the identity resolver answers per tier, with
+    /// `.free` pinned to on-device as `SyncCloudApp` pins it, so `identity` is the refine identity.
+    /// One identity for both tiers would test a wiring nothing ships, and would hide the case
+    /// ``theFreePassIsSkippedRatherThanBilledIfTheAppMisroutesIt`` catches.
     @MainActor
     private func filingManager(cacheAt url: URL?, log: CallLog, identity: String?,
                                store: UserDefaults?, tiers: TierLog? = nil,
@@ -291,15 +286,10 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func noScanEverReachesTheSpendPromptWhateverTheCloudSettingSays() async throws {
-        // **The money contract, and it is now one sentence: a scan cannot spend.** This replaces a
-        // pair of tests that pinned the old contract — an auto-scan predicting whether it would
-        // reach the paid backend and stopping if so. That prediction had to agree with the app's
-        // router and didn't (see `cloudEnabledWithoutAUsableKeyStillNeverPrompts`), and everything
-        // it protected is now structural: the scan classifies at `.free`, which routes on-device.
-        //
-        // Both entry points, both cloud settings, one assertion — the confirmer is never called
-        // and every classification came in at `.free`. The old version of this file needed six
-        // tests to say less than this.
+        // The money contract: a scan can't spend. It classifies at `.free`, which routes
+        // on-device, so it never needs to predict whether it would reach the paid backend. Both
+        // entry points, both cloud settings, one assertion: the confirmer is never called and every
+        // classification came in at `.free`.
         for cloudOn in [false, true] {
             let root = try filingFixture("nospend-\(cloudOn)")
             defer { try? FileManager.default.removeItem(at: root) }
@@ -330,9 +320,8 @@ private final class PromptProbe: @unchecked Sendable {
 
             #expect(probe.prompts == 0, "a scan raised a payment dialog (cloud on: \(cloudOn))")
             #expect(tiers.tiers == [.free, .free], "a scan classified off the free tier")
-            // The positive control, and it is load-bearing: without it "no prompt" is equally
-            // consistent with a scan that did nothing at all. Both scans classified, published,
-            // and — the thing the old early stop had to suppress — reported the fixture's bad name.
+            // The positive control: without it "no prompt" is equally consistent with a scan that
+            // did nothing. Both scans classified, published, and reported the fixture's bad name.
             #expect(log.count == 2)
             #expect(auto.hasSuggestedFiling && manual.hasSuggestedFiling)
             #expect(!auto.riskyNames.isEmpty && !manual.riskyNames.isEmpty)
@@ -342,10 +331,8 @@ private final class PromptProbe: @unchecked Sendable {
     @MainActor
     @Test func theFreePassIsSkippedRatherThanBilledIfTheAppMisroutesIt() async throws {
         // `.free` routing on-device is one line in `SyncCloudApp`, and nothing in `Sync` compiles
-        // against it. So `Sync` asks the app what it will route `.free` to, and refuses to
-        // classify when the answer is a paid backend — the guarantee is checked, not assumed.
-        //
-        // `freeIdentity` is the misrouting: an app that reports "cloud" for the free tier.
+        // against it. So `Sync` asks the app what it will route `.free` to, and refuses to classify
+        // when the answer is a paid backend. `freeIdentity` here is that misrouting.
         let root = try filingFixture("misroute")
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
@@ -358,8 +345,8 @@ private final class PromptProbe: @unchecked Sendable {
 
         #expect(log.count == 0)     // the classifier was never called
         #expect(probe.prompts == 0)
-        // Skipped, not failed: phases 1–2 still ran and published. The user loses the AI pass,
-        // not the scan.
+        // Skipped, not failed: phases 1–2 still ran and published. The user loses the AI pass, not
+        // the scan.
         #expect(manager.hasSuggestedFiling)
         #expect(manager.filingSuggestions.count == 1)
         #expect(manager.filingSuggestions.first?.best?.fromAI != true)
@@ -367,9 +354,8 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func filingAutoRescanRunsWhenTheBackendIsFree() async throws {
-        // The other half of the minimal pair: identical setup, on-device identity. The scan must
-        // actually run to completion and publish — the positive control proving the decline
-        // above is the identity's doing and not some other guard's.
+        // The positive control: with an on-device identity the auto-rescan runs to completion and
+        // publishes, so the declines elsewhere are not some other guard's doing.
         let root = try filingFixture("free")
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
@@ -391,10 +377,9 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func anAutoRescanReusesTheCachedAnswersTheLastScanWrote() async throws {
-        // The cache still earns its keep on the free pass — an unchanged file is not re-asked, so
-        // the auto-rescan on lens open is close to instant instead of re-running the model over
-        // the whole folder. Populated by a real scan rather than by hand, so the key construction
-        // is checked against the scan's own rather than against a copy of it here.
+        // The cache still earns its keep on the free pass: an unchanged file isn't re-asked, so the
+        // auto-rescan on lens open is close to instant. Populated by a real scan, so the key
+        // construction is the scan's own, not a copy of it here.
         let root = try filingFixture("cached")
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try makeCanonicalTempRoot(prefix: "AutoRescanCache").appendingPathComponent("verdicts.json")
@@ -418,9 +403,8 @@ private final class PromptProbe: @unchecked Sendable {
         #expect(next.hasSuggestedFiling)
         #expect(next.filingLastCacheReuse == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
 
-        // A new file arrives overnight. It is a miss, so the scan asks about it — and, unlike
-        // before the tier split, that is simply what happens: the answer is free, so there is
-        // nothing to stop for. The old version of this test asserted the opposite.
+        // A new file arrives overnight. It is a miss, so the scan asks about it: the answer is
+        // free, so there is nothing to stop for.
         try write(downloads.appendingPathComponent("new-arrival.pdf"))
         let third = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         #expect(third.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
@@ -432,15 +416,11 @@ private final class PromptProbe: @unchecked Sendable {
 
     @MainActor
     @Test func cloudEnabledWithoutAUsableKeyStillNeverPrompts() async throws {
-        // The state that killed the previous design, kept as a regression: cloud is ON in Settings
-        // but the Keychain has no usable key, so the app's resolver reports the DOWNGRADE. The
-        // scan is free, but `cloudSpendAllows` gates the confirmer on the SETTINGS TOGGLE rather
-        // than the route — so anything that decided "free" from the route walked straight into a
-        // payment dialog for a scan the user never asked for.
-        //
-        // It passes trivially now, and that is the result rather than a weakness of the test: the
-        // scan never consults `cloudSpendAllows` at all. Kept because it is cheap and because it
-        // is the exact state a future re-wiring would break first.
+        // Cloud is on in Settings but the Keychain has no usable key, so the app's resolver reports
+        // the on-device downgrade. `cloudSpendAllows` gates the confirmer on the settings toggle, not
+        // the route, so anything that judged "free" from the route would raise a payment dialog for
+        // a scan the user never asked for. It passes trivially because the scan never consults
+        // `cloudSpendAllows`; kept because it is the state a re-wiring would break first.
         let root = try filingFixture("downgrade")
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")

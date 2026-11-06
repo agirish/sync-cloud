@@ -29,7 +29,7 @@ import Testing
     @Test func aRestampedDownloadIsFoundEndToEnd() async throws {
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        // Different bytes AND different sizes — the case a (name, size) or (size, page count)
+        // Different bytes and different sizes — the case a (name, size) or (size, page count)
         // pre-filter would never even offer to the reader.
         try write(root.appendingPathComponent("Utilities/Jul 2023.pdf"), bytes: 6000, fill: 0x41)
         try write(root.appendingPathComponent("Downloads/9829custbill.pdf"), bytes: 6040, fill: 0x42)
@@ -71,8 +71,8 @@ import Testing
 
     @MainActor
     @Test func documentsThatSaidTooLittleAreCountedNotSwallowed() async throws {
-        // The blind spot this feature exists to close was silent. A pass that declined every
-        // image-only scan without saying so would recreate it one level down.
+        // A pass that declined every image-only scan without saying so would recreate, one level
+        // down, the silent blind spot this feature exists to close.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("readable.pdf"), bytes: 6000, fill: 0x41)
@@ -166,9 +166,9 @@ import Testing
     @MainActor
     @Test func theProgressBarEndsTheReadingPhaseFull() async throws {
         // The `done == total` progress hop is an unstructured main-actor Task, and the scan's
-        // `defer` bumps the epoch on the way out — so without a deterministic terminal publish the
-        // bar can be dropped at the last 50-multiple and sit there for the rest of the scan. This
-        // is the long phase now, so that is minutes of a bar frozen just short of full.
+        // `defer` bumps the epoch on the way out, so without a deterministic terminal publish the
+        // bar can stop at the last 50-multiple and sit there, just short of full, through what
+        // can be minutes of this long phase.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<60 {
@@ -247,11 +247,9 @@ import Testing
 
     @MainActor
     @Test func resolvingACopyOutOfBandUpdatesEVERYGroupHoldingIt() async throws {
-        // `groupedFilePaths` used to guarantee a file was in at most one file group, and
-        // `removeResolvedDuplicateCopy` relied on it by taking the FIRST match. The same-text pass
-        // broke that on purpose: an identical group's keeper may also anchor a same-text group.
-        // Trash it from the Compare review and the first-match version left the other group listing
-        // a file that is now in the Trash.
+        // A file can be in more than one file group: an identical group's keeper may also anchor a
+        // same-text group. So `removeResolvedDuplicateCopy` must not stop at the first match, or
+        // trashing it from the Compare review leaves the other group listing a file in the Trash.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         // A and Copy are byte-identical; Restamped has the same text but different bytes.
@@ -283,9 +281,8 @@ import Testing
     @MainActor
     @Test func aWarmRescanParsesNoTextlessDocumentAndNeverGroupsThem() async throws {
         // A textless document's answer is cached, so a rescan of an unchanged tree reads none of
-        // them — 858 on the real tree, re-read on every scan before. And the cached answer is the
-        // SAME string for all of them, so if it were ever served as a digest the two below would
-        // become one "same text" group.
+        // them (hundreds on a real tree). The cached answer is the same string for all of them,
+        // so if it were ever served as a digest the two below would become one "same text" group.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
@@ -304,8 +301,8 @@ import Testing
             #expect(manager.duplicateScanSkips.textUnreadable == 2)   // still reported, every scan
         }
         #expect(log.recorded.count == 2)   // read once each across two scans
-        // And the negatives never reach the fingerprint index, which a build from before them
-        // would read as two identical digests.
+        // And the negatives never reach the fingerprint index, where an older build would read
+        // them as two identical digests.
         #expect(await cache.count == 0)
         #expect(await textless.count == 2)
     }
@@ -331,7 +328,7 @@ import Testing
         #expect(log.recorded.count == 2)
     }
 
-    /// The other half of the refusal: the negatives sharing the BYTE-hash cache, which Verify and
+    /// The other half of the refusal: the negatives sharing the byte-hash cache, which Verify and
     /// Duplicates read as digests just the same.
     @MainActor
     @Test func aTextlessCacheSharedWithTheByteCacheIsRefused() async throws {

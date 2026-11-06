@@ -4,27 +4,21 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// The merge path's half of `DeleteOutcome`'s promise, which the type's own suite does not reach.
+/// The merge path's half of `DeleteOutcome`'s promise. `DuplicateRemovalHonestyTests` pins the two
+/// reclaim paths; the merge is the third caller, with a worse failure than a misdirected undo.
 ///
-/// `DuplicateRemovalHonestyTests` pins the two *reclaim* paths — `resolveDuplicateGroup` and the
-/// bulk one — where an unfulfillable "press ⌘Z to undo" sends the shortcut at whatever was
-/// previously on top of the stack. The merge is the third caller and it was missed, with a worse
-/// consequence than a misdirected undo.
+/// A merge copies the redundant copy's unique files into the keeper, registers a
+/// `registerCopyUndo` for that fold, then trashes the copy. On a Trash-less volume (exFAT, most SMB
+/// shares) the copy is destroyed permanently and registers no restore, but the copy-undo remains,
+/// and undoing a copy deletes the copied item. "Press ⌘Z to undo" would then lead to removing the
+/// folded files from the keeper with the originals already gone (behind a confirmation, but
+/// prompted by the app).
 ///
-/// A merge copies the redundant copy's unique files into the keeper, registers a `registerCopyUndo`
-/// for that fold, and then trashes the copy. On a Trash-less volume — exFAT, most SMB shares — the
-/// copy is destroyed permanently and registers no restore, but the fold's copy-undo is still in the
-/// group, and **undoing a copy deletes the copied item**. So the success banner's "Press ⌘Z to
-/// undo" led from a merge that cannot be taken back to a prompt that removes the folded files from
-/// the keeper, with the originals already gone. The undo's own delete asks for confirmation, so
-/// this is not silent — but the app was the thing telling the user to start.
-///
-/// A real `FileManager` subclass rather than the mock disk, for the reason `MergeCancelMidCopyTests`
-/// documents: the merge hashes real bytes to plan, and only the `fileManager is FileManager` fast
-/// path yields the sizes it plans from.
+/// A real `FileManager` subclass rather than the mock disk: the merge hashes real bytes to plan,
+/// and only the `fileManager is FileManager` fast path yields the sizes it plans from.
 @Suite struct MergeUndoPromiseTests {
 
-    /// A real `FileManager` whose Trash always refuses — the Trash-less volume, without needing one.
+    /// A real `FileManager` whose Trash always refuses: a Trash-less volume without needing one.
     /// `deleteItems` then asks `permanentDeleteConfirmer` and, on a yes, removes the item outright.
     private final class TrashlessVolume: FileManager, @unchecked Sendable {
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
@@ -53,14 +47,13 @@ import EventsTestSupport
                                                   isDirectory: true, copies: [k, r], reclaimableBytes: 4000))
     }
 
-    /// **The headline.** The copy leaves permanently, the merge still succeeds — and the banner must
-    /// stop offering the undo, because taking it would delete the only remaining copy of the folded
-    /// files.
+    /// The copy leaves permanently and the merge still succeeds, but the banner must not offer the
+    /// undo: taking it would delete the only remaining copy of the folded files.
     @MainActor
     @Test func aMergeWhoseCopyWasDestroyedPermanentlyDoesNotPromiseUndo() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoPromise")
         defer { try? FileManager.default.removeItem(at: base) }
-        // Unique name so the Trash assertion below cannot be answered by someone else's folder.
+        // A unique name, so the Trash check below can't be answered by someone else's folder.
         let rName = "Redundant-\(UUID().uuidString)"
         let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
         defer { try? FileManager.default.removeItem(at: trashed) }
@@ -73,7 +66,7 @@ import EventsTestSupport
 
         let ok = await manager.mergeDuplicateGroup(pair.group)
 
-        // The premise: this really is the permanent-delete path, not a quietly-refused merge.
+        // The premise: this is the permanent-delete path, not a quietly refused merge.
         #expect(ok == true, "the merge did not complete, so the banner below is not the success one")
         #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false,
                 "the redundant copy is still on disk — the permanent delete never happened")
@@ -82,24 +75,18 @@ import EventsTestSupport
         #expect(FileManager.default.fileExists(atPath: pair.keeper.appendingPathComponent("unique.txt").path),
                 "the unique file was not folded in, so there is no copy-undo to be dangerous")
 
-        // THE INVARIANT: no undo offered for a merge that cannot be taken back.
+        // The invariant: no undo offered for a merge that can't be taken back.
         #expect(manager.banner?.message.contains("Merged") == true)
         #expect(manager.banner?.message.contains("⌘Z") != true,
                 "the merge offered ⌘Z after destroying the copy permanently — taking it deletes the folded files from the keeper, and the originals are gone")
         #expect(manager.banner?.isUndoable != true)
     }
 
-    /// **The banner is not the only surface that offers ⌘Z.** `undoable: !anyPermanentlyDeleted`
-    /// suppresses the banner's button and nothing else; the registration a few lines above it ran
-    /// unconditionally, so `undoManager.canUndo` was true and Edit ▸ Undo read "Undo Merge Keeper".
-    /// Firing it deletes the folded files back out of the keeper while the original is
-    /// permanently gone — the one duplicates path whose reversal DESTROYS data. Measured
-    /// identically at dc865114 and 6fe2c8c7: `isUndoable=false`, `canUndo=true`,
-    /// `undoActionName="Merge Keeper"`.
-    ///
-    /// Nothing in the suite observed the Edit-menu path, which is why the banner assertion above
-    /// could pass with the hazard fully live. This asserts the registration itself, and then fires
-    /// the undo to prove the folded file survives it.
+    /// The banner isn't the only surface that offers ⌘Z. `undoable: !anyPermanentlyDeleted` hides
+    /// only the banner's button; if the registration still ran, Edit ▸ Undo would read "Undo Merge
+    /// Keeper" and firing it would delete the folded files out of the keeper while the original is
+    /// permanently gone. This asserts the registration itself, then fires the undo to prove the
+    /// folded file survives.
     @MainActor
     @Test func aMergeWhoseCopyWasDestroyedPermanentlyRegistersNoUndoAtAll() async throws {
         let log = LogCapture()
@@ -125,7 +112,7 @@ import EventsTestSupport
         #expect(FileManager.default.fileExists(atPath: folded.path),
                 "the unique file was not folded in, so there is no copy-undo to be dangerous")
 
-        // THE INVARIANT: the Edit menu has nothing to offer for a merge that cannot be reversed.
+        // The invariant: the Edit menu has nothing to offer for a merge that can't be reversed.
         #expect(undo.canUndo == false,
                 "Edit ▸ Undo still offers “\(undo.undoActionName)” for a merge whose original is unrecoverable")
         #expect(undo.undoActionName.contains("Merge") == false,
@@ -144,11 +131,10 @@ import EventsTestSupport
                 "the audit log does not record what actually happened: “\(line ?? "nil")”")
     }
 
-    /// **A declined permanent delete is the user's own choice, and no path named it.**
-    /// `deleteItems` posts an accurate banner for it — "Kept that item — it can't be moved to the
-    /// Trash, and you chose not to delete it permanently" — and the merge's tail then overwrote it
-    /// with "Merged part of “X” — some copies were left in place. Review and retry.", which is
-    /// wrong twice over: everything WAS folded, and nothing was left behind by accident.
+    /// A declined permanent delete is the user's choice and is named as one. `deleteItems` posts an
+    /// accurate banner ("Kept that item — it can't be moved to the Trash, and you chose not to
+    /// delete it permanently"), and the merge's tail must not overwrite it with "some copies were
+    /// left in place. Review and retry.": everything was folded, and nothing was left by accident.
     @MainActor
     @Test func aDeclinedPermanentDeleteIsNamedRatherThanOverwritten() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeDeclined")
@@ -178,7 +164,7 @@ import EventsTestSupport
                 "the banner does not say the fold succeeded: “\(message)”")
     }
 
-    /// A Trash-less volume for ONE named path only, so a single merge can produce both outcomes.
+    /// A Trash-less volume for one named path only, so a single merge can produce both outcomes.
     private final class TrashlessForOne: FileManager, @unchecked Sendable {
         let refusedPath: String
         let trash: ScratchTrash
@@ -195,10 +181,10 @@ import EventsTestSupport
         }
     }
 
-    /// The mixed case, and the reason the fix withholds the copy-undo rather than registering
-    /// nothing: one copy reached the Trash and can still be put back in one step. That step is
-    /// registered — it only restores — but it is NOT named after the merge, because an Edit menu
-    /// reading "Undo Merge Keeper" would promise to reverse a merge that cannot be reversed.
+    /// The mixed case, and why the copy-undo is withheld rather than registering nothing: one copy
+    /// reached the Trash and can still be put back in one step. That step is registered (it only
+    /// restores) but isn't named after the merge, since "Undo Merge Keeper" would promise to
+    /// reverse a merge that can't be reversed.
     @MainActor
     @Test func aMixedMergeKeepsTheRestoreButNotTheMergeNamedUndo() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoMixed")
@@ -250,8 +236,8 @@ import EventsTestSupport
         }
     }
 
-    /// The other direction, and the reason it is here: without it, deleting the offer outright
-    /// would pass. A merge that really did trash its copy still says so.
+    /// The other direction: without it, deleting the offer outright would pass. A merge that really
+    /// did trash its copy still offers undo.
     @MainActor
     @Test func aMergeWhoseCopyReachedTheTrashStillPromisesUndo() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoPromiseTrash")
@@ -272,17 +258,17 @@ import EventsTestSupport
         #expect(trash.names == [rName], "the redundant copy never reached the test's own Trash")
     }
 
-    /// Parks the FIRST `attributesOfItem` of one exact path — the folded file's destination in
-    /// the keeper, which nothing in the merge stats except its copy-undo identity walk — so the
-    /// test can hold that walk provably unresolved while asking whether the merge already claims
-    /// to be done. Bounded park, recorded timeout, per the `ParkGate`/`FirstStatGate` contract.
+    /// Parks the first `attributesOfItem` of one exact path, the folded file's destination in the
+    /// keeper, which only the merge's copy-undo identity walk stats. The test can then hold that
+    /// walk unresolved while asking whether the merge already claims to be done. Bounded park,
+    /// recorded timeout, per the `ParkGate`/`FirstStatGate` contract.
     private final class DestinationStatGate: FileManager, @unchecked Sendable {
         let targetPath: String
         let trash: ScratchTrash
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
-        // In a box rather than as stored vars: `FileManager` already conforms to `Sendable`, so
-        // the compiler rejects mutable stored properties on a subclass outright.
+        // In a box rather than stored vars: `FileManager` already conforms to `Sendable`, so the
+        // compiler rejects mutable stored properties on a subclass.
         private let state = LockedBox((gated: false, timedOut: false))
 
         init(targetPath: String, trash: ScratchTrash) {
@@ -302,7 +288,7 @@ import EventsTestSupport
                 }
                 if first {
                     entered.signal()
-                    // Turns as well as seconds, as `FirstAttributesGate`'s: the release waits on a
+                    // Turns as well as seconds, as in `FirstAttributesGate`: the release waits on a
                     // 600 ms grace loop of main-actor sleeps.
                     if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
                         state.withLock { $0.timedOut = true }
@@ -317,15 +303,14 @@ import EventsTestSupport
         }
     }
 
-    /// The dc865114 ordering claim — "the copy/sync call sites await [the identity walk], which
-    /// keeps 'the operation returned' implying 'its undo is fully armed'" — was FALSE for the
-    /// merge, its fourth caller: it discarded the returned task, so a merge could post
-    /// "Press ⌘Z to undo" before the identities it promises to check existed. The guard itself
-    /// held either way (the handler suspends in the resolver), but the determinism the drift
-    /// tests are written against — tamper the moment the operation returns, then ⌘Z — did not.
+    /// A merge must await its copy-undo identity walk before reporting done, so "the operation
+    /// returned" implies "its undo is fully armed". Discarding the returned task would let a merge
+    /// post "Press ⌘Z to undo" before the identities it promises to check exist. The guard holds
+    /// either way (the handler suspends in the resolver), but the drift tests rely on tampering the
+    /// moment the operation returns.
     ///
-    /// Held deterministically: the folded file's destination stat is parked, so the walk cannot
-    /// resolve; a merge that reports done while it is parked is the defect.
+    /// The folded file's destination stat is parked, so the walk can't resolve; a merge that
+    /// reports done while it is parked fails.
     @MainActor
     @Test(.parksAThread) func aMergeDoesNotReportDoneBeforeItsCopyUndoIdentityIsRecorded() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoArm")
@@ -348,9 +333,9 @@ import EventsTestSupport
 
         await awaitSignal(gate.entered,
                           "the merge's identity walk never statted the folded file — the gate cannot have held it")
-        // Give the merge every chance to (wrongly) finish while its walk is parked. On the fixed
-        // code completion here is impossible — the merge awaits the walk — so this is a bounded
-        // grace period, not a timing guess about the passing direction.
+        // Give the merge every chance to finish wrongly while its walk is parked. Correct code
+        // can't complete here (it awaits the walk), so this is a bounded grace period, not a
+        // timing guess about the passing direction.
         var polls = 0
         while polls < 60, !done.withLock({ $0 }) {
             polls += 1
@@ -369,27 +354,18 @@ import EventsTestSupport
     }
 }
 
-/// The other half of the merge's ⌘Z promise: a merge with **nothing to register**.
+/// The other half of the merge's ⌘Z promise: a merge with nothing to register.
 ///
-/// `MergeUndoPromiseTests` above pins the permanent-delete case, where the withheld registration is
-/// deliberate and `anyPermanentlyDeleted` withdraws the offer with it. This suite pins the case the
-/// same banner condition cannot see: a merge that folds nothing and trashes nothing registers no
-/// copy-undo AND no restore, so `anyPermanentlyDeleted` is false and the success banner offered a
-/// ⌘Z that points at whatever the user did BEFORE the merge.
-///
-/// Two ways to reach it, both real:
-///
-/// - every redundant copy has already left the disk (an external delete, or a retry after a
-///   partial merge). The loop's `guard fm.fileExists(atPath: redundant.path) else { continue }`
-///   skips each one, and skipping is not failing — `allTrashed` stays true and the merge succeeds.
-/// - the group carries no redundant copy at all. `DuplicateGroup.redundantCopies` excludes the
-///   keeper *and* the fallback keeper, so a one-copy group yields an empty list and the loop body
-///   never runs. `mergeDuplicateGroup` is `public` and `DuplicateGroup`'s initializer validates
-///   nothing, so what a group holds belongs to the caller — the same reasoning
-///   `applyRecommendedDuplicates` states for its own empty-batch banner.
-///
-/// The consequence is the one the file above opens with, minus the confirmation: the Edit menu and
-/// the banner both offer to reverse a step this merge never took.
+/// A merge that folds nothing and trashes nothing registers no copy-undo and no restore, so
+/// `anyPermanentlyDeleted` is false, yet a ⌘Z offer would point at whatever the user did before the
+/// merge. Two real ways to reach it:
+/// - Every redundant copy has already left the disk (an external delete, or a retry after a
+///   partial merge). `guard fm.fileExists(atPath: redundant.path) else { continue }` skips each,
+///   and skipping isn't failing, so the merge succeeds.
+/// - The group has no redundant copy. `DuplicateGroup.redundantCopies` excludes the keeper and the
+///   fallback keeper, so a one-copy group yields an empty list. `mergeDuplicateGroup` is `public`
+///   and `DuplicateGroup`'s initializer validates nothing, so the group's contents belong to the
+///   caller (as `applyRecommendedDuplicates` reasons for its empty-batch banner).
 @Suite struct MergeEmptyUndoPromiseTests {
 
     private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
@@ -404,10 +380,9 @@ import EventsTestSupport
                       isRecommendedKeeper: keeper)
     }
 
-    /// A previous step the merge must not offer to reverse. Registered directly on the manager's
-    /// undo manager so the assertion is about what is on TOP of the stack, not about whether the
-    /// stack is empty — an empty stack would let a wrong "canUndo == false" pass for the right
-    /// reason and hide the misdirection this is about.
+    /// A previous step the merge must not offer to reverse. Registered directly so the assertion is
+    /// about what is on top of the stack: an empty stack would let `canUndo == false` pass and hide
+    /// the misdirection.
     @MainActor
     private func registerPriorStep(_ manager: FileSyncManager) -> UndoManager {
         let undo = UndoManager()
@@ -423,7 +398,7 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        // Listed in the group, gone from the disk — never created.
+        // Listed in the group, never created on disk.
         let vanished = base.appendingPathComponent("Redundant")
 
         let manager = FileSyncManager()

@@ -1,26 +1,19 @@
 import Foundation
 
-/// Where To File suggests homes — the tree a scan files **into**, apart from the folder it reads
-/// loose files **from** (TE287).
+/// Where To File suggests homes: the tree a scan files **into**, apart from the folder it reads
+/// loose files **from**. Scoped to Home ▸ Downloads, filing into the source's own anchor would
+/// walk all of Home and suggest homes anywhere under `~`.
 ///
-/// The two were one value: the scan read the scoped folder and filed into the same source's
-/// anchor. For a cloud source that is right. For a plain folder source it is not — scoped to
-/// Home ▸ Downloads, the "tree" was the whole Home folder, 400,000 entries the scan stopped to ask
-/// about, and homes suggested anywhere under `~` rather than in the folders the survey learned.
-///
-/// **The rule (GH, GI):** a cloud source files into its own anchor, as it always has. A folder
-/// source files into the folder survey's root — Documents, in iCloud, on his Mac — because that
-/// is where his conventions are. A choice made in the File Into menu overrides either, per source,
-/// for as long as that folder exists.
+/// The rule: a cloud source files into its own anchor. A folder source files into the folder
+/// survey's root (Documents, in iCloud) because that is where the user's conventions are. A
+/// choice in the File Into menu overrides either, per source, for as long as that folder exists.
 public enum FilingDestinationRoot {
 
     /// UserDefaults key: a JSON object of source id → chosen destination folder (absolute).
     public static let storedKey = "toFileDestinationBySource"
 
-    /// Where a source files into when nothing has been chosen for it.
-    ///
-    /// A folder source with no usable survey root keeps its own anchor — the behaviour before
-    /// TE287, which is the only tree there is to suggest from.
+    /// Where a source files into when nothing has been chosen. A folder source with no usable
+    /// survey root keeps its own anchor, the only tree there is to suggest from.
     public static func defaultRoot(sourceIsLocalFolder: Bool, sourceAnchor: String,
                                    surveyRoot: String?, isDirectory: (String) -> Bool) -> String {
         guard sourceIsLocalFolder, let surveyRoot, !surveyRoot.isEmpty, isDirectory(surveyRoot) else {

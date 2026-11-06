@@ -2,14 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A move onto another volume takes the staged, cancellable, Trash-first path** (FR33).
-///
-/// That path — copy into a `.tmp_` that watches Cancel, rename into place, original to the Trash —
-/// used to run only when `moveItem` threw. Foundation's `moveItem` does not throw across volumes:
-/// measured, it copied a file from the Data volume onto a disk image and unlinked the original by
-/// itself. Every double here throws EXDEV on cue, which is why no test saw it. So the double in this
-/// suite does NOT throw: a `moveItem` it is asked for succeeds, and the test reads which primitive
-/// the move used.
+/// A move onto another volume takes the staged, cancellable, Trash-first path: copy into a `.tmp_`
+/// that watches Cancel, rename into place, original to the Trash. Foundation's `moveItem` doesn't
+/// throw across volumes; it copies and unlinks the original itself, so the decision can't wait for
+/// an EXDEV. This suite's double therefore doesn't throw: its `moveItem` succeeds, and the test
+/// reads which primitive the move used.
 @Suite struct CrossVolumeMoveTests {
 
     /// Records every `moveItem` and how often the copy's observer was consulted; everything else is
@@ -64,7 +61,7 @@ import Testing
     }
 
     /// The source is never renamed: it is copied into staging, the copy lands, and the original
-    /// goes to the Trash — whether or not something was at the destination.
+    /// goes to the Trash, whether or not something was at the destination.
     @Test(arguments: [false, true])
     func aMoveToAnotherVolumeStagesACopyAndTrashesTheOriginal(destinationTaken: Bool) throws {
         let disk = try disk(destinationTaken: destinationTaken)
@@ -102,9 +99,9 @@ import Testing
         #expect(!disk.inner.virtualDisk.keys.contains { $0.contains(".tmp_") })
     }
 
-    /// P6. A double's paths are not on the real disk, but the decision read them there: a mock
-    /// folder that happens to sit under `/dev` on this Mac (devfs, a volume of its own) moving to one
-    /// that does not was judged two volumes, and the mock took the staged copy path, not its rename.
+    /// A double's paths aren't on the real disk, so the volume decision must not read them there:
+    /// a mock folder under `/dev` (devfs, a volume of its own on this Mac) moving elsewhere would be
+    /// judged two volumes and take the staged copy path instead of the mock's rename.
     @Test func aDoublesMoveIsNotJudgedByTheRealDisksVolumes() throws {
         let source = URL(fileURLWithPath: "/dev/p6-src/a.bin"), destination = URL(fileURLWithPath: "/p6-dst/a.bin")
         try #require(FileSyncManager.isCrossVolumeMove(from: source, to: destination),
@@ -124,11 +121,11 @@ import Testing
         #expect(fm.virtualDisk[destination.path] != nil)
     }
 
-    /// **B6: the production wiring.** The real disk — a `FileManager`, here a subclass that only
-    /// records — with `crossVolume` unset decides by the volumes it reads: a source on the Data volume
-    /// moving under `/dev` (devfs, a volume of its own) is staged as a copy, never handed to `moveItem` first.
-    /// Nothing is written: the staging copy has nowhere to go and the move throws, original intact.
-    /// Red if `fileManager is FileManager && …` stops being true for the real disk.
+    /// The production wiring: the real disk (a `FileManager`, here a subclass that only records),
+    /// with `crossVolume` unset, decides by the volumes it reads. A source on the Data volume moving
+    /// under `/dev` is staged as a copy, never handed to `moveItem` first. Nothing is written: the
+    /// copy has nowhere to go and the move throws, original intact. Red if
+    /// `fileManager is FileManager && …` stops being true for the real disk.
     @Test func theRealDiskDecidesAnotherVolumeByItself() throws {
         final class RecordingDisk: FileManager, @unchecked Sendable {
             private let lock = NSLock()
@@ -170,8 +167,8 @@ import Testing
     }
 
     /// The decision itself, on the real disk: two folders under the temporary directory share a
-    /// volume — one not created yet included, which is asked through its nearest existing folder —
-    /// and `/dev`, a volume of its own, does not share it.
+    /// volume (one not yet created is asked through its nearest existing folder), and `/dev`, a
+    /// volume of its own, doesn't.
     @Test func theVolumeDecisionReadsTheRealDisk() throws {
         let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cross-volume-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -184,10 +181,10 @@ import Testing
         #expect(FileSyncManager.isCrossVolumeMove(from: URL(fileURLWithPath: "/dev/null"), to: base.appendingPathComponent("b.txt")))
     }
 
-    /// **End to end on a real second volume**, when one is named: `SYNCCLOUD_SECOND_VOLUME` is a
+    /// End to end on a real second volume, when one is named: `SYNCCLOUD_SECOND_VOLUME` is a
     /// writable folder on another volume (a disk image: `hdiutil create -size 20m -fs APFS …`,
-    /// `hdiutil attach -nobrowse`). The original must reach the Trash — here a scratch Trash — rather
-    /// than be unlinked by `moveItem`. Off without the variable, so CI does not run it.
+    /// `hdiutil attach -nobrowse`). The original must reach the Trash (a scratch one here) rather
+    /// than be unlinked by `moveItem`. Off without the variable, so CI doesn't run it.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["SYNCCLOUD_SECOND_VOLUME"] != nil))
     func aMoveOntoARealSecondVolumeTrashesTheOriginal() throws {
         let volume = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["SYNCCLOUD_SECOND_VOLUME"]))

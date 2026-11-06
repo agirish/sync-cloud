@@ -1,9 +1,9 @@
 import Foundation
 
-/// Compare's differences as Ask Claude reads them (TE261): a line on the screen card, and the
+/// Compare's differences as Ask Claude reads them: a line on the screen card, and the
 /// `differences` tool's rows. Pure, so the counting, grouping and paging are tested without a scan.
 ///
-/// **The list Claude reads is the list on screen**: `FileSyncManager.differences`, after the ignore
+/// The list Claude reads is the list on screen: `FileSyncManager.differences`, after the ignore
 /// rules, hidden files and checksum-identical pairs are taken out. A row with either side in a
 /// folder on the Never show Claude list is left out too, and counted.
 public enum AskClaudeDifferences {

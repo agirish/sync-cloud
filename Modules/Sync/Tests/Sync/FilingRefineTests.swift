@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Organize's second pass — the opt-in one that can spend money.
-///
-/// The suite is organized around the three things that make the refine pass different from the
-/// scan it improves: it acts on a list already on screen (so a stale result must be dropped, not
-/// applied), it is priced per file (so its scope and its count must be one value), and it is the
-/// only Filing path that reaches a paid backend (so what it excludes is a cost question, not a
-/// tidiness one).
+/// Organize's refine pass, the opt-in one that can spend money. It acts on a list already on
+/// screen, so a stale result is dropped, not applied; it is priced per file, so its scope and its
+/// count must be one value; and it is the only Filing path to a paid backend, so what it excludes
+/// is a cost question.
 @Suite struct FilingRefineTests {
 
     /// What the classifier was asked, and at which tier.
@@ -34,8 +31,8 @@ import Testing
         try Data(repeating: 0x41, count: bytes).write(to: url)
     }
 
-    /// A provider with two destination folders and `count` loose files. Two folders is the point:
-    /// the free pass and the refine pass can then disagree, which is what makes "changed" testable.
+    /// A provider with two destination folders and `count` loose files. Two folders let the free and
+    /// refine passes disagree, which makes "changed" testable.
     private func fixture(_ name: String, looseFiles count: Int = 2) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "Refine-\(name)")
         try write(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
@@ -44,9 +41,8 @@ import Testing
         return root
     }
 
-    /// `freeDestination` is what the scan's classifier answers, `refineDestination` what the refine
-    /// pass answers. Different values are what let a test see the refine actually landing rather
-    /// than merely running.
+    /// `freeDestination` is the scan's answer, `refineDestination` the refine pass's. Different
+    /// values let a test see the refine land, not merely run.
     @MainActor
     private func manager(_ asked: Asked, freeDestination: String = "Documents/Family",
                          refineDestination: String = "Archive/2026") -> FileSyncManager {
@@ -100,8 +96,8 @@ import Testing
 
     @MainActor
     @Test func aRefineThatFindsNothingBetterIsReportedAsChangingNothing() async throws {
-        // The honest-headline case: the pass ran, was billed, and moved nothing. Reporting
-        // `asked` as the achievement would read as two improvements that did not happen.
+        // The pass ran, was billed, and moved nothing. Reporting `asked` as the result would claim
+        // two improvements that didn't happen.
         let root = try fixture("nochange")
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Asked()
@@ -117,10 +113,9 @@ import Testing
 
     @MainActor
     @Test func theListStaysOnScreenWhileRefining() async throws {
-        // `isSuggestingFiles` swaps the lens to its scanning view. A refine that set it would take
-        // the list away and put it back changed — the one thing "refine what I'm looking at" must
-        // not do. Observed from INSIDE the classifier, mid-pass: nothing asserted afterwards can
-        // see a flag that was set and cleared.
+        // `isSuggestingFiles` swaps the lens to its scanning view, which would take the list away
+        // mid-refine. Observed from inside the classifier, since a flag set and cleared can't be
+        // seen afterwards.
         let root = try fixture("onscreen")
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Asked()
@@ -147,7 +142,7 @@ import Testing
         await m.refineFilingSuggestions(m.filingSuggestions)
         let seen = try #require(observed.seen)
         #expect(!seen.scanning)     // the lens never showed its scanning view
-        #expect(seen.refining)      // …but the button knew it was busy
+        #expect(seen.refining)      // but the button knew it was busy
         #expect(seen.rows == 2)     // and the rows were still there to look at
     }
 
@@ -155,9 +150,8 @@ import Testing
 
     @MainActor
     @Test func refiningActsOnTheListItWasHandedNotTheWholeQueue() async throws {
-        // A search can narrow the rows, and the button's count comes from those rows. Sending more
-        // than was counted means billing for files the user could not see — the same rule
-        // `applyRecommendedFiling` follows, with money attached.
+        // A search can narrow the rows, and the button counts those rows. Sending more would bill
+        // for files the user couldn't see; `applyRecommendedFiling` follows the same rule.
         let root = try fixture("scope", looseFiles: 3)
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Asked()
@@ -170,7 +164,7 @@ import Testing
 
         #expect(summary.asked == 1)
         #expect(asked.refines == [["mystery-1.pdf"]])
-        // The two files that were NOT in scope kept the free pass's home.
+        // The two files out of scope kept the free pass's home.
         let unrefined = m.filingSuggestions.filter { $0.fileName != "mystery-1.pdf" }
         #expect(unrefined.count == 2)
         #expect(unrefined.allSatisfy { $0.best?.path.hasSuffix("Documents/Family") == true })
@@ -178,13 +172,12 @@ import Testing
 
     @MainActor
     @Test func aSuggestionYourOwnRuleSteeredIsNeverSent() async throws {
-        // `applyVerdicts` discards a verdict for a rule-steered file whatever it says, so sending
-        // one means paying for an answer that is thrown away on arrival — and counting one means
-        // quoting the user for work that will not happen.
+        // `applyVerdicts` discards any verdict for a rule-steered file, so sending one pays for an
+        // answer thrown away, and counting one quotes the user for work that won't happen.
         let root = try fixture("remembered", looseFiles: 1)
         defer { try? FileManager.default.removeItem(at: root) }
-        // A second loose file with a word distinctive enough to key a rule on — "mystery-0" gives
-        // one salient token that the other file shares, so a rule on it would steer both.
+        // A second loose file with a word distinctive enough to key a rule on: a rule on
+        // "mystery-0"'s one salient token would also steer any file sharing it.
         try write(root.appendingPathComponent("Downloads/tesla-invoice.pdf"))
         let asked = Asked()
         let m = manager(asked)
@@ -198,18 +191,18 @@ import Testing
         let steered = try #require(m.filingSuggestions.first { $0.fileName == "tesla-invoice.pdf" })
         #expect(steered.best?.remembered == true)
 
-        // Both the eligibility answer the button counts…
+        // Both the eligibility answer the button counts
         let eligible = m.filingSuggestionsEligibleForRefine(m.filingSuggestions)
         #expect(eligible.map(\.fileName) == ["mystery-0.pdf"])
 
-        // …and what the pass actually sends.
+        // and what the pass actually sends.
         let summary = try #require(await m.refineFilingSuggestions(m.filingSuggestions))
         #expect(summary.asked == 1)
         #expect(asked.refines == [["mystery-0.pdf"]])
         // The steered file still points where the rule said, not where the model would have.
         let after = try #require(m.filingSuggestions.first { $0.fileName == "tesla-invoice.pdf" })
         #expect(after.best?.path.hasSuffix("Documents/Family") == true)
-        // …and the one that WAS sent moved, so "not sent" isn't just "nothing happened".
+        // The one that was sent moved, so "not sent" isn't just "nothing happened".
         let refined = try #require(m.filingSuggestions.first { $0.fileName == "mystery-0.pdf" })
         #expect(refined.best?.path.hasSuffix("Archive/2026") == true)
     }
@@ -227,17 +220,15 @@ import Testing
 
         _ = await scan(m, root: root)
         #expect(m.canRefineFilingSuggestions)
-        // An empty scope after a scan is still nothing to do — and must not be billed as a batch
-        // of zero.
+        // An empty scope after a scan is still nothing to do, not a billed batch of zero.
         #expect(await m.refineFilingSuggestions([]) == nil)
         #expect(asked.refines.isEmpty)
     }
 
     @MainActor
     @Test func suggestionsFromAnotherProviderAreNotRefined() async throws {
-        // The cached taxonomy belongs to ONE provider. A verdict resolved against the wrong tree
-        // names a destination in the wrong account — and the pass would then offer to move a file
-        // there. `tryAnotherFolder` validates the same thing for the same reason.
+        // The cached taxonomy belongs to one provider. A verdict resolved against the wrong tree
+        // would offer to move a file into the wrong account. `tryAnotherFolder` checks the same.
         let root = try fixture("provider-a")
         defer { try? FileManager.default.removeItem(at: root) }
         let other = try fixture("provider-b")
@@ -260,10 +251,9 @@ import Testing
 
     @MainActor
     @Test func aRefineWhoseListWasReplacedIsDroppedButStillCached() async throws {
-        // Two facts in one, because they are in tension. The verdicts must NOT be applied — the
-        // cards on screen belong to the rescan, and overwriting them would silently undo it. The
-        // verdicts must still be RECORDED — the call happened and was billed, and re-buying the
-        // same answer is the one thing the cache exists to prevent.
+        // Two facts in tension. The verdicts must not be applied: the cards on screen belong to the
+        // rescan, and overwriting them would silently undo it. They must still be cached: the call
+        // was billed, and the cache exists so the same answer isn't bought twice.
         let root = try fixture("stale")
         defer { try? FileManager.default.removeItem(at: root) }
         let cacheDir = try makeCanonicalTempRoot(prefix: "RefineStaleCache")
@@ -288,8 +278,8 @@ import Testing
         #expect(m.filingSuggestions.allSatisfy { $0.best?.path.hasSuffix("Documents/Family") == true })
         FilingVerdictStore.waitForPendingWrites()
 
-        // …but a second refine of the same unchanged files asks nothing, because the discarded
-        // pass's answers were kept.
+        // A second refine of the same unchanged files asks nothing: the discarded pass's answers
+        // were kept.
         let fresh = manager(asked)
         fresh.filingVerdictCacheURL = m.filingVerdictCacheURL
         await fresh.findFilingSuggestions(folder: downloads, providerRoot: root)
@@ -301,8 +291,8 @@ import Testing
 
     @MainActor
     @Test func aSecondRefineWhileOneIsOutIsANoOp() async throws {
-        // The button is disabled while a pass runs, but a menu equivalent and two clicks in one
-        // run-loop turn are not the button. Two passes would race each other's publish.
+        // The button is disabled while a pass runs, but a menu item or two clicks in one run-loop
+        // turn get past it. Two passes would race each other's publish.
         let root = try fixture("reentrant")
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Asked()
@@ -317,10 +307,9 @@ import Testing
         }
         let scope = m.filingSuggestions
 
-        // **Both passes are launched before either is awaited, and that shape is required rather
-        // than stylistic.** Awaiting the second call inline deadlocks when the guard is broken: the
-        // second pass blocks on the gate that only the line after the await opens. Measured — with
-        // the guard deleted, the suite hung instead of failing. A regression must fail, not hang.
+        // Both passes launch before either is awaited, and that is required: with the guard broken,
+        // awaiting the second inline would block on a gate only the next line opens, and the suite
+        // would hang instead of failing.
         async let first = m.refineFilingSuggestions(scope)
         async let second = m.refineFilingSuggestions(scope)
         await waitUntil("the first refine reaches the classifier") { asked.refines.count >= 1 }
@@ -333,10 +322,9 @@ import Testing
         #expect(!m.isRefiningFilingSuggestions)   // and the guard was released, not latched
     }
 
-    /// Refine republishes, and `publishFilingSuggestions` bumps the generation — so refine is a NEW
-    /// invalidator of an in-flight "Try another", which before this feature only scans and
-    /// `clearFiling()` could be. Pinned because it is an interaction nothing else covers: the
-    /// re-ask must drop its verdict rather than write it over the list refine just produced.
+    /// Refine republishes, and `publishFilingSuggestions` bumps the generation, so a refine
+    /// invalidates an in-flight "Try another" as a scan or `clearFiling()` does. The re-ask must drop
+    /// its verdict rather than write it over the refined list.
     @MainActor
     @Test func aTryAnotherInFlightIsDiscardedByARefinesRepublish() async throws {
         let root = try fixture("tryanother-vs-refine")
@@ -353,7 +341,7 @@ import Testing
         let card = try #require(m.filingSuggestions.first)
         #expect(card.best?.path.hasSuffix("Documents/Family") == true)
 
-        // A "Try another" goes out and is held open…
+        // A "Try another" goes out and is held open
         let gate = AsyncGate()
         m.filingClassifier = { _, files, _ in
             await gate.wait()
@@ -364,7 +352,7 @@ import Testing
         async let reask: Void = m.tryAnotherFolder(for: card)
         await waitUntil("the re-ask reaches the classifier") { m.filingTryAnotherInFlight[card.id] != nil }
 
-        // …while a refine completes and republishes the whole list.
+        // while a refine completes and republishes the whole list.
         m.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map {
                 ($0.filePath, FilingVerdict(relativePath: "Archive/2026", confidence: .high, reason: "refine"))
@@ -376,16 +364,16 @@ import Testing
         await gate.open()
         await reask
 
-        // The re-ask's answer is about the pre-refine list, so it is dropped — the card keeps what
-        // the refine put there rather than reverting to the stale re-ask destination.
+        // The re-ask's answer is about the pre-refine list, so it is dropped and the card keeps the
+        // refine's home.
         #expect(m.filingSuggestions.first?.best?.path.hasSuffix("Archive/2026") == true,
                 "an in-flight Try another overwrote the refine that republished after it started")
     }
 
     @MainActor
     @Test func aNewScanClearsThePreviousRefinesSummary() async throws {
-        // The summary describes the rows it is shown beside. A rescan replaces those rows, so a
-        // summary left standing would be about files that are no longer on screen.
+        // The summary describes the rows beside it. A rescan replaces those rows, so a summary left
+        // standing would describe files no longer on screen.
         let root = try fixture("resummary")
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Asked()
@@ -423,10 +411,8 @@ private actor AsyncGate {
     }
 }
 
-/// The states an adversarial review of the refine split turned up, each written to fail against
-/// `5e326d78` first. They are grouped rather than scattered because they share one theme: every
-/// one is a place where the pass's answer to "will this cost money / what did the user reject /
-/// what is in scope" was derived twice and the two derivations could disagree.
+/// States where the refine pass answers "will this cost money", "what did the user reject" or
+/// "what is in scope" in two places that could disagree.
 @MainActor
 @Suite struct FilingRefineReviewTests {
 
@@ -451,26 +437,22 @@ private actor AsyncGate {
         return root
     }
 
-    /// Cloud ON in Settings, no usable key, so the app's router downgrades to
-    /// on-device. The refine pass really is free and really will run on-device, but the spend
-    /// guardrail keys on the SETTING, so it raises a payment dialog for a call nobody is billed
-    /// for. This is the exact failure the auto-rescan shipped and had fixed a day earlier — the
-    /// tier split moved it from the scan to the Refine button rather than removing it.
+    /// Cloud on in Settings but no usable key, so the router downgrades to on-device. The pass is
+    /// free, so the spend guardrail must follow the route, not the setting, or it raises a payment
+    /// dialog for a call nobody is billed for.
     @Test func aDowngradedRefineDoesNotRaiseAPaymentDialog() async throws {
         let root = try fixture("downgrade")
         defer { try? FileManager.default.removeItem(at: root) }
         let probe = Probe()
         let m = FileSyncManager()
-        // Cloud ON…
+        // Cloud on,
         let settings = ScratchDefaults("refineDowngrade")
         settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
-        // …and verdict reuse OFF, which is what leaves a miss for the guardrail to price. With the
-        // cache on, the scan's own on-device verdicts are hits under the same downgraded identity
-        // and the dialog never comes up — the state is real either way, this is just the half that
-        // reaches the confirmer.
+        // verdict reuse off, so there is a miss for the guardrail to price (with the cache on, the
+        // scan's on-device verdicts are hits and the confirmer is never reached),
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
-        // …but the app vouches for the on-device DOWNGRADE, for both tiers.
+        // but the app resolves both tiers to the on-device downgrade.
         m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
         m.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map {
@@ -486,12 +468,10 @@ private actor AsyncGate {
         #expect(probe.count == 0, "a refine that runs on-device raised a payment dialog")
     }
 
-    /// The same state, seen from the button. `filingCloudRefineAvailable` is what picks between
-    /// "Refine N with Opus" and the "set up Claude" invitation, so keying it on the toggle makes
-    /// the button promise a model that is not going to run.
-    ///
-    /// With no `filingCloudRefineConfigured` seam it falls back to the real route, which is the
-    /// CLI/test shape — so this pins the fallback as well as the branch.
+    /// The same state, seen from the button. `filingCloudRefineAvailable` picks between "Refine N
+    /// with Opus" and the "set up Claude" invitation; keyed on the toggle, it would promise a model
+    /// that won't run. With no `filingCloudRefineConfigured` seam (the CLI and test shape) it falls
+    /// back to the real route, so this pins the fallback too.
     @Test func theButtonDoesNotPromiseAModelTheRouterWillNotUse() async throws {
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineDowngradeLabel")
@@ -503,9 +483,9 @@ private actor AsyncGate {
                 "the button would name a cloud model for a pass the router sends on-device")
     }
 
-    /// The display seam answers the button, and the ROUTE answers the money — they are allowed to
-    /// disagree in exactly one state (a key that is stored but cannot be read), and when they do
-    /// the pass must say so rather than report a Claude result nobody got.
+    /// The display seam answers the button and the route answers the money. They disagree in one
+    /// state, a key stored but unreadable, and then the pass must say so rather than report a
+    /// Claude result nobody got.
     @Test func aStoredButUnreadableKeyOffersRefineAndThenNamesTheDowngrade() async throws {
         let root = try fixture("unreadable")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -513,9 +493,9 @@ private actor AsyncGate {
         let settings = ScratchDefaults("refineUnreadable")
         settings.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         m.filingContentDefaults = settings
-        // A key IS stored (so the button offers Claude)…
+        // A key is stored, so the button offers Claude,
         m.filingCloudRefineConfigured = { true }
-        // …but the router cannot read it, so the pass runs on-device.
+        // but the router can't read it, so the pass runs on-device.
         m.filingBackendIdentity = { _ in FileSyncManager.onDeviceBackendIdentity }
         m.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map {
@@ -525,18 +505,17 @@ private actor AsyncGate {
         let probe = Probe()
         m.filingCloudSpendConfirmer = { _ in probe.record(); return true }
 
-        #expect(m.filingCloudRefineAvailable)      // the button is offered…
+        #expect(m.filingCloudRefineAvailable)      // the button is offered,
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         await m.refineFilingSuggestions(m.filingSuggestions)
 
-        #expect(probe.count == 0)                  // …nothing was priced or billed…
-        #expect(m.banner?.severity == .warning)       // …and the banner names the key rather than
+        #expect(probe.count == 0)                  // nothing was priced or billed,
+        #expect(m.banner?.severity == .warning)       // and the banner names the key rather than
         #expect(m.banner?.message.contains("couldn’t be read") == true)   // claiming a Claude answer
 
-        // **The durable summary carries the downgrade too, and this is the one the pill reads.**
-        // `classified` is 0 here because nothing reached Claude — which is right for a billing
-        // figure and wrong as an explanation, since every file WAS classified on-device. Without
-        // the cause beside it the tooltip read that 0 as an exhausted cache.
+        // The durable summary, which the pill reads, carries the downgrade too. `classified` is 0
+        // because nothing reached Claude, right for billing but not an explanation: without the
+        // cause the tooltip would read that 0 as an exhausted cache.
         let summary = try #require(m.filingLastRefine, "a downgraded refine recorded no summary")
         #expect(summary.outcome == .downgraded,
                 "the summary calls a downgraded pass “\(summary.outcome.rawValue)”")
@@ -544,10 +523,9 @@ private actor AsyncGate {
         #expect(summary.asked > 0, "nothing was asked — this check would be vacuous")
     }
 
-    /// A "Try another" landing while a refine is out records a rejection the refine's
-    /// pre-await snapshot cannot see, so the refine can re-suggest the folder the user just
-    /// rejected. The snapshot is right for the REQUEST (that is what was sent); it is wrong for
-    /// the APPLY, which is about what the user is shown.
+    /// A rejection recorded while a refine is out must still be honoured when it applies. The
+    /// pre-await snapshot is right for the request but not for the apply, or the refine could
+    /// re-suggest the folder the user just rejected.
     @Test func aRejectionRecordedDuringTheRoundTripIsStillHonoured() async throws {
         let root = try fixture("rejected")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -580,9 +558,8 @@ private actor AsyncGate {
                 "the refine landed on a folder the user rejected while it was running")
     }
 
-    /// `scope` is caller-supplied, and two of the dictionaries built from it use
-    /// `uniqueKeysWithValues`, which TRAPS on a duplicate key. A public API should not crash on a
-    /// list that happens to name the same file twice.
+    /// `scope` is caller-supplied, and dictionaries built with `uniqueKeysWithValues` trap on a
+    /// duplicate key. A list naming the same file twice must not crash.
     @Test func aDuplicateInTheScopeDoesNotTrap() async throws {
         let root = try fixture("dupes")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -596,14 +573,14 @@ private actor AsyncGate {
         let doubled = m.filingSuggestions + m.filingSuggestions
 
         let summary = await m.refineFilingSuggestions(doubled)
-        // Deduped rather than merely survived: the count is what the user is quoted, and sending a
-        // file twice would bill for it twice.
+        // Deduped, not merely survived: the count is what the user is quoted, and sending a file
+        // twice would bill it twice.
         #expect(summary?.asked == 1)
     }
 
-    /// The free tier's identity is pinned to on-device even with cloud switched on, with no app
-    /// resolver in play (the CLI, and every test that doesn't inject one). Without this a
-    /// cloud-enabled CLI would file its free-pass answers under a Claude model's name.
+    /// With no app resolver (the CLI, and tests that don't inject one), the free tier stays
+    /// on-device even with cloud on, or the CLI would file free-pass answers under a Claude model's
+    /// name.
     @Test func theFreeTiersConfiguredIdentityIgnoresTheCloudToggle() {
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineFreeIdentity")
@@ -619,12 +596,9 @@ private actor AsyncGate {
 
     // MARK: A declined charge is not a result
 
-    /// **Cancel on the spend prompt used to be reported as a completed pass.**
-    ///
-    /// `cloudSpendAllows` returns false for both refusals — Cancel, and the over-cap dialog whose
-    /// only button is "Use On-Device Instead" — and nothing downstream could tell that apart from
-    /// "there was nothing to send". So the user pressed Cancel, nothing was sent, nothing was
-    /// re-routed, and a green banner said the refine had run and found no better homes.
+    /// Declining the spend prompt is not a completed pass. `cloudSpendAllows` returns false for
+    /// Cancel and for the over-cap dialog's "Use On-Device Instead", which must not read as "nothing
+    /// to send" or a green banner would claim the refine ran and found no better homes.
     @Test func decliningTheSpendPromptIsNotReportedAsSuccess() async throws {
         let root = try fixture("declined")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -657,17 +631,16 @@ private actor AsyncGate {
                 "the banner does not say why nothing happened: “\(banner.message)”")
         #expect(!banner.message.contains("no better homes"),
                 "the banner reports an outcome the decline prevented: “\(banner.message)”")
-        // **And the durable summary says so too.** The banner goes away; `filingLastRefine` is
-        // what the "refined" pill and its tooltip read afterwards, and with only `classified == 0`
-        // to go on the tooltip explained the decline as an exhausted cache. The cause is carried.
+        // The durable summary says so too: the banner goes away, but the "refined" pill's tooltip
+        // reads `filingLastRefine`, and `classified == 0` alone reads as an exhausted cache.
         let summary = try #require(m.filingLastRefine, "a declined refine recorded no summary")
         #expect(summary.outcome == .declined,
                 "the summary calls a declined pass “\(summary.outcome.rawValue)”")
         #expect(summary.classified == 0, "a declined pass counted files as sent to Claude")
     }
 
-    /// The other direction, so the test above is not passing on "any refine warns": an APPROVED
-    /// pass still reports success.
+    /// The other direction, so the test above isn't passing because every refine warns: an
+    /// approved pass still reports success.
     @Test func anApprovedRefineStillReportsSuccess() async throws {
         let root = try fixture("approved")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -689,29 +662,22 @@ private actor AsyncGate {
 
         let banner = try #require(m.banner, "an approved refine said nothing")
         #expect(banner.severity == .success, "an approved refine no longer reports success")
-        // The other direction for the summary as well — otherwise `outcome` could be hard-wired to
-        // `.declined` and the test above would still pass.
+        // The summary too, or `outcome` could be hard-wired to `.declined`.
         let summary = try #require(m.filingLastRefine)
         #expect(summary.outcome == .ran, "an approved pass is recorded as \(summary.outcome.rawValue)")
         #expect(summary.classified > 0, "an approved pass counted nothing as sent")
     }
 }
 
-/// The one cost assertion in this package, and it earns the machine-pinned marker for the same
-/// reason `ColumnClickCostBenchmark` does: the bar is a RATIO between two calls in the same run,
-/// so it scales with the machine, but it is still a latency claim rather than a behavioural one.
-///
-/// It exists because the regression it catches was invisible to every other test: the refactor
-/// that added the `existingRelative:` overload moved the empty-verdicts early-out into it, so the
-/// taxonomy overload derived the folder set — a full recursive walk of the provider — before
-/// returning the input untouched. The result was identical, so only the cost changed, and only a
-/// clock can see that.
+/// A cost assertion, machine-pinned for the same reason as `ColumnClickCostBenchmark`: the bar is
+/// a ratio between two calls in one run, so it scales with the machine, but it is still a latency
+/// claim. The empty-verdicts early-out must come before the taxonomy overload's full walk of the
+/// provider; skipping it changes only the cost, which only a clock can see.
 @Suite(.machinePinned(.calibratedTiming)) struct FilingApplyVerdictsCostTests {
 
-    /// `applyVerdicts(taxonomy:)` lost its empty-verdicts early-out in the refactor, so
-    /// a scan whose backend declined (no Apple Intelligence — an ordinary Mac) now walks the whole
-    /// provider tree to build a folder set nothing reads. Asserted on the walk itself, because the
-    /// result is identical either way and only the cost changed.
+    /// With no verdicts (the backend declined, as on a Mac without Apple Intelligence),
+    /// `applyVerdicts(taxonomy:)` must not walk the provider tree to build a folder set nothing
+    /// reads. Timed, because the result is identical either way.
     @Test func anEmptyVerdictSetDoesNotWalkTheTaxonomy() {
         // A tree big enough that the difference is unmistakable, and a suggestion list to map over.
         let taxonomy = (0..<2000).map {
@@ -734,8 +700,8 @@ private actor AsyncGate {
                     to: suggestions, taxonomy: taxonomy, providerRoot: "/root")
             }
         }
-        // The empty case should not pay for the taxonomy walk the populated case needs. A generous
-        // ratio, because this is about "did the walk happen at all", not about microseconds.
+        // The empty case must not pay for the walk the populated case needs. A generous ratio: the
+        // question is whether the walk happened at all.
         #expect(empty < populated / 4,
                 "empty verdicts cost \(empty) vs \(populated) populated — the walk was not skipped")
     }
@@ -743,12 +709,9 @@ private actor AsyncGate {
 }
 
 /// Reads of the persisted rejection store must not scale with the number of suggestions.
-///
-/// `filingRejections` decodes JSON out of `UserDefaults` on every access — `readPersistedStore`
-/// says as much ("these getters are hot — a scan reads them per file"). The round-1 review
-/// extracted a `rejectedFolders(for:…)` helper for the good reason that the request's exclusion
-/// list and the apply filter must derive rejections identically; the helper then fetched the store
-/// itself, turning two decodes into two per suggestion, on the main actor.
+/// `filingRejections` decodes JSON from `UserDefaults` on every access (see `readPersistedStore`),
+/// so the request's exclusion list and the apply filter each read it once per loop, not once per
+/// suggestion on the main actor.
 @MainActor
 @Suite struct FilingRefineRejectionReadTests {
 
@@ -799,7 +762,7 @@ private actor AsyncGate {
         let spent = counting.reads - before
 
         // Two loops read the store, so two decodes is the floor. The bar is well under the file
-        // count so it fails on "per suggestion" rather than on an extra hoisted read appearing.
+        // count, so it fails on per-suggestion reads, not on one extra hoisted read.
         #expect(spent <= 4,
                 "the refine pass decoded the rejection store \(spent) times for \(fileCount) suggestions")
     }

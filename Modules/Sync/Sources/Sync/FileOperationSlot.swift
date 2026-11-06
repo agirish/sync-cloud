@@ -3,23 +3,17 @@ import Foundation
 /// A position already claimed in `FileSyncManager`'s serial file-operation queue, handed out by
 /// `claimFileOperationSlot()` and spent by exactly one `enqueueFileOperation(slot:)`.
 ///
-/// The queue's order used to be a property of WHERE `enqueueFileOperation` was called from: it
-/// claims its position without a suspension in front of it, so callers already on the main actor
-/// claim in call order — and callers that spawn a `Task` first additionally depend on
-/// equal-priority main-actor jobs being FIFO. A slot makes the order a property of when the CALLER
-/// decided, in its own synchronous stretch, which is checkable at the site and cannot be undone by
-/// how the operation is eventually dispatched.
-///
-/// Reference type on purpose: the slot's `deinit` releases the position, so a claim that is
-/// dropped without ever being enqueued (an early `return`, a thrown error, a future refactor) lets
-/// the queue move on instead of wedging every operation behind it forever.
+/// The queue order is fixed when the caller claims, in its own synchronous stretch, so it can't
+/// depend on how the operation is later dispatched (a spawned `Task` would rely on main-actor jobs
+/// running FIFO). A class on purpose: `deinit` releases the position, so a claim dropped without
+/// being enqueued (an early `return`, a thrown error) can't wedge every operation behind it.
 public final class FileOperationSlot: @unchecked Sendable {
 
     /// The operation this one queues behind — the chain as it stood at claim time.
     let predecessor: Task<Void, Swift.Error>
 
     /// Signalled when this slot's operation has finished (body plus its main-actor cleanup), which
-    /// is what the NEXT claim is waiting on.
+    /// is what the next claim waits on.
     let released = OneShotSignal()
 
     init(predecessor: Task<Void, Swift.Error>) {
@@ -37,12 +31,9 @@ public final class FileOperationSlot: @unchecked Sendable {
     }
 }
 
-/// A one-shot "it's done" signal that any number of tasks can await, and that can be signalled
-/// from any isolation — including a `deinit`, which is why this is a lock around continuations
-/// rather than anything actor-isolated.
-///
-/// `finish()` after the fact is a no-op, and `wait()` after `finish()` returns immediately, so
-/// neither side has to be first.
+/// A one-shot "it's done" signal any number of tasks can await. It can be signalled from any
+/// isolation, including a `deinit`, so it is a lock around continuations, not an actor. A second
+/// `finish()` is a no-op and `wait()` after `finish()` returns at once, so neither must be first.
 final class OneShotSignal: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false

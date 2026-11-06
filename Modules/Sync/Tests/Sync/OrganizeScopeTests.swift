@@ -2,13 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The scope predicate, rule by rule.
-///
-/// **Every fixture here is built so that in-scope and out-of-scope answer differently.** A scope
-/// test whose expected value equals the unscoped fallback cannot fail — it passes just as happily
-/// against a predicate that returns `true` unconditionally — and that shape has already cost this
-/// codebase a mutation that survived. So each case asserts a row that is admitted *and* a row that
-/// is rejected, and the counts differ from the unfiltered count.
+/// The scope predicate, rule by rule. Each case asserts a row that is admitted and one that is
+/// rejected, and the unscoped answer differs: a test whose expectation equals the unscoped fallback
+/// would pass against a predicate that always returns `true`.
 @Suite struct OrganizeScopeTests {
 
     static let root = "/Users/x/Documents"
@@ -44,13 +40,10 @@ import Foundation
     }
 
     @Test func aTildeSpelledScopePathResolvesToTheSameScope() {
-        // Dropping `expandingTildeInPath` from the scope path SURVIVED the first draft: the only
-        // tilde argument any test passed was one that resolved OUTSIDE its fake root, so nil came
-        // back either way and the expansion was never actually exercised.
-        //
-        // It matters because the persisted scope and the pane both deal in tilde-abbreviated paths
-        // in places, and an unexpanded "~/Documents/Legal" is a literal relative path that matches
-        // no absolute row — the scope would silently filter every lens to empty.
+        // Fails if `expandingTildeInPath` is dropped from the scope path. The persisted scope and
+        // the pane both use tilde paths in places, and an unexpanded "~/Documents/Legal" matches no
+        // absolute row, so the scope would silently filter every lens to empty. The fixture
+        // resolves inside its root so nil can't pass by accident.
         let home = NSHomeDirectory()
         let root = (home as NSString).appendingPathComponent("Documents")
         let expanded = OrganizeScope(path: (root as NSString).appendingPathComponent("Legal"),
@@ -177,14 +170,10 @@ import Foundation
     }
 
     @Test func aGroupWhoseKEEPERIsOutsideTheScopeIsStillAdmitted() {
-        // The mutation "any member -> the keeper only" SURVIVED the first draft of these tests,
-        // because every fixture happened to make the keeper the in-scope copy.
-        //
-        // It is the dangerous direction. The keeper is chosen by canonicality — shallowest path
-        // wins — so the copy that survives is routinely the one filed high in the tree, *outside*
-        // a narrow scope, while the redundant copy is the one sitting in the folder the user is
-        // looking at. Testing the keeper alone would drop exactly the groups a scoped user most
-        // needs to see: the ones offering to delete something under their own feet.
+        // Fails if "any member" becomes "the keeper only". The keeper is the shallowest path, so it
+        // often sits outside a narrow scope while the redundant copy is in the folder the user is
+        // looking at. Testing the keeper alone would hide the groups offering to delete something
+        // under the user's feet.
         let s = Self.scope(Self.legal)
         let keeperOutside = DuplicateGroup(
             matchType: .identical, name: "dup", isDirectory: false,
@@ -197,9 +186,9 @@ import Foundation
     }
 
     @Test func theOutOfScopeCopiesOfAnAdmittedGroupAreLabelledNotHidden() {
-        // The safety property spelled out: a straddling group keeps BOTH copies, and the predicate
-        // that drives the label distinguishes them. Hiding half a group turns a two-copy decision
-        // into a one-copy one, which is how the wrong copy gets trashed.
+        // A straddling group keeps both copies, and the label's predicate tells them apart. Hiding
+        // half a group turns a two-copy decision into a one-copy one, and the wrong copy gets
+        // trashed.
         let s = Self.scope(Self.legal)
         let straddling = Self.group(["/Users/x/Documents/Legal/a.pdf",
                                      "/Users/x/Documents/Medical/a.pdf"])
@@ -213,18 +202,17 @@ import Foundation
     // MARK: Handoffs
 
     @Test func aRevealForAFileOUTSIDETheScopeClearsIt() {
-        // The defect: the reveal outcome is resolved against the WHOLE group list while the rows
-        // are drawn through the scoped one. Without this the resolver reports "revealed", writes
-        // the query, marks the group — and the group is then filtered away, so a direct question
-        // about a named file comes back as a silent no.
+        // The reveal resolves against the whole group list while rows draw through the scoped one.
+        // Without clearing, the group is marked and then filtered away, and a question about a
+        // named file comes back as a silent no.
         let s = Self.scope(Self.legal)
         #expect(OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Medical/scan.pdf", scope: s))
     }
 
     @Test func aRevealForAFileINSIDETheScopeLeavesItAlone() {
-        // The discriminating half. Clearing unconditionally would throw away a scope every time
-        // the user asked about one of the rows they were already looking at.
+        // Clearing unconditionally would drop the scope whenever the user asked about a row they
+        // were already looking at.
         let s = Self.scope(Self.legal)
         #expect(!OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Legal/lease.pdf", scope: s))
@@ -268,8 +256,7 @@ import Foundation
 
     @Test func theProfileRootFamilyIsAnAncestorNotAnOutsider() {
         // `family == "."` is the profile root. `appendingPathComponent` would spell it "<root>/."
-        // and PathBoundary does no `.` resolution, so this case is the one that silently became
-        // `.outside` if the root is not special-cased.
+        // and `PathBoundary` does no `.` resolution, so without a special case it reads `.outside`.
         let s = Self.scope(Self.legal)
         #expect(OrganizeScopeFilter.relation(of: Self.finding("."),
                                              profileRoot: Self.root, scope: s) == .aboutAncestor)
@@ -281,36 +268,25 @@ import Foundation
     }
 
     @Test func aTildeProfileRootResolvesLikeTheScopeDoes() {
-        // **The live profile stores its root as the literal string "~/Documents"** (verified in
-        // `folder-profile.json`), while a scope is always absolute. Without the expansion the two
-        // never meet, every finding reads `.outside`, and Restructure goes silently empty under
-        // every scope — the exact shape of the "12 green tests, zero findings on the real profile"
-        // failure this feature already had once.
-        //
-        // The fixture has to hang off the REAL home for the same reason: `expandingTildeInPath`
-        // resolves against `NSHomeDirectory()`, so a synthetic "/Users/x" home would make this test
-        // pass or fail for reasons that have nothing to do with the rule under test. The first
-        // draft of this test did exactly that and reported `.outside` against a correct predicate.
+        // The live profile stores its root as the literal "~/Documents", while a scope is always
+        // absolute. Without expansion every finding reads `.outside` and Restructure goes silently
+        // empty under every scope. The fixture uses the real home because `expandingTildeInPath`
+        // resolves against `NSHomeDirectory()`; a synthetic home would test the wrong thing.
         let home = NSHomeDirectory()
         let root = (home as NSString).appendingPathComponent("Documents")
         let s = Self.scope((root as NSString).appendingPathComponent("Legal"), root: root)
         #expect(OrganizeScopeFilter.relation(of: Self.finding("Legal/Cases"),
                                              profileRoot: "~/Documents", scope: s) == .inside)
-        // And the rule still discriminates when the root is tilde-spelled — otherwise expanding it
-        // could just as well be returning `.inside` for everything.
+        // Still discriminates with a tilde root, so it can't be answering `.inside` for everything.
         #expect(OrganizeScopeFilter.relation(of: Self.finding("Medical/Bills"),
                                              profileRoot: "~/Documents", scope: s) == .outside)
     }
 
     // MARK: Rules — there is no predicate, and that is the assertion
 
-    // `OrganizeScopeFilter.matches(_ rule: AutomationRule, scope:)` and its `literalPrefix` helper
-    // were deleted with the tests that lived here, because the scope does not reach Rules at all
-    // any more (`OrganizeLens.isScoped`). Their replacement is `OrganizeLensScopeTests` in
-    // FileExplorer, next to the rule; the reason for the deletion is on `OrganizeScopeFilter`.
-    //
-    // Nothing is asserted here because there is nothing to assert: a stub retained "for coverage"
-    // would be a predicate that no caller reaches, which is the state this removed.
+    // The scope does not reach Rules (`OrganizeLens.isScoped`), so there is no rule predicate to
+    // test here. `OrganizeLensTests` in FileExplorer covers that rule; the reason is on
+    // `OrganizeScopeFilter`.
 
     // MARK: The global view is genuinely unfiltered
 
@@ -323,15 +299,15 @@ import Foundation
 
     // MARK: - Whether an answer can be given at all
 
-    /// **The question every filter above is unable to ask.** Filtering a scan's results to zero and
-    /// the scan having found nothing are different facts, and only the second is "clean" — the
-    /// overview claimed the first as the second for any scope the pass never entered.
+    /// Filtering a scan's results to zero and the scan finding nothing are different facts, and
+    /// only the second is "clean". A scan covers its own root and what is under it, never a scope
+    /// it didn't enter.
     @Test func aScanCoversOnlyItsOwnRootAndWhatIsUnderIt() {
         // The scan that covers it: the subject itself, and any ancestor of it.
         #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.legal))
         #expect(OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root))
-        // The ones that do not — a sibling, and a DESCENDANT, which is the subtle one: scanning
-        // `Legal/2024` says nothing about the rest of `Legal`.
+        // Not a sibling, nor a descendant: scanning `Legal/2024` says nothing about the rest of
+        // `Legal`.
         #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.root + "/Photos"))
         #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: Self.legal + "/2024"))
         // A prefix that is not a path boundary is not an ancestor.
@@ -340,10 +316,9 @@ import Foundation
         #expect(!OrganizeScopeFilter.scanCovers(subject: Self.legal, scannedRoot: nil))
     }
 
-    /// **The unscoped case is the provider root, not "whatever ran".** With no scope the overview
-    /// says *"Nothing to do here. Every check that has run came back clean."* — about everything —
-    /// so its subject is the tree's top and a scan of one browsed subfolder does not cover it.
-    /// Passing the scanned root in as the subject would ask whether the scan covered itself.
+    /// With no scope the subject is the provider root, not "whatever ran": the overview's clean
+    /// message is about everything, so a scan of one browsed subfolder does not cover it. Passing
+    /// the scanned root as the subject would ask whether the scan covered itself.
     @Test func withNoScopeTheSubjectIsTheProviderRootAndASubfolderScanDoesNotCoverIt() {
         #expect(!OrganizeScopeFilter.scanCovers(subject: Self.root, scannedRoot: Self.root + "/Photos"),
                 "a scan of one subfolder was allowed to answer for the whole tree")
@@ -365,10 +340,9 @@ import Foundation
         }
     }
 
-    /// **A one-level pass can only answer about the folder it enumerated**, and the ancestor case is
-    /// the one that matters: the loose files of the provider root are all outside `Legal`, so a
-    /// root-level filing scan leaves `Legal`'s count zero by construction. Answering "covered" there
-    /// is the false-clean bug one level up, which is what a shared ancestry predicate produced.
+    /// A one-level pass answers only for the folder it enumerated. The ancestor case matters: the
+    /// root's loose files are all outside `Legal`, so a root-level filing scan leaves `Legal`'s
+    /// count zero by construction, and "covered" there would be a false clean.
     @Test func aOneLevelScanAnswersOnlyForTheFolderItEnumerated() {
 
         #expect(OrganizeScopeFilter.looseFileScanCovers(subject: Self.legal, scannedFolder: Self.legal))

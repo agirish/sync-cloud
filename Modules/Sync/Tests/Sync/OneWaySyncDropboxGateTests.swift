@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Dropbox caught up (DI): running, for 5 minutes since it started or the Mac woke, and nothing
-/// still arriving; and nothing counts as synced until Dropbox reports the upload.
+/// Dropbox caught up: running, for 5 minutes since it started or the Mac woke, and nothing still
+/// arriving; and nothing counts as synced until Dropbox reports the upload.
 @Suite struct OneWaySyncDropboxGateTests {
     static let t0 = Date(timeIntervalSince1970: 1_793_361_600)
     static let synced = ["/Dropbox/Documents/Finance", "/Dropbox/Documents/Legal"]
@@ -143,7 +143,7 @@ import Testing
         #expect(arrivals.lastArrival == at)
     }
 
-    /// FU: extended attributes alone (an opened stamp, a tag, Dropbox marking an upload) aren't an
+    /// Extended attributes alone (an opened stamp, a tag, Dropbox marking an upload) aren't an
     /// arrival, so opening files doesn't hold Sync Now.
     @Test func attributesAloneAreNoArrival() {
         var arrivals = OneWaySyncArrivals()
@@ -278,7 +278,7 @@ import Testing
         release.signal()
     }
 
-    /// A read that hangs (File Provider has hung before) doesn't hold the answer past the deadline.
+    /// A read that hangs (File Provider reads can) doesn't hold the answer past the deadline.
     @Test func aHungReadEndsAtTheDeadline() async {
         let release = DispatchSemaphore(value: 0)
         let start = ContinuousClock.now

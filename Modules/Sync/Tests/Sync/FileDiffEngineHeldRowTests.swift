@@ -6,9 +6,9 @@ import Foundation
 /// must not take the guess unattended: `syncAll` (every multi-row app run) and, for a link, even a
 /// single `syncFile`. The CLI's half is pinned in `CommandRunnerTests`.
 ///
-/// Each engine fixture pairs the held row with a neighbour the same rule must NOT hold, because the
-/// held row's `action` is the same `.copyToRight` it always was: an assertion on the action alone
-/// would pass with or without the hold (testing law 3).
+/// Each engine fixture pairs the held row with a neighbour the same rule must not hold, because the
+/// held row's `action` is still `.copyToRight`: an assertion on the action alone would pass with or
+/// without the hold.
 @Suite struct FileDiffEngineHeldRowTests {
 
     private let d1 = Date(timeIntervalSince1970: 1_700_000_000)
@@ -31,11 +31,9 @@ import Foundation
 
     // MARK: FR39 — different sizes, no newer side
 
-    /// **At the 5 s tolerance, a pair edited 3 s apart with different sizes is a question.** Both
-    /// orders are covered — left 3 s later went through the old "left is newer" branch, right 3 s
-    /// later through the final "left as truth" `else` — and both used to be plain `.copyToRight`
-    /// rows a bulk run took. A pair 10 s apart is past the tolerance and keeps its direction, held
-    /// by nothing.
+    /// At the 5 s tolerance, a pair edited 3 s apart with different sizes is a question, and is
+    /// held whichever side is 3 s later; neither may become a plain `.copyToRight` row a bulk run
+    /// takes. A pair 10 s apart is past the tolerance and keeps its direction, unheld.
     @Test func sizesThatDifferInsideTheDateToleranceAreHeldEitherWayRound() throws {
         let rows = diff([
             "a-left-later.txt": info("/left/a-left-later.txt", size: 100, date: d1.addingTimeInterval(3)),
@@ -59,8 +57,8 @@ import Foundation
         #expect(decided.description == "Mac file is newer")
     }
 
-    /// A side with no date says nothing about which is newer either — the old code let the left win
-    /// whenever the right had no date, and fell to "left as truth" when the left had none.
+    /// A side with no date says nothing about which is newer either, whichever side lacks it; the
+    /// left must not win by default.
     @Test func aPairWhereOneSideHasNoDateIsHeld() throws {
         let rows = diff([
             "left-dateless.txt": info("/left/left-dateless.txt", size: 100, date: nil),
@@ -78,11 +76,11 @@ import Foundation
         #expect(rightless.description == "Sizes differ and the Backup file has no date — choose which to keep")
     }
 
-    /// **A name-conflict pair is the same question (FR39).** Two files whose names differ only
-    /// invisibly, sizes different, dates 3 s apart at the 5 s tolerance (or one undated): the row
-    /// used to default left → right and "Sync all" overwrote the right spelling. Held, with the
-    /// sizes note after the names. Its neighbours are not: a same-size pair has nothing to lose,
-    /// and a pair 10 s apart has a newer side.
+    /// A name-conflict pair is the same question. Two files whose names differ only invisibly,
+    /// sizes different, dates 3 s apart at the 5 s tolerance (or one undated): defaulting left →
+    /// right would let "Sync all" overwrite the right spelling. Held, with the sizes note after the
+    /// names. Its neighbours are not: a same-size pair has nothing to lose, and a pair 10 s apart
+    /// has a newer side.
     @Test func aNameConflictPairWithDifferentSizesAndNoNewerSideIsHeld() throws {
         let rows = diff([
             "Report ": info("/left/Report ", size: 100, date: d1.addingTimeInterval(3)),
@@ -116,10 +114,9 @@ import Foundation
 
     // MARK: FR40 — a folder against a file
 
-    /// **The `Report.pages` case.** A package edited yesterday inside still carries its 2024 folder
-    /// date, so against a single-file `Report.pages` from last month it read as the older side and
-    /// the row said "Backup item is newer". The folder date is not the contents' age: the row is
-    /// held, and its note no longer claims a newer side.
+    /// A package edited yesterday inside still carries its 2024 folder date, so against a
+    /// single-file `Report.pages` from last month it would read as the older side. The folder date
+    /// is not the contents' age: the row is held, and its note claims no newer side.
     @Test func aPackageAgainstAFileIsHeldWhateverTheFolderDateSays() throws {
         let folderDate = Date(timeIntervalSince1970: 1_704_067_200)   // 2024-01-01
         let fileDate = Date(timeIntervalSince1970: 1_758_000_000)     // 2025-09
@@ -139,10 +136,10 @@ import Foundation
 
     // MARK: FR8 — a link as the source
 
-    /// **A folder linked in on one side is held, by both scan branches, and never copied as a link.**
-    /// Real disk throughout: the bug lives between the walk (which follows the link and counts what
-    /// it holds) and the copy (`COPYFILE_NOFOLLOW_SRC`, which writes the link). Before the hold, the
-    /// row read "Folder missing on right" with two items and Copy produced one link at `Right/Linked`
+    /// A folder linked in on one side is held, by both scan branches, and never copied as a link.
+    /// Real disk throughout: the trap lies between the walk (which follows the link and counts what
+    /// it holds) and the copy (`COPYFILE_NOFOLLOW_SRC`, which writes the link). Unheld, the row
+    /// reads "Folder missing on right" with two items, and Copy writes one link at `Right/Linked`
     /// pointing back at the original.
     @MainActor
     @Test func aLinkedFolderMissingOnOneSideIsHeldAndNeverCopiedAsALink() async throws {
@@ -210,12 +207,11 @@ import Foundation
         #expect(try fm.contentsOfDirectory(atPath: original.path).sorted() == ["one.txt", "two.txt"])
     }
 
-    /// **A link INSIDE a folder missing on one side holds the folder's row, by both scan branches.**
-    /// The folder is one row — its contents collapse into it — and the copy is recursive, so
-    /// `Project/lib -> Elsewhere` inside it was written as a link and the next scan read the pair as
-    /// in sync. The row's own source is a real folder, which `held(_:source:)` alone cannot see. The
-    /// link sorts after a real file (`Project/a.txt`) so a hold keyed on the first entry collapsed
-    /// would miss it.
+    /// A link inside a folder missing on one side holds the folder's row, by both scan branches.
+    /// The folder is one row and the copy is recursive, so `Project/lib -> Elsewhere` would be
+    /// written as a link and the next scan would read the pair as in sync. The row's own source is
+    /// a real folder, which `held(_:source:)` alone can't see. The link sorts after a real file
+    /// (`Project/a.txt`), so a hold keyed on the first collapsed entry would miss it.
     @MainActor
     @Test func aFolderMissingOnOneSideThatHoldsALinkIsHeldAndNamesIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "HeldNestedLink")
@@ -263,10 +259,10 @@ import Foundation
         #expect(plainRow.description == "Folder missing on right (Backup)")
     }
 
-    /// **A missing folder holding a link is not told to "choose which to keep"** (review E12). It
-    /// exists on one side, so its menu offers the one copy, which goes ahead when asked for alone;
-    /// its phrase says that, apart from the rows that do need a choice. Held rows of each kind, in
-    /// one run, so a phrase that miscounted one kind into another cannot pass.
+    /// A missing folder holding a link is not told to "choose which to keep". It exists on one
+    /// side, so its menu offers the one copy, which goes ahead when asked for alone; its phrase
+    /// says that, apart from rows that need a choice. Both kinds in one run, so a phrase that
+    /// miscounts one kind into another can't pass.
     @MainActor
     @Test func aMissingFolderHoldingALinkHasItsOwnLeftOutPhrase() {
         func row(_ reason: FileDifference.HeldBack?) -> FileDifference {
@@ -283,16 +279,15 @@ import Foundation
         ])
     }
 
-    /// **A link that stays inside the folder holds nothing; one that leads out of it holds the
-    /// row.** Copied as links, a framework's `Versions/Current -> A` and a checkout's
-    /// `docs/readme -> ../README.md` land pointing inside the copy, which is right — holding them
-    /// left an app bundle, a venv or a git checkout with no bulk run that would take it, and no CLI
-    /// run at all. The relative target is followed from the LINK'S directory: `docs/readme` read
-    /// from the folder's root would name `../README.md`, outside it. Out, and held: a relative
-    /// link that climbs out (`docs/zout -> ../../../Elsewhere`), and an absolute one even when it
-    /// names a file inside (`Versions/Zabs`), since the copy keeps the path and leads back to the
-    /// original. Each sorts AFTER an inside link, so a hold naming the first link of all, unfiltered,
-    /// names the wrong one here.
+    /// A link that stays inside the folder holds nothing; one that leads out holds the row. Copied
+    /// as links, a framework's `Versions/Current -> A` and a checkout's
+    /// `docs/readme -> ../README.md` point inside the copy, which is right; holding them would leave
+    /// app bundles, venvs and git checkouts with no bulk or CLI run that takes them. A relative
+    /// target is followed from the link's own directory (`docs/readme` read from the root would
+    /// name `../README.md`, outside it). Held: a relative link that climbs out
+    /// (`docs/zout -> ../../../Elsewhere`), and an absolute one even naming a file inside
+    /// (`Versions/Zabs`), since the copy keeps the path back to the original. Each sorts after an
+    /// inside link, so a hold naming the first link of all would name the wrong one.
     @MainActor
     @Test func aLinkThatStaysInsideAMissingFolderHoldsNothingAndOneLeadingOutHoldsIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "HeldInsideLink")
@@ -360,9 +355,9 @@ import Foundation
 
     // MARK: bulk runs leave held rows out
 
-    /// **A bulk run copies the decided rows and leaves the held one, on a real disk.** The held row
-    /// sorts FIRST (testing law 9), so a run that stopped at it instead of stepping past it would
-    /// also leave `b-missing.txt` uncopied and fail here.
+    /// A bulk run copies the decided rows and leaves the held one, on a real disk. The held row
+    /// sorts first, so a run that stopped at it instead of stepping past it would also leave
+    /// `b-missing.txt` uncopied and fail here.
     @MainActor
     @Test func syncAllCopiesTheDecidedRowsAndLeavesTheHeldOneUntouched() async throws {
         let root = try makeCanonicalTempRoot(prefix: "HeldBulkRow")
@@ -407,11 +402,10 @@ import Foundation
         #expect(manager.differences.map(\.relativePath) == ["a-held.txt"])
     }
 
-    /// **Review's Copy Remaining copies both ways and names the held rows it left** (owner decision
-    /// 2026-10-25). A remainder going both ways ran two `syncAll`s with their banners off, so two
-    /// held rows vanished from the outcome without a word. The held rows sort first (law 9) and both
-    /// stay untouched and on the list; the banner says how many need a decision. Two runs are two
-    /// undo steps, so no Undo is offered.
+    /// Review's Copy Remaining copies both ways and names the held rows it left (his call). A
+    /// remainder going both ways runs two `syncAll`s with their banners off, so the held rows must
+    /// be reported by Copy Remaining itself. They sort first, stay untouched and on the list, and
+    /// the banner says how many need a decision. Two runs are two undo steps, so no Undo is offered.
     @MainActor
     @Test func copyRemainingCopiesBothWaysAndNamesTheHeldRowsItLeft() async throws {
         let root = try makeCanonicalTempRoot(prefix: "HeldCopyRemaining")
@@ -465,11 +459,11 @@ import Foundation
         #expect(manager.differences.map(\.relativePath) == ["a-held.txt", "b-held.txt"])
     }
 
-    /// **The row's menu decides a held row either way, and the way against the guess is the one
-    /// nothing else reached.** The engine suggests left → right for a sizes-differ pair; ⌘← and the
-    /// Review card offer only that direction, and every bulk run leaves the row out — so keeping the
-    /// RIGHT file had no path at all. `redirected(to:)` is what the menu's Copy to … item hands
-    /// `syncFile`: the right file lands on the left, the right is untouched, and the row resolves.
+    /// The row's menu decides a held row either way, including against the guess. The engine
+    /// suggests left → right for a sizes-differ pair; ⌘← and the Review card offer only that
+    /// direction, and bulk runs leave the row out, so the menu is the only way to keep the right
+    /// file. `redirected(to:)` is what its Copy to … item hands `syncFile`: the right file lands on
+    /// the left, the right is untouched, and the row resolves.
     @MainActor
     @Test func aHeldRowRedirectedAgainstItsGuessCopiesTheOtherWay() async throws {
         let root = try makeCanonicalTempRoot(prefix: "HeldRedirected")

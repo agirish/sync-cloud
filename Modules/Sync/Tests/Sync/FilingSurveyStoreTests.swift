@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The one place in the app that writes a filing artifact, tested as a store: what it does with an
-/// absent file, an unreadable one, and — the rule with real money behind it — an unchanged memory.
-///
-/// ``FilingResurveyTests`` drives this through a whole re-survey and asserts the resulting bytes.
-/// This asks the store its own questions directly, which is what makes a decode failure or a
-/// spurious memory rewrite fail *here*, naming the store, rather than somewhere downstream.
+/// The store that writes the survey's corpus and memory, tested directly: an absent file, an
+/// unreadable one, and an unchanged memory, the rule with money behind it.
+/// ``FilingResurveyTests`` drives it through a whole re-survey; asked directly, a decode failure or
+/// a spurious rewrite fails here, naming the store.
 @Suite struct FilingSurveyStoreTests {
 
     static func directory() throws -> URL {
@@ -43,9 +41,8 @@ import Testing
         #expect(FilingSurveyStore.corpus(id: "p1", in: dir) == nil)
     }
 
-    /// **The case that must not throw.** A corpus that fails to decode is a survey that happened —
-    /// the tree *has* been read — and the store's contract is to report nil and let the next survey
-    /// do the work again, not to take the caller down with it.
+    /// An undecodable corpus must not throw: the store reports nil and lets the next survey do the
+    /// work again.
     @Test func anUndecodableCorpusReadsAsNilRatherThanThrowing() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -64,8 +61,7 @@ import Testing
         try Data(json.utf8).write(to: url)
     }
 
-    /// **A corpus written by another schema is discarded, not half-read** — the stated rule, and
-    /// the one that costs only a re-survey when it fires.
+    /// A corpus from another schema is discarded, not half-read; that costs only a re-survey.
     @Test func aCorpusFromAnotherSchemaReadsAsNil() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -74,11 +70,8 @@ import Testing
         #expect(FilingSurveyStore.corpus(id: "p1", in: dir) == nil)
     }
 
-    /// The neighbouring case, pinned because it is **not** the one above and reads very like it: a
-    /// file with no `schemaVersion` at all is treated as a partial one and decodes to defaults —
-    /// an *empty* corpus, not nil. Harmless where it matters (an empty corpus re-reads every
-    /// document, exactly as an absent one does), but the two are different values and a caller
-    /// that switches on nil sees only one of them.
+    /// Not the case above: a file with no `schemaVersion` decodes to defaults, an empty corpus, not
+    /// nil. Both re-read every document, but a caller that switches on nil sees only one of them.
     @Test func aVersionlessCorpusDecodesToAnEmptyOneRatherThanNil() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -90,8 +83,7 @@ import Testing
         #expect(read.documents.isEmpty)
     }
 
-    /// Round-trip through the real files, including a document's fields — a write this store made
-    /// is one it can read.
+    /// Round-trip through the real files, a document's fields included.
     @Test func aWrittenCorpusReadsBackWhole() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -103,7 +95,7 @@ import Testing
                                     now: noon)
 
         let read = try #require(FilingSurveyStore.corpus(id: "p1", in: dir))
-        // The stamp is the one field the store sets for you (§4.1) — everything else round-trips.
+        // The stamp is the one field the store sets; everything else round-trips.
         var expected = written
         expected.surveyedAt = noon
         #expect(read == expected)
@@ -113,7 +105,7 @@ import Testing
         #expect(doc.size == 10)
     }
 
-    /// Two profiles do not read each other's corpus — the id really is part of the path.
+    /// Two profiles don't read each other's corpus: the id is part of the path.
     @Test func corporaAreKeyedByProfileId() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -127,13 +119,10 @@ import Testing
 
     // MARK: - The rule with money behind it
 
-    /// **An unchanged memory must not be rewritten.** Its bytes are hashed into the profile
-    /// fingerprint that keys every cached classification, so a rewrite with a fresh `generated`
-    /// stamp throws away every cached verdict — a full paid re-classification — to record that
-    /// nothing happened.
-    ///
-    /// Asserted on the file's modification date as well as the return value, because the return
-    /// value alone would still be `false` if the write had happened and the flag were simply wrong.
+    /// An unchanged memory is not rewritten. Its bytes are hashed into the fingerprint that keys
+    /// every cached verdict, so a fresh `generated` stamp alone would force a full paid
+    /// re-classification. Asserted on the modification date too, since the return value could be
+    /// wrong while the write still happened.
     @Test func anUnchangedMemoryIsNotRewritten() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -159,8 +148,7 @@ import Testing
         #expect(stampAfter == stampBefore, "rewrote an unchanged memory — every cached verdict is now void")
     }
 
-    /// The other direction, so the guard above is not simply "never writes". A memory that differs
-    /// is written, and the file changes.
+    /// The other direction, so the guard isn't "never writes": a memory that differs is written.
     @Test func aChangedMemoryIsWritten() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -180,9 +168,9 @@ import Testing
         #expect(object["folderCount"] as? Int == 1)
     }
 
-    /// **The corpus is written even when the memory is not.** The early return that protects the
-    /// memory sits *after* the corpus write, and a refactor moving it up would quietly stop
-    /// recording which documents were read — the thing that makes the next survey incremental.
+    /// The corpus is written even when the memory is not. The memory's early return must stay after
+    /// the corpus write, or the store stops recording which documents were read, which makes the
+    /// next survey incremental.
     @Test func theCorpusIsWrittenEvenWhenTheMemoryIsUnchanged() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -201,10 +189,9 @@ import Testing
 
     // MARK: - The surveyed-at stamp (§4.1)
 
-    /// **The pair that pulls both ways** (ROADMAP v5 §4.1): a survey that changes nothing must
-    /// still move the stamp — it answers "when did we last LOOK" — and must not move the
-    /// fingerprint, because the fingerprint keys every cached verdict and the stamp lives on the
-    /// corpus precisely so the two can move independently.
+    /// A survey that changes nothing still moves the stamp ("when did we last look") but not the
+    /// fingerprint, which keys every cached verdict. The stamp lives on the corpus so the two move
+    /// independently.
     @Test func theStampMovesWhenASurveyChangesNothingAndTheFingerprintDoesNot() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -224,14 +211,14 @@ import Testing
                 "the stamp moved the fingerprint — every cached verdict is now void for nothing")
     }
 
-    /// The stamp survives the trip through the shared artifact format — whole seconds, which is
-    /// that format's stated resolution — and an absent or pre-§4.1 corpus answers nil.
+    /// The stamp round-trips through the artifact format at its resolution, whole seconds, and an
+    /// absent corpus or one without a stamp answers nil.
     @Test func theStampRoundTripsAndPredatingCorporaAnswerNil() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == nil, "absent file")
 
-        // A corpus written before the stamp existed — decodes, and the stamp is honestly unknown.
+        // A corpus with no stamp decodes, and the stamp is unknown.
         try Self.writeCorpusFile(#"{"schemaVersion": 1, "profileId": "p1", "salt": "s"}"#, in: dir)
         #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == nil, "pre-stamp corpus")
         #expect(FilingSurveyStore.corpus(id: "p1", in: dir)?.surveyedAt == nil)
@@ -245,14 +232,14 @@ import Testing
                 "the full decode and the stamp-only read must agree")
     }
 
-    /// The header a person opening this file by hand needs. It is not decoration — these artifacts
-    /// get read when a suggestion looks wrong.
+    /// The header a person opening this file needs: these artifacts get read when a suggestion
+    /// looks wrong.
     @Test func theMemoryFileSaysWhatItIsAndWhatItSampled() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let corpus = Self.corpus(documents: [
             "a.pdf": Self.document,
-            // Blank documents are not "source documents" — nothing was learned from them.
+            // Blank documents are not source documents: nothing was learned from them.
             "b.pdf": FilingCorpusDocument(size: 1, modified: 1, anchors: [], idHashes: []),
         ])
 

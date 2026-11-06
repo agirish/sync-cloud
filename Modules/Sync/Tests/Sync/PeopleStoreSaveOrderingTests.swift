@@ -3,16 +3,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **When the bytes on disk are the roster you just edited.**
-///
-/// `FileSyncManager` re-derives `filingArtifactFingerprint` when the household changes, so that
-/// `FilingVerdictCache` — which is keyed on it — stops replaying classifications composed against
-/// the previous roster. The fingerprint hashes `people.json` *on disk*, and it was driven from
-/// `$people`, which publishes when the array is assigned: `save()` runs afterwards. Every edit
-/// therefore left the fingerprint one save behind, and the cache went on serving answers from the
-/// household the user had just changed, until a relaunch or a re-survey.
-///
-/// `savedRevision` is the post-write signal. These pin the ordering from both ends.
+/// When the bytes on disk are the roster you just edited. `FileSyncManager` re-derives
+/// `filingArtifactFingerprint`, which keys `FilingVerdictCache`, when the household changes. It
+/// hashes `people.json` on disk, but `$people` publishes before `save()` runs, so driven from it the
+/// fingerprint stays one save behind and the cache keeps serving the old household's answers.
+/// `savedRevision` is the post-write signal; these pin the ordering from both ends.
 @Suite @MainActor struct PeopleStoreSaveOrderingTests {
 
     private func makeDirectory() throws -> URL {
@@ -31,7 +26,7 @@ import Testing
         return people.compactMap { $0["displayName"] as? String }
     }
 
-    /// The fix: a `savedRevision` subscriber reading the file sees the edit that caused it.
+    /// A `savedRevision` subscriber reading the file sees the edit that caused it.
     @Test func aSavedRevisionSubscriberSeesTheEditOnDisk() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -47,10 +42,8 @@ import Testing
                 "the post-save signal fired before the bytes were written — saw \(seen.first ?? [])")
     }
 
-    /// **The control, and the bug itself.** The same subscription on `$people` sees the file as it
-    /// was *before* the edit. Asserting this keeps the test above honest: it shows the two signals
-    /// genuinely differ, so passing it is evidence about ordering rather than about the file
-    /// happening to be written by the time anyone looked.
+    /// The control: the same subscription on `$people` sees the file as it was before the edit. It
+    /// shows the two signals differ, so the test above proves ordering, not lucky timing.
     @Test func aPeopleSubscriberStillSeesThePreviousFile() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -69,13 +62,12 @@ import Testing
                 """)
     }
 
-    /// A save that is **declined** must not claim to have written: an unreadable roster is refused
-    /// (the file on disk is a household this build could not read, and the in-memory one is a
-    /// seed), so nothing downstream should go re-read a file that did not change.
+    /// A declined save must not claim to have written. An unreadable roster is refused (the
+    /// in-memory one is a seed), so nothing downstream should re-read a file that didn't change.
     @Test func aRefusedSaveDoesNotBumpTheRevision() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // Valid JSON that does not decode as a roster — the case that locks writing.
+        // Valid JSON that doesn't decode as a roster: the case that locks writing.
         try Data(#"{"schemaVersion":1,"people":{"not":"an array"}}"#.utf8)
             .write(to: dir.appendingPathComponent("p/people.json"))
 
@@ -87,10 +79,8 @@ import Testing
                 "a save that refused to write still announced one")
     }
 
-    /// **Provenance follows the write too.** `source = .file` was set by the callers, before a
-    /// `save()` that refuses outright when the roster on disk is one this build could not read — so
-    /// the list claimed "saved in people.json" beside the banner saying edits would not be saved.
-    /// The same "two answers about one roster" the flag was introduced to remove.
+    /// Provenance follows the write too. If `source` became `.file` before a refused save, the list
+    /// would claim "saved in people.json" beside the banner saying edits won't be saved.
     @Test func aRefusedSaveDoesNotClaimTheFile() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -105,8 +95,8 @@ import Testing
                 "a save that refused to write still claimed the file as the household of record")
     }
 
-    /// And a save that DOES land claims it — the other direction, so the test above is not passing
-    /// on `source` simply never changing.
+    /// A save that does land claims the file, so the test above can't pass on `source` never
+    /// changing.
     @Test func aSaveThatLandsClaimsTheFile() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -115,15 +105,10 @@ import Testing
         #expect(store.source == .file)
     }
 
-    /// **A dismissal changes the file without changing the fingerprint that costs money.**
-    ///
-    /// The fingerprint keys `FilingVerdictCache`, so anything that moves it re-bills a paid pass.
-    /// A declined name suggestion lands in `notNames`, which feeds nothing but the suggestion list
-    /// — the compiled registry is `PersonRegistry(people:source:)` and cannot see it. Asserted on
-    /// the digest itself rather than on a counter: an earlier attempt suppressed the *signal*
-    /// instead, which only deferred the re-bill to the next launch (the fingerprint is recomputed
-    /// from disk there) while leaving the session's verdicts keyed to a digest that no longer
-    /// described the file.
+    /// A dismissal changes the file without moving the fingerprint, since moving it re-bills a paid
+    /// pass. `notNames` feeds only the suggestion list; the compiled registry can't see it. Asserted
+    /// on the digest, not on the signal: the fingerprint is recomputed from disk at launch, so
+    /// suppressing the signal would only defer the re-bill.
     @Test func dismissingASuggestionDoesNotMoveTheFilingFingerprint() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -137,7 +122,7 @@ import Testing
         store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",
                                                      occurrences: 3, exampleFile: "Mukta bill.pdf"))
 
-        // It really did land — read it back rather than trusting a counter.
+        // It really did land: read it back rather than trusting a counter.
         let data = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/people.json")))
         let object = try #require(try? JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect((object["notNames"] as? [String])?.isEmpty == false, "the dismissal was not written")
@@ -147,8 +132,8 @@ import Testing
                 "a declined name suggestion moved the filing fingerprint and re-billed every file")
     }
 
-    /// And a real roster change still moves it — the direction that must keep working, or the
-    /// cache would serve answers composed against a household that has changed.
+    /// A real roster change still moves it, or the cache would serve answers composed against a
+    /// household that has changed.
     @Test func addingAPersonDoesMoveTheFilingFingerprint() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -161,7 +146,7 @@ import Testing
                 "adding a person left the fingerprint unchanged; cached verdicts would survive it")
     }
 
-    /// Neither does an unmodelled key a hand-edit or a future build left in the file.
+    /// An unmodelled key left by a hand-edit or a future build doesn't move it either.
     @Test func aCarriedCommentDoesNotMoveTheFilingFingerprint() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -176,7 +161,7 @@ import Testing
                 "a comment in people.json re-billed a full classification")
     }
 
-    /// And an edit that DOES change the household still announces one.
+    /// An edit that changes the household still announces one.
     @Test func anEditStillAnnouncesAHouseholdChange() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -186,10 +171,9 @@ import Testing
         #expect(store.savedRevision > revision)
     }
 
-    /// **The call site**, because nothing in the repo builds a `FileSyncManager` with a
-    /// `filingPeopleStore` — so deleting the `$savedRevision` subscription restores the original
-    /// bug exactly and leaves every behavioural test above green. What the tests prove is that the
-    /// two signals differ; this proves the fingerprint is driven by the right one.
+    /// The call site, scanned because no test builds a `FileSyncManager` with a
+    /// `filingPeopleStore`: deleting the `$savedRevision` subscription must fail here, since every
+    /// behavioural test above would stay green.
     @Test func theFingerprintRefreshFollowsTheWriteNotThePublish() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -206,8 +190,8 @@ import Testing
         #expect(source.contains("filingPeopleStore?.$people"),
                 "the registry is no longer recompiled when the roster changes in memory")
 
-        // And the refresh is NOT still hanging off `$people`, which is the shape that was one save
-        // stale. Bounded to the `$people` sink's own closure.
+        // And the refresh doesn't hang off `$people`, which would be one save stale. Bounded to
+        // the `$people` sink's own closure.
         let start = try #require(source.range(of: "filingPeopleStore?.$people"))
         let rest = source[start.upperBound...]
         let end = try #require(rest.range(of: "\n                }"))

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Filing help for Ask Claude (TE255): one file, the Filing profile, the router To File uses.
+/// Filing help for Ask Claude: one file, the Filing profile, the router To File uses.
 @MainActor
 @Suite struct FilingHelpTests {
 
@@ -24,7 +24,7 @@ import Testing
 
     private func manager(_ id: String, root: String, anchors: [String: [String]]) -> FileSyncManager {
         let m = FileSyncManager()
-        // Its own rules store: filing help reads saved rules first (TE286).
+        // Its own rules store: filing help reads saved rules first.
         m.filingRuleDefaults = ScratchDefaults("FilingHelp-\(id)")
         m.filingFolderProfile = Self.profile(id, root: root, Array(anchors.keys))
         m.filingMemory = Self.memory(id, anchors)
@@ -70,7 +70,7 @@ import Testing
         #expect(suggestions.allSatisfy { $0.confidence != .high })
     }
 
-    /// TE284: the file can sit anywhere on this Mac; only a place they name has to be surveyed.
+    /// The file can sit anywhere on this Mac; only a place they name has to be surveyed.
     @Test func aFileOutsideTheSurveyIsPlacedAndAPlaceOutsideItSaysSo() async {
         let bare = FileSyncManager()
         #expect(await bare.whereToFile("/x/a.pdf", snippet: nil, isHidden: { _ in false }).outcome == .noProfile)
@@ -92,7 +92,7 @@ import Testing
         FilingRouter.Candidate(relativePath: path, score: score, evidenceToken: nil, sharedAnchors: 1)
     }
 
-    /// Decision FX: the named place's folders lead unless a High answer says the file belongs
+    /// The named place's folders lead unless a High answer says the file belongs
     /// elsewhere; a stronger folder outside it then makes the answer unsure.
     @Test func aNamedPlaceIsPreferredButAPlainHomeElsewhereStands() {
         let unsure = FilingRouter.Ranking(candidates: [candidate("Home/Receipts", 10), candidate("Travel/Trips", 9),
@@ -206,7 +206,7 @@ import Testing
     }
 }
 
-/// What Claude is told about filing help's card (TE255).
+/// What Claude is told about filing help's card.
 @Suite struct AskClaudeFilingResultTests {
 
     private let card = AskClaudeFilingCard(
@@ -218,7 +218,7 @@ import Testing
         staleDays: 30, canRefine: true)
 
     /// The word, and the folder it picked: "Taxes › 2025" for a scan named scan.pdf says it is a
-    /// tax document (review of TE319–TE323).
+    /// tax document.
     @Test func theWordReadFromTheFileGoesOnlyWithReadFilesOn() {
         let off = AskClaudeFiling.result(card, sharesFreely: false)
         #expect(!off.contains("W-2") && !off.contains("Taxes"))

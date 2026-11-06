@@ -1,24 +1,19 @@
 import Foundation
 
 /// A real `FileManager` whose Trash is a folder the test owns, so a test that trashes never
-/// reaches the Trash of whoever runs it.
+/// reaches the Trash of whoever runs it. Everything but `trashItem` is the real disk. The real
+/// Trash can't be controlled: each move into it waits on a privacy check the system can hold while
+/// a dialog goes unanswered (`docs/flaky-tests.md`, "A privacy prompt nobody answered wedges
+/// `sandboxd`, so a move into the real Trash outlasts the wait"), and it collects every run's
+/// fixtures.
 ///
-/// Everything but `trashItem` is the real disk. The real Trash is the one part a test cannot
-/// control: each move into it waits on a privacy check the system can hold for as long as an
-/// unanswered dialog is up — "A privacy prompt nobody answered wedges `sandboxd`, so a move into
-/// the real Trash outlasts the wait" in docs/flaky-tests.md — and every package run left its
-/// fixtures behind. This Mac's Trash held about 545 each of `Payment`, `Emptied`, `Reports` and
-/// `bystander.txt` by 2026-10-16.
-///
-/// **Reports where the item went, as the real Trash does.** `deleteItems` counts an item with no
+/// Reports where the item went, as the real Trash does: `deleteItems` treats an item with no
 /// resulting URL as out of ⌘Z's reach, and an undo restores a replaced file from that URL, so
-/// leaving it out would quietly test another branch.
+/// leaving it out would test another branch. Each item gets its own folder, so two trashes of one
+/// name both keep it, as the real Trash renames rather than collides.
 ///
-/// Each item gets a folder of its own, so two trashes of one name both keep it, as the real Trash
-/// renames rather than collides.
-///
-/// **A double that overrides `trashItem` forwards to one of these instead of calling `super`** —
-/// `super` is the real Trash. It cannot subclass this: a `FileManager` here is `Sendable` through
+/// **A double that overrides `trashItem` must forward to one of these, never call `super`**, which
+/// is the real Trash. It can't subclass this: a `FileManager` here is `Sendable` through
 /// `FileManaging`, so every subclass must be final.
 final class ScratchTrash: FileManager, @unchecked Sendable {
     let folder: URL
@@ -42,8 +37,7 @@ final class ScratchTrash: FileManager, @unchecked Sendable {
         resultingItemURL?.pointee = destination as NSURL
     }
 
-    /// The names of everything trashed here, sorted — what a test checks to know its trash
-    /// landed in this folder and not somewhere else.
+    /// The names of everything trashed here, sorted, so a test can check its trash landed here.
     var names: [String] {
         let slots = (try? contentsOfDirectory(atPath: folder.path)) ?? []
         return slots.flatMap {

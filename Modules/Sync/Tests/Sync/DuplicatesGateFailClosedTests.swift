@@ -3,9 +3,9 @@ import Foundation
 import Events
 @testable import Sync
 
-/// The three fail-open seams the duplicates round left behind: a gate closure that refuses nothing
-/// when its manager is gone, a nested path pruned out of the gate's input and destroyed anyway via
-/// its ancestor, and a refusal that logs a basename where its siblings log a path.
+/// Duplicate-removal gates fail closed: a gate whose manager is gone refuses everything, a nested
+/// path pruned in favour of its ancestor is still verified, and every refusal logs paths, not
+/// basenames.
 @Suite struct DuplicatesGateFailClosedTests {
 
     private func stub(size: Int, modified: Date = Date(timeIntervalSince1970: 1_000)) -> MockFileManager.FileStub {
@@ -27,8 +27,8 @@ import Events
     }
 
     @MainActor
-    /// Reads the DISK log, not `Logger.shared.entries` — the in-memory array is capped at 1000 and
-    /// a parallel run evicts this suite's line before the assertion gets to it. See
+    /// Reads the disk log, not `Logger.shared.entries`: the in-memory array is capped at 1000, and a
+    /// parallel run can evict this suite's line before the assertion reads it. See
     /// `loggedLineOnDisk(containing:)`.
     private func loggedLine(containing fragment: String) async -> String? {
         await loggedLineOnDisk(containing: fragment)
@@ -36,11 +36,9 @@ import Events
 
     // MARK: A gate whose manager is gone refuses EVERYTHING
 
-    /// `guard let self else { return [] }` refused nothing and removed everything, in a file whose
-    /// two gate BODIES are explicitly fail-closed for exactly this reason: "nothing has re-verified
-    /// this" and "this may be destroyed" must never be the same outcome. Unreachable through the
-    /// call sites (both hold `self` on the awaiting frame), which is why the closure is reached
-    /// here directly — and why `Set(about)` costs the ordinary path nothing.
+    /// With no manager, the gate refuses every path (`Set(about)`), never `[]`: "nothing has
+    /// re-verified this" and "this may be destroyed" must never be the same outcome. The call
+    /// sites hold `self` on the awaiting frame, so the closure is reached here directly.
     @MainActor
     @Test func theDuplicatesGateRefusesEverythingWhenItsManagerIsGone() async throws {
         var gate: (@Sendable ([String]) async -> Set<String>)?
@@ -80,11 +78,10 @@ import Events
 
     // MARK: A path pruned in favour of an ancestor is still verified — and condemns the ancestor
 
-    /// `deleteItems` prunes nested paths so only the ancestor is trashed, and it used to hand the
-    /// gate the PRUNED list. The child was then verified by nothing and destroyed anyway, with the
-    /// duplicates gate's own fail-closed `unattributed` block blind to it (it is computed from the
-    /// list it was given). Now the child is asked about, and a refused child condemns the ancestor
-    /// that would take it down.
+    /// `deleteItems` prunes nested paths so only the ancestor is trashed, but hands the gate the
+    /// unpruned list: otherwise the child is verified by nothing and destroyed with its ancestor,
+    /// unseen by the gate's `unattributed` block. A refused child condemns the ancestor that would
+    /// take it down.
     @MainActor
     @Test func aRefusedNestedPathAlsoRefusesTheAncestorThatWouldDestroyIt() async throws {
         let mockFM = MockFileManager()
@@ -128,10 +125,9 @@ import Events
 
     // MARK: The single resolve's pre-check refusals log paths, like every sibling refusal
 
-    /// Three copies named `IMG_0421.jpg` are not diagnosable from a log line naming `IMG_0421.jpg`.
-    /// The gate logs keeper path + culprit path, the batch logs keeper path + culprit path, and the
-    /// gate's own doc claims the single resolve and the batch "report identically" — which was true
-    /// of the gate's refusals and false of the pre-checks that share their wording.
+    /// Three copies named `IMG_0421.jpg` can't be told apart by a log line naming `IMG_0421.jpg`.
+    /// The single resolve's pre-checks log keeper path and culprit path, as the gate and the batch
+    /// do, so the two report identically.
     @MainActor
     @Test func theSingleResolveDriftRefusalLogsBothPaths() async throws {
         let mockFM = MockFileManager()
@@ -143,9 +139,8 @@ import Events
         manager.duplicateGroups = [g]
 
         // Windowed, not last-match: "refused to remove copies of" is written by five call sites and
-        // by this suite's sibling tests, all over the SAME constant paths, so the last line in a
-        // per-process log carrying that fragment is routinely another test's. That is what the
-        // in-memory read was really failing on once eviction was ruled out.
+        // by this suite's sibling tests over the same constant paths, so the last such line in the
+        // process log is often another test's.
         let tag = UUID().uuidString
         var resolved = true
         let mine = try await logLines(tag: tag) {
@@ -163,9 +158,8 @@ import Events
     // MARK: A refusal that arrives AFTER part of the group was removed is not "left alone"
 
     /// Both gate invocations share one `DuplicateRemovalRefusals`, and the second runs after the
-    /// first pass has trashed everything it could. A group whose remaining copy is refused there
-    /// was counted into `refused` and then described by the partial banner as having been "left
-    /// alone" — false of the copies of it already in the Trash.
+    /// first pass has trashed what it could. A group whose remaining copy is refused there must not
+    /// be called "left alone" by the partial banner: some of its copies are already in the Trash.
     ///
     /// The fixture: one group, two redundant copies. `/b/x` (shortest, so it is attempted first)
     /// hits a Trash-less failure; `/ccc/x` trashes. The user is then asked to confirm the
@@ -213,8 +207,8 @@ import Events
 
     // MARK: The merge's refusals are identified by path, not basename
 
-    /// Overlapping-group copies frequently share a basename — that is generally *why* they
-    /// grouped — so de-duplicating on the name collapsed two refused folds into one.
+    /// Overlapping-group copies often share a basename (usually why they grouped), so
+    /// de-duplicating on the name would collapse two refused folds into one.
     @Test func mergeRefusalsAreDeDuplicatedByPathNotByName() {
         let refusals = FileSyncManager.MergeRemovalRefusals()
         refusals.record("Photos", path: "/Volumes/A/Photos")
@@ -226,8 +220,8 @@ import Events
         #expect(refusals.paths == ["/Volumes/A/Photos", "/Volumes/B/Photos"])
     }
 
-    /// The keeper refusal was not logged at all — banner only — so the single resolve's most
-    /// common refusal left no trace in `~/sync-cloud.log`.
+    /// The keeper refusal is logged, not only shown in a banner, so the single resolve's most
+    /// common refusal leaves a trace in `~/sync-cloud.log`.
     @MainActor
     @Test func theSingleResolveKeeperRefusalIsLoggedWithItsPath() async throws {
         let mockFM = MockFileManager()

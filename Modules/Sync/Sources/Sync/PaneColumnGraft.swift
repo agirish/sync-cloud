@@ -1,47 +1,37 @@
 import Events
 import Foundation
 
-/// **Filling in one directory the budgeted walk did not read**, so a column can open it.
+/// Filling in one directory the budgeted walk did not read, so a column can open it.
 ///
-/// `FileSyncManager.paneNodeBudget` stops the pane's deep walk once a tree turns out to be one of
-/// the pathological ones — the home folder is 196,726 directories — and everything past the budget
-/// comes back marked `isUnexplored`. That is the right answer for a *display*: nothing claims those
-/// folders are empty, and nothing downstream mistakes them for empty either. It is not an answer
-/// for *navigation*, which is what a Columns pane is for: without this, a column opened on a
-/// budgeted-out folder would show nothing for as long as the pane stayed on that root.
-///
-/// So the walk is deferred rather than skipped. A column that opens an unexplored directory asks
-/// for it, one directory listing lands, and the node is replaced in place. This is Finder's model,
-/// and it is the model the budget makes necessary — the alternative, re-walking from the root with
-/// a bigger budget, re-pays for the whole tree to answer a question about one folder.
+/// `FileSyncManager.paneNodeBudget` stops the pane's deep walk on a huge tree (a home folder can
+/// hold ~200,000 directories), and everything past the budget comes back marked `isUnexplored`.
+/// Right for display, since nothing claims those folders are empty, but not for navigation: a
+/// column opened on one would stay blank. So the walk is deferred, not skipped: a column that
+/// opens an unexplored directory asks for it, one listing lands, and the node is replaced in
+/// place. Finder's model; re-walking from the root with a bigger budget would re-pay for the
+/// whole tree to answer about one folder.
 extension FileSyncManager {
 
     /// Replaces the node at `path` with the same node carrying `children`, and clears its
     /// unexplored mark.
     ///
-    /// Returns `nil` when the path is not in this tree at all — which is not an error but the
-    /// normal outcome of a race: the graft is asked for on the main actor, the listing happens off
-    /// it, and by the time it lands the pane may have re-rooted or reloaded. A `nil` says "this
-    /// answer is about a tree that is no longer here", and the caller drops it.
+    /// Returns `nil` when the path is not in this tree, the normal outcome of a race: the graft is
+    /// asked for on the main actor, the listing runs off it, and by the time it lands the pane may
+    /// have re-rooted or reloaded. The caller drops the answer.
     ///
-    /// **Found by the names down from `root`, the folder the tree was walked at** — `path` is a
-    /// column's, composed from that root and the names clicked, and the walk spells a node otherwise
-    /// two levels below a folder symlink and under a root reached through one (`TreeShape`). Matched
-    /// by id prefix alone, a budget-unexplored folder there was never found, so its column stayed
-    /// blank however often it asked. The id prefix is still the fallback, for the outline, which
-    /// asks with a row's id (`TreeShape.position`).
+    /// Found by the names down from `root`, the folder the tree was walked at: `path` is a
+    /// column's, composed from that root and the names clicked, and below a folder symlink, or
+    /// under a root reached through one, the walk spells a node otherwise (`TreeShape`), so an id
+    /// prefix wouldn't find it. The id prefix remains the fallback for the outline, which asks with
+    /// a row's id (`TreeShape.position`).
     ///
-    /// **The descent enters one branch per level**, so this costs the depth of one path rather than
-    /// a walk of the tree. That matters precisely here: the trees this runs against are the ones
-    /// large enough to have been budgeted, and a full search of a 200,000-node tree per column open
-    /// is the shape (`PaneChildrenIndex`'s own note records it) that once put 16.9 s of node
-    /// comparison on the main thread. Only the nodes on the path are rebuilt; a sibling keeps its
-    /// subtree's storage, which is what `theDescentSkipsSiblingsSharingANamePrefix` measures, by
-    /// buffer identity.
+    /// The descent enters one branch per level, so it costs one path's depth, not a walk of the
+    /// tree: these are the trees big enough to be budgeted, and a full search per column open would
+    /// stall the main thread. Only nodes on the path are rebuilt; a sibling keeps its subtree's
+    /// storage (`theDescentSkipsSiblingsSharingANamePrefix` checks buffer identity).
     ///
-    /// `isUnexplored` is set to `nil` rather than `false` on the grafted node — the field's own
-    /// documentation defines nil as "walked", and it is what a node built by the walk carries.
-    /// Writing `false` would be a second spelling of the same fact.
+    /// `isUnexplored` is set to `nil`, not `false`: nil means "walked", as on a node the walk
+    /// built, and `false` would be a second spelling of it.
     nonisolated public static func grafting(children: [FileNode], atPath path: String, under root: String,
                                             into tree: [FileNode],
                                             links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
@@ -62,13 +52,12 @@ extension FileSyncManager {
         return rebuild(tree, at: position[...])
     }
 
-    /// Whether the tree, walked at `root`, holds `path` as a directory it did not read — found as
+    /// Whether the tree, walked at `root`, holds `path` as a directory it did not read, found as
     /// `grafting` finds it.
     ///
-    /// The guard for the graft request, and it answers on the RAW tree rather than on the pane's
-    /// published one: the published tree is filtered (hidden files, search), so a directory can be
-    /// absent from it while being present and unexplored underneath — and a request dropped for
-    /// that reason would leave a column permanently blank with no way to retry.
+    /// The graft request's guard. It reads the raw tree, not the published one: that is filtered
+    /// (hidden files, search), so a directory can be missing there yet unexplored underneath, and
+    /// dropping the request would leave its column blank for good.
     nonisolated public static func isUnexplored(atPath path: String, under root: String, in tree: [FileNode],
                                                 links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
     -> Bool {
@@ -81,32 +70,28 @@ extension FileSyncManager {
 
 extension FileSyncManager {
 
-    /// **Which directories have a listing in flight right now.**
+    /// Which directories have a listing in flight right now.
     ///
-    /// Published because a column cannot otherwise tell the two silent states apart. An unexplored
-    /// directory with a request outstanding is *being read*; one whose request has come back and
-    /// left the mark in place could not be read at all. Both look identical in the tree — empty
-    /// children plus `isUnexplored` — and the column was calling both of them "Can't be read",
-    /// which is a claim about the second that is simply false about the first.
+    /// Published so a column can tell two states that look identical in the tree (empty children
+    /// plus `isUnexplored`): one with a request outstanding is being read; one whose request came
+    /// back and left the mark could not be read, and only that one says "Can't be read".
     public func columnGraftsInFlightPaths(isLeft: Bool) -> Set<String> {
         Set(columnGraftsInFlight.filter { $0.isLeft == isLeft }.map(\.path))
     }
 
-    /// **Walks one unexplored directory and grafts it into the pane's tree**, so the column that
+    /// Walks one unexplored directory and grafts it into the pane's tree, so the column that
     /// opened it stops being blank.
     ///
-    /// Called from the column that needs it, not from navigation, and safe to call for any
-    /// directory at any time: it no-ops unless the path is genuinely a directory this pane's walk
-    /// left unread. That matters because the call site is a view's `onAppear`, which fires for
-    /// reasons a view cannot see.
+    /// Called from the column that needs it, and safe for any directory at any time: it no-ops
+    /// unless the path is a directory this pane's walk left unread, since the call site is a view's
+    /// `onAppear`, which fires for reasons a view can't see.
     ///
-    /// **`maxDepth: 1` — one listing, not a subtree.** A budget here instead would put the same
-    /// unbounded walk back, one level down: opening `~/Library` would walk 93,500 directories to
-    /// answer a question about its immediate children. One level per column open is Finder's cost,
-    /// and each further column pays its own.
+    /// `maxDepth: 1`: one listing, not a subtree. A budgeted walk here would put the unbounded walk
+    /// back one level down (opening `~/Library` would walk tens of thousands of directories). One
+    /// level per column open is Finder's cost, and each further column pays its own.
     ///
-    /// - Parameter passive: whether this ask is a tree placeholder's `onAppear` — the one that fires
-    ///   on every scroll past. Only a passive ask honours `columnGraftsUnreadable`. An explicit
+    /// - Parameter passive: whether this ask is a tree placeholder's `onAppear`, which fires on
+    ///   every scroll past. Only a passive ask honours `columnGraftsUnreadable`. An explicit
     ///   open (a click on the disclosure, a column opening) always retries: an unreadable answer
     ///   can be a slow dataless cloud folder the deadline deferred (`DatalessFolderReads`), and
     ///   opening it again is how a person asks for it once it has downloaded.
@@ -127,21 +112,21 @@ extension FileSyncManager {
         // Captured before the await, compared after: a swap in that window moves this path to the
         // other pane, and `key.isLeft` would then name the tree it is NOT about.
         let orientation = paneOrientationGeneration
-        // Also captured-and-compared: the sort option. The listing is built in this option's
-        // order, and a sort change while it runs re-sorts the live trees before it lands — a
-        // graft in the old order would then be the one out-of-order column on screen.
+        // Also captured and compared: the sort option. The listing is built in this order, and a
+        // sort change while it runs re-sorts the live trees, so a graft in the old order would be
+        // the one out-of-order column on screen.
         let builtWith = sortOption
         // And the raw-tree generation, for the unreadable memory alone: a fresh walk (⌘R) while
         // this ran has already cleared that memory, and an answer about the old tree must not
-        // re-fill it. Not a guard on the graft — a sibling graft bumps it too (see
+        // re-fill it. Not a guard on the graft, since a sibling graft bumps it too (see
         // `paneOrientationGeneration`).
         let generation = rawTreeGeneration
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.columnGraftsInFlight.remove(key) }
-            // The one listing can go through a link — the folder opened may be one the walk left
-            // unread, or lie below one — so it records what it followed, for the tree it joins.
+            // The listing can go through a link (the folder opened may be one the walk left unread,
+            // or lie below one), so it records what it followed, for the tree it joins.
             let followedLinks = FollowedLinks()
             var children = await Self.buildTree(url: URL(fileURLWithPath: path),
                                                 sortOption: builtWith,
@@ -149,18 +134,15 @@ extension FileSyncManager {
                                                 followedLinks: followedLinks,
                                                 datalessReads: self.datalessFolderReads)
             guard !Task.isCancelled else { return }
-            // **The panes swapped while this ran.** `swapPanes` has already cleared the in-flight
-            // set, so the `defer` above removes nothing; what this stops is the graft itself, which
-            // would otherwise write a listing taken for one pane into whichever tree `isLeft` now
-            // points at. The listing is correct for its absolute path, which is exactly what makes
-            // the mistake survivable enough to go unnoticed — two panes on one source would graft
-            // it into a tree that really does contain the path, and the wrong pane would fill.
+            // The panes swapped while this ran: `swapPanes` has already cleared the in-flight set,
+            // and grafting now would write one pane's listing into whichever tree `isLeft` now
+            // names. With both panes on one source that tree really holds the path, so the wrong
+            // pane would quietly fill.
             guard self.paneOrientationGeneration == orientation else { return }
-            // An unreadable directory comes back as the ROOT itself marked unexplored, never as a
-            // bare `[]` — `buildTree`'s own note explains why. Grafting that would nest the folder
-            // inside itself; leaving the node alone keeps its unexplored mark, which is what makes
-            // the column say "Can't be read" rather than "Empty". `adoptRawTree` unwraps the same
-            // shape for the same reason.
+            // An unreadable directory comes back as the root itself marked unexplored, never as a
+            // bare `[]` (see `buildTree`). Grafting that would nest the folder inside itself;
+            // leaving the node keeps its unexplored mark, so the column says "Can't be read", not
+            // "Empty". `adoptRawTree` unwraps the same shape for the same reason.
             if Self.isUnreadableRootWalk(children, at: path) {
                 if self.rawTreeGeneration == generation { self.columnGraftsUnreadable.insert(key) }
                 Logger.shared.debug("[graft] \(isLeft ? "left" : "right") could not be read at “\(path)”")
@@ -170,21 +152,19 @@ extension FileSyncManager {
             // Re-read the tree AFTER the await: the pane may have re-rooted or reloaded while the
             // listing ran, in which case this answer is about a tree that is gone. `grafting`
             // returns nil for exactly that and the answer is dropped. The folder it was walked at
-            // is re-read with it — `adoptRawTree` writes the two together.
+            // is re-read with it, since `adoptRawTree` writes the two together.
             let current = isLeft ? self.rawLeftTree : self.rawRightTree
             let currentRoot = self.paneTreeFolder(isLeft: isLeft) ?? ""
-            // **And re-ask the question the graft exists to answer.** The pre-await guard ran
-            // against a tree that may have been replaced since: a refresh or the deep walk itself
-            // can publish this node FULLY WALKED while the listing runs (the same path is still
-            // present, so `grafting` alone would not notice). Grafting then would overwrite a
-            // deep subtree with a one-level listing whose child directories are re-marked
-            // unexplored — and, through the cache write below, poison the next warm scan. The
-            // outline row's open fires this request ungated, so the race is ordinary, not exotic.
+            // And re-ask whether it is still unexplored: a refresh or the deep walk can publish this
+            // node fully walked while the listing runs, at the same path, so `grafting` alone
+            // wouldn't notice. Grafting then would replace a deep subtree with a one-level listing
+            // whose child folders read unexplored, and the cache write below would carry that into
+            // the next warm scan. The outline row fires this request ungated, so the race is common.
             guard Self.isUnexplored(atPath: path, under: currentRoot, in: current, links: self.linkedFolders)
             else { return }
             // A sort change during the listing has already re-sorted the live trees; bring the
             // listing into the same order before it joins them. (The cache write below is safe
-            // either way — a sort change clears `prefetchedTrees`, so the `!= nil` guard skips it.)
+            // either way: a sort change clears `prefetchedTrees`, so the `!= nil` guard skips it.)
             if self.sortOption != builtWith {
                 children = Self.sort(nodes: children, by: self.sortOption)
             }
@@ -192,21 +172,18 @@ extension FileSyncManager {
                                               into: current, links: self.linkedFolders) else { return }
             self.rawTreeGeneration += 1
             if isLeft { self.rawLeftTree = grafted } else { self.rawRightTree = grafted }
-            // **And what the listing followed joins the walk's record**, for the pane and the entry
-            // below alike: a link the budget left unread is listed here for the first time, and a
-            // write where it leads must find the tree that now lists it. A target the walk's root
-            // already covers is redundant in the record, never wrong.
+            // What the listing followed joins the walk's record, for the pane and the cache entry
+            // below: a link the budget left unread is listed here for the first time, and a write
+            // where it leads must find the tree that now lists it. A target the walk's root already
+            // covers is redundant, never wrong.
             let followed = followedLinks.targets
             if isLeft { self.leftTreeLinkTargets.formUnion(followed) } else { self.rightTreeLinkTargets.formUnion(followed) }
             // The graft followed links out of the pane's folder: watch where they lead now, not
             // at the next load.
             if !followed.isEmpty { self.updateFolderWatch() }
-            // **The cache gets it too, or the graft is undone by the next navigation.**
-            // `loadTree`'s fast path serves `prefetchedTrees[focusPath]` without touching disk, so
-            // leaving the ungrafted tree there means walking away and back restores the blank
-            // column. It self-heals — the column simply asks again — but only by re-walking the
-            // same directory every time, which is exactly the cost this whole mechanism exists to
-            // avoid paying twice.
+            // The cache gets it too, or the next navigation undoes the graft: `loadTree`'s fast
+            // path serves `prefetchedTrees[focusPath]` without touching disk, so walking away and
+            // back would restore the blank column and re-walk the same directory every time.
             if let focus = isLeft ? self.lastLoadedLeftFocusPath : self.lastLoadedRightFocusPath,
                self.prefetchedTrees[focus] != nil {
                 self.prefetchedTrees[focus] = grafted

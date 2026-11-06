@@ -2,11 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What a partial bulk transfer leaves behind for the Differences table to show.
-///
-/// The rows themselves were never the problem — `removeResolvedDifferences(matching:)` only drops
-/// successes, so failures stay in the list. What was missing is any record of WHICH ones, and the
-/// rules that record has to follow are all about staleness.
+/// What a partial bulk transfer leaves for the Differences table to show. Failed rows stay in the
+/// list (`removeResolvedDifferences(matching:)` drops only successes); these pin the record of
+/// which ones failed, whose rules are all about staleness.
 @MainActor
 @Suite struct TransferFailuresTests {
 
@@ -33,9 +31,8 @@ import Testing
         #expect(m.lastTransferFailures?.ids == Set([a.0.id, b.0.id]))
     }
 
-    /// The half that is easy to leave out: a CLEAN run has to clear the previous run's record, or
-    /// the Failed filter keeps offering rows that have since gone through and its count becomes a
-    /// number nobody can reconcile.
+    /// A clean run must clear the previous run's record, or the Failed filter keeps offering rows
+    /// that have since gone through, with a count nobody can reconcile.
     @Test func testACleanRunClearsThePreviousRunsFailures() {
         let m = manager()
         m.recordTransferFailures([failure("a")])
@@ -46,10 +43,10 @@ import Testing
         #expect(m.lastTransferFailures == nil)
     }
 
-    /// Two runs failing on the SAME rows must still publish as two events. The id set is equal, so
-    /// a view watching the set would never see the second run — it would sit on whatever filter the
-    /// user had switched back to, with a fresh alert on screen and nothing to click. The per-publish
-    /// `id` is what makes them distinguishable, and it is part of `Equatable` on purpose.
+    /// Two runs failing on the same rows must publish as two events. The id set is equal, so a view
+    /// watching it would miss the second run and sit on whatever filter the user had switched back
+    /// to, with a fresh alert and nothing to click. The per-publish `id` tells them apart, and it is
+    /// part of `Equatable` on purpose.
     @Test func testTwoRunsFailingOnTheSameRowsPublishAsTwoEvents() {
         let m = manager()
         let a = failure("a")
@@ -64,9 +61,8 @@ import Testing
         #expect(first?.id != second?.id)
     }
 
-    /// A scan regenerates every row id, so a kept record would match nothing — harmless in itself,
-    /// but it would leave the Failed filter in the menu at a count of zero with the user selected
-    /// into an empty list.
+    /// A scan regenerates every row id, so a kept record would match nothing and leave the Failed
+    /// filter in the menu at a count of zero, with the user looking at an empty list.
     @Test func testAFreshScanClearsTheRecord() async {
         let mockFM = MockFileManager()
         try? mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)

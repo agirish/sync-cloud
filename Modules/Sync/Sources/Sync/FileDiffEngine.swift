@@ -1,8 +1,8 @@
 import Foundation
 import Events
 
-/// Stateless engine that computes sync differences between two directory trees (left and right panes).
-/// Handles O(N) filesystem scanning and date/size comparison; used by `FileSyncManager` on a background thread.
+/// Stateless engine that computes sync differences between two directory trees (left and right
+/// panes): the disk walk and the date/size comparison. `FileSyncManager` runs it off the main actor.
 public struct FileDiffEngine {
 
     /// Per-file metadata used when comparing the two sides (path, date, size, isDirectory).
@@ -15,18 +15,15 @@ public struct FileDiffEngine {
         public let fileSize: Int?
         /// True if the item is a directory.
         public let isDirectory: Bool
-        /// True for a directory whose contents could NOT be listed (permission denied, I/O
-        /// error) — this side's view of what's inside is UNKNOWN, not empty. The diff must not
-        /// mint "Missing" rows for the other side's contents of such a directory: accepting one
-        /// would copy files into a folder nobody can read (or worse, "restore" content that was
-        /// never gone). Mirrors `FileNode.isUnexplored` so the warm (tree) and cold (disk walk)
-        /// scan branches agree.
+        /// True for a directory whose contents could not be listed (permission denied, I/O
+        /// error): what's inside is unknown, not empty. The diff must not mint "Missing" rows for
+        /// the other side's contents, or accepting one would copy into a folder nobody can read.
+        /// Mirrors `FileNode.isUnexplored` so the warm (tree) and cold (disk walk) scans agree.
         public let isUnexplored: Bool
-        /// True when `url` is itself a symbolic link. The date, size and kind above describe the
-        /// link's TARGET — that is what the comparison compares — but a copy from `url` writes the
-        /// link, so a row copying FROM such an entry is held back (FR8, `FileDifference.HeldBack`).
-        /// Mirrors `FileNode.isSymbolicLink`; a folder the walk substitutes for a link (iCloud
-        /// Drive's `Desktop` and `Documents`) carries the real path and is not one.
+        /// True when `url` is itself a symbolic link. The fields above describe its target, which
+        /// is what the comparison compares, but a copy writes the link, so a row copying from it is
+        /// held back (`FileDifference.HeldBack`). Mirrors `FileNode.isSymbolicLink`; a folder the
+        /// walk substitutes for a link (iCloud Drive's `Desktop`, `Documents`) is not one.
         public let isSymbolicLink: Bool
 
         public init(url: URL, modificationDate: Date?, fileSize: Int?, isDirectory: Bool,
@@ -42,22 +39,12 @@ public struct FileDiffEngine {
 
     /// The suggested direction and note for a folder on one side against a file on the other.
     ///
-    /// **The dates cannot say which side is newer, and the note no longer claims they do (FR40).**
-    /// This compares the folder's own modification date with the file's — but a folder's date
-    /// moves only when an entry directly inside it is added, removed or renamed, not when a file in
-    /// it is edited in place and not for anything deeper down. A `Report.pages` package edited
-    /// yesterday, whose folder date is from 2024, read as "older" than a single-file `Report.pages`
-    /// from last month, and the row said so and offered to replace the package with the file. The
-    /// scan carries no content date for a folder to compare instead.
-    ///
-    /// So the row is held out of bulk runs (`FileDifference.HeldBack.folderVersusFile`) and its note
-    /// says the choice is the user's. The suggested direction keeps its old rule — the later date,
-    /// the folder on a tie — only so a single deliberate copy points where it always has; it is no
-    /// longer presented as a reason. Either direction trashes the other side's item, so a single
-    /// copy the wrong way is recoverable; an unattended one was never chosen at all.
-    ///
-    /// The note names providers rather than sides, so a pane swap needs no rewrite of it
-    /// (`FileDifference.mirroredDescription` turns only "on left"/"on right" phrases).
+    /// The dates can't say which side is newer: a folder's date moves only when an entry directly
+    /// inside is added, removed or renamed, so a package edited yesterday can look older than a
+    /// file. So the row is held out of bulk runs (`FileDifference.HeldBack.folderVersusFile`) and
+    /// its note leaves the choice to the user. The suggested direction (later date, folder on a tie)
+    /// only aims a single deliberate copy, which trashes the other side's item and so is recoverable.
+    /// The note names providers, not sides, so a pane swap needs no rewrite of it.
     private static func resolveTypeMismatch(
         left: FileInfo,
         leftProvider: CloudProvider,
@@ -79,9 +66,8 @@ public struct FileDiffEngine {
         return (action, "Folder in \(folderIn), file in \(fileIn) — a folder’s date is not when its contents changed; choose which to keep")
     }
 
-    /// The note on a both-files row whose sizes differ with no newer side (FR39): what the dates
-    /// say, and that the choice is the user's. Providers, not sides, for the reason
-    /// `resolveTypeMismatch` gives.
+    /// The note on a both-files row whose sizes differ with no newer side: what the dates say, and
+    /// that the choice is the user's. Providers, not sides, as in `resolveTypeMismatch`.
     private static func sizesDifferWithoutANewerSide(
         leftDate: Date?, rightDate: Date?,
         left: CloudProvider, right: CloudProvider,
@@ -103,84 +89,58 @@ public struct FileDiffEngine {
         }
     }
 
-    /// `held` for a row that copies FROM `source`: a link there outranks every other reason (FR8),
-    /// because it is the one a single deliberate copy cannot get right either.
+    /// `held` for a row that copies from `source`: a link there outranks every other reason, since
+    /// even a single deliberate copy can't get it right.
     private static func held(_ reason: FileDifference.HeldBack?, source: FileInfo) -> FileDifference.HeldBack? {
         source.isSymbolicLink ? .sourceIsSymbolicLink : reason
     }
 
-    /// `description` with the link note added when the row copies FROM a link (FR8) — see
-    /// `FileDifference.HeldBack.sourceIsSymbolicLink`. Says nothing about a side, so a pane swap
-    /// leaves it as it is.
+    /// `description` with the link note added when the row copies from a link (see
+    /// `FileDifference.HeldBack.sourceIsSymbolicLink`). Side-neutral, so a pane swap leaves it.
     private static func noted(_ description: String, source: FileInfo) -> String {
         source.isSymbolicLink
             ? description + " — it is a link, so a copy would be a link too, not what it points to"
             : description
     }
     
-    /// Builds the same relative-path→`FileInfo` map `getFilesInDirectory` produces by walking
-    /// the disk, but from an already-built deep `FileNode` tree — used to skip the scan's
-    /// re-walk when both panes' trees are current (they carry the same metadata the walk
-    /// would fetch).
+    /// Builds the same relative-path→`FileInfo` map `getFilesInDirectory` produces by walking the
+    /// disk, but from an already-built deep `FileNode` tree, so the scan can skip the re-walk when
+    /// both panes' trees are current.
     ///
-    /// **A key is the path of NAMES from the base down to the node, read off the tree's shape —
-    /// never the node's id with the base stripped off.** That is what the disk walk's key is: the
-    /// path below its root, through any link it descends. The two agree only while every id
-    /// continues its parent's, and two things in the walk break that:
-    /// - it lists a folder linked in from outside as the folder it points at
-    ///   (`FileSyncManager.buildTree`; iCloud Drive's `Desktop` and `Documents`);
-    /// - `contentsOfDirectory(at:)` hands back symlink-RESOLVED URLs for a folder reached through a
-    ///   symlink (measured: listing `dlink/sub` returns `real/sub/…`), so ids go real two levels
-    ///   below any folder link, and everywhere under a base reached through one — a pane focused
-    ///   inside a linked folder, or a root spelled `/var/…`.
+    /// A key is the path of names from the base down to the node, never the node's id with the
+    /// base stripped off, matching the disk walk's key. Ids stop continuing their parent's in two
+    /// cases: the walk lists a folder linked in from outside as its target
+    /// (`FileSyncManager.buildTree`; iCloud Drive's `Desktop` and `Documents`), and
+    /// `contentsOfDirectory(at:)` returns symlink-resolved URLs below a folder reached through a
+    /// link. Stripped ids would then key off real paths, the warm scan would disagree with the cold
+    /// one, and at Home a row could copy the other side's folder through the link onto `~/Documents`.
     ///
-    /// Stripped, such nodes keyed off their real paths: near-absolute (`Users/…/x`,
-    /// `private/var/…/x`) where the base was no prefix of them, and onto the real folder's own keys
-    /// where it was, so the copy under the link vanished from the map. (A lookup in the iCloud link
-    /// table patched the first case at the container, the one base the table names.) Each made a
-    /// warm scan answer differently from a cold one over the same pair, and at Home its rows could
-    /// copy the other side's folder into the container — through the link, onto `~/Documents`.
-    ///
-    /// **A node marked `FileNode.isCoveredElsewhere` is keyed like any other, not skipped.** That
-    /// flag is for consumers that add the tree up; the disk walk lists the folder under the
-    /// container as well as directly, and this map has to say what that walk says.
-    ///
-    /// **Each name is the last component of the node's own id, not its `name`.** The two are the
-    /// same bytes for every node a walk builds — both come off one URL — but `name` is left bridged
-    /// on purpose (see `FileSyncManager.nativePath`), and a key built out of it pays the bridge on
-    /// every node. `TreeWalkBenchmark`'s keying rows over a real 17,121-node pane tree: 2 ms for
-    /// these keys, 3 ms for the id strip they replaced, 6 ms built from `name`. Its differential
-    /// finds the whole map byte-identical to the strip's wherever every id continues its parent's.
-    ///
-    /// `basePath` is read for one thing: recognizing the base itself, which `buildTree` returns as
-    /// the tree's only node when the base could not be listed (below).
+    /// A node marked `FileNode.isCoveredElsewhere` is keyed like any other: the disk walk lists it
+    /// in both places too. Each name is the last component of the node's id, not `name`, which is
+    /// left bridged on purpose (`FileSyncManager.nativePath`) and would pay the bridge per node.
+    /// `basePath` only recognizes the base itself, which `buildTree` returns alone when it could not
+    /// be listed.
     public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
         var result: [String: FileInfo] = [:]
 
         func add(_ node: FileNode, key: String) {
             result[key] = FileInfo(
-                // `isDirectory:` is not cosmetic here. Without it this initializer RESOLVES
-                // the path against the file system to answer the same question `node`
-                // already carries — one lookup per node, ~40k per pane, measured at 4x the
-                // hinted form. Hinting correctly reproduces the very URL the unhinted form
-                // returns (verified: the hinted and unhinted values compare equal for both
-                // a real file and a real directory), and every consumer of `FileInfo.url`
-                // reads `.path`, which is identical either way — including for a symlink to
-                // a directory, where `node.isDirectory` describes the TARGET and so the
-                // trailing slash could differ from an lstat-based guess.
+                // `isDirectory:` keeps this initializer from asking the file system what `node`
+                // already says: one lookup per node, ~40k per pane. Consumers read `.path`, which
+                // is the same either way, even for a link to a directory.
                 url: URL(fileURLWithPath: node.id, isDirectory: node.isDirectory),
                 modificationDate: node.modificationDate,
                 fileSize: node.fileSize,
                 isDirectory: node.isDirectory,
-                // Carry the walk's "couldn't look inside" marker (permission denied, cycle
-                // cap): computeDifferences must not read the absent children as "missing".
+                // The walk's "couldn't look inside" marker: `computeDifferences` must not read the
+                // absent children as missing.
                 isUnexplored: node.isDirectory && node.isUnexplored == true,
-                // The walk's own link fact, so a warm scan holds back the same link rows a cold
-                // one does (FR8). A substituted folder's node is real and says false, correctly.
+                // So a warm scan holds back the same link rows a cold one does. A substituted
+                // folder's node is real and says false.
                 isSymbolicLink: node.isSymbolicLink == true
             )
             guard let children = node.children, !children.isEmpty else { return }
-            // Once per directory rather than once per child: one append per node, not two.
+            // Once per directory, not per child.
             let prefix = key + "/"
             for child in children {
                 var childKey = prefix
@@ -194,11 +154,9 @@ public struct FileDiffEngine {
                 add(node, key: String(TreeShape.leaf(of: node.id)))
                 continue
             }
-            // The walk ROOT itself, marked unexplored: `buildTree` returns the root as a
-            // single unexplored node when its own listing failed (permission denied), so
-            // this side's ENTIRE view is unknown — not empty. Record it under the root key
-            // ("") that `computeDifferences` reads to suppress whole-side Missing rows,
-            // mirroring what `getFilesInDirectory` records on the cold (disk-walk) branch.
+            // `buildTree` returns the root alone, unexplored, when its listing failed, so this
+            // side's whole view is unknown. Recorded under the root key "", which
+            // `computeDifferences` reads to suppress whole-side Missing rows, as on the cold branch.
             if node.isDirectory, node.isUnexplored == true {
                 result[""] = FileInfo(
                     url: URL(fileURLWithPath: node.id, isDirectory: true),
@@ -215,54 +173,34 @@ public struct FileDiffEngine {
         return result
     }
 
-    /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
-    /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
+    /// Recursively scans a directory into a map of `FileInfo` keyed by relative path. Uses resource
+    /// values on the real disk and attributes for test doubles.
     ///
-    /// **`maxEntries` bounds it, and the bound has to exist because this is the scan's COLD path.**
-    /// The comparison has two branches: when both sides are already in `prefetchedTrees` it derives
-    /// its maps from those trees, which `FileSyncManager.paneNodeBudget` caps — and when they are
-    /// not, it lands here, on a walk that went through nothing of the sort. That is the branch a
-    /// first switch to a source takes, so it is the one that ran during the ten-minute hang
-    /// reported on 2026-08-24, on a home folder of 196,726 directories.
+    /// `maxEntries` bounds the scan's cold path: when both sides aren't already in
+    /// `prefetchedTrees` (capped by `FileSyncManager.paneNodeBudget`), the comparison walks here,
+    /// and an unbounded walk of a large Home folder can run for minutes.
     ///
-    /// **Truncation is recorded as the root being unexplored**, under the `""` key — the same
-    /// record an unlistable root already mints a few lines below, read by `computeDifferences` as
-    /// "this side's ENTIRE view is unknown". That is the honest reading of a stopped walk and it is
-    /// safe in the only direction that matters: no Missing row may be minted against a side whose
-    /// view is incomplete, so a partial scan can never offer to copy or "restore" something the
-    /// walk simply did not reach. Differences between entries BOTH sides did see are unaffected,
-    /// and so are Missing rows against the *other* (complete) side, which the walk really did
-    /// observe. Reusing that record rather than inventing a second one is deliberate: it is
-    /// already understood by both passes of `computeDifferences` and already pinned by tests.
-    ///
-    /// **The warm branch suppresses more precisely than this one, and that asymmetry is inherent
-    /// rather than an oversight.** A truncated pane TREE marks the individual directories it did
-    /// not descend into, so `filesInfo(fromTree:)` produces per-directory `isUnexplored` entries
-    /// and only the rows beneath those ancestors are suppressed. This walk cannot do the same: it
-    /// is a flat enumeration that stops at an arbitrary point in ENUMERATION order, and that is not
-    /// tree order — what it missed is scattered, not a subtree, so there is no set of directories
-    /// it could name. Whole-side is the honest answer for a walk with this much information, and it
-    /// errs toward suppressing rows rather than inventing them.
-    ///
-    /// The consequence is real and worth knowing: for one folder pair large enough to truncate, a
-    /// COLD scan reports no Missing rows at all while a WARM one reports the legitimate ones. Both
-    /// banner as partial — this branch through the `""` record, the warm branch through the cached
-    /// tree's walk-stopped provenance (`PartialComparison.of`'s overload) — so the difference in
-    /// suppression is declared rather than silent, which is the most that can be done from here.
+    /// Truncation is recorded as the root being unexplored, under the `""` key an unlistable root
+    /// also uses, so `computeDifferences` mints no Missing row against this side and a partial scan
+    /// can't offer to copy what the walk didn't reach. Rows both sides saw, and Missing rows against
+    /// the other side, are unaffected. The warm branch suppresses per directory instead; this flat
+    /// walk stops in enumeration order, so what it missed is scattered and only whole-side is
+    /// honest. A cold scan of a truncated pair thus shows no Missing rows where a warm one shows
+    /// some; both banner as partial (`PartialComparison.of`).
     ///
     /// - Parameters:
     ///   - url: The root directory URL to scan.
     ///   - fileManager: The file manager to use for scanning (supports injected mocks).
     ///   - maxEntries: Stop after recording this many entries, marking the root unexplored. `nil`
-    ///     is unbounded — which every caller outside the comparison scan still is.
+    ///     is unbounded, as every caller outside the comparison scan is.
     /// - Returns: A map of relative paths to `FileInfo` metadata.
     public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default,
                                            maxEntries: Int? = nil) throws -> [String: FileInfo] {
         try getFilesInDirectory(url, fileManager: fileManager, maxEntries: maxEntries, datalessReads: .shared)
     }
 
-    /// - Parameter datalessReads: where a folder whose contents are not on this Mac is read — see
-    ///   `FileSyncManager.DatalessFolderReads`. The comparison passes its manager's; everything else
+    /// - Parameter datalessReads: where a folder whose contents are not on this Mac is read (see
+    ///   `FileSyncManager.DatalessFolderReads`). The comparison passes its manager's; everything else
     ///   takes the app's shared one through the overload above.
     static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default,
                                     maxEntries: Int? = nil,
@@ -271,30 +209,25 @@ public struct FileDiffEngine {
         let keySet = Set(keys)
 
         var result: [String: FileInfo] = [:]
-        // Unreadable entries are aggregated and logged once after the walk: a permission-denied
-        // or placeholder-heavy subtree can fail for tens of thousands of entries, and logging
-        // per-entry spawned that many MainActor tasks and disk writes mid-scan.
+        // Unreadable entries are logged once after the walk: a denied or placeholder-heavy subtree
+        // can fail for tens of thousands of entries, and per-entry logging costs a main-actor task
+        // and a disk write each.
         var unreadableCount = 0
         var unreadableSamples: [String] = []
         let maxIndividuallyLogged = 3
-        // Relative keys of directories the enumerator could not descend into (permission
-        // denied): their entries are re-marked `isUnexplored` after the walk, so the diff knows
-        // this side's view of their contents is UNKNOWN — not empty. Without this the cold
-        // (disk-walk) branch silently skipped the subtree and the other side's files showed up
-        // as phantom actionable "Missing" rows.
+        // Relative keys of directories the enumerator could not descend into. Their entries are
+        // re-marked `isUnexplored` after the walk, so their contents read as unknown, not empty,
+        // and the other side's files don't show as Missing rows.
         var unreadableDirKeys = Set<String>()
-        /// Set when `maxEntries` stopped the walk — see the note on this function.
+        /// Set when `maxEntries` stopped the walk; see the note on this function.
         var truncated = false
 
-        /// Stable identity of the directory a URL ultimately refers to (through symlinks), for
-        /// the symlink-descent cycle guard below — the disk-walk counterpart of the tree walk's
-        /// `directoryIdentity`. Mock file managers contain no symlinks, so the raw-path fallback
-        /// only ever fires for them (and for real-FS stat failures, where refusing to descend is
-        /// the safe answer).
+        /// Stable identity of the directory a URL refers to through symlinks, for the descent's
+        /// cycle guard (the tree walk's `directoryIdentity`). The raw-path fallback fires only for
+        /// test doubles, which have no links, and for stat failures.
         func canonicalIdentity(_ dirURL: URL) -> String {
-            // Resolve the link itself first — canonicalPathKey canonicalizes the path (case,
-            // /private) but does NOT resolve a leaf symlink, and an unresolved leaf makes every
-            // link look distinct from its target, defeating the cycle guard.
+            // Resolve the link first: `canonicalPathKey` doesn't resolve a leaf symlink, and an
+            // unresolved leaf looks distinct from its target, defeating the cycle guard.
             let resolved = dirURL.resolvingSymlinksInPath()
             if fileManager is FileManager,
                let canonical = try? resolved.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
@@ -303,22 +236,17 @@ public struct FileDiffEngine {
             return resolved.standardizedFileURL.path
         }
 
-        // Symlinked-directory targets on the current branch (by canonical identity): the scan root
-        // plus every symlinked directory descended into on the path to here. PER-BRANCH (an
-        // immutable snapshot extended per descent, like the warm-cache tree walk's `branchVisited`)
-        // rather than global: two SIBLING symlinks to the same directory must each expand — a
-        // global set would descend the target only once, so a cold-cache (disk) scan would report
-        // the second link's contents missing while a warm-cache (tree) scan reports them present.
-        // The branch snapshot still breaks A→B→A cycles and self-links.
+        // Symlinked-directory targets on the current branch, by canonical identity: the root plus
+        // every link descended on the way here. Per branch, not global, like the tree walk's
+        // `branchVisited`: two sibling links to one directory must each expand, or the cold scan
+        // would report the second one's contents missing. It still breaks A→B→A cycles.
         let symlinkDepthCap = 64   // mirrors TreeBuilder.hardDepthCap, bounding pathological symlink fan-out
 
         func walk(_ rootURL: URL, prefix: String, branchVisited: Set<String>) throws {
-            // **A folder whose contents are not on this Mac is asked for through the reads**, off
-            // the cooperative pool and for at most their deadline (`DatalessFolderReads`). Listing it
-            // is what materializes it, so an answer means the enumerator below reads it from disk;
-            // no answer means its contents are unknown — recorded as an unreadable folder is, so the
-            // diff reports nothing under it as missing. The scan root itself (`prefix` "") marks
-            // the whole side. A folder that is not dataless costs one `stat` here and nothing else.
+            // A folder whose contents are not on this Mac is read through `DatalessFolderReads`,
+            // off the cooperative pool with a deadline. An answer means it is on disk now; none
+            // means unknown, recorded as an unreadable folder so nothing under it reads as missing
+            // (the root, `prefix` "", marks the whole side). Otherwise this costs one `stat`.
             if fileManager.isDataless(at: rootURL),
                datalessReads.readBlocking(rootURL.path, { fileManager.listingForARead(of: rootURL).outcome }) == nil {
                 unreadableDirKeys.insert(prefix)
@@ -326,34 +254,26 @@ public struct FileDiffEngine {
             }
             var basePath = rootURL.path
             if fileManager is FileManager {
-                // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
-                // root given via a symlinked path (/var/..., a linked user folder) would never match the
-                // prefix trim below and every key would come back near-absolute. Canonicalize the base
-                // to match. resolvingSymlinksInPath can't be used here: it deliberately strips /private.
-                // Mock file managers echo back the URLs they were given, so they keep the raw base.
+                // The real enumerator yields canonical URLs (/private/var/...), so a root given via
+                // a link (/var/...) would miss the prefix trim below and keys would come back
+                // near-absolute. Not `resolvingSymlinksInPath`, which strips /private. Test doubles
+                // echo their URLs back, so they keep the raw base.
                 if let canonicalPath = try? rootURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
                     basePath = canonicalPath
                 }
             }
-            // After the canonicalisation above, so it describes the base actually used. Read by
-            // the per-entry key derivation below — see the note there for what it is worth.
+            // After the canonicalisation above, so it describes the base actually used.
             let baseGraphemeCount = basePath.count
 
-            // The error handler fires when the enumerator cannot descend into a directory
-            // (permission denied) or read an entry. A nil handler silently SKIPPED the subtree —
-            // the cold branch's counterpart of the tree walk's unexplored marking — so record the
-            // failure into the same aggregation the per-entry catch feeds, and remember the
-            // directory so its map entry is re-marked unexplored after the walk. Returning true
-            // keeps the rest of the walk going: one locked folder must not abort the whole scan.
+            // Fires when the enumerator can't descend into a directory or read an entry. Without
+            // it the subtree is skipped silently, so record the failure and remember the directory
+            // to re-mark it unexplored. Returning true keeps walking: one locked folder must not
+            // abort the scan.
             let recordUnreadable: (URL, Error) -> Bool = { failedURL, error in
-                // **A link to a directory is not an unreadable directory.** The URL enumerator
-                // tries to enter a symlinked folder, fails with ENOTDIR, and reports it here — and
-                // the descent below then walks the link's real target, so what is inside is known
-                // after all. Recording it made the diff re-mark that folder unexplored at the end
-                // of the walk, and `computeDifferences` then suppressed every Missing row beneath
-                // it: a Compare at the iCloud Drive container, whose `Desktop` and `Documents` are
-                // exactly such links, reported zero differences over both. Dropped from the record
-                // here, at the one place the two branches meet.
+                // A link to a directory is not unreadable. The enumerator fails on it with
+                // ENOTDIR, but the descent below walks its target. Recorded, it would be re-marked
+                // unexplored and hide every Missing row beneath it (iCloud Drive's `Desktop` and
+                // `Documents` are such links).
                 if fileManager is FileManager,
                    (try? failedURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
                    (try? failedURL.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -367,11 +287,9 @@ public struct FileDiffEngine {
                 if rel.hasPrefix(basePath) { rel = String(rel.dropFirst(basePath.count)) }
                 // By scalar, as the entry keys below are, so a re-mark finds its entry.
                 if rel.unicodeScalars.first == "/" { rel.unicodeScalars.removeFirst() }
-                // An empty `rel` means the failed directory IS this walk's root: the scan root
-                // itself on the outermost walk (recorded under the root key ""), or a symlinked
-                // directory on a manual descent (whose keyPath is `prefix`). Dropping it — as
-                // this used to — left the whole side reading as authoritatively empty, and the
-                // diff minted phantom Missing rows for everything the other side holds.
+                // An empty `rel` means the failed directory is this walk's root: the scan root
+                // (key "") or a linked directory on a manual descent (key `prefix`). Dropped, the
+                // whole side would read as empty and everything on the other side as Missing.
                 unreadableDirKeys.insert(rel.isEmpty ? prefix : (prefix.isEmpty ? rel : prefix + "/" + rel))
                 return true
             }
@@ -381,19 +299,12 @@ public struct FileDiffEngine {
             }
 
             for case let fileURL as URL in enumerator {
-                // A superseded scan's results are discarded wholesale (generation-gated publish);
-                // abort mid-walk instead of holding the scanning slot for a walk nobody will read.
+                // A superseded scan's results are discarded, so stop instead of holding the
+                // scanning slot for a walk nobody will read.
                 try Task.checkCancellation()
-                // Checked before the entry is statted, not after it is recorded: the `resourceValues`
-                // fetch below is what this walk actually pays for, so a spent budget must stop
-                // before one more rather than after.
-                //
-                // This is the ONE stop, and it holds for the nested walks too: `walk` recurses for
-                // symlinked directories, and whichever level runs out, every enclosing level hits
-                // this same test on its next entry and returns as well. (`break` would read the
-                // same here — nothing follows the loop — so `return` is a statement of intent
-                // rather than a difference in behaviour, and the `!truncated` guard on the symlink
-                // descent below is redundant with this test rather than a second stop.)
+                // Checked before the entry is statted, since the stat is the cost. The one stop for
+                // nested walks too: whichever level runs out, each enclosing level hits this test
+                // on its next entry. The `!truncated` guard on the link descent below is redundant.
                 if let maxEntries, result.count >= maxEntries {
                     truncated = true
                     return
@@ -410,9 +321,8 @@ public struct FileDiffEngine {
                         let resourceValues = try fileURL.resourceValues(forKeys: keySet)
                         if resourceValues.isSymbolicLink == true {
                             isLink = true
-                            // Align with the tree path (buildNode): symlinked entries participate
-                            // with the TARGET's type/size/date — the link's own stat is meaningless
-                            // for diffing — and broken links are dropped.
+                            // As the tree walk does (`buildNode`): a link compares by its target's
+                            // type, size and date, and a broken link is dropped.
                             guard let target = try? fileURL.resolvingSymlinksInPath().resourceValues(forKeys: keySet) else {
                                 continue
                             }
@@ -443,16 +353,12 @@ public struct FileDiffEngine {
                     if isReg || isDir {
                         var relativePath = fileURL.path
                         if relativePath.hasPrefix(basePath) {
-                            // Hoisted — `basePath.count` is a grapheme count, an O(basePath) walk,
-                            // and this recomputed it per entry. Small: measured at 39,000 paths
-                            // under a 74-character root it is 24ms per walk against 20ms hoisted,
-                            // so the honest claim is 4ms on a pass that also stats every entry.
+                            // Hoisted: `basePath.count` walks graphemes.
                             relativePath = String(relativePath.dropFirst(baseGraphemeCount))
                         }
-                        // **The slash goes by SCALAR, not by Character.** A name can open with a
-                        // combining mark, which joins the `/` before it into one Character, and
-                        // `hasPrefix("/")` is then false: a top-level entry kept its slash
-                        // (`/◌́x`) where the warm branch, which builds keys out of names, has none.
+                        // The slash goes by scalar: a name opening with a combining mark joins the
+                        // `/` into one Character, so `hasPrefix("/")` would miss it and the key would
+                        // keep its slash where the warm branch's has none.
                         if relativePath.unicodeScalars.first == "/" {
                             relativePath.unicodeScalars.removeFirst()
                         }
@@ -468,35 +374,24 @@ public struct FileDiffEngine {
                             isSymbolicLink: isLink
                         )
 
-                        // **The enumerator is not let into a dataless folder**: it reads a folder's
-                        // contents on the call after the one that yielded it — measured, on the real
-                        // one — and a provider that is not running never hands them over, so the
-                        // whole scan would wait on that one call. Skipped here and walked by `walk`
-                        // instead, like a linked folder below, whose first step asks through the reads.
+                        // The enumerator must not enter a dataless folder: it lists it on its next
+                        // call, and a provider that isn't running never answers, so the whole scan
+                        // would wait. `walk` takes it instead, asking through the dataless reads.
                         if isDir, !isSymlinkedDir, fileManager.isDataless(at: fileURL) {
                             enumerator.skipDescendants()
                             try walk(fileURL, prefix: keyPath, branchVisited: branchVisited)
                         }
 
-                        // The URL enumerator never walks INTO a symlinked directory, but the tree
-                        // walk always has — leaving the two scan branches disagreeing: a cold-cache
-                        // (disk) scan reported a linked folder's contents as missing on this side
-                        // while a warm-cache (tree) scan reported them present, phantom rows whose
-                        // bulk-accept would re-copy data over the link's real target. Descend
-                        // manually (cycle-guarded, via the resolved target) so both branches see
-                        // the same files.
+                        // The enumerator never enters a linked directory but the tree walk does,
+                        // so descend by hand (cycle-guarded, via the target). Otherwise the cold scan
+                        // reports the contents missing and a bulk accept re-copies over the target.
                         if isSymlinkedDir {
                             let targetID = canonicalIdentity(fileURL)
                             let depth = keyPath.split(separator: "/").count
-                            // The flat enumerator descends the whole real subtree in one call, so
-                            // `branchVisited` only ever holds the root plus targets we manually
-                            // descended — never the real intermediate directories walked through.
-                            // A link pointing at one of those ancestors (a/b/link -> a) would thus
-                            // over-expand a full extra level before the target-repeat guard below
-                            // finally catches it. `buildTree` caps such a link immediately because
-                            // its `visited` set carries every ancestor. Match that: refuse to
-                            // descend a link whose target is an ancestor of (or the same as) the
-                            // directory the link lives in.
+                            // `branchVisited` holds only the root and manually descended targets,
+                            // not the real directories between, so a link to an ancestor
+                            // (a/b/link -> a) would expand an extra level. Refuse a target that is
+                            // the link's own directory or above it, as `buildTree` does.
                             let hostID = canonicalIdentity(fileURL.deletingLastPathComponent())
                             let pointsIntoAncestor = hostID == targetID || hostID.hasPrefix(targetID + "/")
                             if !branchVisited.contains(targetID) && !pointsIntoAncestor && depth < symlinkDepthCap
@@ -517,12 +412,9 @@ public struct FileDiffEngine {
             }
         }
 
-        // **A root that IS a link to a folder is walked where it leads.** The enumerator lists
-        // nothing at a URL whose last component is a link (ENOTDIR, measured), and the forgiveness
-        // in `recordUnreadable` — right for a link the descent below then walks — let the ROOT go
-        // too, with nothing to walk it. The side read as authoritatively empty: a Compare focused
-        // on iCloud Drive → Documents through the container's link reported every item on the
-        // other side as missing. Resolved here the way that descent resolves a nested link.
+        // A root that is a link to a folder is walked where it leads. The enumerator lists nothing
+        // at a link (ENOTDIR), and `recordUnreadable` forgives links, so the side would read as
+        // empty and everything on the other side as missing.
         var walkRoot = url
         if fileManager is FileManager,
            (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
@@ -542,20 +434,17 @@ public struct FileDiffEngine {
                                        isSymbolicLink: info.isSymbolicLink)
             }
         }
-        // The scan root itself has no parent listing to have minted an entry, so an unreadable
-        // root gets a synthetic one under the root key (""). `computeDifferences` reads it to
-        // suppress Missing rows for the WHOLE side — this side's entire view is unknown.
+        // An unreadable root has no parent listing to mint its entry, so it gets a synthetic one
+        // under the root key "". `computeDifferences` reads it to suppress the whole side's
+        // Missing rows.
         if unreadableDirKeys.contains(""), result[""] == nil {
             result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
                                   isDirectory: true, isUnexplored: true)
         }
-        // A stopped walk makes the same claim an unlistable root does — this side's view is
-        // incomplete — so it mints the same record. `result[""] == nil` because an unreadable root
-        // has already said something strictly stronger about the same side.
+        // A stopped walk makes the same claim as an unlistable root, so it mints the same record,
+        // unless an unreadable root already did.
         if truncated, result[""] == nil {
-            // Counted BEFORE the synthetic root record is added. Taken after, the line reported
-            // `limit + 1` entries against `limit` — an overshoot the walk did not have, in the one
-            // sentence anyone tuning the cap would read.
+            // Counted before the synthetic root record is added, or the log would say `limit + 1`.
             let counted = result.count
             result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
                                   isDirectory: true, isUnexplored: true)
@@ -568,11 +457,9 @@ public struct FileDiffEngine {
             let count = unreadableCount
             let samples = unreadableSamples
             let root = url.path
-            // A per-entry read failure omits that item from the comparison (unlike an unreadable
-            // directory, which is marked unexplored above). It is an environmental condition —
-            // permission denied or a transient FS error the app cannot act on — and the count is
-            // surfaced here, so it is a warning, not an app-level error. Matches the tree
-            // builder's "could not list …" path (see FileSyncManager+Scanning).
+            // A per-entry read failure omits that item from the comparison (an unreadable
+            // directory is marked unexplored instead). Environmental, not the app's fault, so a
+            // warning, as the tree builder's "could not list …" is (FileSyncManager+Scanning).
             if count <= maxIndividuallyLogged {
                 for message in samples { Logger.shared.warning(message) }
             } else {
@@ -591,16 +478,12 @@ public struct FileDiffEngine {
     ///   - rightURL: Root directory URL for the right pane.
     ///   - leftFilesInfo: Pre-scanned file metadata for the left pane (relative path → `FileInfo`).
     ///   - rightFilesInfo: Pre-scanned file metadata for the right pane.
-    ///   - caseInsensitive: Pass true when BOTH pane volumes are case-insensitive (the macOS
-    ///     default). Paths that differ only by case then compare as a single pair instead of
-    ///     two phantom "missing" rows — syncing those would silently overwrite one side's
-    ///     content. With mixed sensitivity (either volume case-sensitive) keep this false:
-    ///     the case-sensitive side really can hold both variants, so collapsing them would
-    ///     hide a real file.
-    ///   - dateToleranceSeconds: Modification dates within this many seconds compare as equal.
-    ///     Cloud providers round or rewrite dates on upload (FAT-style 2s granularity, Drive's
-    ///     whole-second rewrites), so the user can widen this to hide those false differences.
-    ///     0 means exact comparison.
+    ///   - caseInsensitive: True when both pane volumes are case-insensitive (the macOS default).
+    ///     Paths differing only by case then compare as one pair, not two "missing" rows whose sync
+    ///     would overwrite one side. Keep it false if either volume is case-sensitive: that side
+    ///     can hold both variants, and collapsing them would hide a real file.
+    ///   - dateToleranceSeconds: Modification dates within this many seconds compare as equal,
+    ///     since providers round or rewrite dates on upload. 0 means exact.
     /// - Returns: Sorted array of `FileDifference` for UI and sync actions.
     public static func computeDifferences(
         left: CloudProvider,
@@ -613,50 +496,38 @@ public struct FileDiffEngine {
         dateToleranceSeconds: TimeInterval = 1
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
-        // A root-level record (the "" key, minted by `getFilesInDirectory` on the cold branch
-        // and `filesInfo(fromTree:)` on the warm one) marked unexplored means the scan ROOT
-        // itself could not be listed: that side's ENTIRE view is unknown, so no Missing row
-        // may be minted against it — the whole-side counterpart of the per-directory
-        // suppression below. The record is popped either way so the root key never
-        // participates in the passes as an ordinary entry.
+        // An unexplored root record (key "", from either branch) means the scan root couldn't be
+        // listed: that side's whole view is unknown, so no Missing row may be minted against it.
+        // Popped either way so the root key never takes part in the passes.
         var leftFilesInfo = leftFilesInfo
         var rightFilesInfo = rightFilesInfo
         let leftRootUnreadable = leftFilesInfo.removeValue(forKey: "")?.isUnexplored == true
         let rightRootUnreadable = rightFilesInfo.removeValue(forKey: "")?.isUnexplored == true
-        // Directories whose contents could not be LISTED on one side (permission denied — see
-        // `FileInfo.isUnexplored`). An item that exists under such a directory on the OTHER side
-        // is not "missing" here: this side's view is unknown, and an actionable Missing row would
-        // offer to copy into (or "restore" from) a folder nobody could read. Rows under these
-        // ancestors are suppressed in both passes below.
+        // Directories whose contents couldn't be listed on one side (`FileInfo.isUnexplored`).
+        // An item under one on the other side is not missing here, so rows under these are
+        // suppressed in both passes, rather than offering to copy into an unreadable folder.
         let unexploredLeftDirs = Set(leftFilesInfo.compactMap { key, info in
             info.isDirectory && info.isUnexplored ? key : nil
         })
         let unexploredRightDirs = Set(rightFilesInfo.compactMap { key, info in
             info.isDirectory && info.isUnexplored ? key : nil
         })
-        // Folders that exist on one side only, per direction. Their descendants are collapsed
-        // into the folder's own entry below (a folder copy is recursive, so the descendants
-        // carry no independent action).
+        // Folders that exist on one side only, per direction. Their descendants collapse into the
+        // folder's row, since a folder copy is recursive.
         var missingOnRightDirs = Set<String>()
         var missingOnLeftDirs = Set<String>()
-        // The entries present on one side only, per direction. Their rows wait for the collapse
-        // (step 3): a pass can meet a folder after its contents, so which entries survive is known
-        // only once the passes have run.
+        // Entries present on one side only, per direction. Their rows wait for the collapse
+        // (step 3): a pass can meet a folder after its contents.
         var missingOnRight: [(key: String, info: FileInfo)] = []
         var missingOnLeft: [(key: String, info: FileInfo)] = []
-        // Folders that pair with a FILE on the other side (type mismatch). Their descendants —
-        // which exist only on the directory side — collapse into the mismatch row the same way,
-        // since either resolution handles the whole subtree in one action (dir wins: recursive
-        // copy; file wins: the subtree is replaced wholesale). Keyed by the dir side's relative
-        // path, mapping to the row's relativePath (the LEFT key) — the two can differ in case
-        // when the pair matched via case-variant keys and the directory is on the right, and
-        // invisibly when a near-name pair has a file on one side (its row is a name conflict).
+        // Folders that pair with a file on the other side. Their descendants collapse into the
+        // mismatch row, since either resolution handles the whole subtree. Keyed by the dir side's
+        // path, mapping to the row's `relativePath` (the left key); the two can differ by case or
+        // invisibly when the pair matched as a variant.
         var typeMismatchDirs: [String: String] = [:]
 
-        // Lowercased right key → actual right key, for the case-insensitive fallback match.
-        // Keying by the full relative path also matches children of folders whose names
-        // differ only by case ("Docs/a.txt" vs "docs/a.txt"), so they compare against each
-        // other instead of double-reporting.
+        // Lowercased right key → actual right key, for the case-insensitive fallback. Full paths,
+        // so children of case-variant folders ("Docs/a.txt", "docs/a.txt") pair too.
         var caseFoldedRightKeys: [String: String] = [:]
         if caseInsensitive {
             caseFoldedRightKeys.reserveCapacity(rightFilesInfo.count)
@@ -667,12 +538,9 @@ public struct FileDiffEngine {
         // Right keys consumed by a case-variant match in pass 1; pass 2 must not report them missing.
         var caseVariantMatchedRightKeys = Set<String>()
 
-        // Right keys indexed by near-name form (see ProviderNameRules.nearNameKey): the
-        // fallback that pairs entries whose names differ only invisibly (trailing/leading
-        // whitespace, trailing dots, Unicode NFC/NFD) across the two sides. A form claimed
-        // by several keys on either side is ambiguous — matching it would be arbitrary (and
-        // dictionary-order nondeterministic), so those keys deterministically fall back to
-        // plain missing rows instead.
+        // Right keys by near-name form (`ProviderNameRules.nearNameKey`), to pair names that
+        // differ only invisibly. A form claimed by several keys on either side is ambiguous, and
+        // matching it would depend on dictionary order, so those fall back to plain missing rows.
         var nearNameRightKeys: [String: String] = [:]
         var ambiguousNearNameRightKeys = Set<String>()
         nearNameRightKeys.reserveCapacity(rightFilesInfo.count)
@@ -697,17 +565,14 @@ public struct FileDiffEngine {
         }
         // Right keys consumed by a near-name match in pass 1; pass 2 must not report them missing.
         var nearNameMatchedRightKeys = Set<String>()
-        // Directory pairs whose names differ invisibly, left spelling → right spelling. Used
-        // after the passes to re-aim one-side-only descendants at the destination's REAL
-        // folder: the naive expected path carries the source side's spelling, and copying to
-        // it would mint the very doppelganger folder the name-conflict row exists to prevent.
+        // Directory pairs whose names differ invisibly, left spelling → right spelling, to re-aim
+        // one-sided descendants at the destination's real folder. The source's spelling would mint
+        // the look-alike folder the name-conflict row exists to prevent.
         var nearNameDirPairs: [String: String] = [:]
 
-        // The right key a left FOLDER pairs with in pass 1 — exactly, as a case variant, or on its
-        // near-name — or nil when it pairs with nothing, as a folder missing from the left's map
-        // does (pass 1 never visits it). Pass 1's near-name guards that only an ambiguous form can
-        // trip — the exact pair owning its keys, a right key consumed twice — are left out; the
-        // ambiguity itself is refused here. Memoized: every key below a folder asks again.
+        // The right key a left folder pairs with in pass 1 (exactly, as a case variant, or by
+        // near-name), or nil. Pass 1's guards that only an ambiguous form can trip are left out,
+        // since ambiguity is refused here. Memoized: every key below a folder asks again.
         var folderCounterparts: [String: String?] = [:]
         func counterpart(ofLeftFolder folder: String) -> String? {
             if let known = folderCounterparts[folder] { return known }
@@ -729,14 +594,10 @@ public struct FileDiffEngine {
             folderCounterparts.updateValue(answer, forKey: folder)
             return answer
         }
-        // **A key pairs across on its near-name only where every folder above it pairs with the
-        // folder at the same depth above the candidate.** A near-name is claimed per whole path, so
-        // a key's can be unambiguous while a folder above it is not: left `A` and `A ` against a
-        // right `A` leave `A ` paired with nothing (the exact pair owns the right `A`), yet
-        // `A /f.txt` met `A/f.txt` on its own near-name — a both-sides row inside a folder
-        // reported missing, which the collapse never takes in. Syncing the two handled `f.txt`
-        // twice, and the right `A/f.txt`, which the left `A` lacks, was never reported. Refused,
-        // the key stays one-sided and collapses into its folder's row.
+        // A key pairs by near-name only where every folder above it pairs with the one at the
+        // same depth above the candidate. With left `A` and `A ` against a right `A`, `A ` pairs
+        // with nothing, so `A /f.txt` must not pair with `A/f.txt`: it would put a both-sides row
+        // inside a missing folder, and sync `f.txt` twice. Refused, it collapses into its folder.
         func foldersPair(above leftKey: String, and rightKey: String) -> Bool {
             for (leftFolder, rightFolder) in zip(FoldersAbove(leftKey), FoldersAbove(rightKey)) {
                 if counterpart(ofLeftFolder: String(leftFolder)) != String(rightFolder) { return false }
@@ -744,25 +605,18 @@ public struct FileDiffEngine {
             return true
         }
 
-        // The unexplored-ancestor suppression under the SAME folding the pair matching uses:
-        // the unexplored sets hold each side's OWN spelling, but pairing matches ancestor
-        // folders across case variants and invisible name differences — so "Docs/x.txt" on the
-        // left must recognize an unreadable right-side "docs" (case variant) or "Docs␣"
-        // (near-name) as its unknowable counterpart, or the engine mints actionable Missing
-        // rows into a folder nobody can read (and the near-name remap then re-aims them INTO
-        // it). Folding only applies when NO exact-spelling entry on the other side owns the
-        // ancestor: a readable exact folder beside an unreadable variant legitimately receives
-        // the row. nearNameKey folds case exactly when the comparison does.
+        // Unexplored-ancestor suppression under the same folding pairing uses, so left
+        // "Docs/x.txt" sees an unreadable right "docs" or "Docs␣" as its counterpart rather than
+        // minting Missing rows into it. Applies only when no exact spelling on the other side owns
+        // that level. `nearNameKey` folds case exactly when the comparison does.
         func suppressionKey(_ path: String) -> String {
             ProviderNameRules.nearNameKey(forRelativePath: path, foldCase: caseInsensitive)
         }
         let unexploredLeftDirKeys = Set(unexploredLeftDirs.map(suppressionKey))
         let unexploredRightDirKeys = Set(unexploredRightDirs.map(suppressionKey))
-        // READABLE dirs under the same fold: the owner of an ancestor level can itself be a
-        // case/near-name variant (left "Docs" pairing with a readable right "docs"), and a
-        // readable owner — exact OR variant — means the row legitimately targets it. Only
-        // levels owned by NO readable spelling defer to the unexplored variant. Readable wins
-        // ties by design: over-reporting into a readable folder beats hiding a real difference.
+        // Readable dirs under the same fold: a readable owner of a level, exact or variant, means
+        // the row targets it. Readable wins ties: over-reporting into a readable folder beats
+        // hiding a real difference.
         func readableDirKeys(_ side: [String: FileInfo]) -> Set<String> {
             Set(side.compactMap { key, info in
                 info.isDirectory && !info.isUnexplored ? suppressionKey(key) : nil
@@ -794,16 +648,14 @@ public struct FileDiffEngine {
                let variant = caseFoldedRightKeys[relativePath.lowercased()],
                leftFilesInfo[variant] == nil { // if the variant also exists on the left, that exact pair owns it
                 rightKey = variant
-                // Only a leaf-name case difference belongs to this row. When just an ancestor
-                // folder's name differs by case, the difference is the folder's, not every
-                // descendant's — identical children under such folders must produce no rows.
+                // Only a leaf-name case difference belongs to this row; identical children of
+                // case-variant folders must produce no rows.
                 namesDifferOnlyByCase = TreeShape.leaf(of: relativePath) != TreeShape.leaf(of: variant)
                 caseVariantMatchedRightKeys.insert(variant)
             }
-            // Near-name fallback: pair entries whose names differ only invisibly. Guards
-            // mirror the case-variant match — the exact pair owns its keys, ambiguous forms
-            // never match, and a right key is consumed at most once — and the folders above
-            // must pair too (`foldersPair`).
+            // Near-name fallback for names that differ only invisibly. As for case variants: the
+            // exact pair owns its keys, ambiguous forms never match, a right key is consumed once,
+            // and the folders above must pair (`foldersPair`).
             var nearNameMatched = false
             if rightFilesInfo[rightKey] == nil {
                 let nearKey = ProviderNameRules.nearNameKey(forRelativePath: relativePath, foldCase: caseInsensitive)
@@ -823,36 +675,30 @@ public struct FileDiffEngine {
                 if nearNameMatched {
                     let leftLeaf = String(TreeShape.leaf(of: relativePath))
                     let rightLeaf = String(TreeShape.leaf(of: rightKey))
-                    // The conflict row belongs to the level whose name actually differs.
-                    // When only an ancestor folder's name differs invisibly, this pair is
-                    // the folder's ordinary content — compare it normally below (identical
-                    // children produce no rows). A leaf differing only by case is the
-                    // case-variant story, not an invisible rename.
+                    // The conflict row belongs to the level whose name differs. Under an
+                    // invisibly renamed folder this pair is ordinary content, compared below. A
+                    // leaf differing only by case is a case variant, not an invisible rename.
                     let leafInvisiblyRenamed = leftLeaf != rightLeaf
                         && !(caseInsensitive && leftLeaf.lowercased() == rightLeaf.lowercased())
                     if leafInvisiblyRenamed {
                         if leftFile.isDirectory && rightFile.isDirectory {
                             nearNameDirPairs[relativePath] = rightKey
                         } else if leftFile.isDirectory != rightFile.isDirectory {
-                            // A file against a folder: either direction replaces the folder's whole
-                            // subtree, as a type mismatch's resolution does, so the folder's contents
-                            // go into this row the same way. Left out, each was a missing row aimed
-                            // at the other side's spelling — copying one minted the very folder this
-                            // row exists to prevent, beside the file, and a bulk sync did it twice.
+                            // A file against a folder: either direction replaces the whole subtree,
+                            // so the folder's contents collapse into this row. As separate rows they
+                            // would mint the look-alike folder beside the file.
                             typeMismatchDirs[leftFile.isDirectory ? relativePath : rightKey] = relativePath
                         }
-                        // Both item paths are REAL: a sync in either direction writes onto
-                        // the existing counterpart (a normal collision), never a doppelganger.
-                        // Newer side wins the suggested direction; ties default left→right.
+                        // Both item paths are real, so a sync either way meets the existing
+                        // counterpart as a normal collision. The newer side wins; ties go left→right.
                         let leftDate = leftFile.modificationDate ?? Date.distantPast
                         let rightDate = rightFile.modificationDate ?? Date.distantPast
                         let action: FileDifference.SyncAction =
                             rightDate.timeIntervalSince(leftDate) > dateToleranceSeconds ? .copyToLeft : .copyToRight
                         let source = action == .copyToRight ? leftFile : rightFile
-                        // **Two files of different sizes with no clearly newer side are a question
-                        // here too (FR39).** The tie default above is a guess, and a bulk run took
-                        // it: "Sync all" overwrote whichever spelling lost. Held like the plain
-                        // both-files row, with the same note; a side with no date is no newer side.
+                        // Different sizes with no clearly newer side is a question here too: the
+                        // tie default is a guess. Held like the plain both-files row, same note; a
+                        // side with no date is no newer side.
                         let bothDated = leftFile.modificationDate != nil && rightFile.modificationDate != nil
                         let noNewerSide = !bothDated
                             || abs(leftDate.timeIntervalSince(rightDate)) <= dateToleranceSeconds
@@ -882,9 +728,8 @@ public struct FileDiffEngine {
                             rightFileSize: rightFile.fileSize, rightModified: rightFile.modificationDate,
                             leftIsDirectory: leftFile.isDirectory,
                             rightIsDirectory: rightFile.isDirectory,
-                            // A folder against a file is judged by the folder's own date here too,
-                            // which says nothing about its contents (FR40) — held like the plain
-                            // type-mismatch row below.
+                            // A folder's own date says nothing about its contents, so held like the
+                            // plain type-mismatch row below.
                             heldBack: held(heldReason, source: source)
                         ))
                         continue
@@ -893,8 +738,7 @@ public struct FileDiffEngine {
                 let caseNote = namesDifferOnlyByCase ? " (names differ only by case)" : ""
                 // exists in both, compare dates and sizes in RAM
                 if leftFile.isDirectory != rightFile.isDirectory {
-                    // Descendants live under the dir side's own key, so record that key
-                    // (left key when the dir is on the left, right key otherwise).
+                    // Descendants live under the dir side's own key, so record that key.
                     typeMismatchDirs[leftFile.isDirectory ? relativePath : rightKey] = relativePath
                     let resolution = resolveTypeMismatch(
                         left: leftFile,
@@ -920,8 +764,7 @@ public struct FileDiffEngine {
                     continue
                 }
 
-                // Folders both exist (possibly under case-variant names), no "difference" in
-                // content but the children compare against each other below.
+                // Both are folders (maybe case variants): no row; their children compare below.
                 if leftFile.isDirectory { continue }
                 
                 let leftDate = leftFile.modificationDate
@@ -940,17 +783,10 @@ public struct FileDiffEngine {
                     let leftIsNewer = (leftDate ?? Date.distantPast) > (rightDate ?? Date.distantPast)
 
                     if sizeDiffers && !dateDiffers {
-                        // **Different sizes and no newer side is a question, not a direction
-                        // (FR39).** The dates match within the tolerance, or a side has none, so
-                        // nothing here says which file is current. The row used to default "left
-                        // as truth" with the bare note "Sizes differ" and ride every bulk run
-                        // left → right — which at the 5 s and 60 s tolerances is any pair both
-                        // edited inside that window, the right one silently replaced. It keeps
-                        // the old suggestion for a single deliberate copy, says why it is a guess,
-                        // and is held out of bulk runs (`FileDifference.HeldBack`).
-                        //
-                        // A pair whose dates clearly differ never comes here: `dateDiffers` needs
-                        // both dates, and either one of them past the tolerance picks a side below.
+                        // Different sizes and no newer side is a question, not a direction: the
+                        // dates match within the tolerance, or a side has none. The suggestion
+                        // (left → right) only aims a single deliberate copy; the note says it is a
+                        // guess, and the row is held out of bulk runs (`FileDifference.HeldBack`).
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             leftItemPath: leftFile.url.path,
@@ -991,9 +827,8 @@ public struct FileDiffEngine {
                         ))
                     }
                 } else if namesDifferOnlyByCase {
-                    // Same dates and sizes, but the on-disk names differ by case. Surface it
-                    // as a single comparable row (verifiable by checksum like any same-size
-                    // pair) rather than the two phantom "missing" rows exact matching gives.
+                    // Same dates and sizes, names differ by case: one row (checksum-verifiable)
+                    // rather than two "missing" rows.
                     diffs.append(FileDifference(
                         relativePath: relativePath,
                         leftItemPath: leftFile.url.path,
@@ -1007,9 +842,8 @@ public struct FileDiffEngine {
                     ))
                 }
             } else {
-                // Present on the left, absent from the right map — but if the RIGHT root (or a
-                // right-side ancestor directory) couldn't be listed, "absent" is unknowable,
-                // not missing.
+                // Absent from the right map, but if the right root or an ancestor couldn't be
+                // listed, that is unknown, not missing.
                 if rightRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredRightDirs) != nil { continue }
                 if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredRightDirKeys,
@@ -1026,8 +860,8 @@ public struct FileDiffEngine {
             if leftFilesInfo[relativePath] == nil
                 && !caseVariantMatchedRightKeys.contains(relativePath)
                 && !nearNameMatchedRightKeys.contains(relativePath) {
-                // Mirror of pass 1: with the LEFT root (or a left-side ancestor directory)
-                // unlistable, absence on the left is unknowable — no phantom Missing row.
+                // Mirror of pass 1: with the left root or an ancestor unlistable, absence is
+                // unknown, not missing.
                 if leftRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredLeftDirs) != nil { continue }
                 if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredLeftDirKeys,
@@ -1040,38 +874,25 @@ public struct FileDiffEngine {
         
         // 3. The one-sided rows, for what the collapse keeps.
         //
-        // A folder missing on one side carries everything inside it (copying it is recursive), and
-        // either resolution of a type-mismatch folder — recursive dir copy or wholesale replacement
-        // by the file — handles its whole subtree in one action, so their descendants get no rows of
-        // their own. Listing them separately double-copies during bulk sync, races the parent's
-        // replace op under parallel sync, and leaves stale rows (with spurious overwrite prompts)
-        // after the folder row is synced. The surviving folder row gets `enclosedItemCount`, so the
-        // UI can still say how much it carries.
+        // A missing folder and a type-mismatch folder each handle their whole subtree in one
+        // action, so their descendants get no rows: separate rows would double-copy in a bulk sync,
+        // race the parent's replace, and leave stale rows behind. The folder row gets
+        // `enclosedItemCount` instead. Decided on the keys before any row is built, since a Home
+        // scan can have ~200,000 one-sided entries and keep a few dozen rows.
         //
-        // **Decided on the keys, before any of these rows exists.** Built first and dropped after,
-        // each row paid a composed path, a URL turned back into a path, a fresh id and a description
-        // — for every entry on one side only, ~200,000 on a Home scan that keeps a few dozen.
-        //
-        // A type-mismatch dir's descendants exist only on its directory side: the other side holds a
-        // file there, which has no children. So under a left-side dir they surface solely as
-        // missing-on-right entries, and under a right-side dir solely as missing-on-left ones — one
-        // shared set safely serves both directions, since the direction that can't occur simply
-        // never produces an entry to match. Items present on both sides (type-mismatch and
-        // name-conflict rows included) can't sit under a collapsible folder: every folder above a
-        // both-sides path pairs with one on the other side — for a near-name pair, because pass 1
-        // checks that it does (`foldersPair`).
+        // A type-mismatch dir's descendants exist only on its directory side, so one shared set
+        // serves both directions. Both-sides items can't sit under a collapsible folder: every
+        // folder above them pairs (for a near-name pair, because pass 1 checks `foldersPair`).
         let typeMismatchDirPaths = Set(typeMismatchDirs.keys)
         let collapsibleOnRight = missingOnRightDirs.union(typeMismatchDirPaths)
         let collapsibleOnLeft = missingOnLeftDirs.union(typeMismatchDirPaths)
         // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
         var enclosedCounts: [String: Int] = [:]
-        // The same row path → the links among those items (FR8), which its recursive copy would
-        // write as links. Read off the entries already in hand, so it costs no walk of its own;
-        // only these are asked where they point, once the rows are built.
+        // The same row path → the links among those items, which its recursive copy would write
+        // as links. Read off the entries in hand; only these are resolved, once rows are built.
         var enclosedLinks: [String: [(key: String, url: URL)]] = [:]
-        /// Whether `key` is carried by a folder's row, counting it there if so. A type-mismatch dir's
-        /// row is keyed by the LEFT path, which can differ — in case, or in its own or an ancestor's
-        /// invisible spelling — from the dir-side key the descendants carry; map back to the row.
+        /// Whether `key` is carried by a folder's row, counting it there if so. A type-mismatch row
+        /// is keyed by the left path, which can differ from the dir-side key, so map back to it.
         func isCollapsed(_ key: String, _ file: FileInfo, into dirs: Set<String>) -> Bool {
             guard let ancestor = topMostAncestor(of: key, in: dirs) else { return false }
             let row = typeMismatchDirs[ancestor] ?? ancestor
@@ -1079,19 +900,16 @@ public struct FileDiffEngine {
             if file.isSymbolicLink { enclosedLinks[row, default: []].append((key, file.url)) }
             return true
         }
-        // Re-aim one-side-only items that live under a name-conflicted folder pair at the
-        // destination side's REAL folder spelling. Their keys carry the source side's spelling,
-        // and copying to that spelling would create the exact identical-looking,
-        // provider-unsyncable duplicate folder the `.nameConflict` classification exists to prevent.
+        // Re-aim one-sided items under a name-conflicted folder pair at the destination's real
+        // spelling; the source's spelling would create the look-alike folder `.nameConflict`
+        // exists to prevent.
         let rightToLeftDirPairs = nearNameDirPairs.isEmpty ? [:] : Dictionary(
             nearNameDirPairs.map { ($0.value, $0.key) },
             uniquingKeysWith: { first, _ in first }
         )
-        // `isDirectory:` from what the entry knows. Without it the URL asks the file system whether
-        // the path is a directory — a probe per row. It only decides a trailing slash, which a file
-        // URL's `.path` drops (every caller's roots are file URLs), so the path is the same bytes.
-        // Composition stays URL composition: it decomposes precomposed names, and concatenation
-        // would not (`OneSidedRowPathTests`).
+        // `isDirectory:` from the entry, or the URL probes the file system per row; it only
+        // decides a trailing slash, which `.path` drops. Composition stays URL composition: it
+        // decomposes precomposed names, and concatenation would not (`OneSidedRowPathTests`).
         for (relativePath, leftFile) in missingOnRight {
             if isCollapsed(relativePath, leftFile, into: collapsibleOnRight) { continue }
             let destination = remappedPath(relativePath, via: nearNameDirPairs) ?? relativePath
@@ -1103,12 +921,12 @@ public struct FileDiffEngine {
                 action: .copyToRight,
                 description: noted(leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
                                    source: leftFile),
-                // The item exists on the left; carry its size so the Differences list can show it.
-                // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
+                // The item exists on the left; carry its size for the Differences list (nil, "—",
+                // for a folder).
                 leftFileSize: leftFile.fileSize, leftModified: leftFile.modificationDate,
                 leftIsDirectory: leftFile.isDirectory,
-                // A link's contents are counted into this row like a real folder's, which is what
-                // the row is about; it is the copy that cannot reproduce them (FR8).
+                // A link's contents are counted like a real folder's; it is the copy that can't
+                // reproduce them.
                 heldBack: held(nil, source: leftFile)
             ))
         }
@@ -1134,13 +952,10 @@ public struct FileDiffEngine {
         if !enclosedCounts.isEmpty {
             diffs = diffs.map { diff in
                 guard let count = enclosedCounts[diff.relativePath] else { return diff }
-                // **A link inside a folder missing on one side that points OUT of it holds the
-                // folder's row (FR8).** Its copy is recursive and writes the link as a link, as a
-                // row copying FROM a link would, so the copy's link would lead back out of the copy.
-                // A link that stays inside — a framework's `Versions/Current -> A`, a venv's
-                // `bin/python -> python3` — is right copied as a link, and holds nothing. Only for
-                // the missing-folder rows, whose action copies the folder side: a folder-versus-file
-                // row is held already and may be resolved by the file.
+                // A link inside a missing folder that points out of it holds the folder's row: the
+                // recursive copy writes it as a link, which would lead back out of the copy. One
+                // that stays inside (`Versions/Current -> A`) is fine. Missing-folder rows only: a
+                // folder-versus-file row is held already.
                 var heldBack = diff.heldBack
                 var description = diff.description
                 if heldBack == nil, diff.type == .missingOnRight || diff.type == .missingOnLeft,
@@ -1181,14 +996,12 @@ public struct FileDiffEngine {
     }
 
     /// Whether the link at `link`, copied as a link inside `folder`, would point outside the copy
-    /// (FR8, `FileDifference.HeldBack.enclosesSymbolicLink`).
+    /// (`FileDifference.HeldBack.enclosesSymbolicLink`).
     ///
-    /// - An **absolute** target is out wherever it points: the copy keeps the path, so even one
-    ///   naming a file inside `folder` leads the copy back to the original.
-    /// - A **relative** target is followed from the link's own directory, by the file system
-    ///   (`realpath(3)`, so `..`, chains of links and a linked folder on the way all count), and is
-    ///   in only when it lands at or under `folder`, compared byte for byte.
-    /// - A target that cannot be followed — dangling, a loop, unreadable — is out.
+    /// - An absolute target is always out: the copy keeps the path, so it leads to the original.
+    /// - A relative target is followed by `realpath(3)` (so `..` and chained links count), and is in
+    ///   only when it lands at or under `folder`, compared byte for byte.
+    /// - A target that can't be followed (dangling, a loop, unreadable) is out.
     static func linkLeads(out link: URL, of folder: String) -> Bool {
         guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
               !target.hasPrefix("/"),
@@ -1202,15 +1015,11 @@ public struct FileDiffEngine {
         return String(cString: resolved)
     }
 
-    /// `path` rewritten from one side's folder spelling into the other's: the DEEPEST folder
-    /// above it that `dirPairs` names is replaced with its counterpart spelling. Deepest wins
-    /// because nested name-conflicted folders each get their own pair entry keyed by the full
-    /// source-side path, so the deepest entry already carries every ancestor's destination
-    /// spelling. nil when no conflicted ancestor applies.
-    ///
-    /// The rest of the path is carried over from the `/` on, by scalar. A Character count dropped
-    /// off the front took the `/` too when the folder's name ended in a Prepend character, and
-    /// the copy went beside the folder instead of into it (see `FoldersAbove`).
+    /// `path` rewritten from one side's folder spelling into the other's: the deepest folder above
+    /// it that `dirPairs` names is replaced with its counterpart. Deepest, since each nested pair is
+    /// keyed by its full path and so already carries every ancestor's spelling. nil when none
+    /// applies. The rest is carried over from the `/` by scalar, or a name ending in a Prepend
+    /// character would take the `/` with it (see `FoldersAbove`).
     private static func remappedPath(_ path: String, via dirPairs: [String: String]) -> String? {
         guard !dirPairs.isEmpty else { return nil }
         var deepest: (folder: Substring, replacement: String)?
@@ -1238,12 +1047,10 @@ public struct FileDiffEngine {
     /// The folders above a relative path, outermost first: each prefix that ends just before a
     /// `/`, as a slice of the path whose `endIndex` is that `/`.
     ///
-    /// **The `/` is found by scalar, never by Character.** A name can open with a combining mark,
-    /// and one can end with a Prepend character (U+0600…). Either joins the `/` beside it into one
-    /// Character, so a search for the Character `/` walks past that boundary and a split on it
-    /// leaves the two names fused. The disk walk and the warm keying both cut keys by scalar, so
-    /// such keys reach the comparison; the folder above them went unseen, and its collapse, its
-    /// unreadable-folder suppression and its remap all missed them.
+    /// **The `/` is found by scalar, never by Character.** A name opening with a combining mark or
+    /// ending with a Prepend character (U+0600…) joins the `/` into one Character, and a Character
+    /// search would fuse the two names. Both scans cut keys by scalar, so the folder above would go
+    /// unseen by the collapse, the unreadable-folder suppression and the remap.
     private struct FoldersAbove: Sequence, IteratorProtocol {
         private let path: String
         private var cursor: String.Index

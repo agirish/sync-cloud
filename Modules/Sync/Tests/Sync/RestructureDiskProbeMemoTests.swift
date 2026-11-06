@@ -2,16 +2,14 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The two Restructure probes a view body runs, and the cache in front of them.**
+/// The two Restructure probes a view body runs, and the cache in front of them.
 ///
-/// `scaffoldedSubjects` and `emptiedFoldersStillStanding` both ask the DISK, deliberately: a ⌘Z or
+/// `scaffoldedSubjects` and `emptiedFoldersStillStanding` both ask the disk, deliberately: a ⌘Z or
 /// a hand-tidy removes folders without touching the ledger, so a manifest-only answer would leave
-/// the Scaffolded card and the removal button claiming things that stopped being true. And both
-/// are read from `body`, which re-runs on every publish the manager makes — the lens asked once,
-/// the overview asked again, the ledger cards asked once per applied record.
-///
-/// So the answers are remembered, and these pin what the remembering is allowed to do: serve the
-/// same tree, drop the moment the ledger changes, and never outlive its window.
+/// the Scaffolded card and the removal button claiming things no longer true. Both are read from
+/// `body`, which re-runs on every publish, several times per render. So the answers are
+/// remembered, and these pin what the memo may do: serve the same tree, drop the moment the ledger
+/// changes, and never outlive its window.
 @MainActor
 @Suite final class RestructureDiskProbeMemoTests {
 
@@ -71,9 +69,9 @@ import Testing
 
     // MARK: scaffoldedSubjects
 
-    /// **The disk decides, and it is asked again once the window is out.** A ⌘Z takes the
-    /// scaffolded folders away without touching the ledger; the subject must drop back to
-    /// offering the scaffold, which is the whole reason this probes rather than reads.
+    /// The disk decides, and it is asked again once the window is out. A ⌘Z takes the scaffolded
+    /// folders away without touching the ledger; the subject must drop back to offering the
+    /// scaffold, which is why this probes rather than reads.
     @Test func aScaffoldedSubjectDropsOnceItsFoldersGoAndTheWindowPasses() throws {
         let base = try makeRoot()
         let manager = try makeManager(base)
@@ -98,7 +96,7 @@ import Testing
                 "past the window the probe must read the disk, not its own memory")
     }
 
-    /// A new ledger record drops the entry AT ONCE — no window to wait out. Landing a scaffold
+    /// A new ledger record drops the entry at once, with no window to wait out. Landing a scaffold
     /// and then rendering must not show the state from before it.
     @Test func aNewLedgerRecordInvalidatesImmediately() throws {
         let base = try makeRoot()
@@ -117,15 +115,11 @@ import Testing
                 "the ledger changed, so the remembered answer is about a different question")
     }
 
-    /// **Two managers never share an answer, and the key carries the object's identity to make
-    /// sure of it.**
-    ///
-    /// The memo lives outside `FileSyncManager` — an extension cannot add a stored property — so
-    /// it is process-wide, and a key of root-plus-ledger alone is not enough: the probe reads the
-    /// manager's OWN `fileManager`, which is a seam every test in this repo uses. Two managers on
-    /// the same root with the same ledger and different file managers genuinely have different
-    /// answers, and this is the shape that proves the identity term is load-bearing rather than
-    /// decorative.
+    /// Two managers never share an answer: the key carries the object's identity. The memo is
+    /// process-wide (an extension can't add a stored property), and root-plus-ledger alone isn't
+    /// enough, because the probe reads the manager's own `fileManager`, a seam every test uses. Two
+    /// managers on one root and ledger with different file managers have different answers, which
+    /// shows the identity term is load-bearing.
     @Test func twoManagersDoNotShareOneAnswer() throws {
         let base = try makeRoot()
         let real = try makeManager(base)
@@ -168,9 +162,9 @@ import Testing
 
     // MARK: emptiedFoldersStillStanding
 
-    /// **Many manifests under one key.** The ledger cards ask once per applied record inside a
-    /// single render, so a one-slot cache would be evicted by the next record and never hit —
-    /// and, worse, would answer about the wrong manifest if it were not keyed by id.
+    /// Many manifests under one key. The ledger cards ask once per applied record inside a single
+    /// render, so a one-slot cache would be evicted by the next record and never hit, and would
+    /// answer about the wrong manifest if it were not keyed by id.
     @Test func eachManifestKeepsItsOwnAnswerWithinOneWindow() throws {
         let base = try makeRoot()
         let manager = try makeManager(base)
@@ -184,10 +178,9 @@ import Testing
         #expect(manager.emptiedFoldersStillStanding(of: standing, now: t0))
         #expect(!manager.emptiedFoldersStillStanding(of: gone, now: t0))
 
-        // **The disk is changed under both, and neither may notice inside the window.** That is
-        // what makes this an assertion about the CACHE rather than about the probe: a one-slot
-        // box would have been evicted by `gone` above and would re-read the tree here, and a box
-        // that dropped its map on every store would do the same — both show up as `false`.
+        // The disk is changed under both, and neither may notice inside the window. That makes
+        // this about the cache, not the probe: a one-slot box (evicted by `gone` above) or one
+        // that dropped its map on every store would re-read the tree here and show `false`.
         try FileManager.default.removeItem(at: root.appendingPathComponent("F/Standing"))
         try FileManager.default.createDirectory(at: root.appendingPathComponent("F/Gone"),
                                                 withIntermediateDirectories: true)
@@ -214,7 +207,7 @@ import Testing
             of: manifest, now: t0.addingTimeInterval(RestructureDiskProbeMemo.window + 0.01)))
     }
 
-    /// A clock that goes BACKWARDS invalidates rather than pinning an answer forever.
+    /// A clock that goes backwards invalidates rather than pinning an answer forever.
     @Test func aBackwardsClockInvalidatesRatherThanFreezing() throws {
         let base = try makeRoot()
         let manager = try makeManager(base)

@@ -2,10 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The router's rules, each pinned by a case where getting it wrong is *silent* — a worse
-/// suggestion, never an error. Three of these exist because the measured version of the algorithm
-/// scored badly until the rule was added, and one because a hash format drifting apart from its
-/// builder would quietly stop every identifier matching.
+/// The router's rules, each pinned by a case where getting it wrong is silent: a worse suggestion,
+/// never an error. That includes the hash format, which must match its builder or every identifier
+/// quietly stops matching.
 @Suite struct FilingRouterTests {
 
     // MARK: - Fixtures
@@ -32,9 +31,8 @@ import Testing
                                     personTokens: ["mother", "son"])
         var memFolders: [String: FilingMemoryEntry] = [:]
         for (folder, rawTokens) in memoryDocs {
-            // Stored tokens go through the tokenizer first, exactly as the builder does — which
-            // lowercases. Hashing `AA00CVPBHP` raw stores something `rank` can never produce, and
-            // the symptom is not an error but an identifier that silently stops matching.
+            // Tokenize first, as the builder does (it lowercases): a raw `AA00CVPBHP` hash is one
+            // `rank` can never produce, so the identifier would silently stop matching.
             let tokens = rawTokens.flatMap { FilingRouter.tokenize($0) }
             memFolders[folder] = FilingMemoryEntry(
                 docs: 4,
@@ -49,10 +47,9 @@ import Testing
 
     // MARK: - The rules that were found by measuring
 
-    /// **Evidence must be inherited from the parent.** `AT&T/2024` is empty, so it has no content of
-    /// its own; only its sibling `AT&T/2023` knows what an AT&T bill looks like. Without inheritance
-    /// the correct folder scores zero and can never be proposed — measured at 0.7% against 26.8%
-    /// for the name signal alone, which is what sent this rule into the design.
+    /// Evidence is inherited from the parent. `AT&T/2024` is empty; only its sibling `AT&T/2023`
+    /// knows what an AT&T bill looks like. Without inheritance the right folder scores zero and can
+    /// never be proposed.
     @Test func anEmptyYearFolderIsReachableThroughItsSiblings() {
         let idx = Self.index(memoryDocs: ["Home/Utilities/AT&T/2023": ["wireless", "att", "mobility"]])
         let r = FilingRouter.rank(fileName: "bill.pdf",
@@ -61,21 +58,17 @@ import Testing
         #expect(r.best?.relativePath == "Home/Utilities/AT&T/2024")
     }
 
-    /// The vocabulary for the two inheritance tests below. Deliberately words that appear in **no**
-    /// folder path in the fixture, and a file name that shares nothing with any of them: inherited
-    /// content is then the only route by which a child folder can score at all. The first draft of
-    /// these tests used the real `Visa/H-1B/2024-2026` names, and both survived every mutation —
-    /// the era folders were entering the ranking on the `visa` and `2026` tokens in their own paths,
-    /// so neither test was ever exercising inheritance.
+    /// The vocabulary for the two inheritance tests below: words in no folder path of the fixture,
+    /// with a file name sharing none of them, so inherited content is the only way a child folder
+    /// can score. Words from the folder names would let the children rank on their own path tokens
+    /// and the tests would never exercise inheritance.
     static let parentVocabulary = ["consulate", "foil", "annotation", "nonimmigrant", "issuance",
                                    "reciprocity", "biometrics", "interview", "endorsement",
                                    "duration", "petitioner", "beneficiary"]
 
-    /// **A parent that holds all the evidence must reach its own children.** The mirror image of the
-    /// sibling case, and the one the first cut missed: `Visa/US/H-1B Visa` holds every visa foil
-    /// while its per-era children hold none, so sharing only between siblings gave the era folders —
-    /// the folders the file actually belongs in — nothing whatsoever. The parent is still the top
-    /// pick here; what this pins is that its empty children are *reachable at all*.
+    /// A parent that holds all the evidence must reach its own children: the mirror of the sibling
+    /// case, as when `Visa/US/H-1B Visa` holds every foil and its per-era children none. The parent
+    /// still ranks first; this pins that its empty children are reachable at all.
     @Test func anEmptyChildIsReachableThroughTheParentThatHoldsTheEvidence() throws {
         let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
                              extraFolders: ["Records/Consular", "Records/Consular/Alpha",
@@ -89,12 +82,9 @@ import Testing
                 "an empty child of the evidence-holding parent never entered the ranking: \(ranked)")
     }
 
-    /// **The inherited share has to be in the same units as the score it is added to.** It used to
-    /// be divided by the peak, which pinned every share into [0, `inheritWeight`] and then added it
-    /// to raw content scores that reach the hundreds on a real memory — so inheritance moved a cold
-    /// folder by a fraction of a percent of the leader and was, in the one case it exists for,
-    /// arithmetically inert. Twelve matching anchors are enough for the constant and the fraction to
-    /// be different answers.
+    /// The inherited share is in the same units as the score it is added to. Normalised by the peak
+    /// it would land in [0, `inheritWeight`] beside raw scores in the hundreds, and inheritance would
+    /// do nothing. Twelve matching anchors are enough to tell the two apart.
     @Test func theInheritedShareScalesWithTheEvidenceBehindIt() throws {
         let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
                              extraFolders: ["Records/Consular", "Records/Consular/Alpha"])
@@ -108,19 +98,16 @@ import Testing
                 "inherited \(child.score) against a parent at \(parent.score) — share out of scale")
     }
 
-    /// **The scorer reads the sample it was measured on, whatever the caller hands it.**
-    /// `ContentSignalExtractor` returns up to five pages and 20,000 characters — right for a
-    /// classifier prompt, four decimal orders more than these weights were tuned on. A real T-Mobile
-    /// bill passed at full length still ranked its true home first, but pages 2-5 are line items and
-    /// their vocabulary pulled four unrelated year folders up behind it: margin 0.37 → 0.14, which
-    /// is `.medium` → `.low`, which is the difference between leading a card and displacing nothing.
+    /// The scorer reads only the sample its weights were tuned on, whatever the caller passes.
+    /// `ContentSignalExtractor` returns up to five pages, right for a classifier prompt; pages 2–5
+    /// of a bill are line items whose words pull unrelated folders up and shrink the margin enough to
+    /// drop confidence a level.
     @Test func pagesTwoOnwardsCannotDiluteTheRanking() {
         let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary,
                                           "Finance/US/Income Tax/2023": ["itemised", "charges", "subtotal"]],
                              extraFolders: ["Records/Consular"])
-        // Page 1 is a real page: longer than the sample window, so the window contains only page-1
-        // words. A 110-character stand-in would leave 290 characters of the window reaching into the
-        // tail — which is not the bound failing, it is the fixture not being a page.
+        // Page 1 is longer than the sample window, so the window holds only page-1 words. A shorter
+        // stand-in would let the window reach into the tail and fail for the fixture's sake.
         let pageOne = String(repeating: Self.parentVocabulary.joined(separator: " ") + " ", count: 6)
         #expect(pageOne.count > FilingRouter.contentSampleChars)
         // Plus four pages of line items whose words belong to a different folder entirely.
@@ -136,9 +123,9 @@ import Testing
 
     // MARK: - Reading the document's own years
 
-    /// **A year is not always a token.** `tokenize` splits on non-alphanumerics, so the way every US
-    /// visa foil prints its expiry — `20NOV2026` — is one token and never looks like a year. And a
-    /// long digit run is not four years: the control number `20241808200001` must yield nothing.
+    /// A year is not always a token: `tokenize` keeps a foil's expiry `20NOV2026` as one token, so
+    /// years are read from the raw text. A long digit run such as the control number
+    /// `20241808200001` must yield nothing.
     @Test func yearsAreReadOutOfTheTextRatherThanItsTokens() {
         #expect(FilingRouter.yearsInText("Expiration Date 20NOV2026") == ["2026"])
         #expect(FilingRouter.yearsInText("Control Number 20241808200001").isEmpty)
@@ -147,8 +134,7 @@ import Testing
                 "the tokenizer would have to change to see this, which the memory forbids")
     }
 
-    /// Glyph-per-field extraction — `0 3 J U L 2 0 2 4`. Real, and the reason this document's issue
-    /// date was invisible while its expiry was not.
+    /// Text extracted one glyph per field, `0 3 J U L 2 0 2 4`, still reads as a date.
     @Test func aDatePrintedOneGlyphPerFieldIsStillADate() {
         #expect(FilingRouter.despaced("Issue Date 0 3 J U L 2 0 2 4") == "Issue Date 03JUL2024")
         #expect(FilingRouter.yearsInText("Issue Date 0 3 J U L 2 0 2 4") == ["2024"])
@@ -156,16 +142,10 @@ import Testing
         #expect(FilingRouter.despaced("a b c word") == "a b c word")
     }
 
-    /// The payoff: a fiscal span matches fully only when the document names both halves, so a visa
-    /// printing an issue date of 2024 and an expiry of 2026 separates `2024-2026` from a span that
-    /// only shares its end — which the filename's single `2026` cannot do, since it half-matches
-    /// both.
-    ///
-    /// **The wrong answer is the one that sorts first**, deliberately. The first version of this
-    /// test used `2026-2029` as the decoy, and reverting the whole raw-text year reader left it
-    /// passing: with both spans scoring a half-match the ranking is a tie, ties break on the path,
-    /// and `2024-2026` sorts ahead of `2026-2029` for free. A fixture whose expected value is also
-    /// the fallback cannot fail.
+    /// A span matches fully only when the document names both halves, so a visa issued 2024 and
+    /// expiring 2026 separates `2024-2026` from a span sharing only its end; the filename's single
+    /// `2026` half-matches both. The decoy `2020-2026` sorts first on purpose: ties break on the
+    /// path, so a decoy that sorted after the answer would let the test pass without the year reader.
     @Test func bothYearsInTheBodySeparateTwoOverlappingSpans() throws {
         let idx = Self.index(memoryDocs: ["Records/Visas": Self.parentVocabulary],
                             extraFolders: ["Records/Visas", "Records/Visas/2020-2026",
@@ -180,10 +160,9 @@ import Testing
         #expect(right < wrong, "the two spans did not separate: \(ranked)")
     }
 
-    /// **A folder named `H-1B Visa` has to be reachable from a file that writes it `H1B`.**
-    /// `tokenize("H-1B Visa")` is `["1b", "visa"]`, so the classification never matched and the
-    /// file's own branch scored no better than its sibling. Index-side only — widening what a
-    /// FOLDER NAME indexes cannot disagree with the builder that wrote the stored anchors.
+    /// A folder named `H-1B Visa` is reachable from a file that writes `H1B`, though
+    /// `tokenize("H-1B Visa")` is `["1b", "visa"]`. Index-side only: widening what a folder name
+    /// indexes cannot disagree with the builder that wrote the stored anchors.
     @Test func aHyphenatedFolderNameIsReachableFromTheUnhyphenatedSpelling() {
         #expect(FilingRouter.pathTokens(of: "Visa/US/H-1B Visa").contains("h1b"))
         #expect(FilingRouter.pathTokens(of: "Visa/US/H-1B Visa").contains("1b"))   // still the old form
@@ -197,8 +176,8 @@ import Testing
                 "H1B did not reach H-1B: \(r.candidates.map(\.relativePath))")
     }
 
-    /// The same fixture with the year changed must move to the sibling — otherwise the test above
-    /// passes for the wrong reason (a fixture whose expected value equals the fallback cannot fail).
+    /// The same fixture with the year changed moves to the sibling, so the empty-year test can't be
+    /// passing on a fallback.
     @Test func theYearInTheDocumentPicksTheSibling() {
         let idx = Self.index(memoryDocs: ["Home/Utilities/AT&T/2023": ["wireless", "att", "mobility"]])
         let r = FilingRouter.rank(fileName: "bill.pdf",
@@ -207,8 +186,8 @@ import Testing
         #expect(r.best?.relativePath == "Home/Utilities/AT&T/2023")
     }
 
-    /// **Years must be read out of the document, not only the filename.** Three files all called
-    /// `Lease Agreement.pdf` differ only by the term printed inside them.
+    /// Years are read from the document, not only the filename: three files called
+    /// `Lease Agreement.pdf` can differ only by the term printed inside.
     @Test func aYearOnlyInTheBodyStillRoutes() {
         let idx = Self.index(memoryDocs: ["Home/Utilities/PG&E/2023": ["gas", "electric", "pge"]])
         let named = FilingRouter.rank(fileName: "statement.pdf",
@@ -217,9 +196,8 @@ import Testing
         #expect(named.best?.relativePath == "Home/Utilities/PG&E/2024")
     }
 
-    /// An identifier that lives in exactly one folder is the strongest signal there is — the case
-    /// where four screenshots carrying only a case number were placed by an already-filed
-    /// confirmation. It has to beat a folder that shares ordinary words.
+    /// An identifier found in exactly one folder is the strongest signal there is, enough to place
+    /// a screenshot carrying only a case number. It beats a folder sharing ordinary words.
     @Test func anIdentifierOutweighsSharedVocabulary() {
         let idx = Self.index(memoryDocs: [
             "Health/Medical/Kaiser/Surgery": ["AA00CVPBHP", "record"],
@@ -230,9 +208,8 @@ import Testing
         #expect(r.best?.relativePath == "Health/Medical/Kaiser/Surgery")
     }
 
-    /// **Inboxes are never destinations.** Listing one actively teaches the classifier to file into
-    /// the place things go when they have nowhere to go. Matching has to be on a whole path
-    /// component: a first cut of this leaked 105 inbox folders into a destination list.
+    /// Inboxes are never destinations: listing one teaches the classifier to file into the place
+    /// things go when they have nowhere to go. Matching is on a whole path component.
     @Test func inboxFoldersAreNeverProposed() {
         let idx = Self.index(memoryDocs: ["Health/TODO/Dental": ["dental", "cleaning"]],
                              extraFolders: ["Health/TODO/Dental", "Health/Dental/2024"])
@@ -274,8 +251,8 @@ import Testing
         #expect(r.confidence == .low)
     }
 
-    /// With neither artifact there is nothing to route with, and the caller must get an empty index
-    /// rather than a confident wrong answer — this is the "never been surveyed" machine.
+    /// With neither profile nor memory there is nothing to route with, so the caller gets an empty
+    /// index, not a confident wrong answer: the never-surveyed machine.
     @Test func noProfileAndNoMemoryMeansAnEmptyIndex() {
         let idx = FilingRouter.makeIndex(destinations: ["A/B"], profile: nil, memory: nil)
         #expect(FilingRouter.rank(fileName: "x.pdf", contentSnippet: "x", index: idx).best == nil)
@@ -315,9 +292,8 @@ import Testing
                                       registry: registry)
     }
 
-    /// **The person axis picks the sibling.** Everything else about these two folders is identical,
-    /// so without it the winner is decided by the tie-break on the path — `School/Daughter` for every
-    /// child in the household, including Son's report card.
+    /// The person axis picks the sibling. Everything else about the two folders is identical, so
+    /// without it the path tie-break sends every child's report card to `School/Daughter`.
     @Test func thePersonAxisPicksBetweenSiblingPersonBuckets() {
         let idx = Self.siblingPersonIndex()
         let son = FilingRouter.rank(fileName: "Son Father - Report Card.pdf",
@@ -340,11 +316,9 @@ import Testing
         #expect(r.margin < 0.2)
     }
 
-    /// **A contradiction has to demote, not merely fail to promote.** Confirmation alone is enough
-    /// when two sibling buckets are otherwise identical, so the penalty only shows itself where the
-    /// wrong person's folder is *winning on content* — which is the shape the real error had:
-    /// `Family/Daughter/Events` holds a pile of shower documents, and a shower invitation naming
-    /// Granny matches all of them.
+    /// A contradiction demotes, not merely fails to promote. The penalty shows only where the wrong
+    /// person's folder wins on content: Daughter's folder knows every word of a shower invitation
+    /// that names Granny.
     @Test func aFolderContentRanksFirstIsDemotedWhenItIsTheWrongPersons() {
         let folders = ["Family/Daughter/Events", "Family/Granny/Events"]
         func entry(_ path: String, person: String) -> FolderProfileEntry {
@@ -380,8 +354,8 @@ import Testing
                 "the document names Granny and went to Daughter's folder on content alone")
     }
 
-    /// A page that names the person routes a file whose name does not — the same channel the veto
-    /// gained, on the scoring side.
+    /// A page that names the person routes a file whose name does not: the veto's channel, on the
+    /// scoring side.
     @Test func aPageNamingThePersonRoutesANamelessFile() {
         let idx = Self.siblingPersonIndex()
         let r = FilingRouter.rank(fileName: "Scan 2026-08-02.pdf",
@@ -390,8 +364,8 @@ import Testing
         #expect(r.best?.relativePath == "School/Son")
     }
 
-    /// With no registry the axis is inert and the router behaves exactly as it did before — the
-    /// "never been surveyed for people" machine, and the guard that this feature is additive.
+    /// With no registry the person axis is inert, so a machine never surveyed for people routes as
+    /// if the axis did not exist.
     @Test func withNoRegistryThePersonAxisIsInert() {
         let folders = ["School/Daughter", "School/Son"]
         let entries = [
@@ -409,11 +383,8 @@ import Testing
         let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil)
         #expect(idx.folderPerson.isEmpty)
 
-        // **`folderPerson` starts empty, so the line above is the fallback answering.** Delete the
-        // whole person-axis build from `makeIndex` and it still passes — it cannot fail, which makes
-        // it a statement about a field rather than about the registry. The same profile WITH a
-        // registry is what turns it into one: the axis is inert *because* there is nobody to
-        // resolve, not because nothing ever populates it.
+        // `folderPerson` starts empty, so the check above alone can't fail. The same profile with
+        // a registry shows the axis is inert because nobody resolves, not because nothing fills it.
         let registry = PersonRegistry(people: [
             Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
             Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
@@ -442,8 +413,8 @@ import Testing
         #expect(!FilingRouter.isYearToken("1492"))
     }
 
-    /// A fiscal span matches fully only when the document names both halves — the Indian tax year
-    /// spans two calendar years and a classifier reading one of them must not claim a full match.
+    /// A fiscal span matches fully only when the document names both halves: an Indian tax year
+    /// spans two calendar years, and reading one of them is not a full match.
     @Test func fiscalSpansNeedBothHalves() {
         #expect(FilingRouter.yearFit("2019-2020", ["2019", "2020"]) == 1.0)
         #expect(FilingRouter.yearFit("2019-2020", ["2019"]) == 0.5)
@@ -452,13 +423,12 @@ import Testing
     }
 }
 
-/// The inbox rule, and the seam that hands it to a backend. Both were asked in three places with
-/// two different answers before this suite existed.
+/// The inbox rule, and the seam that hands destinations to a backend. Each is asked in one place
+/// so every caller gets the same answer.
 @Suite struct FilingDestinationRuleTests {
 
-    /// **A whole word, not a substring.** `contains("todo")` also refuses `Mastodon` — and it
-    /// refused all four real `Misc` folders in the surveyed tree (`Semester Fees/Misc`,
-    /// `System Design/Misc`), which are ordinary destinations, not inboxes.
+    /// Inboxes match on a whole word, not a substring: substring matching also refuses `Mastodon`
+    /// and ordinary `Misc` folders, which are destinations, not inboxes.
     @Test func inboxMatchingIsOnWholeWords() {
         #expect(FolderProfile.isInboxPath("Documents/TODO"))
         #expect(FolderProfile.isInboxPath("Work/EDD - TODO"))
@@ -469,8 +439,8 @@ import Testing
         #expect(!FolderProfile.isInboxPath("Finance/US/Income Tax/2023"))
     }
 
-    /// A backend must be handed destinations, not the raw taxonomy — and the answer must not change
-    /// depending on whether a profile happens to be loaded.
+    /// A backend gets destinations, not the raw taxonomy, and the answer doesn't depend on whether a
+    /// profile is loaded.
     @Test func destinationsExcludeInboxesWithAndWithoutAProfile() {
         let taxonomy = ["Finance/US/Income Tax/2023", "Documents/TODO", "Health/TODO/Dental"]
         let bare = FilingContext(taxonomyFolders: taxonomy)
@@ -496,9 +466,8 @@ import Testing
         return FilingRouter.Ranking(candidates: cs, margin: m)
     }
 
-    /// **A folder and its own subfolder share their vocabulary by construction**, so content cannot
-    /// separate them — `Immigration/OCI/Son` scored 1.388 and `.../Son/Application` 1.374 for
-    /// `Son OCI Photo.jpg`. The file names in them say it plainly: `Application/` already holds
+    /// A folder and its own subfolder share vocabulary by construction, so content scores them
+    /// nearly level. The names already inside separate them: `Application/` holds
     /// `Son OCI Photo - 4up print sheet.jpg`.
     @Test func namesAlreadyInTheFolderSeparateAParentFromItsChild() throws {
         let r = Self.ranking([("Immigration/OCI/Son", 1.388),
@@ -512,9 +481,9 @@ import Testing
         #expect(out.best?.relativePath == "Immigration/OCI/Son/Application")
     }
 
-    /// **Coverage of the incoming name, not Jaccard.** `Son OCI Photo - 4up print sheet` covers
-    /// all three tokens of `Son OCI Photo`; `Son OCI.pdf` covers two. Jaccard scores those the
-    /// same (0.67) and cannot separate the folders at all — this is the measure choice, pinned.
+    /// The measure is coverage of the incoming name, not Jaccard: `Son OCI Photo - 4up print sheet`
+    /// covers all three tokens of `Son OCI Photo` and `Son OCI.pdf` two, which Jaccard scores the
+    /// same.
     @Test func aLongerPeerNameThatCoversTheWholeIncomingNameWins() {
         let inc = "Son OCI Photo"
         func coverage(_ peer: String) -> Double {
@@ -525,10 +494,9 @@ import Testing
         #expect(coverage("Son OCI") < 1.0)
     }
 
-    /// **Only between a folder and its own ancestor or descendant.** Between unrelated folders the
-    /// same bonus is noise — applied to the whole shortlist it moved held-out top-1 by +0.2 points
-    /// while the tune split moved −0.4, a disagreement in sign. An unrelated folder full of
-    /// perfectly-covering names must not move.
+    /// Peer names re-rank only between a folder and its own ancestor or descendant; between
+    /// unrelated folders the bonus measured as noise. An unrelated folder full of perfectly covering
+    /// names must not move.
     @Test func anUnrelatedFolderIsNotHelpedByItsNames() {
         let r = Self.ranking([("Immigration/OCI/Son", 1.0),
                               ("Somewhere/Else", 0.9)])
@@ -540,8 +508,8 @@ import Testing
         #expect(out.best?.relativePath == "Immigration/OCI/Son", "an unrelated folder was boosted")
     }
 
-    /// With no peer names anywhere the ranking is returned untouched — the re-rank must not be a
-    /// reshuffle of its own.
+    /// With no peer names anywhere the ranking comes back untouched: the re-rank never reshuffles
+    /// on its own.
     @Test func noPeerNamesLeavesTheRankingAlone() {
         let r = Self.ranking([("A/B", 1.0), ("A/B/C", 0.9)])
         let out = FilingRouter.rerankedByPeerNames(r, fileName: "x.pdf") { _ in [] }

@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// EU: a file moved into a synced folder from one that isn't is copied, its History step says where
-/// it came from, and *Reverse in iCloud* moves it back there when the folder is still there, the
-/// name is free and nothing changed since; otherwise it is listed as unavailable, with why.
+/// A file moved into a synced folder from one that isn't is copied, its History step says where it
+/// came from, and *Reverse in iCloud* moves it back there when the folder is still there, the name
+/// is free and nothing changed since; otherwise it is listed as unavailable, with why.
 @Suite struct OneWaySyncMovedInTests {
     typealias Sync = OneWaySyncRunTests.Sync
     let run = OneWaySyncRunTests()

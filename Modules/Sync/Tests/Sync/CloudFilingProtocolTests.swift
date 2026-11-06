@@ -26,10 +26,9 @@ import Testing
         let folderBlock = try #require(system.last)
         #expect((folderBlock["text"] as? String)?.contains("Documents/Vehicles") == true)
         #expect(folderBlock["cache_control"] as? [String: String] == ["type": "ephemeral"])
-        // The user turn lists the files, and EVERY excerpt the caller supplied goes with them —
-        // including the meaningfully-named file's. The body used to re-apply `canRemember` and drop
-        // that one, which threw away a page the scan had already read and left the model reasoning
-        // from a filename it could only guess about.
+        // The user turn lists the files with every excerpt the caller supplied, the
+        // meaningfully-named file's included: dropping it would discard a page the scan already
+        // read and leave the model guessing from the filename.
         let messages = try #require(body["messages"] as? [[String: Any]])
         let userText = try #require(messages.first?["content"] as? String)
         #expect(userText.contains("Tesla Policy.pdf"))
@@ -38,8 +37,8 @@ import Testing
         #expect(JSONSerialization.isValidJSONObject(body))
     }
 
-    /// The excerpts the body sends are the ones the estimate priced — the two used to share a
-    /// `canRemember` gate, so they can only stay in step if both are pinned to the same input.
+    /// The estimate prices the same excerpts the body sends; pinning both to one input keeps them
+    /// in step.
     @Test func theEstimatePricesEveryExcerptTheBodyActuallySends() throws {
         let folders = ["Documents", "Documents/Vehicles"]
         let named = [file("/root/Downloads/Tesla Policy.pdf", snippet: String(repeating: "x", count: 800))]
@@ -127,13 +126,12 @@ import Testing
         // Outside the three families it can only have been set by hand — honor it as written.
         #expect(CloudFilingProtocol.currentModel(for: "claude-fable-5") == "claude-fable-5")
         #expect(CloudFilingProtocol.currentModel(for: "gpt-9") == "gpt-9")
-        // Every offered model carries a label for the picker, and the id list is derived from
-        // that same table — so a refresh cannot update one and leave the other behind, which is
-        // how the picker went blank once before.
+        // Every offered model has a picker label, and the id list comes from the same table, so a
+        // refresh can't update one and leave the other behind (which blanks the picker).
         #expect(CloudFilingProtocol.selectableModelOptions.map(\.id) == CloudFilingProtocol.selectableModels)
         #expect(CloudFilingProtocol.selectableModelOptions.allSatisfy { !$0.label.isEmpty })
-        // Each label names its generation, not just the family — the scan's model is otherwise
-        // invisible in the UI, and "Opus" alone stops meaning anything the moment Opus 6 ships.
+        // Each label names its generation, not just the family: the scan's model is otherwise
+        // invisible in the UI, and "Opus" alone goes stale with the next generation.
         for option in CloudFilingProtocol.selectableModelOptions {
             let generation = option.id.split(separator: "-").dropFirst(2).joined(separator: ".")
             #expect(option.label.contains(generation),

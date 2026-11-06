@@ -3,27 +3,17 @@ import Foundation
 import Events
 @testable import Sync
 
-/// **`deleteItems(restoreUndoHandback:)` must not arm the "Undo Last Run" pairing.**
+/// `deleteItems(restoreUndoHandback:)` must not arm the "Undo Last Run" pairing.
 ///
-/// The pairing is a name gate: `recordSyncHistory` snapshots `undoManager.undoActionName` at the
-/// moment the run finished registering its undo, and `lastSyncRunUndoPreview` later re-reads that
-/// name to confirm the recorded run is still the top of the stack. Every other caller of
-/// `deleteItems` has already registered its group by then, so the snapshot names ITS OWN step.
+/// The pairing is a name gate: `recordSyncHistory` snapshots `undoManager.undoActionName` once the
+/// run has registered its undo, and `lastSyncRunUndoPreview` re-reads it to confirm the run is
+/// still on top. A handback caller registers its group only after `deleteItems` returns, so the
+/// snapshot would name the caller's previous step. The gate can't tell same-named steps apart, and
+/// a merge names its step after the group, so a second merge of "Photos" would pair its deletes
+/// with the first merge's step: "Undo Last Run" would list a few deletes while `undo()` reverses a
+/// whole merge, including deleting the folded files out of the keeper.
 ///
-/// The handback caller has not. The whole point of the handback is that `deleteItems` stops
-/// registering mid-await and lets the caller register the restore — synchronously, after this
-/// method returns — so the group that will top the stack does not exist yet and the snapshot names
-/// the caller's PREVIOUS action instead. The gate cannot tell two identically named steps apart
-/// (`invalidateRunUndoPairing`'s own reason), and the merge names its step after the group it
-/// folded, so merging "Photos" twice in a row produces exactly that collision: the second merge
-/// pairs its delete-only records with the FIRST merge's still-topmost group, the name gate passes
-/// against the second merge's group, and "Undo Last Run" itemizes a handful of deletes while
-/// `undo()` reverses a whole merge — including the half that DELETES the folded files out of the
-/// keeper.
-///
-/// Nothing in the repo constructed a handed-back delete before this suite, so the guard in
-/// `deleteItems` (`handedBack` → invalidate, never pair) could be deleted outright with the full
-/// 2613-test package still green. Both tests below are red without it.
+/// Removing the `handedBack` guard in `deleteItems` (invalidate, never pair) must fail both tests.
 @MainActor
 @Suite struct DeleteHandbackRunPairingTests {
 
@@ -49,9 +39,9 @@ import Events
 
     // MARK: the unit
 
-    /// The shape without the merge around it: a step named "Merge Photos" is on top (the caller's
-    /// previous action), and a handed-back delete runs. The pairing must be DEAD afterwards — the
-    /// records this delete produced belong to a group nobody has registered yet.
+    /// Without the merge: a step named "Merge Photos" is on top (the caller's previous action) and a
+    /// handed-back delete runs. The pairing must be dead afterwards, since this delete's records
+    /// belong to a group not yet registered.
     @Test func aHandedBackDeleteNeverPairsItsRecordsWithTheCallersPreviousStep() async throws {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -69,8 +59,8 @@ import Events
             handedBack = (urls, backups)
         })
 
-        // Premises: the delete really went down the handback path, all-trashed — the one case the
-        // old condition (`successfullyTrashed.count != items.count`) does not cover.
+        // Premises: the delete went down the handback path with everything trashed, the case a
+        // `successfullyTrashed.count != items.count` check would miss.
         try #require(outcome.trashed == 1, "the fixture did not trash: \(outcome)")
         try #require(handedBack?.0.count == 1, "the handback was never called, so nothing below is about it")
         #expect(manager.undoManager?.undoActionName == "Merge Photos",
@@ -80,8 +70,8 @@ import Events
                 "the handed-back delete armed the run pairing against the caller's PREVIOUS step (“\(manager.lastSyncRunUndoPreview?.actionName ?? "nil")”) — “Undo Last Run” would itemize these deletes while undo() reverses that other action")
     }
 
-    /// …and the delete's records still reach the durable store: the fix withholds the PAIRING, not
-    /// the history. Without this, dropping the `recordSyncHistory` call entirely would pass above.
+    /// …and the delete's records still reach the durable store: the guard withholds the pairing,
+    /// not the history. Dropping the `recordSyncHistory` call would pass the test above.
     @Test func aHandedBackDeleteStillRecordsItsHistory() async throws {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -100,24 +90,20 @@ import Events
 
     // MARK: the scenario
 
-    /// **Two merges of same-named groups, back to back** — the collision the name gate cannot see.
+    /// Two merges of same-named groups back to back, the collision the name gate can't see. Merge
+    /// 1 leaves "Merge Keeper" on top; merge 2's `deleteItems` runs before merge 2 registers its
+    /// own, also "Merge Keeper", so an armed pairing would pass the gate over the wrong group.
     ///
-    /// Merge 1 leaves "Merge Keeper" on top. Merge 2's `deleteItems` runs while that is still the
-    /// top (merge 2 registers its own group afterwards), so an armed pairing snapshots "Merge
-    /// Keeper" — and merge 2's group is named "Merge Keeper" too, so the gate passes over the wrong
-    /// group with only merge 2's `.delete` records to show for it.
-    ///
-    /// A real `FileManager`, for the reason `MergeUndoGroupingAndGateTests` documents: the merge
-    /// hashes real bytes to plan, and only the `fileManager is FileManager` fast path yields the
-    /// sizes it plans from.
+    /// A real `FileManager`, as `MergeUndoGroupingAndGateTests` explains: the merge hashes real
+    /// bytes to plan, and only the `fileManager is FileManager` path yields the sizes it plans from.
     @Test func asecondMergeOfASameNamedGroupDoesNotInheritTheFirstMergesStep() async throws {
         let base = try makeCanonicalTempRoot(prefix: "TwoMerges")
         defer { try? FileManager.default.removeItem(at: base) }
         let trash = ScratchTrash(in: base)
         let names = ["RedOne-\(UUID().uuidString)", "RedTwo-\(UUID().uuidString)"]
 
-        // Two groups whose keepers share a NAME — "Keeper" — so both merges register a step called
-        // "Merge Keeper". Distinct parents, so they are genuinely two groups.
+        // Two groups whose keepers are both named "Keeper", so both merges register "Merge Keeper".
+        // Distinct parents, so they are two groups.
         let one = try makeGroup(base.appendingPathComponent("one"), redundantName: names[0])
         let two = try makeGroup(base.appendingPathComponent("two"), redundantName: names[1])
 

@@ -2,14 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// `FileSyncManager.leftNodes(for:)` / `rightNodes(for:)` — the cached path→node index the pane
-/// action bar resolves its selection through.
-///
-/// This is not a cosmetic cache. The nodes it returns are what Delete, Copy and Move are handed, so
-/// a stale entry means a destructive action running against a file that is no longer at that path.
-/// The invalidation rides `publishedLeftTreeVersion`, bumped in `leftTree`'s `didSet` — these tests
-/// pin that contract from the outside, so a future tree-writing path that forgets to go through the
-/// published property fails here rather than in someone's Dropbox.
+/// `FileSyncManager.leftNodes(for:)` / `rightNodes(for:)`: the cached path→node index the pane
+/// action bar resolves its selection through. Delete, Copy and Move are handed these nodes, so a
+/// stale entry runs a destructive action against a file no longer at that path. Invalidation rides
+/// `publishedLeftTreeVersion`, bumped in `leftTree`'s `didSet`; these pin that from the outside, so
+/// a tree-writing path that bypasses the published property fails here.
 @MainActor
 @Suite struct SelectionNodeIndexTests {
 
@@ -35,8 +32,8 @@ import Foundation
         #expect(ids == ["/a/b/c.txt", "/a/d.txt", "/e.txt", "/a"])
     }
 
-    /// The documented contract: a path no longer in the tree is DROPPED, matching `findNodes`. The
-    /// action bar must never be handed a fabricated node for a file that has gone away.
+    /// A path no longer in the tree is dropped, matching `findNodes`: the action bar must never be
+    /// handed a made-up node for a file that has gone.
     @Test func testStalePathIsDroppedNotFabricated() {
         let m = FileSyncManager()
         m.leftTree = tree()
@@ -45,7 +42,7 @@ import Foundation
         #expect(m.leftNodes(for: []).isEmpty)
     }
 
-    /// Agreement with the tree walk it replaced — the whole premise of swapping in the index.
+    /// Agrees with `findNodes`, the tree walk the index stands in for.
     @Test func testMatchesFindNodesForTheSameSelection() {
         let m = FileSyncManager()
         m.leftTree = tree()
@@ -55,9 +52,9 @@ import Foundation
 
     // MARK: Invalidation — the part that matters
 
-    /// THE regression this suite exists for. Resolve once (populating the cache), replace the tree,
-    /// then resolve again: the second answer must come from the NEW tree. A cache keyed on
-    /// something that stops changing would keep returning the old node here.
+    /// The core regression: resolve once (filling the cache), replace the tree, resolve again, and
+    /// the answer must come from the new tree. A cache keyed on something that stops changing
+    /// would keep returning the old node.
     @Test func testCacheInvalidatesWhenTheTreeIsReplaced() {
         let m = FileSyncManager()
         m.leftTree = [file("/old.txt", size: 1)]
@@ -79,9 +76,8 @@ import Foundation
         #expect(m.leftNodes(for: ["/f.txt"]).first?.fileSize == 999)
     }
 
-    /// Mutating a nested child re-assigns the tree (FileNode is a value type), so the version bumps
-    /// and the index rebuilds — pinned because it is exactly the assumption that would break if
-    /// `FileNode` ever became a reference type.
+    /// Mutating a nested child re-assigns the tree (`FileNode` is a value type), so the version
+    /// bumps and the index rebuilds. Pinned because it breaks if `FileNode` becomes a reference type.
     @Test func testNestedMutationInvalidatesTheIndex() {
         let m = FileSyncManager()
         m.leftTree = tree()

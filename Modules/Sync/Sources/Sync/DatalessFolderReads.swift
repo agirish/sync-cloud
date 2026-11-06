@@ -2,65 +2,39 @@ import Events
 import Foundation
 
 /// **A folder whose contents are not on this Mac is read off the cooperative pool, and only for so
-/// long** — so a cloud provider that never answers costs a walk a bounded wait, and never a thread.
+/// long**, so a cloud provider that never answers costs a walk a bounded wait, never a thread.
 ///
-/// Measured 2026-10-02/03, with OneDrive not running: listing `~/Library/CloudStorage/OneDrive-
-/// Personal/.Trash` (and the HPE account's) blocks indefinitely — `ls` from Terminal too, sampled
-/// sitting in `getattrlistbulk` after a successful `open`. Both folders carry `SF_DATALESS`; every
-/// other folder in both accounts is materialized and lists at once. That is the documented rule,
-/// not a coincidence: "traversals of dataless directories by applications trigger an enumeration
-/// against the file provider extension; traversals of materialized directories do not"
-/// (`NSFileProviderReplicatedExtension.h`). So the flag is exactly the set of folders a listing can
-/// hang on, and `FileManaging.isDataless(at:)` asks for it.
+/// Listing a dataless folder (`SF_DATALESS`) asks the file provider to enumerate it, and with the
+/// provider not running the listing can block forever in `getattrlistbulk`. A refresh can cancel a
+/// walk but not unblock a syscall, so each Refresh would leak a pool thread and a descriptor until
+/// the pool ran dry and every pane stopped loading. `FileManaging.isDataless(at:)` finds them.
 ///
-/// What one such folder did to the app: the Home pane's walk reached it, a cooperative-pool thread
-/// blocked inside the listing, `buildTree` never returned and so the refresh never reached its
-/// comparison — "Nothing scanned yet" for good. A superseding refresh cancels the walk but cannot
-/// unblock a syscall, so every Refresh leaked one more pool thread and one more open directory
-/// (9 `.Trash` fds after ~25 clicks) until the pool was gone and the OTHER pane stopped loading too.
+/// - **Off the pool.** The listing runs on a dispatch queue, whose threads may block, while the
+///   walk suspends on the answer.
+/// - **Bounded.** After `deadline` the folder comes back unexplored ("Can't be read", never empty),
+///   so the comparison reports nothing under it as missing.
+/// - **One read per folder.** A walk arriving while a read is within its deadline waits on that
+///   read; one arriving after it is told at once the folder is unanswered. Otherwise a dead provider
+///   would still cost a blocked thread per Refresh.
 ///
-/// **Three properties, each one of those failures:**
+/// A late answer isn't lost: listing a folder materializes it, so the next walk lists it inline.
+/// Five seconds is about fifty times a healthy answer; a dead provider costs that once per folder,
+/// and walks skip the folder after. Folders met in sequence, below `TreeBuilder.maxFanLevel`, wait
+/// in sequence.
 ///
-/// - **Off the pool.** The listing runs on a dispatch queue, whose threads may block — the kernel
-///   workqueue adds one when another sleeps — while the walk SUSPENDS on the answer. A pool thread
-///   is never held, however long the provider takes.
-/// - **Bounded.** After `deadline` the walk stops waiting and the folder comes back unexplored —
-///   "Can't be read", never empty, so the comparison reports nothing under it as missing.
-/// - **One read per folder.** A folder whose read is still out is not read again: a walk arriving
-///   while it is within its deadline waits on that same read, and one arriving after the deadline
-///   is told at once that the folder is still unanswered. Without this a dead provider would cost
-///   one more blocked thread per Refresh, off the pool or not.
-///
-/// **A late answer is not lost.** Listing a dataless folder is what materializes it — measured: a
-/// dataless Google Drive and iCloud folder each listed in ~0.1 s and was no longer dataless after —
-/// so a read that answers after its deadline leaves the folder on disk, the next walk finds it
-/// materialized and lists it inline. The deadline defers a slow folder; it never drops it.
-///
-/// **Five seconds** is fifty times the measured healthy answer, and it is what a provider that has
-/// stopped answering costs: the first walk to reach each of its dataless folders waits that long
-/// once, and every walk after it skips them at once until they answer. Measured on the Home pane,
-/// which reaches both `.Trash` folders through OneDrive's links in the home folder, side by side in
-/// the fan-out: its first walk took 5.5 s and the two after it 3.0 and 2.4 s, skipping both. Folders
-/// a walk meets one after another — below the fan-out's horizon, `TreeBuilder.maxFanLevel` — wait
-/// one after another.
-///
-/// **Every listing asks through it, not just the walks.** `FileManaging.listing(of:)` and
-/// `childCount(of:)` route a dataless folder here — and step around one met inside a recursive
-/// listing — so the destination picker, the undo identities, a folder merge, the filing renamer,
-/// Look for Names, Edit's rail and the filing card cannot block on one either. Those callers are
-/// synchronous and WAIT for the answer (`readBlocking`): at most the deadline, only the first time,
-/// and on their own thread — the main actor's, for a move's undo registration. One that can suspend
-/// asks first with `waitForContents(of:)`, which holds no thread, and its listing then never waits.
-/// One that lists with an API of its own — Restructure's plan view and its landing's emptiness
-/// walk — asks first with `waitForContentsBlocking(of:)`, and reads an unanswered folder as
-/// unreadable (FR21).
+/// **Every listing goes through it, not just the walks.** `FileManaging.listing(of:)` and
+/// `childCount(of:)` route a dataless folder here, and skip one inside a recursive listing. Those
+/// callers are synchronous and block in `readBlocking`, at most the deadline and only the first
+/// time, on their own thread (the main actor, for a move's undo registration). A caller that can
+/// suspend asks `waitForContents(of:)` first, holding no thread. One that lists with its own API
+/// (Restructure's plan view and its landing's emptiness walk) asks `waitForContentsBlocking(of:)`
+/// first and treats an unanswered folder as unreadable.
 extension FileSyncManager {
 
     public final class DatalessFolderReads: @unchecked Sendable {
 
-        /// The one the app's walks and listings share — so the storage lens, a column's graft, the
-        /// panes and every `listing(of:)` know the same unanswered folders. Tests make their own,
-        /// with a short deadline.
+        /// Shared by the app's walks and listings, so they all know the same unanswered folders.
+        /// Tests make their own, with a short deadline.
         public static let shared = DatalessFolderReads(deadline: .seconds(5))
 
         /// How long a walk waits for a folder's provider before calling it unanswered.
@@ -70,9 +44,9 @@ extension FileSyncManager {
             self.deadline = deadline
         }
 
-        /// One folder's read in flight, from the moment a walk starts it until the provider answers
-        /// — which, for a provider that is not running, is never. Every mutable field is touched only
-        /// under the registry's lock, which is what the `@unchecked` stands on.
+        /// One folder's read in flight, until the provider answers (never, if it isn't running).
+        /// Every mutable field is touched only under the registry's lock, which the `@unchecked`
+        /// relies on.
         private final class Read: @unchecked Sendable {
             /// Both clocks, for `Elapsed`'s reason: a Mac asleep mid-read is not a slow provider.
             let since = Elapsed()
@@ -95,11 +69,9 @@ extension FileSyncManager {
 
         // MARK: - Reading
 
-        /// Runs `body` — the listing of the folder at `path` — off the cooperative pool and hands
-        /// back what it returned, or `nil` when the folder did not answer within `deadline`, was
-        /// already known not to, or the calling task was cancelled while it waited.
-        ///
-        /// Suspends rather than blocks, so the walk costs no thread while it waits.
+        /// Runs `body`, the listing of the folder at `path`, off the cooperative pool and returns its
+        /// result, or `nil` when the folder didn't answer within `deadline`, was already known not
+        /// to, or the task was cancelled while waiting. Suspends, so it holds no thread.
         func read<T: Sendable>(_ path: String, _ body: @escaping @Sendable () -> T) async -> T? {
             let path = Self.key(path)
             while !Task.isCancelled {
@@ -107,9 +79,8 @@ extension FileSyncManager {
                 case .refused:
                     return nil
                 case .joined(let read):
-                    // Another walk's read of this folder is still within its deadline. Its answer
-                    // means the folder is on disk now, so go round and read it afresh — this walk's
-                    // own listing, in its own spelling, and no longer a provider round trip.
+                    // Another walk's read is within its deadline. Once it answers the folder is on
+                    // disk, so loop and read it afresh, in this walk's own spelling.
                     guard await outcome(of: read) else { return nil }
                 case .started(let read):
                     let answer = Answer<T>()
@@ -125,12 +96,10 @@ extension FileSyncManager {
             return nil
         }
 
-        /// `read(_:_:)` for a caller that cannot suspend — the comparison's disk walk, which runs
-        /// inside a `FileManager.DirectoryEnumerator` loop, and `FileManaging.listing(of:)`, whose
-        /// callers are synchronous. The listing still runs off the pool; it is
-        /// the CALLER that waits here, blocking its thread for at most `deadline` and only the first
-        /// time a folder goes unanswered — after that the answer is immediate. Wakes every 50 ms to
-        /// see whether its task was cancelled, so a superseded scan does not sit out the deadline.
+        /// `read(_:_:)` for a caller that can't suspend: the comparison's disk walk inside a
+        /// `FileManager.DirectoryEnumerator` loop, and `FileManaging.listing(of:)`. The listing still
+        /// runs off the pool; the caller blocks for at most `deadline`, only the first time a folder
+        /// goes unanswered. Checks for cancellation every 50 ms, so a superseded scan doesn't wait.
         func readBlocking<T: Sendable>(_ path: String, _ body: @escaping @Sendable () -> T) -> T? {
             let path = Self.key(path)
             while !Task.isCancelled {
@@ -153,25 +122,25 @@ extension FileSyncManager {
             return nil
         }
 
-        /// Whether a read of `path` is still out — running or past its deadline. For the tests that
-        /// release a parked listing and then need to know it has come back.
+        /// Whether a read of `path` is still out, running or past its deadline. For tests that
+        /// release a parked listing and need to know it came back.
         public func isOutstanding(_ path: String) -> Bool {
             let path = Self.key(path)
             lock.lock(); defer { lock.unlock() }
             return reads[path] != nil
         }
 
-        /// The folders whose read passed its deadline and has not answered since — what the cloud
-        /// app status (RD68) reads as "not responding". A folder leaves when its read answers.
+        /// Folders whose read passed its deadline and hasn't answered since, which the cloud app
+        /// status shows as "not responding". A folder leaves when its read answers.
         public func unansweredPaths() -> [String] {
             lock.lock(); defer { lock.unlock() }
             return reads.filter { $0.value.state == .expired }.map(\.key).sorted()
         }
 
-        /// Forgets the unanswered folders at or under `roots`, so walks read them again and they
-        /// stop saying "not responding". For the app that syncs them having just launched: a read
-        /// asked of the process that quit may never answer, and the new one is not asked until a
-        /// read is. The stuck read is left to finish; its answer is then nobody's. Returns how many.
+        /// Forgets the unanswered folders at or under `roots`, so walks read them again. For when the
+        /// app that syncs them has just launched: a read asked of the old process may never answer,
+        /// and the new one isn't asked until a new read is. The stuck read is left to finish
+        /// unheard. Returns how many were forgotten.
         @discardableResult
         public func forgetUnanswered(under roots: [String]) -> Int {
             let keys = roots.map(Self.key)
@@ -194,12 +163,10 @@ extension FileSyncManager {
             NotificationCenter.default.post(name: Self.unansweredDidChange, object: self)
         }
 
-        /// **One folder, one read, however the walk spelled it.** The Home pane reaches each OneDrive
-        /// `.Trash` through OneDrive's link in the home folder — `~/OneDrive/.Trash`, measured — and
-        /// can reach the same folder again under `~/Library/CloudStorage/…`. Keyed by spelling, that
-        /// is two reads of one folder that is not answering: two blocked threads, and a second wait.
-        /// Resolved here, where only a dataless folder arrives, so no other folder pays for it; a
-        /// path that does not resolve is its own key. The log names the folder by this key too.
+        /// One folder, one read, however the walk spelled it: a folder reached through a link (such
+        /// as `~/OneDrive/.Trash`) and through `~/Library/CloudStorage/…` would otherwise cost two
+        /// blocked threads. Only dataless folders get here, so only they pay for the resolve. The
+        /// log names the folder by this key too.
         private static func key(_ path: String) -> String {
             URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         }
@@ -214,15 +181,14 @@ extension FileSyncManager {
 
         private func admit(_ path: String) -> Admission {
             lock.lock()
-            // `finish` takes an answered read out in the same breath as it answers, so `.answered`
-            // never sits here — but if one did, joining it would loop `read` forever, so it is
-            // simply replaced.
+            // `finish` removes a read as it answers, so `.answered` never sits here; if one did,
+            // joining it would loop `read` forever, so it is replaced.
             if let read = reads[path], read.state != .answered {
                 let expired = read.state == .expired
                 lock.unlock()
                 guard expired else { return .joined(read) }
-                // Debug, not a warning: the warning was said once, when the deadline passed, and a
-                // line per walk per Refresh would bury it.
+                // Debug, not a warning: the warning was logged once at the deadline, and a line per
+                // walk per Refresh would bury it.
                 Logger.shared.debug("Scan: skipped “\(path)” — its provider has not answered in \(read.since.text)")
                 return .refused
             }
@@ -248,8 +214,8 @@ extension FileSyncManager {
             for tell in waiters.values { tell(true) }
         }
 
-        /// Arms the deadline. The read stays registered when it passes — that is what turns the next
-        /// walk away at once instead of starting another read of a folder that is not answering.
+        /// Arms the deadline. The read stays registered past it, so the next walk is turned away at
+        /// once instead of starting another read of a folder that isn't answering.
         private func expire(_ read: Read, path: String) {
             queue.asyncAfter(deadline: .now() + Self.interval(deadline)) { [deadline] in
                 self.lock.lock()

@@ -2,21 +2,17 @@ import Foundation
 
 /// What class of disagreement a structure finding names — and therefore what acting on it would do.
 ///
-/// One case per detector, settled as the complete set **before** any store serialises a raw value
-/// (ROADMAP v5 §5.0): `RestructureStore` keys suppressions and answers on `kind × path`, so a raw
-/// value is a file-format commitment. **Raw values are append-only and never reused** — the same
-/// rule `GlassLevel` follows, for the same reason.
+/// One case per detector (ROADMAP v5 §5.0). `RestructureStore` keys suppressions and answers on
+/// `kind × path`, so a raw value is a file-format commitment: **raw values are append-only and
+/// never reused**, as with `GlassLevel`.
 ///
-/// Two cases are not like the others, deliberately:
-/// - ``deadWeight`` never renders as a finding card — crowding is a property of the scope, always
-///   non-zero on a real tree, and it shows as the strip's filtered counts (§5.2). The kind exists
-///   anyway because the empties-removal manifest and the suppression key both need the identity.
-/// - ``ask`` carries no plan at all: it is a question, and the answer is a remembered choice, not
-///   an operation (§5.3). **No detector produces one in 5.0** — the case is reserved, and the
-///   rules below (`carriesPlan`, the lens's glyph, symbol and verb) answer for it so that landing
-///   §5.3's detector is a detector and nothing else. Grep before believing this paragraph in a
-///   later release: `grep -rn "kind: \.ask" Modules/*/Sources` returns nothing today, and that
-///   emptiness is what makes "reserved" true rather than aspirational.
+/// Two cases differ on purpose:
+/// - ``deadWeight`` never renders as a card: crowding shows as the strip's counts (§5.2). The kind
+///   exists because the empties-removal manifest and the suppression key need the identity.
+/// - ``ask`` carries no plan: it is a question whose answer is a remembered choice (§5.3). **No
+///   detector produces one yet**; the case is reserved, and `carriesPlan` and the lens's glyph,
+///   symbol and verb already answer for it, so §5.3's detector needs nothing else.
+///   `nothingConstructsTheReservedAskKind` keeps "reserved" true.
 public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Sibling folders shaped differently at different times — the shipped detector.
     case shape
@@ -37,16 +33,13 @@ public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Two folders holding the same documents under parallel taxonomies (§5.9, needs a scan).
     case duplicatedTaxonomy
     /// A disagreement no fact in the tree settles — answered, never applied.
-    /// **Reserved: nothing constructs one in 5.0.** See the type's own note above.
+    /// **Reserved: nothing constructs one yet.** See the type's note above.
     case ask
 
-    /// Whether a finding of this kind can end in a plan — the rail badge counts only these,
-    /// because a badge you cannot drive to zero is a badge people stop reading (§5.1).
-    ///
-    /// `ask` is the stated exclusion; `deadWeight` is report-only in 5.0 (its sub-class with a
-    /// rule, the empties, is reached through the crowding strip rather than a card); and
-    /// `looseAboveSeries` hands its per-file fix to To File rather than growing an Apply, so
-    /// there is no plan here to count.
+    /// Whether a finding of this kind can end in a plan. The rail badge counts only these: a badge
+    /// you can't drive to zero stops being read (§5.1). `ask` is a question; `deadWeight` is
+    /// report-only (the empties are reached through the crowding strip); `looseAboveSeries` hands
+    /// its per-file fix to To File.
     public var carriesPlan: Bool {
         switch self {
         case .ask, .deadWeight, .looseAboveSeries: return false
@@ -76,8 +69,8 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         }
     }
 
-    /// Which of two folders echoes the other — the two sub-rules of one kind (ROADMAP v5 §5.2:
-    /// count them as one kind with two sub-rules, or the card cannot say which shape it found).
+    /// Which of two folders echoes the other: one kind's two sub-rules, so the card can say which
+    /// shape it found (ROADMAP v5 §5.2).
     public enum EchoRelation: Equatable, Sendable {
         /// A child restating its parent's name — `PG&E/PGE`.
         case parentChild
@@ -86,8 +79,7 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     }
 
     /// What a non-shape detector saw — the payload the card renders. One case per kind that
-    /// carries more than its subject; ``FindingKind/shape`` keeps ``schemes`` instead, unchanged
-    /// from the shipped detector.
+    /// carries more than its subject; ``FindingKind/shape`` uses ``schemes`` instead.
     public enum Detail: Equatable, Sendable {
         /// The newest member of a year run holds files and no folders; `scaffold` is the vouched
         /// vocabulary the family expects, minus what the member already has.
@@ -116,48 +108,39 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     public let family: String
     /// The most specific folder the finding is about, relative to the profile root.
     ///
-    /// For ``FindingKind/shape`` this IS the family; for the others it is narrower — the echoed
-    /// child, the mirrored inbox, the backlog member. **The subject, not the family, is the second
-    /// half of the identity**, because `kind × family` is not unique: echo-name can fire twice in
-    /// one family on two different sibling pairs, and one suppression keyed on the family would
-    /// have silenced both (ROADMAP v5 §5.0). The family is still carried for §5.2's grouping rule —
-    /// a folder's rows sort together under one path heading.
+    /// For ``FindingKind/shape`` this is the family; for the others it is narrower (the echoed
+    /// child, the mirrored inbox, the backlog member). The subject, not the family, is the second
+    /// half of the identity: echo-name can fire twice in one family, and a suppression keyed on the
+    /// family would silence both (ROADMAP v5 §5.0). The family stays for §5.2's grouping.
     public let subject: String
     /// The schemes found, largest membership first. Non-empty only for ``FindingKind/shape``.
     public let schemes: [Scheme]
 
-    /// Siblings whose shape no second sibling vouches for — the unvouched drop path
-    /// (ROADMAP v5 §5.1). Rendered greyed, as drift: they are members of the family, and a card
-    /// that says "11 folders" about a family of 17 is undercounting on purpose it cannot state.
+    /// Siblings whose shape no second sibling vouches for (ROADMAP v5 §5.1). Rendered greyed, as
+    /// drift: they are still members of the family, and the card counts them.
     public let drift: [String]
 
-    /// Siblings with no vocabulary at all — a leaf, or one whose children are all axis values.
-    /// **The folder the plan most needs to house**: it is evidence for no era, so nothing else
-    /// will claim it, and *no shape of its own* is a different sentence from *disagrees with the
-    /// others*.
+    /// Siblings with no vocabulary at all: a leaf, or one whose children are all axis values. The
+    /// folder the plan most needs to house, since no era claims it; "no shape of its own" is a
+    /// different sentence from "disagrees with the others".
     public let shapeless: [String]
 
     /// What the detector saw, for every kind whose card needs more than the subject.
     public let detail: Detail?
 
-    /// `kind × subject` — the composite identity every store key shares (ROADMAP v5 §5.0).
-    ///
-    /// The kind went into the id before the second detector landed, not after: `RestructureLens`
-    /// renders one `ForEach(findings)`, and one family producing a *Shape* and a *Series* and an
-    /// *Ask* is the whole point of the detector set.
+    /// `kind × subject` — the composite identity every store key shares (ROADMAP v5 §5.0). The
+    /// kind is in it because `RestructureLens` renders one `ForEach(findings)`, and one folder can
+    /// carry findings of several kinds.
     public var id: String { "\(kind.rawValue)|\(subject)" }
 
-    /// How many siblings the finding covers — **the whole family**, both drop paths included.
-    /// The card read "11 folders" on a family of 17 while 5 drifted and one had no shape at all;
-    /// the subtitle counts the family, and the two dropped classes render as their own rows.
+    /// How many siblings the finding covers: the whole family, drift and shapeless included, so the
+    /// subtitle doesn't undercount. The two dropped classes render as their own rows.
     public var memberCount: Int {
         schemes.reduce(0) { $0 + $1.members.count } + drift.count + shapeless.count
     }
 
     /// The one-line summary — "Finance/US/Income Tax — 17 folders, 3 schemes" for shape, the
-    /// kind's own phrase for the rest. The Organize overview prints this as its example lines,
-    /// and "Health/Dental/2025 — 0 folders, 0 schemes" was what a backlog finding read as when
-    /// this was shape's sentence for everyone.
+    /// kind's own phrase for the rest. The Organize overview prints these as its example lines.
     public var headline: String {
         switch kind {
         case .shape:
@@ -189,45 +172,32 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
 
 /// Finds families of sibling folders that were shaped differently at different times.
 ///
-/// The same recurring event — a tax year, a visa period — gets a folder each time, and each one is
-/// filed sensibly *at the time*. Years later the series has four internal vocabularies and finding
-/// a W-2 means first working out which era you are standing in. No per-file verdict can express
-/// that, because the defect is not in any file.
+/// A recurring event (a tax year, a visa period) gets a folder each time, each filed sensibly at
+/// the time. Years later the series has several internal vocabularies, and finding a W-2 means
+/// first working out which era you are in. No per-file verdict can say that: the defect is in no
+/// file.
 ///
 /// ## The hard part is silence
 ///
-/// Measured on the real profile: **247 folder names appear under more than one parent and 105 span
-/// different top-level areas, and almost all of them are correct.** `Statements/`, `Reference/` and
-/// `Transcripts/` are role folders that are *supposed* to recur. A detector that flags repeated
-/// names produces hundreds of false positives and gets switched off in a day. Two rules keep it
-/// quiet, and both were validated against that profile before this was written:
+/// On the real profile hundreds of folder names recur under different parents, and almost all are
+/// correct: `Statements/`, `Reference/` and `Transcripts/` are role folders meant to recur. A
+/// detector that flags repeated names gets switched off in a day. Two rules keep it quiet:
 ///
-/// - **Axis values are not structure** (``vocabulary(of:in:)``). Children named for a year, a
-///   person, a jurisdiction or an inbox are dropped before two siblings are compared: they recur
-///   legitimately *and* differ legitimately. What survives is the folder's role vocabulary — the
-///   part that is supposed to agree. Leaving them in flags `Chase/Archive` (accounts ran for
-///   different years) and `Credit Accounts` (two of four have a backlog folder).
-/// - **Difference is not divergence** (``AgreementRule``). A family diverges only when **two or
-///   more groups of siblings each vouch for a different shape**. One odd sibling out of thirteen is
-///   drift, not an era. Without this gate a score-based version rates `Travel/Trips/United States`
-///   at 1.00, because Arizona holds Phoenix and Nevada holds Las Vegas.
+/// - Axis values are not structure (``vocabulary(of:in:)``). Children named for a year, a
+///   person, a jurisdiction or an inbox are dropped before siblings are compared: they recur and
+///   differ legitimately. What survives is the role vocabulary, the part meant to agree. Left in,
+///   they would flag `Chase/Archive` (accounts ran for different years).
+/// - Difference is not divergence (``AgreementRule``). A family diverges only when two or more
+///   groups of siblings each vouch for a different shape; one odd sibling out is drift. Without
+///   this gate `Travel/Trips/United States` would score high, since Arizona holds Phoenix and
+///   Nevada holds Las Vegas.
 ///
-/// Run against 2,798 folders those two rules returned **two** divergent families — `Finance/US/Income
-/// Tax` and `Immigration/Authorization/H-4` — with the controls above quiet. Re-run against the
-/// live 3,013-folder profile on **2026-08-16** they return **one**: the H-4 family was reorganised
-/// by hand on 6 Aug and now agrees with itself, which is the outcome this detector exists to
-/// produce. `Finance/US/Income Tax` reports three vouched schemes out of seventeen siblings.
-/// **Keep this number current** — it is the sentence a reader calibrates the silence bar against,
-/// and a stale one reads as a detector that has quietly stopped firing.
+/// On the reference profile the two rules leave one divergent family, `Finance/US/Income Tax`,
+/// with three vouched schemes out of seventeen siblings, and the controls above quiet.
 ///
-/// One detector is still **absent, and no longer for the original reason**: *duplicated taxonomy*
-/// (two siblings with the same child names) is dominated by correct parallels — Vanguard's Roth
-/// and Traditional IRAs, four Chase accounts foldered by year, every `IN`/`US` jurisdiction pair.
-/// **Identical sibling structure is usually a sign of health**, and separating the real case needs
-/// content overlap, not names. That evidence now exists — the duplicate scan's `.sameText` pass
-/// groups documents across folders — so the detector is scheduled rather than refused
-/// (ROADMAP v5 §5.9, last of the set, because it is the only one that can be stale: it reads a
-/// scan, not the profile).
+/// Duplicated taxonomy is not detected here: same child names are usually a sign of health
+/// (Vanguard's two IRAs, Chase accounts foldered by year), and the real case needs content overlap.
+/// ``StructureDuplicatedTaxonomy`` reads that from the duplicate scan (ROADMAP v5 §5.9).
 public enum StructureDivergence {
 
     /// The agreement gate: how many groups, and how big each has to be.
@@ -235,24 +205,23 @@ public enum StructureDivergence {
         /// A family needs at least this many distinct schemes to be divergent rather than drifting.
         public static let minimumSchemes = 2
         /// Each of those schemes needs at least this many siblings vouching for it. A scheme of one
-        /// is an odd folder out; two independent folders agreeing is the cheapest evidence that a
-        /// *convention* existed.
+        /// is an odd folder out; two folders agreeing is the least evidence of a convention.
         public static let minimumMembers = 2
-        /// Single-linkage similarity threshold. Exact-shape matching shatters the 2016–2023 tax era
-        /// into eight singletons over stray extras, so siblings cluster on overlap instead.
+        /// Single-linkage similarity threshold. Exact-shape matching would shatter one era into
+        /// singletons over stray extras, so siblings cluster on overlap instead.
         public static let similarity = 0.5
     }
 
     /// Axis names whose values are legitimately different between siblings.
     ///
-    /// Read from the profile's own `axes` rather than guessed from the name, which is what makes
-    /// this survive a household that files by something this list never anticipated.
+    /// Read from the profile's own `axes` rather than guessed from names, so it holds for a
+    /// household that files by something unexpected.
     static let axisKeys: Set<String> = ["year", "fiscalYear", "person", "jurisdiction"]
 
     /// Every divergent family in a profile, in path order.
     ///
-    /// Builds the sibling map itself. `StructureDetectors.run` has already built one and passes it
-    /// to the other detectors, so it calls the overload below rather than paying for a second.
+    /// Builds the sibling map itself; `StructureDetectors.run` already has one and calls the
+    /// overload below.
     public static func findings(in profile: FolderProfile) -> [StructureFinding] {
         findings(in: profile, childrenByParent: families(in: profile))
     }
@@ -260,9 +229,7 @@ public enum StructureDivergence {
     /// Every divergent family in a profile, in path order, against a sibling map the caller
     /// already has.
     ///
-    /// **The map is the same relation the prefix walk it replaces expressed** — see
-    /// ``vocabulary(of:in:childrenByParent:)`` for the equivalence argument and the one shape of
-    /// path key where they would part company.
+    /// See ``vocabulary(of:in:childrenByParent:)`` for how the map relates to the paths.
     public static func findings(in profile: FolderProfile,
                                 childrenByParent: [String: [String]]) -> [StructureFinding] {
         childrenByParent
@@ -290,10 +257,8 @@ public enum StructureDivergence {
         guard children.count >= AgreementRule.minimumSchemes * AgreementRule.minimumMembers else {
             return nil
         }
-        // Each sibling's role vocabulary. A sibling with no vocabulary at all — a leaf, or one
-        // whose children are entirely axis values — carries no evidence either way and takes no
-        // part in clustering; it is CARRIED on the finding as `shapeless` rather than silently
-        // dropped, because "no shape of its own" is a fact about the family the card must state.
+        // Each sibling's role vocabulary. A sibling with none carries no evidence and isn't
+        // clustered, but it is kept as `shapeless`: the card must state it.
         var shapeless: [String] = []
         let vocabularies = children.reduce(into: [(name: String, words: Set<String>)]()) { acc, child in
             let words = vocabulary(of: child, in: profile, childrenByParent: childrenByParent)
@@ -314,9 +279,8 @@ public enum StructureDivergence {
 
         let schemes = vouched
             .map { group -> StructureFinding.Scheme in
-                // The scheme's vocabulary is what its members AGREE on — the intersection, not the
-                // union. A union would report stray extras as part of the convention, which is the
-                // same mistake exact-shape matching makes at the clustering step.
+                // The scheme's vocabulary is what its members agree on, the intersection: a union
+                // would report stray extras as part of the convention.
                 let shared = group.dropFirst().reduce(group[0].words) { $0.intersection($1.words) }
                 return StructureFinding.Scheme(vocabulary: shared.sorted(),
                                                members: group.map(\.name))
@@ -333,37 +297,21 @@ public enum StructureDivergence {
 
     /// A folder's role vocabulary: its children's names, with the axis-valued ones dropped.
     ///
-    /// Builds the sibling map itself, which is a full pass over the profile — use the overload
-    /// below from anywhere that already holds one. This shape stays for the tests that read one
-    /// folder's vocabulary in isolation.
+    /// Builds the sibling map itself, a full pass over the profile: use the overload below when you
+    /// hold one. Kept for tests that read one folder's vocabulary in isolation.
     static func vocabulary(of path: String, in profile: FolderProfile) -> Set<String> {
         vocabulary(of: path, in: profile, childrenByParent: families(in: profile))
     }
 
     /// A folder's role vocabulary, against a sibling map the caller already has.
     ///
-    /// **This is the whole detector sweep's cost centre.** The prefix walk this replaces scanned
-    /// *every* folder in the profile once per child of every family with four or more members —
-    /// O(folders²), 1.6 s of Organize's 1.9 s first-visit stall on a 5,020-folder profile. The map
-    /// is built once per run and this reads one bucket.
+    /// The detector sweep's cost centre, so it reads one bucket of a map built once per run; a walk
+    /// of every folder per child is O(folders²).
     ///
-    /// ## Why the two agree
-    ///
-    /// The walk selected `childPath.hasPrefix(path + "/")` with no further `/` in the remainder —
-    /// the immediate-children relation. ``families(in:)`` keys on `deletingLastPathComponent`,
-    /// which is that same relation for every path that has no trailing slash, no empty component
-    /// and no `.` component: `deletingLastPathComponent` *normalises*, so `"A/B/"` and `"A//B"`
-    /// both land in bucket `A` while the walk excluded them from `A` (their remainders contain a
-    /// `/`). The `hasPrefix`/remainder test is therefore **kept** below rather than replaced by
-    /// `lastPathComponent`: it costs one prefix compare per sibling and makes the new set a subset
-    /// of the old one by construction, for any input.
-    ///
-    /// The other direction — a child the walk found that the map does not hold — needs `path`
-    /// itself to carry a trailing slash (`"A/"` buckets its children under `A`, not `A/`), and
-    /// that path could not be a family member in the first place: ``families(in:)`` would file
-    /// `"A/"` itself under the empty parent, which it skips. Checked against the live
-    /// 5,020-folder profile on 2026-09-02: zero keys with a trailing slash, a `//` or a `.`
-    /// component, and the two relations agree for all 5,020 parents.
+    /// The `hasPrefix`/remainder test stays even though the map already buckets by parent:
+    /// `deletingLastPathComponent` normalises, so `"A/B/"` and `"A//B"` land in bucket `A`, and the
+    /// test keeps only true immediate children for any input. Real profile keys have no trailing
+    /// slash, `//` or `.` component.
     static func vocabulary(of path: String, in profile: FolderProfile,
                            childrenByParent: [String: [String]]) -> Set<String> {
         var words: Set<String> = []
@@ -385,22 +333,17 @@ public enum StructureDivergence {
 
     /// Whether a child is an axis value rather than a role.
     ///
-    /// **The test is whether the child INTRODUCED the axis value, not whether it carries one** —
-    /// and getting that wrong silences the whole detector. The real profile propagates axes down a
-    /// subtree: `Finance/US/Income Tax/2013/Federal Tax` carries `year: 2013` and
-    /// `jurisdiction: US` exactly as its ancestors do. A "does this entry have an axis key?" test
-    /// therefore drops every role folder under a year, every vocabulary comes back empty, and the
-    /// detector reports nothing at all — which is what it did against the real 3,013-folder
-    /// profile while twelve synthetic tests stayed green, because a fixture only puts the axis on
-    /// the folder that owns it.
+    /// **The test is whether the child introduced the axis value, not whether it carries one.**
+    /// Real profiles propagate axes down a subtree (`…/2013/Federal Tax` carries `year: 2013` like
+    /// its ancestors), so a "has an axis key?" test would drop every role folder under a year,
+    /// empty every vocabulary and silence the detector. Fixtures that put the axis only on its
+    /// owner can't show this.
     ///
-    /// Comparing against the parent's value is also what makes the *alias* case work without an
-    /// alias map here: `Family/Mom` carries `person: Granny` under a `Family` that carries no
-    /// person axis, so it introduced one even though its name matches neither the value nor a year.
+    /// Comparing with the parent also covers aliases: `Family/Mom` carries `person: Granny` under a
+    /// `Family` with no person axis, so it introduced one though its name matches neither.
     ///
-    /// The bare-year and inbox tests stay as the fallback for a profile that records no axes at
-    /// all. What none of them catch is a **shadow** axis value — `IRS Docs - 2023` beside the bare
-    /// years, with no `year` axis recorded — which is a detector of its own and is not claimed here.
+    /// The bare-year and inbox tests are the fallback for a profile with no axes. A shadow axis
+    /// value (`IRS Docs - 2023` beside bare years) is ``StructureShadowAxis``'s job, not this one's.
     static func isAxisValued(path: String, name: String, entry: FolderProfileEntry,
                              parent: FolderProfileEntry?) -> Bool {
         for key in axisKeys {
@@ -423,24 +366,17 @@ public enum StructureDivergence {
 
     /// Single-linkage clustering on Jaccard overlap.
     ///
-    /// Single linkage — join a group if you are close enough to **any** member — rather than
-    /// complete linkage, because an era grows a stray extra folder in its later years and each
-    /// year is still recognisably the same scheme as the one before it. Complete linkage would
-    /// split the 2016–2023 era at the first year that added a folder.
-    /// **A bridging item merges the groups it bridges**, which is what makes this single linkage
-    /// rather than "join the first group that will have you". It joined the first match and moved
-    /// on: with A and B seeded apart and C close to both, C landed in A and B stayed its own
-    /// group — two schemes reported for a family that agrees transitively, and which of them you
-    /// got depended on the order the children were walked in. The finding this feeds says "these
-    /// folders disagree about how they are organised", so a split that is an artefact of iteration
-    /// order is a divergence the user is asked to look at and cannot see.
+    /// Single linkage (join a group if close enough to any member), not complete linkage: an era
+    /// grows stray extra folders over the years while each year still resembles the one before,
+    /// and complete linkage would split it at the first addition.
+    ///
+    /// A bridging item merges the groups it bridges: joining only the first match would leave
+    /// a family that agrees transitively split in two depending on walk order, reporting a
+    /// divergence the user can't see.
     static func cluster(_ items: [(name: String, words: Set<String>)])
         -> [[(name: String, words: Set<String>)]] {
-        // Grouped by POSITION, so a merge can put the members back in profile order — which
+        // Grouped by position, so a merge can put members back in profile order, which
         // ``StructureFinding/Scheme/members`` documents and the scheme sort's tiebreaker reads.
-        // Appending merged groups end-to-end gave `[A₀, A₂, B₁, B₃, C₄]` for two alternating
-        // schemes joined by a bridge: every member present, none of them in the order the survey
-        // walked them.
         var groups: [[Int]] = []
         for (index, item) in items.enumerated() {
             let bridged = groups.indices.filter { i in

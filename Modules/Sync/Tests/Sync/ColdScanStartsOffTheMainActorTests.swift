@@ -2,35 +2,28 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The disk-walk scan starts reading without waiting for the main actor.**
-///
-/// Its detached walk opened with `await MainActor.run { self.fileManager }` — a hop to read a
-/// `let` — so it queued behind whatever the main actor was doing, typically rendering the tree just
-/// published: a median ~60 ms on his log, 830 ms once. The walk's clock started after the hop, so
-/// the DEBUG `walk` figure never showed the wait.
+/// The disk-walk scan starts reading without waiting for the main actor. A main-actor hop before
+/// the walk (even just to read a `let`) queues it behind whatever the main actor is doing, usually
+/// rendering the tree just published, and the DEBUG `walk` figure, timed after the hop, hides it.
 @Suite struct ColdScanStartsOffTheMainActorTests {
 
-    /// Blocks the calling thread until `semaphore` is signalled or `timeout` runs out. Synchronous on
-    /// purpose: called from the main actor it is the hold, which is why it cannot be `awaitSignal`.
+    /// Blocks the calling thread until `semaphore` is signalled or `timeout` runs out. Synchronous
+    /// on purpose: called from the main actor, it is the hold, so it can't be `awaitSignal`.
     private static func block(theCallingThreadUntil semaphore: DispatchSemaphore,
                               timeout: TimeInterval) -> DispatchTimeoutResult {
         semaphore.wait(timeout: .now() + timeout)
     }
 
-    /// Holds the main actor — by blocking its thread — from the moment the scan has detached its walk
-    /// until the walk reaches the file manager. A walk that needs the main actor first cannot get
-    /// there, and the wait runs out instead.
+    /// Holds the main actor, by blocking its thread, from when the scan detaches its walk until the
+    /// walk reaches the file manager. A walk that needs the main actor first can't get there, and
+    /// the wait runs out. `Task.immediate` runs the scan synchronously to its first suspension and
+    /// returns without releasing the main actor, so no hop can slip in before the hold.
     ///
-    /// `Task.immediate` is what makes the hold airtight: it runs the scan synchronously up to its
-    /// first suspension — the await on the detached walk — and returns here without ever releasing
-    /// the main actor, so there is no window in which a hop could slip through before the hold.
-    ///
-    /// **Red, it holds the main thread for the whole ten seconds**, and every main-actor test in the
-    /// run waits with it — so a time-bounded wait elsewhere can go red in the same run. Read this
-    /// one first. Green, the hold lasts as long as the walk takes to start: normally no time at
-    /// all, but the walk needs a pool thread, so at suite start, where every gate can park at once
-    /// on the pool (docs/flaky-tests.md), the hold can stretch to seconds and spend other main-actor
-    /// tests' wall-clock budgets with it.
+    /// **Red, it holds the main thread for the whole ten seconds**, and every main-actor test waits
+    /// with it, so a time-bounded wait elsewhere can go red in the same run: read this one first.
+    /// Green, the hold lasts until the walk gets a pool thread, which at suite start can take
+    /// seconds of other tests' budgets (`docs/flaky-tests.md`, "Every gate parks at once, on the
+    /// pool their releases need").
     @MainActor
     @Test func theColdWalkReachesTheDiskWhileTheMainActorIsHeld() async throws {
         let fm = MockFileManager()
@@ -48,12 +41,11 @@ import Testing
         let scan = Task.immediate {
             await m.scanDirectories(left: left, leftPath: "/left", right: right, rightPath: "/right")
         }
-        // Nothing suspends between `isScanning` going up and the walk detaching, so this is the
-        // walk having been handed off before the scan handed back. **Or the scan has already
-        // finished:** an await on a task that is already done does not suspend, so when the main
-        // thread is descheduled right after detaching the walk — and again after detaching the
-        // filter pass — the scan runs to its end inside `Task.immediate` (hosted CI, 2026-10-31).
-        // That still never released the main actor, so it passes; an enqueued scan is neither.
+        // Nothing suspends between `isScanning` going up and the walk detaching, so the walk was
+        // handed off before the scan handed back. Or the scan already finished: awaiting a done
+        // task doesn't suspend, so if the main thread is descheduled after each detach, the scan
+        // runs to its end inside `Task.immediate`. That never released the main actor either, so
+        // it passes; an enqueued scan is neither.
         #expect(m.isScanning || m.hasScanned, "premise: the scan ran into executeScan before handing back")
         let reached = Self.block(theCallingThreadUntil: reachedTheDisk, timeout: 10)
         await scan.value

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.5 steps 6 and 7 as the pure rules they are: the carry-over, the jurisdiction source, and
-/// the key replay. The disk-facing sequencing is the apply engine's tests; nothing here needs one.
+/// The landing's steps 6 and 7 as the pure rules they are: the carry-over, the jurisdiction
+/// source, and the key replay. The disk-facing sequencing is the apply engine's tests.
 @Suite struct RestructureRederiveTests {
 
     private static func entry(_ path: String, naming: String? = nil,
@@ -32,9 +32,9 @@ import Testing
 
     // MARK: - Carry-over (step 6)
 
-    /// The three judgement fields ride from the old entry to the new — for a path that survived
-    /// in place AND for one that moved through the manifest's rename, which is the case the 6 Aug
-    /// proof names: the refusal must follow the folder, not the spelling.
+    /// The three judgement fields ride from the old entry to the new, for a path that survived in
+    /// place and for one that moved through the manifest's rename: the refusal must follow the
+    /// folder, not the spelling.
     @Test func judgementsFollowBothSurvivingAndRenamedPaths() {
         let old = Self.profile(id: "old", [
             Self.entry("Tax/Outbound", acceptsNewFiles: false, noIntakeReason: "outbound-pack"),
@@ -74,9 +74,9 @@ import Testing
         #expect(carried.folders["Tax/TODO"]?.noIntakeReason == "todo-inbox")
     }
 
-    /// The jurisdiction set comes from the ENTRIES, never the header: the header says US, IN
-    /// while the entries carry Singapore on 10 folders, and taking the header loses the tree an
-    /// axis value (§5.5's decisions block, verbatim).
+    /// The jurisdiction set comes from the entries, never the header: the header says US, IN while
+    /// the entries carry Singapore on 10 folders, and taking the header loses the tree an axis
+    /// value.
     @Test func jurisdictionsAreTheEntriesDistinctValues() {
         let profile = Self.profile(id: "p", [
             Self.entry("Finance/US", jurisdiction: "US"),
@@ -92,7 +92,7 @@ import Testing
     // MARK: - Key replay (step 7)
 
     /// A rename re-prefixes every key beneath it, a move re-keys one document — to where the file
-    /// actually IS, which is the collision name when the landing had to pick one — and no stamp
+    /// actually is, which is the collision name when the landing had to pick one — and no stamp
     /// moves, because a file that only moved was not re-read.
     @Test func theCorpusFollowsTheManifestWithoutBeingReRead() {
         let document = FilingCorpusDocument(size: 10, modified: 1_700_000_000,
@@ -122,11 +122,10 @@ import Testing
         #expect(rekeyed.salt == corpus.salt)
     }
 
-    /// The moved claim WINS a destination-key collision, deterministically: a stale corpus key
-    /// can already sit at a move's destination (its file was deleted since the last scan, so
-    /// the apply saw no collision and recorded none), and the replay used to leave the winner
-    /// to dictionary iteration order — `carryOver` and `RestructureStore.rekeyedMap` both
-    /// decide this exact race explicitly, and the corpus was the one sibling that did not.
+    /// The moved claim wins a destination-key collision, deterministically. A stale corpus key can
+    /// already sit at a move's destination (its file was deleted since the last scan, so the apply
+    /// saw no collision), and dictionary iteration order must not pick the winner; `carryOver` and
+    /// `RestructureStore.rekeyedMap` decide the same race explicitly.
     @Test func aMovedDocumentWinsOverAStaleKeyAtItsDestination() {
         let moved = FilingCorpusDocument(size: 10, modified: 1_700_000_000,
                                          anchors: ["moved"], idHashes: [])
@@ -149,7 +148,7 @@ import Testing
     }
 
     /// `mapped` applies renames sequentially, so a later rename legitimately acts on the product
-    /// of an earlier one — §5.4's vacate-before-fill spelled as key movement.
+    /// of an earlier one: the planner's vacate-before-fill spelled as key movement.
     @Test func sequentialRenamesComposeInManifestOrder() {
         let renames = [(from: "Tax/Forms", to: "Tax/Tax Records"),
                        (from: "Tax/Federal", to: "Tax/Forms")]
@@ -161,10 +160,9 @@ import Testing
 
     // MARK: - What a refresh reports
 
-    /// **The success sentence names the delta, not only the total.** A total alone cannot tell
-    /// "it ran" from "it ran and the tree had not moved" — and on a settled tree the second is
-    /// the ordinary outcome, which is exactly the case a reader has to be able to distinguish
-    /// from a button that did nothing.
+    /// The success sentence names the delta, not only the total. A total alone can't tell "it ran"
+    /// from "it ran and the tree had not moved", and on a settled tree the second is the ordinary
+    /// outcome, which a reader must be able to tell from a button that did nothing.
     @Test func theRefreshSentenceSaysHowMuchTheTreeMoved() {
         #expect(SurveyRefreshOutcome.updated(folders: 5021, previousFolders: 3013).sentence
             == "Survey updated — 5021 folders, 2008 more than before.")

@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A move batch is undone last item first** (M2). A later item can write into an earlier one —
-/// merge `B/f` into the `D/f` that `A/f` just became — so undoing front to back sent `D/f` home to
-/// `A/f` with B's children inside, put back an empty `B/f`, and then refused those children as
-/// "changed since" because they were no longer at `D/f`.
+/// A move batch is undone last item first. A later item can write into an earlier one (merging
+/// `B/f` into the `D/f` that `A/f` just became), so undoing front to back would send `D/f` home to
+/// `A/f` with B's children inside, put back an empty `B/f`, and then refuse those children as
+/// "changed since" because they are no longer at `D/f`.
 ///
 /// Real disk with a `ScratchTrash`: the claim is about where the items end up.
 @Suite struct MoveBatchUndoOrderTests {

@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// One side of RD67's one-way sync.
+/// One side of the one-way sync.
 public enum OneWaySyncSide: Sendable, CaseIterable {
     case iCloud
     case dropbox

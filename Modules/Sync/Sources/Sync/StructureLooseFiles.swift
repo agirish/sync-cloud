@@ -1,32 +1,25 @@
 import Foundation
 
-/// The two detectors `ROADMAP.md` 20 listed and every draft after it dropped, recovered and
-/// measured on 2026-08-20 (ROADMAP v5 §5.2).
+/// Two loose-file detectors: files parked above a year run, and a folder beside the container it
+/// belongs in (ROADMAP v5 §5.2).
 enum StructureLooseFiles {
 
     /// A year run needs this many bare-year children before files beside it read as parked.
     /// Below three, a folder with a couple of years and some files is just a folder.
     static let minimumSeriesFolders = 3
 
-    /// And this many parked files before the parking reads as a habit rather than an accident.
-    /// Swept against the reference tree on 2026-08-28: 1 → 38 hits, 2 → 20, 3 → 15, 4 → 10 —
-    /// and at 4 the one-stray-closure-letter hits (a single file above a closed account's
-    /// archive) stop dominating the list. The three hits the roadmap names survive at 4 with
-    /// room (22, 5, 5).
+    /// And this many parked files before the parking reads as a habit rather than an accident. On
+    /// the reference tree, 4 is where single stray files above a closed account's archive stop
+    /// dominating the list, and the roadmap's named hits all survive.
     static let minimumLooseFiles = 4
 
-    /// **Loose above a series**: files parked in the parent of a year run that has folders for
-    /// them — `Fidelity/Statements` holding 22 files above 4 year folders, because a statement
-    /// gets saved to the folder rather than into the year. The second-best detector on this tree
-    /// after backlog, and the closest thing here to an everyday one.
+    /// Loose above a series: files parked in the parent of a year run that has folders for them,
+    /// such as `Fidelity/Statements` holding 22 files above 4 year folders, because statements get
+    /// saved to the folder rather than into the year.
     ///
-    /// Its fix is per-file — *which* year each file belongs to is a judgement — so it hands off
-    /// to To File exactly as the scaffold does, and carries no plan of its own
-    /// (``FindingKind/carriesPlan``).
-    ///
-    /// The family is the subject itself: the finding is about the folder's own files against its
-    /// own children, and setting `family == subject` is what groups it with a shape finding about
-    /// the same folder (`Finance/US/Income Tax` produces both).
+    /// Its fix is per-file (which year each belongs to is a judgement), so it hands off to To File
+    /// like the scaffold and carries no plan (``FindingKind/carriesPlan``). `family == subject`, so
+    /// it groups with a shape finding about the same folder.
     static func aboveSeries(in profile: FolderProfile,
                             childrenByParent: [String: [String]]) -> [StructureFinding] {
         var out: [StructureFinding] = []
@@ -45,19 +38,16 @@ enum StructureLooseFiles {
         return out
     }
 
-    /// **Loose beside a container**: a leaf whose name restates a container sibling's and adds to
-    /// it — `Home/ATT Bill` beside `Home/ATT/`, `Products/Nova PE` beside `Nova/` — token
-    /// subset, not string prefix, so `City Pre-K` finds `Pre-K`.
+    /// Loose beside a container: a leaf whose name restates a container sibling's and adds to it
+    /// (`Home/ATT Bill` beside `Home/ATT/`). Token subset, not string prefix, so `City Pre-K` finds
+    /// `Pre-K`.
     ///
-    /// Three guards, each killing a measured junk class (reference tree, 2026-08-28):
-    /// - **all-digits, on both sides** — version numbers tokenise into subsets of each other
-    ///   (`5.2.1` "inside" `5.1.1`), the 2026-08-20 measurement's original junk;
-    /// - **the loose one is a leaf with files** — `H-4 EAD` has four era subfolders and is a
-    ///   parallel family, not a stray;
-    /// - **the container has subfolders** — `Archive/HDFC Savings` beside a flat `Archive/HDFC`
-    ///   is six accounts sharing a brand word with a pile of loose files, and "move the accounts
-    ///   into the pile" is the finding backwards. The name-token rule alone fired 38 here; with
-    ///   the shape conditions it is 2 for 2 — the roadmap's own two hits.
+    /// Three guards, each removing a class of junk hits:
+    /// - names need a letter: version numbers tokenise into subsets of each other (`5.2.1` "inside"
+    ///   `5.1.1`);
+    /// - the loose one is a leaf with files: `H-4 EAD` with era subfolders is a parallel family;
+    /// - the container has subfolders: `Archive/HDFC Savings` beside a flat `Archive/HDFC` would
+    ///   be the finding backwards.
     static func besideContainer(in profile: FolderProfile,
                                 childrenByParent: [String: [String]]) -> [StructureFinding] {
         var out: [StructureFinding] = []

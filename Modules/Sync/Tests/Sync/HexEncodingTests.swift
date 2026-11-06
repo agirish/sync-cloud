@@ -3,20 +3,14 @@ import CryptoKit
 import Testing
 @testable import Sync
 
-/// Pins ``HexEncoding/string(_:)`` to the `String(format: "%02x")` expression it replaced.
-///
-/// **The oracle is spelled out longhand on purpose.** Every other `%02x` in the module now calls
-/// the helper, so the only way to prove the helper is right is to keep one independent copy of the
-/// thing it replaced and compare against it. Sharing the implementation here would make the suite
-/// agree with itself.
-///
-/// The stakes are why this is exhaustive rather than sampled: these strings are persisted as
-/// content-hash cache keys, filing profile identifiers and ``ItemIdentity`` tree digests, and a
-/// wrong nibble would not raise — it would silently miss every stored digest and re-hash the world,
-/// which presents as a slow scan and never as a failure.
+/// Pins ``HexEncoding/string(_:)`` to the `String(format: "%02x")` expression. The oracle is
+/// spelled out longhand so the suite doesn't agree with itself. Exhaustive rather than sampled
+/// because these strings are persisted as content-hash cache keys, filing profile identifiers and
+/// ``ItemIdentity`` tree digests: a wrong nibble wouldn't raise, it would silently miss every
+/// stored digest and re-hash everything, which looks like a slow scan, never a failure.
 @Suite("Hex encoding matches the formatter it replaced")
 struct HexEncodingTests {
-    /// The expression that used to live at every digest site.
+    /// The independent oracle: the plain `%02x` formatter.
     private func formatted<Bytes: Sequence<UInt8>>(_ bytes: Bytes) -> String {
         bytes.map { String(format: "%02x", $0) }.joined()
     }
@@ -49,9 +43,8 @@ struct HexEncodingTests {
         #expect(HexEncoding.string([UInt8]()) == "")
     }
 
-    /// The characters `%02x` emits, stated independently of both implementations: lowercase, and
-    /// always two per byte. A table that swapped in uppercase would still round-trip through any
-    /// hex DEcoder and would still be wrong here, because the persisted comparison is on the string.
+    /// What `%02x` emits, stated independently of both: lowercase, two per byte. Uppercase would
+    /// still decode as hex but is wrong here, because stored digests are compared as strings.
     @Test("Output is lowercase and exactly two characters per byte")
     func shape() {
         let bytes: [UInt8] = [0x00, 0x0f, 0x10, 0xa5, 0xff]

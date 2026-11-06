@@ -1,13 +1,11 @@
 import Foundation
 
-/// The four verbs that move a pane between tabs, and the one rule underneath them: **capture the
-/// live pane into the outgoing tab, then apply the incoming tab over the pane.**
+/// The verbs that move a pane between tabs, and the rule under them: capture the live pane into
+/// the outgoing tab, then apply the incoming tab over the pane.
 ///
-/// Everything here is deliberately about *one* pane's state. What a switch cannot do from in here
-/// is change the provider — `leftProviderId` is the host's `@AppStorage`, not the manager's — so
-/// each verb reports the tab it arrived at and the host writes the id (suppressing the reset that
-/// a hand-made provider switch would otherwise run) and drives the one reload. That split is why
-/// `switchTab` returns the applied tab rather than swallowing it.
+/// All about one pane's state. The provider id is the host's `@AppStorage`, so each verb returns
+/// the tab it arrived at, and the host writes the id (suppressing a provider switch's reset) and
+/// drives the one reload.
 extension FileSyncManager {
 
     /// This pane's list.
@@ -30,48 +28,28 @@ extension FileSyncManager {
                        typeFilter: isLeft ? leftTypeFilter : rightTypeFilter)
     }
 
-    /// Writes a parked tab over the pane. **Does not reload — the caller owns that.**
+    /// Writes a parked tab over the pane. **Does not reload: the caller owns that.**
     ///
-    /// The comparison goes first: the differences and the verification results were built for the
-    /// folder pair this pane is leaving, and a tab switch that left them on screen would show one
-    /// pane's new contents against the other pane's answer to the old question. This is
-    /// `retargetPane`'s opening, minus the part that resets the navigation — here the navigation is
-    /// precisely what is being restored. **The trees are the conditional half**; see below.
+    /// When the tab is somewhere else, the comparison goes first: it answers the folder pair this
+    /// pane is leaving. Like `retargetPane`'s opening, but restoring the navigation, not
+    /// resetting it.
     ///
-    /// **Why the refresh is the caller's and not `refreshSubject`'s.** A tab can carry a different
-    /// provider, and the id lives in the host's `@AppStorage` — written *after* this returns. The
-    /// subject is delivered synchronously, so ringing it here starts a load of the new tab's PATH
-    /// under the old tab's ROOT: a walk of a folder that usually does not exist there, superseded a
-    /// beat later by the real one. Harmless in the end and wrong in the middle, which is the kind of
-    /// thing that shows up once as a flash of the wrong tree. The host writes the id, then reloads
-    /// once — `ContentView.tabAction`.
-    /// - Parameter currentProviderId: the source the pane is on *now*. The caller knows; the manager
-    ///   cannot, because the id is the host's `@AppStorage`.
+    /// The caller reloads, not `refreshSubject`: a tab can carry a different provider, whose id the
+    /// host writes after this returns, and the subject fires synchronously, so ringing it here
+    /// would load the new tab's path under the old root. The host writes the id, then reloads once
+    /// (`ContentView.tabAction`).
+    /// - Parameter currentProviderId: the source the pane is on now. Only the host knows it.
     @MainActor public func applyTab(_ tab: PaneTab, isLeft: Bool, currentProviderId: String) {
-        // **Nothing is dropped unless the arriving tab is somewhere else, and then only what is
-        // actually stale.** Three separate questions, and answering them all with one blanket clear
-        // is what produced three user-visible bugs in a row.
-        //
-        // 1. *Does anything need dropping at all?* A tree walks one root at one focus and the
-        //    comparison is about one pair of focused folders, so a switch that changes neither
-        //    leaves both correct. Dropping them cost a full re-walk to rebuild something identical
-        //    plus a scan nobody asked for — and the reload republished the tree empty-then-shallow,
-        //    straight into the republish prune that flattens the column stack this method has just
-        //    restored. Refreshing is the button's job; a tab switch is navigation, and navigation
-        //    here has never rescanned.
-        // 2. *Which pane's tree?* Only the one that moved. A comparison is symmetric; a tree is
-        //    not. Dropping both re-adopted the still pane's tree for nothing — 15–36ms of every
-        //    switch, measured on a real strip.
-        // 3. *And the fast-path cache?* Kept inside one source, so the arriving tab paints from
-        //    memory rather than from a disk walk. Dropped when the SOURCE changes, and for memory
-        //    rather than staleness: its entries are keyed by absolute path and stay true, but they
-        //    are whole walked trees — this app's iCloud root measures 39,399 nodes — so never
-        //    dropping them accumulates one per visited source for the session. All but the other
-        //    pane's walk, which is normally the array that pane is showing, and what the scan reads.
-        //
-        // `PaneTabArrival` is the shared rule for (1); the host asks it the same question to decide
-        // whether to run the scan, and the two must agree or a pane ends up invalidated and never
-        // reloaded.
+        // Drop nothing unless the arriving tab is somewhere else, and then only what is stale:
+        // 1. Anything at all? A switch that changes neither root nor focus leaves tree and
+        //    comparison correct. Dropping them would re-walk and rescan for nothing, and the
+        //    reload's empty publish would flatten the column stack just restored.
+        // 2. Which tree? Only this pane's; the other pane's didn't move.
+        // 3. The prefetch cache? Kept within one source, so the tab paints from memory. Dropped
+        //    when the source changes, for memory (whole walked trees, one per visited source),
+        //    except the other pane's walk, which is what it shows and what the scan reads.
+        // `PaneTabArrival` is the shared rule for (1). The host asks it too, to decide on the
+        // scan; if the two disagree, a pane is invalidated and never reloaded.
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
@@ -83,14 +61,9 @@ extension FileSyncManager {
             clearSessionIgnoredPaths()
         }
 
-        // **One pane holds a selection at a time, and restoring a tab's has to keep that true.**
-        // A tab carries its own selection, so applying one wrote this pane's while the sibling kept
-        // whatever it had — two panes selected, which the transfer verbs' documented invariant says
-        // cannot happen and which decides what ⌘⌫ and the copy arrows act on.
-        //
-        // Only a **non-empty** arriving selection clears the sibling. An empty one leaves the
-        // invariant already satisfied — one pane selected, and it is the other one — so clearing
-        // there would throw away a selection the user made and the tab switch never touched.
+        // One pane holds a selection at a time; ⌘⌫ and the copy arrows rely on it. A non-empty
+        // arriving selection clears the sibling's. An empty one leaves the sibling's alone: the
+        // rule already holds, and clearing would discard a selection the switch never touched.
         if !tab.selection.isEmpty {
             if isLeft { selectedRightPaths = [] } else { selectedLeftPaths = [] }
         }
@@ -100,10 +73,8 @@ extension FileSyncManager {
             leftBrowsePath = tab.browsePath
             selectedLeftPaths = tab.selection
             leftTypeFilter = tab.typeFilter
-            // From the tab's own history rather than its `relativePath`, which is the same value by
-            // construction — every initializer seeds the history from the path, and a capture takes
-            // both off a pane `syncPathsFromHistory` has already put in step. Taking it from the
-            // history is what keeps Back working in the tab that arrives.
+            // From the tab's history rather than its `relativePath` (the same value by
+            // construction), which keeps Back working in the tab that arrives.
             if leftRelativePath != tab.history.current { leftRelativePath = tab.history.current }
         } else {
             rightHistory = tab.history
@@ -117,7 +88,7 @@ extension FileSyncManager {
     // MARK: - The verbs
 
     /// Selects an existing tab. Returns the tab now live, or `nil` when the id is already active or
-    /// unknown — `nil` means "nothing happened", so the host does no reload.
+    /// unknown: nothing happened, so the host does no reload.
     @MainActor public func switchTab(to id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab? {
         var list = paneTabs(isLeft: isLeft)
         guard let target = list.index(of: id), target != list.selectedIndex else { return nil }
@@ -151,9 +122,9 @@ extension FileSyncManager {
         return tab
     }
 
-    /// Opens `tabs` at the trailing end and leaves the live tab live — see
-    /// ``PaneTabList/openInBackground(_:)``. Nothing is applied to the pane, because nothing on it
-    /// changed; the live tab is captured first so the strip's snapshot of it is not stale.
+    /// Opens `tabs` at the trailing end and leaves the live tab live
+    /// (``PaneTabList/openInBackground(_:)``). Nothing is applied, since the pane didn't change;
+    /// the live tab is captured first so the strip's snapshot isn't stale.
     @MainActor public func openTabsInBackground(_ tabs: [PaneTab], isLeft: Bool, currentProviderId: String) {
         guard !tabs.isEmpty else { return }
         var list = paneTabs(isLeft: isLeft)
@@ -162,16 +133,15 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
     }
 
-    /// Closes a tab. Returns the tab now live when the pane moved, `nil` when it did not — which
-    /// includes closing a *parked* tab (the strip changes, the pane does not) and the refusal on
-    /// the last tab. The caller distinguishes the two through `paneTabs(isLeft:).count`.
+    /// Closes a tab. Returns the tab now live when the pane moved, `nil` when it didn't: closing a
+    /// parked tab, or refusing to close the last. The caller tells them apart by
+    /// `paneTabs(isLeft:).count`.
     @MainActor public func closeTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab? {
         var list = paneTabs(isLeft: isLeft)
         guard let index = list.index(of: id), list.count > 1 else { return nil }
         let wasActive = index == list.selectedIndex
-        // Park the live pane before removing anything: closing a tab to the LEFT of the active one
-        // shifts the active index, and a capture afterwards would write the pane's state into
-        // whichever tab happened to slide into that slot.
+        // Capture before removing: closing a tab left of the active one shifts the index, and a
+        // later capture would write the pane into whichever tab slid into that slot.
         list.captureActive(captureTab(isLeft: isLeft, providerId: currentProviderId))
         list.close(at: index)
         setPaneTabs(list, isLeft: isLeft)
@@ -218,8 +188,8 @@ extension FileSyncManager {
         return tab
     }
 
-    /// Drag-to-reorder from the strip. **No capture and no apply**: the pane does not move, so its
-    /// live state is not involved at all — which is why this is the one verb that returns nothing.
+    /// Drag-to-reorder from the strip. No capture and no apply: the pane doesn't move, so this verb
+    /// returns nothing.
     @MainActor public func moveTab(id: UUID, to index: Int, isLeft: Bool) {
         var list = paneTabs(isLeft: isLeft)
         guard let from = list.index(of: id) else { return }
@@ -227,8 +197,8 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
     }
 
-    /// Pin / unpin, from a tab's context menu. **No capture and no apply**, like `moveTab`: the
-    /// pane does not move, only the order and the chip's own state.
+    /// Pin / unpin, from a tab's context menu. No capture and no apply, like `moveTab`: only the
+    /// order and the chip's own state change.
     @MainActor public func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool) {
         var list = paneTabs(isLeft: isLeft)
         guard list.index(of: id) != nil else { return }
@@ -236,36 +206,21 @@ extension FileSyncManager {
         setPaneTabs(list, isLeft: isLeft)
     }
 
-    /// Discards a tab that can no longer be shown — its source has been removed since it was opened
-    /// — and leaves the pane on one that can. Returns the tab now live.
+    /// Discards a tab whose source was removed since it was opened, and leaves the pane on one that
+    /// can be shown. Returns the tab now live.
     ///
-    /// **Why this exists rather than a warning.** The verbs apply a tab to the pane before the host
-    /// can rule on its source, because the provider id is the host's `@AppStorage` and only the host
-    /// knows what is still installed. By the time the host finds the source gone, the pane is
-    /// already pointed at that tab's folder path *under the live source's root* — a path that
-    /// usually exists nowhere, so the pane shows an empty folder while the log said it had stayed
-    /// put. Leaving the chip in place also means the next click repeats it.
+    /// Not just a warning: the verbs apply a tab before the host can rule on its source (only the
+    /// host knows what is installed), so by then the pane shows that tab's path under the live
+    /// source's root, usually an empty folder, and the next click would repeat it. Launch applies
+    /// the same rule (`PaneTabsStore.restore` drops unknown providers).
     ///
-    /// Dropping the tab is the rule the feature already applies at launch: `PaneTabsStore.restore`
-    /// discards entries whose provider is unknown. Doing it here too means a source removed
-    /// mid-session cannot leave a tab behind that does not work.
+    /// The last tab isn't closed, since a pane always holds one; it is rebuilt at the root of
+    /// `currentProviderId`, the one location certain to exist. `nil` for an id this pane doesn't
+    /// hold, leaving the strip as it was: an unknown id must never replace the user's tabs.
     ///
-    /// The last tab is not closed — a pane always holds one — so it is rebuilt on `currentProviderId`
-    /// at its root, which is the one location certain to exist.
-    ///
-    /// **`nil` for an id this pane does not hold**, and the strip is left exactly as it was. That
-    /// was one guard with the rebuild before: `if list.count > 1, list.index(of: id) != nil`, whose
-    /// `else` therefore answered *two* questions with one destructive branch. The last-tab reading
-    /// is the one it was written for; the other — a strip of five handed an unknown id — replaced
-    /// all five tabs AND the reopen stack with a single fresh tab at the root. Nothing reaches it
-    /// today (every verb returns a tab that is in the list), which is precisely why it is worth
-    /// separating: an inert guard whose failure mode is "throw the user's tabs away" is not a guard.
-    /// **A discard is not a close**, in either branch: the tab does not go on the reopen stack
-    /// (`PaneTabList.discard(at:)` says what that cost), and the stack the user built by closing
-    /// tabs by hand survives the rebuild. Recording it made Reopen Closed Tab cycle forever on a
-    /// tab that could not come back; rebuilding with a fresh `PaneTabList` threw away every tab the
-    /// user had genuinely closed, which the rebuild has no business touching — it is replacing the
-    /// pane's *position*, not its session.
+    /// A discard is not a close, in either branch: the tab doesn't go on the reopen stack, or
+    /// Reopen Closed Tab would cycle on a tab that can't come back (`PaneTabList.discard(at:)`),
+    /// and the tabs the user closed by hand survive the rebuild.
     @MainActor public func discardTab(id: UUID, isLeft: Bool, currentProviderId: String) -> PaneTab? {
         var list = paneTabs(isLeft: isLeft)
         guard let index = list.index(of: id) else { return nil }
@@ -283,29 +238,19 @@ extension FileSyncManager {
 
     /// What discarding a dead tab cost, and where it left the pane.
     public struct TabDiscardOutcome: Sendable {
-        /// The source ids of the tabs dropped, in the order they went — what the host logs.
+        /// The source ids of the tabs dropped, in order, for the host's log.
         public let discarded: [String]
         /// The tab the pane is on now. `nil` only when there was nothing to discard.
         public let landed: PaneTab?
     }
 
-    /// Discards `id` **and every tab the pane falls back onto whose source is also gone**, landing
-    /// it on one that can actually be shown.
+    /// Discards `id` and every tab the pane falls back onto whose source is also gone, landing it
+    /// on one that can be shown. A loop, because the fallback neighbour is often on the same
+    /// removed source, and landing there shows an empty folder.
     ///
-    /// A loop rather than a single discard, because the fallback is a neighbour and neighbours come
-    /// from the same session: remove a source with two tabs open on it and discarding the first
-    /// lands the pane on the second, which is just as dead. `applyTab` has by then pointed the pane
-    /// at that tab's folder path under the LIVE source's root — a path that usually exists nowhere
-    /// — so the pane shows an empty folder, which is the exact symptom a single discard was written
-    /// to remove. It self-healed on the next click, one dead tab at a time.
-    ///
-    /// **Terminates by construction, and the bound is belt-and-braces on top of that.** Every pass
-    /// removes a tab, and the pass that removes the last one rebuilds a single tab on
-    /// `currentProviderId` — the pane's live source, which the caller only ever sets to one that is
-    /// available — so the predicate is satisfied and the loop stops there.
-    ///
-    /// `isAvailable` is injected for `PaneTabsStore.restore`'s reason: which sources exist is the
-    /// host's question, and the manager has never known the answer.
+    /// Terminates by construction (the bound is a backstop): each pass removes a tab, and removing
+    /// the last rebuilds one on `currentProviderId`, which the caller keeps available.
+    /// `isAvailable` is injected because only the host knows which sources exist.
     @MainActor public func discardDeadTabs(startingAt id: UUID, isLeft: Bool,
                                            currentProviderId: String,
                                            isAvailable: (String) -> Bool) -> TabDiscardOutcome {
@@ -313,8 +258,7 @@ extension FileSyncManager {
         var landed: PaneTab?
         var dead = id
         for _ in 0..<max(1, paneTabs(isLeft: isLeft).count) {
-            // Read BEFORE the discard: afterwards the tab is off the list and the only source id
-            // left to name is the one the pane landed ON, which is the wrong tab to log.
+            // Read before the discard: afterwards only the landed tab's source is left to name.
             let going = paneTabs(isLeft: isLeft).tabs.first { $0.id == dead }?.providerId
             guard let next = discardTab(id: dead, isLeft: isLeft,
                                         currentProviderId: currentProviderId) else { break }
@@ -326,8 +270,8 @@ extension FileSyncManager {
         return TabDiscardOutcome(discarded: discarded, landed: landed)
     }
 
-    /// Replaces a pane's list outright — the launch seed, and the only write that is not one of the
-    /// verbs above.
+    /// Replaces a pane's list outright: the launch seed, and the only write outside the verbs
+    /// above.
     @MainActor public func setPaneTabs(_ list: PaneTabList, isLeft: Bool) {
         if isLeft {
             if leftPaneTabs != list { leftPaneTabs = list }

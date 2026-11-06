@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pure-logic coverage for the two node-tree utilities that back sorting and selection resolution:
-/// `FileSyncManager.sort(nodes:by:)` (comparator tie-breakers + recursion) and
-/// `Array<FileNode>.findNodes(at:)` (recursive descent). Both are exercised only indirectly today.
+/// Pure-logic coverage for the two node-tree utilities behind sorting and selection resolution:
+/// `FileSyncManager.sort(nodes:by:)` (comparator tie-breakers and recursion) and
+/// `Array<FileNode>.findNodes(at:)` (recursive descent), otherwise exercised only indirectly.
 @Suite struct NodeTreeTests {
 
     private func file(_ name: String, size: Int? = nil, date: Date? = nil, kind: String? = nil) -> FileNode {
@@ -88,8 +88,8 @@ import Foundation
         #expect(found.map(\.id) == ["/a", "/d.txt"])
     }
 
-    /// Once every requested path is matched the walk stops, so a trailing node whose id was
-    /// already satisfied is not appended — this is the one observable effect of the early exit.
+    /// Once every requested path is matched the walk stops, so a trailing node whose id was already
+    /// satisfied isn't appended: the one observable effect of the early exit.
     @Test func testFindNodesStopsAfterAllRequestedPathsMatched() {
         // Two nodes share id "/x"; asking only for "/x" returns the first and skips the trailing dup.
         let tree = [
@@ -102,7 +102,7 @@ import Foundation
 
     /// The exit is keyed on distinct requested paths, not the match count, so a duplicate id can't
     /// satisfy it early and skip a still-unmatched path. The dup "/a" sits before "/b"; a
-    /// count-based exit would stop at two "/a" matches and drop "/b" — this pins that it does not.
+    /// count-based exit would stop at two "/a" matches and drop "/b".
     @Test func testFindNodesDuplicateIdDoesNotDropAnotherRequestedPath() {
         let tree = [
             FileNode(id: "/a", name: "a", isDirectory: false),
@@ -129,7 +129,7 @@ import Foundation
     }
 
     @Test func testPruneNestedNodesKeepsStringPrefixSiblings() {
-        // "/a/bc" starts with "/a/b" as a string but is NOT inside the "/a/b" directory.
+        // "/a/bc" starts with "/a/b" as a string but isn't inside the "/a/b" directory.
         let dir = FileNode(id: "/a/b", name: "b", isDirectory: true)
         let lookalike = FileNode(id: "/a/bc", name: "bc", isDirectory: true)
 
@@ -138,7 +138,7 @@ import Foundation
     }
 
     @Test func testPruneNestedNodesKeepsDuplicateIds() {
-        // A node is not "nested inside" an identical id; duplicates both survive.
+        // A node isn't "nested inside" an identical id; duplicates both survive.
         let one = FileNode(id: "/a/dup", name: "dup", isDirectory: false)
         let two = FileNode(id: "/a/dup", name: "dup", isDirectory: false)
 
@@ -148,8 +148,8 @@ import Foundation
 
     // MARK: Coding stability
 
-    /// FileNode is Codable; JSON encoded before `isUnexplored` existed must still decode
-    /// (the field is optional, nil = walked).
+    /// FileNode is Codable; JSON encoded without `isUnexplored` must still decode (the field is
+    /// optional, nil = walked).
     @Test func testDecodesPayloadWithoutUnexploredField() throws {
         let legacy = Data(#"{"id":"/a/dir","name":"dir","isDirectory":true,"children":[]}"#.utf8)
         let node = try JSONDecoder().decode(FileNode.self, from: legacy)

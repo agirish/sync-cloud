@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Phase 2.5 — how router homes are laid over the keyword engine's suggestions.
-///
-/// The dangerous direction here is not a missed suggestion but a *demotion*: promoting a
-/// low-margin content guess over a strong filename match would also flip the card to
-/// `fromContent`, which drops the file out of the blind "File recommended" batch. Every test below
-/// pins one half of that rule.
+/// How router homes are laid over the keyword engine's suggestions. The danger is a wrong
+/// promotion more than a missed suggestion: a router home displaces a confident model answer or a
+/// taught rule, and flipping a card to `fromContent` drops the file from the blind "File
+/// recommended" batch. Each test pins one half of a rule.
 @Suite struct FilingRouteOverlayTests {
 
     static let root = "/prov"
@@ -41,9 +39,8 @@ import Testing
         #expect(out[0].best?.fromAI == false)
         #expect(out[0].isBatchEligible == false)
         #expect(out[0].best?.evidenceToken != nil)
-        // **Never a file count.** The card renders `neighborMatches` as "N similar files already
-        // here", and the memory cannot prove that number — it records which words a folder's
-        // documents use, not how many use each one.
+        // Never a file count: the card renders `neighborMatches` as "N similar files already
+        // here", and the memory records which words a folder's documents use, not how many use each.
         #expect(out[0].best?.neighborMatches == 0)
         #expect(out[0].best?.reasons.first?.contains("similar file") == false)
         #expect(out[0].best?.reasons.first?.contains("read from the file") == true)
@@ -51,17 +48,12 @@ import Testing
 
     // MARK: - The peer-name rerank reaches the router
 
-    /// **A call-site test, and the reason it exists is that the helper's own tests all passed while
-    /// nothing called it.** `rerankedByPeerNames`, the `PeerNameCache` and a `peerNames` closure
-    /// threaded through three signatures all shipped; `route` accepted the parameter and never read
-    /// it. Every unit test of the rule was green throughout, because they call the rule directly.
-    ///
-    /// So this asserts the rule *through the seam the app uses*, in BOTH directions — without the
-    /// lookup the parent wins, with it the child does. One direction alone would pass against a
-    /// `route` that ignores the parameter again.
+    /// A call-site test: `rerankedByPeerNames`' unit tests call the rule directly and stay green if
+    /// `route` ignores its `peerNames` parameter. So the rule is asserted through the seam the app
+    /// uses, in both directions: without the lookup the parent wins, with it the child does.
     @Test func theRouterAppliesThePeerNameRerankItIsGiven() {
-        // Both folders describe the same documents, which is what makes them inseparable by
-        // content: the parent outranks its child on the score alone.
+        // Both folders describe the same documents, so content can't separate them and the parent
+        // outranks its child on score alone.
         let shared = ["son", "oci", "photo"]
         let index = FilingRouterTests.index(
             memoryDocs: ["Immigration/OCI/Son": shared,
@@ -76,8 +68,8 @@ import Testing
         #expect(bare[0].best?.path == "\(Self.root)/Immigration/OCI/Son",
                 "fixture no longer holds: the child must NOT already win, or the check below is vacuous")
 
-        // The lookup is keyed by ABSOLUTE folder, which is the adapter `route` has to get right:
-        // the router ranks relative paths and the real lookup lists real directories.
+        // The lookup is keyed by absolute folder: the router ranks relative paths, and `route` must
+        // adapt them for a lookup that lists real directories.
         let names = [
             "\(Self.root)/Immigration/OCI/Son": ["Son - eOCI.pdf"],
             "\(Self.root)/Immigration/OCI/Son/Application": ["Son OCI Photo - 4up print sheet.jpg"],
@@ -100,15 +92,12 @@ import Testing
         #expect(out[0].best == taught)
     }
 
-    /// A weaker router answer must not displace a strong MODEL answer — and, since GY, does
-    /// displace a word match, carrying its own Low onto the card.
-    ///
-    /// The fixture has to produce a *real but low-margin* candidate. An earlier version used a
-    /// snippet matching nothing at all, so `rank` returned no candidate and the overlay bailed out
-    /// one line above the guard being tested — deleting the guard left the test green.
+    /// A weaker router answer must not displace a strong model answer, but does displace a word
+    /// match, carrying its own Low onto the card. The fixture must produce a real low-margin
+    /// candidate: with none, the overlay returns before the guard and the test can't fail.
     @Test func aLowMarginRouteDoesNotDemoteAConfidentModelAnswer() {
-        // Both folders carry the same single anchor, so neither can win: the margin collapses and
-        // the router reports `.low`.
+        // Both folders carry the same single anchor, so the margin collapses and the router reports
+        // `.low`.
         let tied = FilingRouterTests.index(memoryDocs: [
             "Home/Utilities/PG&E/2023": ["statement"],
             "Home/Utilities/AT&T/2023": ["statement"],
@@ -116,7 +105,7 @@ import Testing
         let snippets = ["\(Self.root)/TODO/ambiguous.pdf": "statement"]
         let ranking = FilingRouter.rank(fileName: "ambiguous.pdf",
                                         contentSnippet: "statement", index: tied)
-        #expect(ranking.best != nil)              // there IS an answer to demote with
+        #expect(ranking.best != nil)              // there is an answer to demote with
         #expect(ranking.confidence == .low)
 
         let strong = FilingDestination(path: "\(Self.root)/Finance/US/Income Tax/2023", confidence: .high,
@@ -127,7 +116,7 @@ import Testing
         #expect(routed == 0)
         #expect(out[0].best == strong)
 
-        // A word match is a guess the survey outranks at any confidence (GY).
+        // A word match is a guess the survey outranks at any confidence.
         let word = Self.destination("Finance/US/Income Tax/2023", .high)
         let (led, ledCount, _) = FileSyncManager.applyRoutes(
             [Self.suggestion("ambiguous.pdf", best: word)], index: tied,
@@ -137,8 +126,8 @@ import Testing
         #expect(led[0].candidates.contains(word), "the word match stays as a second choice")
     }
 
-    /// The other half of the same rule: an equally confident router home *does* lead, or the
-    /// guard above would be indistinguishable from never routing at all.
+    /// The other half: an equally confident router home does lead, or the guard above would look
+    /// the same as never routing.
     @Test func anEquallyConfidentRouteDoesLead() {
         let weakExisting = Self.destination("Finance/US/Income Tax/2023", .low)
         let (out, routed, _) = FileSyncManager.applyRoutes(
@@ -149,10 +138,9 @@ import Testing
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
-    /// Rejections are recorded as **absolute** paths, which is the form the scan actually builds
-    /// (phase 3 converts them to relative before handing them to a backend). An earlier version of
-    /// this test used a relative path — a domain no caller produces — so it passed while the
-    /// conversion inside `applyRoutes` was missing entirely.
+    /// Rejections are recorded as absolute paths, the form the scan builds (they become relative
+    /// only for a backend). A relative path here would pass without the conversion inside
+    /// `applyRoutes`.
     @Test func aRejectedDestinationIsNotReoffered() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
         let rejected = ["\(Self.root)/TODO/scan001.pdf":
@@ -176,7 +164,7 @@ import Testing
     }
 
     /// With nothing extracted the router still has the filename, and must not invent a home from
-    /// nothing — this is the no-content path a machine with reading turned off takes.
+    /// nothing. This is the path a machine with reading turned off takes.
     @Test func noSnippetAndNoNameMatchPlacesNothing() {
         let s = [Self.suggestion("IMG_0007.HEIC", best: nil)]
         let (out, routed, _) = FileSyncManager.applyRoutes(s, index: Self.index, snippets: [:],
@@ -185,11 +173,9 @@ import Testing
         #expect(out[0].best == nil)
     }
 
-    /// **A confident word match gives way to the survey (GT, GY).** This was "a confidently placed
-    /// file is not re-routed" — on the grounds that a filename match was as good as a content one.
-    /// Measured on the household's filed documents it is not: a keyword High was right 4% of the
-    /// time against the router's 42% (`FilingCardReplayTests`). The batch loses the file, which is
-    /// right for a home read out of the document.
+    /// A confident word match gives way to the survey: on real filed documents a keyword High was
+    /// right 4% of the time against the router's 42% (`FilingCardReplayTests`). The file leaves the
+    /// batch, which is right for a home read out of the document.
     @Test func aConfidentWordMatchGivesWayToTheSurvey() {
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("op.pdf", best: strong)]
@@ -203,8 +189,8 @@ import Testing
         #expect(!out[0].isBatchEligible, "a home read out of the document is never moved unseen")
     }
 
-    /// The whole phase is gated on artifacts existing. An empty index must leave every suggestion
-    /// byte-identical — this is what makes the change additive for anyone unsurveyed.
+    /// Routing is gated on artifacts existing. An empty index leaves every suggestion identical, so
+    /// an unsurveyed tree is unaffected.
     @Test func anEmptyIndexChangesNothing() {
         let empty = FilingRouter.makeIndex(destinations: [], profile: nil, memory: nil)
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
@@ -217,15 +203,14 @@ import Testing
     }
 }
 
-/// The chunked driver used by the scan. It exists so a few hundred homeless files do not freeze the
-/// window, and it must agree with the one-pass helper exactly.
+/// The chunked driver the scan uses, so a few hundred homeless files don't freeze the window. It
+/// must agree with the one-pass helper exactly.
 @Suite @MainActor struct FilingRouteYieldingTests {
 
-    /// **An existing folder full of the same documents beats inventing one from a filename word.**
-    /// The keyword engine returns `.high` for rules as generic as "receipt or invoice — filed by
-    /// year": a T-Mobile bill was headed for a NEW `Purchases/2025` while five siblings sat in an
-    /// existing folder the router ranks first. Confidence cannot arbitrate between those two claims,
-    /// so `newSegments` does.
+    /// An existing folder full of the same documents beats inventing one from a filename word. The
+    /// keyword engine returns `.high` for rules as generic as "receipt or invoice, filed by year", so
+    /// confidence can't arbitrate between a new folder and the router's existing one; `newSegments`
+    /// does.
     @Test func aRouterHomeReplacesAHighConfidenceProposalToCreateAFolder() {
         let creating = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
                                          reasons: ["Receipt or invoice — filed by year"],
@@ -240,8 +225,8 @@ import Testing
         #expect(out.first?.best?.path != "/prov/Purchases/2025")
     }
 
-    /// The other half, since GT: a confident rule home that names a folder that already EXISTS gives
-    /// way too — the rule was the carve-out, and the survey now outranks every untaught guess.
+    /// The other half: a confident rule home naming an existing folder gives way too, since the
+    /// survey outranks every untaught guess.
     @Test func aRouterHomeAlsoReplacesAnExistingKeywordHome() {
         let existing = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
                                          reasons: ["Receipt or invoice — filed by year"],
@@ -292,16 +277,10 @@ import Testing
         #expect(out.suggestions == files)
     }
 
-    /// **And the refine pass applies it too**, which is the third consumer and the one that had no
-    /// test at all.
-    ///
-    /// `refineFilingSuggestions` builds the classifier's folder menu by ranking these same files
-    /// again — its comment calls it "the same folder menu the scan builds" — and it was ranking
-    /// raw. So the scan shortlisted the child (peer names separate the pair) and a refine of the
-    /// same unchanged file shortlisted the parent, handing the paid backend a differently ordered
-    /// menu for one question. Asserted at the source because the behavioural setup needs a live
-    /// classifier, a spend budget and peer files on disk; the rule itself is proven above, and what
-    /// is unproven without this is that the second caller reaches it.
+    /// The refine pass ranks through the peer-name rerank too. `refineFilingSuggestions` builds the
+    /// classifier's folder menu by ranking the same files again; ranked raw, it would hand the paid
+    /// backend a differently ordered menu than the scan's. Asserted at the source, since the
+    /// behavioural setup needs a live classifier, a spend budget and peer files on disk.
     @Test func theRefinePassAlsoRanksThroughThePeerNameRerank() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

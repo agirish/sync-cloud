@@ -2,18 +2,17 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **A move that leaves its original parked says so** (FR36).
+/// A move that leaves its original parked says so.
 ///
-/// A cross-volume move cleans up its source with `trashItem`; under the measured provider refusal
-/// that cleanup parks the original under a hidden sibling name to re-register it, and when the
-/// move back fails the original stays there. The move has landed, so it is a success — and it was
-/// reported as one and nothing else: the Moved banner, while a hidden `.synccloud-trash-retry-<UUID>`
-/// full-size duplicate sat in the source folder. The delete path has always told the user about the
-/// same strand (`SyncError.trashParkedAndNotRestored`); the move path now does too.
+/// A cross-volume move cleans up its source with `trashItem`. Under a provider's refusal, that
+/// cleanup parks the original under a hidden sibling name to re-register it, and if the move back
+/// fails the original stays there: a hidden full-size `.synccloud-trash-retry-<UUID>` duplicate in
+/// the source folder. The move has landed, so it is a success, but it must not be reported as only
+/// that. The delete path reports the same strand with `SyncError.trashParkedAndNotRestored`.
 @Suite struct MoveParkedLeftoverTests {
 
     /// The mock models the whole chain: `shouldFailMove` sends the move down the staged
-    /// cross-volume path, `trashRefusedUntilMovedIn` refuses the source's trash as measured, and
+    /// cross-volume path, `trashRefusedUntilMovedIn` refuses the source's trash, and
     /// `failMoveToPathsOnce` lets the park land and refuses the move back.
     @MainActor
     @Test func aMoveWhoseOriginalIsParkedAndNotRestoredPresentsTheLeftover() async throws {
@@ -45,9 +44,9 @@ import Foundation
         #expect(error.message.contains("data.bin"))
     }
 
-    /// **U7: a later failure in the same move does not replace the leftover's alert.** The leftover
-    /// is presented as the operation ends and the batch's failure right after it, and `present`
-    /// replaces — so only "Move Failed" was left on screen, over a hidden duplicate.
+    /// A later failure in the same move doesn't hide the leftover. The leftover is presented as the
+    /// operation ends and the batch's failure right after, and `present` replaces, so the failure's
+    /// alert must mention the leftover itself.
     @MainActor
     @Test func aFailureInTheSameMoveStillMentionsTheLeftover() async throws {
         let fm = MockFileManager()
@@ -73,8 +72,8 @@ import Foundation
         #expect(error.path == parked)
     }
 
-    /// **U7: an undo that strands says so in undo's words.** Move, then arm the same strand for the
-    /// undo's own cleanup — the item at the destination it moves back from.
+    /// An undo that strands says so in undo's words. Move, then arm the same strand for the undo's
+    /// own cleanup of the item at the destination it moves back from.
     @MainActor
     @Test func aMoveUndoThatStrandsSaysItMovedBack() async throws {
         let fm = MockFileManager()
@@ -102,12 +101,12 @@ import Foundation
         let error = try #require(manager.currentError)
         #expect(error.title == "Moved Back, Copy Left Behind")
         #expect(!error.message.contains("reached its destination"))
-        // L5: renaming the copy back would only make a second item at the destination.
+        // Renaming the copy back would only make a second item at the destination.
         #expect(!error.message.contains("or rename it back to"), "\(error.message)")
         #expect(error.path == parked)
     }
 
-    /// The ordinary cross-volume move — the source reaches the Trash — reports nothing extra.
+    /// The ordinary cross-volume move, whose source reaches the Trash, reports nothing extra.
     @MainActor
     @Test func aMoveWhoseOriginalReachesTheTrashPresentsNothing() async throws {
         let fm = MockFileManager()

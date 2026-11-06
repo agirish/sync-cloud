@@ -211,8 +211,8 @@ public struct OneWaySyncMarkerFile: Sendable {
 
 // MARK: - Starting a sync
 
-/// Whether a sync may start, from everything saved: the process, the lock, the record and the
-/// marker. The first that stops it wins, in that order.
+/// Whether a sync may start, from everything saved: the process, the lock, another Mac's claim
+/// in the marker, the record, then the marker itself. The first that stops it wins, in that order.
 public enum OneWaySyncStartCheck: Equatable, Sendable {
     case ready(OneWaySyncRecord, firstRun: UUID, state: OneWaySyncSavedState)
     /// Never syncs from this process, and raises no row: it isn't the app the user runs.

@@ -4,15 +4,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins ``FilingProfileStore/writeProfile(_:in:builtBy:now:)`` — the first and only path that has
-/// ever written a folder profile.
-///
-/// The store's own doc says why this needs holding down: *"Read-only, deliberately. These artifacts
-/// are produced by a survey of the tree, not by the app's normal operation, and a partial rewrite
-/// from a half-finished scan would be worse than no profile at all."* Each of the four guarantees
-/// that let a write exist at all is a separate test here, and **the never-overwrite guard is tested
-/// in both directions** — writing where there is nothing, and refusing where there is something —
-/// because a happy-path test alone passes just as well with the guard deleted.
+/// Pins ``FilingProfileStore/writeProfile(_:in:builtBy:now:)``, the only path that writes a folder
+/// profile. A partial or clobbering write would be worse than no profile, so each guarantee has its
+/// own test: never overwrite, amend the index without re-pointing it, write atomically, and roll
+/// back a half-landed write. The never-overwrite guard is tested in both directions, since a
+/// happy-path test alone passes with the guard deleted.
 @Suite struct FilingProfileWriteTests {
 
     private static func scratch() -> URL {
@@ -20,9 +16,9 @@ import Testing
             .appendingPathComponent("fpw-\(UUID().uuidString)")
     }
 
-    /// What the in-app survey can produce: paths and counts, no `naming`, no `anchors`, no axes.
-    /// Deliberately unlike the hand-built fixture below in every visible field, so "the file did
-    /// not change" and "the file changed to this" can never be confused.
+    /// What the in-app survey can produce: paths and counts, no `naming`, `anchors` or axes. Unlike
+    /// the hand-built fixture in every visible field, so "unchanged" and "changed to this" can't be
+    /// confused.
     private static func nameOnly(id: String = "father",
                                  root: String = "~/Documents",
                                  builtBy: String? = nil) -> FolderProfile {
@@ -45,17 +41,10 @@ import Testing
 
     // MARK: - Direction one: it writes where there is nothing
 
-    /// **Paths are written unescaped, because every key in this file is one.**
-    ///
-    /// `JSONEncoder`'s default escapes `/`, so `Finance/Receipts` lands as `Finance\/Receipts` — and
-    /// this file's whole reason for being plain JSON is that it diffs against the offline Python
-    /// builder's output, which writes the slash bare. The escaping does not change what decodes; it
-    /// changes whether the artifact is comparable, which is the property the docs sell.
-    ///
-    /// Asserted on the **bytes**, not through the decoder: a round-trip through `profile(id:in:)`
-    /// passes either way, which is exactly why this went unnoticed. The `\/` check is the one that
-    /// fails if the option is dropped; the positive is there so a writer that stopped emitting the
-    /// nested paths at all could not satisfy it by writing nothing.
+    /// Paths are written with bare slashes. `JSONEncoder` escapes `/` by default, which decodes the
+    /// same but stops the file diffing against the Python builder's output. Asserted on the bytes,
+    /// since a decoder round trip passes either way; the positive check keeps a writer that emits
+    /// no nested paths from passing.
     @Test func pathKeysAreWrittenWithBareSlashesSoTheFileDiffs() throws {
         let root = Self.scratch()
         let dir = root.appendingPathComponent("profiles")
@@ -70,9 +59,8 @@ import Testing
                 "a path is escaped as Finance\\/Receipts, so this profile does not diff against the Python builder's output")
     }
 
-    /// The write lands, creates its directory, and **comes back through the ordinary reader** —
-    /// which is the interchangeability claim: the JSON a survey writes here is the JSON the offline
-    /// Python builder writes, or `profile(id:in:)` would refuse it on schema or shape.
+    /// The write lands, creates its directory, and reads back through `profile(id:in:)`, which
+    /// would refuse JSON that didn't match the offline builder's schema or shape.
     @Test func writesAProfileWhereThereIsNoneAndReadsBackThroughTheOrdinaryPath() throws {
         let root = Self.scratch()
         let dir = root.appendingPathComponent("nested/profiles")   // does not exist yet
@@ -83,10 +71,9 @@ import Testing
         #expect(written == FilingProfileStore.profileURL(id: "father", in: dir))
 
         let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
-        // Every field, including the empty person axis — and the `builtBy` the store stamps, which
-        // the input did not carry. **The round trip is deliberately not identity**: that header is
-        // what makes the profile the app's own to replace later, so a read that came back equal to
-        // the input would mean provenance had been dropped on the way through.
+        // Every field, including the empty person axis. Not an identity round trip: the store stamps
+        // `builtBy`, which marks the profile as the app's own, so reading back the bare input would
+        // mean provenance was dropped.
         #expect(read == Self.nameOnly(builtBy: read.builtBy))
         #expect(read.provenance == .derived)
         #expect(read.folders.count == 3)
@@ -94,21 +81,21 @@ import Testing
         #expect(!read.acceptsNewFiles("Finance/TODO"))
         #expect(read.acceptsNewFiles("Finance/Receipts"))
 
-        // And the header the schema probe reads, plus the provenance a human opening the file needs.
+        // The header the schema probe reads, and the provenance a person opening the file needs.
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: written))
                                     as? [String: Any])
         #expect(object["schemaVersion"] as? Int == FilingProfileStore.currentSchema)
         #expect(object["builtBy"] as? String == "SyncCloud — in-app folder survey")
-        // The instant is injected, so the stamp names 2025 however long this test lives — a stamp
-        // taken from the wall clock says this year instead (mechanism 5: don't race the clock).
+        // The instant is injected, so the stamp names 2025 whenever this runs; a wall-clock stamp
+        // would name the current year.
         #expect((object["generated"] as? String)?.hasPrefix("2025-") == true,
                 "the stamp came from the wall clock, not the injected instant: \(object["generated"] ?? "nil")")
         #expect(object["folders"] is [Any], "folders is an ARRAY on disk — the decoder keys it by path")
         #expect(object["axes"] == nil, "a name-only survey claims no person axis at all")
     }
 
-    /// A person axis survives the round trip, aliases included — the pairing that makes
-    /// `Family/Mom` and `Granny` one person rather than two.
+    /// A person axis survives the round trip, aliases included: the pairing that makes `Family/Mom`
+    /// and `Granny` one person.
     @Test func thePersonAxisRoundTrips() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -127,9 +114,8 @@ import Testing
         #expect(read.provenance == .derived)
     }
 
-    /// With no index at all, the write creates one and names itself active — the bootstrap this
-    /// exists for. A fresh machine has no `profiles.json`, and a profile nothing points at is a
-    /// file the app will never read.
+    /// With no index, the write creates one and names itself active. A fresh machine has no
+    /// `profiles.json`, and a profile nothing points at is never read.
     @Test func withNoIndexTheNewProfileBecomesTheActiveOne() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -143,18 +129,10 @@ import Testing
 
     // MARK: - Direction two: it refuses where there is something
 
-    /// **The refusing direction, which the happy path skips.** A hand-built profile is on disk; the
-    /// survey offers a name-only one for the same id; the write is refused with a distinguishable
-    /// error and the existing file is *byte-identical* afterwards.
-    ///
-    /// The two profiles differ in every readable field, so a permissive guard cannot pass this by
-    /// writing something that happens to read the same: `ROADMAP.md` v5 — "A name-only profile must
-    /// never land on top of a hand-built one — it would degrade To File and Renames with nothing
-    /// failing."
-    /// Note the index assertion in here is a control, not coverage: the `profileExists` guard runs
-    /// before the index is ever read, so no path in a refused call can reach `profiles.json`. It is
-    /// kept because it states the intent, but no amendment bug can break it — the tests that do
-    /// cover the amendment are the refusal pair and the in-place amend below.
+    /// A name-only profile never lands on a hand-built one, which would quietly degrade To File and
+    /// Renames. The write is refused with `profileExists` and the existing file stays
+    /// byte-identical. The two profiles differ in every field, so a permissive guard can't pass. The
+    /// index check is a control only: the guard runs before the index is read.
     @Test func refusesOverAnExistingProfileAndLeavesItByteIdentical() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -171,8 +149,8 @@ import Testing
         #expect(try Data(contentsOf: url) == before, "the hand-built profile's bytes moved")
         #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == indexBefore)
 
-        // And what reads back is still the hand-built one — the survey's three folders are not
-        // there, the surveyed anchors and person axis are.
+        // What reads back is still the hand-built profile: its anchors and person axis, none of the
+        // survey's folders.
         let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(read.folders["Finance/US/Income Tax/2023"]?.anchors == ["income", "tax"])
         #expect(read.folders["Finance/Receipts"] == nil)
@@ -192,16 +170,10 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: dir.path), "nothing may be created at all")
     }
 
-    /// A `profiles.json` this build cannot read is refused, **and the profile is not written
-    /// either** — the whole write fails, so a retry after the index is fixed is not blocked by a
-    /// half-landed profile it would then refuse to replace.
-    ///
-    /// The expectation names the exact refusal rather than `(any Error).self`, which is what it used
-    /// to say: a scratch directory that could not be created, a `Data` write that failed, any stray
-    /// I/O error at all would have satisfied the loose form while the refusal under test had stopped
-    /// firing. The string is part of it — "schema 99, not 1" is the sentence a caller prints, and a
-    /// refusal that named the wrong version was a real bug in this file's history (a `false`
-    /// `schemaVersion` read as schema 0).
+    /// A `profiles.json` this build can't read refuses the whole write, profile included, so a
+    /// retry after the index is fixed isn't blocked by a half-landed profile. The exact refusal is
+    /// expected, string and all ("schema 99, not 1" is what a caller prints), since any stray I/O
+    /// error would satisfy `(any Error).self`.
     @Test func anUnreadableIndexRefusesTheWholeWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -210,8 +182,8 @@ import Testing
         try #"{"schemaVersion":99,"profiles":[{"profileId":"other"}]}"#
             .write(to: index, atomically: true, encoding: .utf8)
         let before = try Data(contentsOf: index)
-        // A foreign schema reads as "nothing active" — which is exactly when this would otherwise
-        // write, so the refusal has to be its own guard.
+        // A foreign schema reads as "nothing active", exactly when this would otherwise write, so
+        // the refusal needs its own guard.
         #expect(FilingProfileStore.activeProfileId(in: dir) == nil)
 
         #expect(throws: FilingProfileStore.WriteRefusal.indexUnreadable("schema 99, not 1")) {
@@ -224,8 +196,8 @@ import Testing
 
     // MARK: - The index is amended, never re-pointed
 
-    /// **An active profile is never re-aimed.** Writing a *second* profile succeeds — it has no
-    /// file of its own to overwrite — but `profiles.json` keeps naming the first, byte for byte.
+    /// An active profile is never re-aimed. Writing a second profile succeeds, having no file of its
+    /// own to overwrite, but `profiles.json` keeps naming the first, byte for byte.
     @Test func anActiveProfileIsNeverRePointed() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -238,13 +210,13 @@ import Testing
 
         #expect(try Data(contentsOf: index) == before, "profiles.json was rewritten")
         #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
-        // The second profile is on disk and readable — additive, exactly as the id keying intends.
+        // The second profile is on disk and readable: writes are additive, keyed by id.
         #expect(FilingProfileStore.profile(id: "second", in: dir)?.root == "~/Work")
         #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
 
-    /// When nothing is active the index is **amended, not replaced**: an entry the user or the
-    /// offline builder already put there survives, and so does a field this build does not know.
+    /// When nothing is active the index is amended, not replaced: an existing entry survives, and
+    /// so does a field this build doesn't know.
     @Test func anIndexWithNothingActiveIsAmendedRatherThanReplaced() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -272,14 +244,10 @@ import Testing
 
     // MARK: - Atomicity
 
-    /// **The file on disk is only ever a whole profile.** Atomicity cannot be observed by reading a
-    /// finished write, so this pins the one externally visible consequence of `.atomic`: Foundation
-    /// writes an auxiliary file and *renames* it onto the destination, which replaces a symlink at
-    /// that path. A plain write follows the link and creates its target instead.
-    ///
-    /// Measured both ways before this test was written — with `.atomic` the path becomes a regular
-    /// file and the link target is never created; without it, the path stays a symlink and the
-    /// target appears. Dropping `.atomic` therefore fails here, which is the whole point.
+    /// The file on disk is only ever a whole profile. Atomicity can't be seen in a finished write,
+    /// so this pins its visible side effect: `.atomic` renames an auxiliary file onto the path,
+    /// replacing a symlink there, while a plain write follows the link and creates its target.
+    /// Dropping `.atomic` must fail this.
     @Test func theProfileIsWrittenAtomically() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -288,8 +256,8 @@ import Testing
         let url = FilingProfileStore.profileURL(id: "father", in: dir)
         let target = dir.appendingPathComponent("father/somewhere-else.json")
         try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: target.path)
-        // A dangling link is not an existing profile, so the never-overwrite guard does not fire
-        // here and this test measures atomicity rather than refusal.
+        // A dangling link is not an existing profile, so the never-overwrite guard doesn't fire and
+        // this measures atomicity, not refusal.
         #expect(!FileManager.default.fileExists(atPath: url.path))
 
         try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
@@ -303,8 +271,8 @@ import Testing
 
     // MARK: - An index this cannot fully read is refused, not amended
 
-    /// Writes `json` as `profiles.json` in a fresh directory and returns both, with the original
-    /// bytes, so a test can assert the file did not move.
+    /// Writes `json` as `profiles.json` in a fresh directory and returns it with the original bytes,
+    /// so a test can assert the file didn't change.
     private static func withIndex(_ json: String) throws -> (dir: URL, before: Data) {
         let dir = scratch()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -313,23 +281,15 @@ import Testing
         return (dir, data)
     }
 
-    /// **The index decides one thing — whether anything is already active — and it used to be asked
-    /// twice, by two parsers that disagreed.**
-    ///
-    /// `activeProfileId(in:)` decodes with `JSONDecoder`, which throws on a type mismatch and so
-    /// reported "nothing active" for an index whose `schemaVersion` was quoted; the amendment then
-    /// re-read the same bytes with `JSONSerialization`, which accepts them, found no *Int* schema to
-    /// object to, and re-pointed `activeProfileId` at the new survey. A quoted number is an ordinary
-    /// hand-edit slip, and the profile it aimed away from is the hand-built one.
-    ///
-    /// The parameters are the shapes that split the two readers. Each must refuse, and each must
-    /// leave `profiles.json` byte-for-byte as it was.
+    /// An index the strict reader rejects is refused, not re-pointed. `activeProfileId(in:)` uses
+    /// `JSONDecoder`, which reads a type mismatch as "nothing active", while the amendment's
+    /// `JSONSerialization` accepts it; between them a quoted `schemaVersion`, an ordinary hand-edit
+    /// slip, would aim the index away from the hand-built profile. Each shape here splits the two
+    /// readers; each must refuse and leave `profiles.json` byte-identical.
     @Test(arguments: [
         #"{"schemaVersion": "1", "activeProfileId": "hand-built", "profiles": []}"#,
         #"{"schemaVersion": 1, "activeProfileId": 123, "profiles": []}"#,
-        // `true` bridges to NSNumber and satisfies `as? Int` as 1, so this is the case a plain
-        // "is it an Int" test waves through while `JSONDecoder` rejects it — the two-reader split
-        // again, one type over.
+        // `true` bridges to NSNumber and satisfies `as? Int` as 1, while `JSONDecoder` rejects it.
         #"{"schemaVersion": true, "activeProfileId": "hand-built", "profiles": []}"#,
     ])
     func anIndexTheStrictReaderRejectsIsRefusedRatherThanRePointed(json: String) throws {
@@ -346,12 +306,9 @@ import Testing
                 "the profile landed even though the index was refused")
     }
 
-    /// A `profiles` list this cannot read is refused rather than silently emptied.
-    ///
-    /// It used to be `as? [[String: Any]] ?? []`, so an object-keyed `profiles` — or a list with a
-    /// string in it — became an empty array and the rewrite dropped every profile the index named.
-    /// That is precisely the clobber ``FilingProfileStore/WriteRefusal/indexUnreadable`` says it
-    /// exists to prevent: "it names profiles a clobber would orphan".
+    /// A `profiles` list this can't read is refused rather than emptied: read as an empty array, the
+    /// rewrite would drop every profile the index named, the clobber
+    /// ``FilingProfileStore/WriteRefusal/indexUnreadable`` exists to prevent.
     @Test(arguments: [
         #"{"schemaVersion": 1, "profiles": {"hand-built": {"root": "~/Documents"}}}"#,
         #"{"schemaVersion": 1, "profiles": ["hand-built"]}"#,
@@ -367,13 +324,10 @@ import Testing
                 "the user's profile list was replaced by a one-element array")
     }
 
-    /// **An index symlinked somewhere unreadable is refused, not replaced.**
-    ///
-    /// `fileExists` follows symlinks and answers *false* for one whose target is missing, so an
-    /// index linked onto a volume that is not mounted read as "no index here" — and the atomic write
-    /// that followed replaced the link itself with a fresh one-profile index, orphaning everything
-    /// the real one named. `attributesOfItem` is the check that sees the link rather than its
-    /// target.
+    /// An index symlinked somewhere unreadable is refused, not replaced. `fileExists` follows the
+    /// link and answers false for a missing target (say, an unmounted volume), so the atomic write
+    /// would replace the link with a one-profile index, orphaning everything the real one names.
+    /// `attributesOfItem` sees the link itself.
     @Test func anIndexSymlinkedToSomethingUnreadableIsRefused() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -392,19 +346,10 @@ import Testing
                 "the profile landed even though the index was refused")
     }
 
-    /// **An index naming a profile that is not on disk is not "already answered".**
-    ///
-    /// The write path refuses to re-point an index that already names an active profile, which is
-    /// right — but it took the *name* as proof. A hand-edit as small as a trailing space makes every
-    /// read load nothing (`profiles/father /folder-profile.json` does not exist) while the writer
-    /// saw a non-empty string and declined to re-point for ever after: the bootstrap was dead and
-    /// every call still reported success. A dangling pointer is not an answer, so "active" now asks
-    /// the filesystem.
-    ///
-    /// The empty id is the same question, which is why it is no longer special-cased: `""` is not
-    /// "no profile" — an empty component collapses in `appendingPathComponent`, so it addresses
-    /// `profiles/folder-profile.json`, a layout that can genuinely exist. Asking whether the file is
-    /// there answers both without guessing which ids are meaningful.
+    /// An index naming a profile that isn't on disk is re-pointed: "active" asks the filesystem, not
+    /// the name. Otherwise a hand-edit as small as a trailing space would make every read load
+    /// nothing while the writer refused to re-point forever. The empty id is the same question: it
+    /// collapses in `appendingPathComponent` to `profiles/folder-profile.json`, which can exist.
     @Test(arguments: ["father ", "", "never-surveyed"])
     func anIndexNamingAProfileThatIsNotThereIsRePointed(id: String) throws {
         let (dir, _) = try Self.withIndex(#"{"schemaVersion": 1, "activeProfileId": "\#(id)"}"#)
@@ -416,9 +361,8 @@ import Testing
         #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
 
-    /// The other half of that rule, and the one that must not regress: an id naming a profile that
-    /// IS there is left alone. Without this the test above would pass just as well if the write path
-    /// re-pointed unconditionally, which is the harm the guard exists for.
+    /// The other half: an id naming a profile that is there is left alone. Without it, the test
+    /// above would pass if the write path re-pointed unconditionally.
     @Test func anIndexNamingAProfileThatIsThereIsLeftAlone() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -432,9 +376,8 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
     }
 
-    /// The control for both refusals above: an index this *can* read, with nothing active, really is
-    /// amended — otherwise the two tests would pass just as well with the write path removed
-    /// altogether.
+    /// Control for the refusals above: a readable index with nothing active really is amended, or
+    /// they would pass with the write path removed.
     @Test func anIndexItUnderstandsIsStillAmendedInPlace() throws {
         let (dir, _) = try Self.withIndex(
             #"{"schemaVersion": 1, "profiles": [{"profileId": "older", "root": "~/Other"}], "note": "kept"}"#)
@@ -451,26 +394,17 @@ import Testing
                 "the profile the index already named was not preserved")
     }
 
-    /// **An index that already lists this profile must not be given a second entry for it.**
-    ///
-    /// The list is amended, and the id it is being amended for can already be in it: the offline
-    /// builder writes an entry per profile, and an index can name a profile whose
-    /// `folder-profile.json` is not on disk — which is exactly the state that makes this write
-    /// *allowed* (nothing resolvable is active, so the index may be re-pointed). Without the
-    /// `contains` guard the same id is listed twice, and every reader of `profiles` then has two
-    /// records for one profile with no rule for which wins.
-    ///
-    /// The entry already there also has to survive intact, not be replaced by the one this would
-    /// have appended: it carries a `displayName` the offline builder knew and a folder walk does
-    /// not.
+    /// An index that already lists this profile gains no second entry. It can list a profile whose
+    /// `folder-profile.json` isn't on disk, the very state that allows this write; a duplicate would
+    /// leave readers two records with no rule for which wins. The existing entry survives intact,
+    /// keeping a `displayName` a folder walk can't know.
     @Test func anIndexThatAlreadyListsTheProfileDoesNotGainASecondEntry() throws {
         let (dir, _) = try Self.withIndex(#"""
         {"schemaVersion": 1,
          "profiles": [{"profileId": "father", "root": "~/Old", "displayName": "Hand built"}]}
         """#)
         defer { try? FileManager.default.removeItem(at: dir) }
-        // Listed but not on disk, and nothing named active — so the write is allowed and reaches
-        // the amendment, which is the only way to this branch.
+        // Listed but not on disk, and nothing active, so the write reaches the amendment.
         #expect(FilingProfileStore.activeProfileId(in: dir) == nil)
 
         try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
@@ -487,18 +421,10 @@ import Testing
         #expect(profiles.first?["root"] as? String == "~/Old")
     }
 
-    /// **A field written as `null` is absent, not unreadable.**
-    ///
-    /// `JSONSerialization` hands back `NSNull` for a JSON null, so `object["schemaVersion"]` is
-    /// non-nil for `"schemaVersion": null` and every "is this field a shape I understand" check
-    /// sees a value to object to. Refusing there would be wrong in the one direction that matters:
-    /// a null field says nothing, and an index saying nothing about its schema, its active profile
-    /// or its profile list is precisely the index this write path exists to amend. A hand-edit that
-    /// clears a field by nulling it rather than deleting it is ordinary, and so is a generator that
-    /// spells "unset" that way.
-    ///
-    /// Each shape must land the profile *and* amend the index — asserted rather than just "did not
-    /// throw", because a refusal is not the only way to fail this.
+    /// A field written as `null` is absent, not unreadable. `JSONSerialization` returns `NSNull`, a
+    /// non-nil value every shape check would object to, but a null says nothing, and an index that
+    /// says nothing is exactly the one to amend. Each shape must land the profile and amend the
+    /// index, not merely not throw.
     @Test(arguments: [
         #"{"schemaVersion": null, "profiles": []}"#,
         #"{"schemaVersion": 1, "activeProfileId": null, "profiles": []}"#,
@@ -523,14 +449,9 @@ import Testing
 
     // MARK: - The bytes are a function of the profile, not of this launch
 
-    /// The same entries in two dictionaries that **iterate differently**, by construction.
-    ///
-    /// Swift's `Dictionary` walks its buckets, and the bucket a key lands in depends on the
-    /// capacity as well as on the per-launch hash seed — so building at two capacities is an
-    /// explicit difference, where building in two *insertion* orders is not one at all (the same
-    /// keys at the same capacity iterate the same way whatever order they went in). The capacity is
-    /// raised until the two really do differ, because a fixture whose two inputs iterate identically
-    /// is comparing a value against itself.
+    /// The same entries in two dictionaries that iterate differently. Iteration order depends on
+    /// capacity and the per-launch hash seed, not insertion order, so the capacity is raised until
+    /// the two really differ; otherwise the test compares a value with itself.
     private static func laidOutDifferently(_ entries: [FolderProfileEntry])
         -> (a: [String: FolderProfileEntry], b: [String: FolderProfileEntry]) {
         func made(_ capacity: Int) -> [String: FolderProfileEntry] {
@@ -582,18 +503,11 @@ import Testing
             profile, in: dir, now: Date(timeIntervalSince1970: 1_754_000_000)))
     }
 
-    /// **The file is byte-identical for the same logical profile, however its containers are laid
-    /// out.** `writeProfile`'s own doc says why — the sort exists so "its hash feeds
-    /// `fingerprint(id:in:)`", which keys `FilingVerdictCache`. A profile that re-serialises
-    /// differently for the same content invalidates every cached verdict and re-bills a paid
-    /// classification pass for a tree nobody changed. Nothing asserted it.
-    ///
-    /// Note what this limb can and cannot see. Determinism *across launches* is the property that
-    /// matters, and no in-process comparison observes it: one `Dictionary` value iterates the same
-    /// way all run long, so writing it twice is guaranteed to agree whether or not anything sorts.
-    /// The two containers are therefore built to iterate differently on purpose — which is
-    /// as close as a single process gets to a second launch. The companion test below covers what
-    /// this one cannot.
+    /// The same logical profile writes the same bytes, however its containers are laid out. The
+    /// file's hash feeds `fingerprint(id:in:)`, which keys `FilingVerdictCache`, so a
+    /// re-serialisation would void every cached verdict and re-bill a paid pass. Determinism across
+    /// launches is what matters; two containers built to iterate differently are the closest one
+    /// process gets. The canonical-order test below covers the rest.
     @Test func theSameProfileFromDifferentlyLaidOutContainersWritesTheSameBytes() throws {
         let folders = Self.laidOutDifferently(Self.deterministicFolders)
         let people = Self.laidOutDifferently(Self.deterministicPeople)
@@ -609,13 +523,10 @@ import Testing
         #expect(!first.isEmpty)
     }
 
-    /// The limb with teeth: the output is in **canonical** order, which is what makes it a function
-    /// of the content rather than of the layout — and it is the only form of this claim a single
-    /// process can check, since a container's iteration order does not change within a run.
-    ///
-    /// Three separate orderings, three separate regressions: the `folders` array is sorted by path,
-    /// the person axis's `values` are sorted, and every object's keys are sorted (`.sortedKeys`).
-    /// Key order survives no parse, so it is read off the raw bytes.
+    /// The output is in canonical order, which makes it a function of the content, not the layout.
+    /// Three orderings, each its own regression: `folders` sorted by path, the person axis's
+    /// `values` sorted, and every object's keys sorted (`.sortedKeys`). Key order survives no parse,
+    /// so it is read off the raw bytes.
     @Test func theProfileIsWrittenInCanonicalOrder() throws {
         let folders = Self.laidOutDifferently(Self.deterministicFolders)
         let bytes = try Self.writeDeterministic(folders: folders.a,
@@ -635,9 +546,8 @@ import Testing
                 == ["daughter", "elder", "father", "granny", "mother"],
                 "the person axis is in the set's bucket order, not sorted")
 
-        // `.sortedKeys`, read as first-occurrence offsets: each of these spellings appears exactly
-        // once at the top level, and the top level is written before any nested object that could
-        // repeat one (`axes` sorts first of all).
+        // `.sortedKeys`, read as first-occurrence offsets: each key appears once at the top level,
+        // before any nested object could repeat it (`axes` sorts first).
         let top = ["axes", "builtBy", "folderCount", "folders", "generated", "note", "portable",
                    "profileId", "root", "schemaVersion"]
         let offsets = top.map { key in
@@ -651,23 +561,12 @@ import Testing
 
     // MARK: - A half-landed write leaves nothing behind
 
-    /// **The profile is removed when the index write fails**, because the alternative is the one
-    /// state nothing can recover from.
-    ///
-    /// The profile lands first and the index second. If the second throws, the old code left a
-    /// profile on disk that nothing pointed at — and, worse, one that every retry refused with
-    /// `profileExists`, whose contract tells the caller *"this tree already has a profile and I did
-    /// not touch it"*. On a fresh machine, the only state this write path exists for, that is a
-    /// permanent block.
-    ///
-    /// **Tested through ``FilingProfileStore/land(_:at:index:at:)`` rather than through
-    /// `writeProfile`, because the obvious way in stopped working.** Leaving a directory where
-    /// `profiles.json` should be used to reach the rollback: the index read returned nothing, the
-    /// index was composed from scratch, the profile landed, and the write to a directory failed. Once
-    /// the store learned to tell "there but unreadable" from "absent", that same fixture began
-    /// failing at the *read* — so the test kept passing while exercising a refusal and the rollback
-    /// lost its only coverage, silently. The failure is now induced where it actually is: an index
-    /// URL inside a directory that does not exist.
+    /// The profile is removed when the index write fails. It lands first, so a failed index write
+    /// would leave a profile nothing points at, and every retry would refuse it with
+    /// `profileExists`: a permanent block on a fresh machine. Tested through
+    /// ``FilingProfileStore/land(_:at:index:at:writeIndex:)`` with an index URL in a missing
+    /// directory, because a broken index reached through `writeProfile` is refused at the read and
+    /// never reaches the rollback.
     @Test func aFailedIndexWriteRollsTheProfileBackAndLeavesTheTreeRetryable() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -684,8 +583,8 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: url.path),
                 "the profile survived a failed index write — every retry now refuses to overwrite it")
 
-        // The other direction, so the rollback cannot be passing by deleting unconditionally: with
-        // a writable index the profile stays, and with NO index to write there is nothing to undo.
+        // The other direction, so the rollback can't pass by always deleting: with a writable index
+        // the profile stays, and with no index to write there is nothing to undo.
         let good = dir.appendingPathComponent("profiles.json")
         try FilingProfileStore.land(bytes, at: url, index: Data("{}".utf8), at: good)
         #expect(FileManager.default.fileExists(atPath: url.path))
@@ -695,13 +594,9 @@ import Testing
                 "a write with no index to land must not roll itself back")
     }
 
-    /// The rollback removes only what **this call** wrote.
-    ///
-    /// The caller's never-overwrite guard proved the path was free at check time, not at removal
-    /// time. If another writer lands a profile in the gap between the two writes, an unconditional
-    /// delete would take it out — inverting the refusal contract from "I did not touch it" into "I
-    /// deleted it". The comparison is what prevents that, and it is only reachable deterministically
-    /// through the injected index write: that closure runs in exactly the gap the race occupies.
+    /// The rollback removes only what this call wrote. The never-overwrite guard proved the path
+    /// free at check time, not at removal, so a profile another writer lands in the gap must
+    /// survive. The injected index write runs in exactly that gap, making the race deterministic.
     @Test func theRollbackLeavesAProfileItDidNotWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -727,28 +622,20 @@ import Testing
     // MARK: - …and the line that reports it says which of the three happened
 
     /// The most recent line `log` captured containing `fragment`. A capture, not the shared buffer,
-    /// so the rest of the package logging past the line cannot take it away.
+    /// so other suites logging past the line can't push it out.
     @MainActor
     private static func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
         await log.entries.last { $0.message.contains(fragment) }?.message
     }
 
-    /// A profile id unique to one run — `Logger.shared` is process-wide and this package's suites
-    /// run alongside each other, so a line matched on anything less would be another test's.
+    /// A profile id unique to one run: `Logger.shared` is process-wide and suites run in parallel,
+    /// so a line matched on anything less could be another test's.
     private static func rollbackId() -> String { "rb-\(UUID().uuidString.prefix(8))" }
 
-    /// **The rollback's log line has THREE things it can say, and it used to have two.**
-    ///
-    /// `isOurs == false` is not one world. The bytes on disk can be someone else's — the race the
-    /// comparison exists for — or there can be no bytes at all, which is what happens when the index
-    /// write fails *because the directory went away*: an unmounted volume, or a rename between the
-    /// two writes. That is a correlated failure, not an exotic one, and the single `else` told a
-    /// reader "the profile at <path> was left in place, so a retry will refuse it" about a path
-    /// holding nothing, predicting a refusal that can never happen.
-    ///
-    /// All three branches are pinned in one test, on purpose: each assertion names the two sentences
-    /// it must NOT be, so a fix that made every case say the same thing fails three times rather
-    /// than passing one.
+    /// The rollback's log line says which of three things happened: removed, left in place because
+    /// another writer's bytes are there, or already gone. The last is common when the index write
+    /// fails because the directory went away (an unmount, a rename), and must not claim a profile
+    /// sits at an empty path. Each case also asserts the two sentences it must not be.
     @MainActor
     @Test func theRollbackLineSaysWhichOfTheThreeOutcomesHappened() async throws {
         let log = LogCapture()
@@ -799,9 +686,8 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: theirsURL.path),
                 "the fixture's own premise failed — the profile was removed after all")
 
-        // 3. Already gone: **the case that used to be reported as (2)**. The index write fails
-        // because its directory went away, and the same removal took the profile with it — so the
-        // old wording named a path holding nothing and promised a refusal nothing will make.
+        // 3. Already gone: the index write fails because its directory went away, and the profile
+        // went with it. Reported as (2), it would promise a refusal that can't happen.
         let vanished = Self.rollbackId()
         let vanishedDir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: vanishedDir) }
@@ -812,8 +698,8 @@ import Testing
             try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: vanishedURL,
                                         index: Data("{}".utf8),
                                         at: vanishedDir.appendingPathComponent("profiles.json")) { _, _ in
-                // The profile's own directory goes — exactly what an unmount or a rename does, and
-                // the reason the index write fails in the first place.
+                // The profile's directory goes, as on an unmount or a rename, which is why the
+                // index write fails.
                 try FileManager.default.removeItem(at: vanishedURL.deletingLastPathComponent())
                 throw CocoaError(.fileWriteUnknown)
             }
@@ -829,8 +715,8 @@ import Testing
                 "the line credits this rollback with a removal it did not make: \(line)")
     }
 
-    /// The other direction, so the comparison cannot be passing by never removing anything: when the
-    /// bytes on disk ARE this call's, they go.
+    /// The other direction, so the comparison can't pass by never removing: when the bytes on disk
+    /// are this call's, they go.
     @Test func theRollbackRemovesTheProfileItDidWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -850,27 +736,18 @@ import Testing
 
     // MARK: - The file says what it is
 
-    /// **Every stored field of an entry reaches the file.**
-    ///
-    /// `ProfileDocument.EntryBox` hand-mirrors ``FolderProfileEntry`` — its own `CodingKey` enum and
-    /// eight explicit `encode` calls — because the JSON is a contract with the offline Python
-    /// builder and being explicit about it is the point. The cost of an explicit mirror is that
-    /// nothing fails when the two drift: a field added to the entry and its decoder, and forgotten
-    /// here, is silently dropped from every write, and a round-trip fixture only notices if it
-    /// happens to populate that field.
-    ///
-    /// So the mirror is checked against the type by reflection rather than by eye. `Mirror` lists
-    /// the stored properties; every one of them has to appear as a key in the written JSON. The
-    /// entry is fully populated for exactly that reason — the two omit-when-nil fields would
-    /// otherwise be legitimately absent and the check would pass without seeing them.
+    /// Every stored field of an entry reaches the file. `ProfileDocument.EntryBox` hand-mirrors
+    /// ``FolderProfileEntry`` because the JSON is a contract with the Python builder, so a new field
+    /// forgotten there is silently dropped from every write. `Mirror` lists the stored properties
+    /// and each must appear as a key. The entry is fully populated so omit-when-nil fields can't
+    /// hide.
     @Test func theEncoderWritesEveryFieldAnEntryStores() throws {
         let full = FolderProfileEntry(path: "Finance", role: .container, naming: "ordinal-month",
                                       anchors: ["tax"], acceptsNewFiles: false,
                                       noIntakeReason: "outbound-pack", fileCount: 3,
                                       subfolderCount: 4, axes: ["year": "2024"])
-        // The fixture has to be genuinely full, or "every stored field appears" is measured over
-        // fields that are absent for a legitimate reason. A field added later with a default would
-        // otherwise arrive nil and be reported as a missing key, blaming the encoder for the fixture.
+        // The fixture must be full, or a field added later with a nil default would be reported as
+        // a missing key, blaming the encoder for the fixture.
         let children = Mirror(reflecting: full).children
         #expect(children.count == 9, "FolderProfileEntry gained or lost a field — update this fixture")
         for child in children {
@@ -892,8 +769,8 @@ import Testing
         #expect(stored.subtracting(written).isEmpty,
                 "FolderProfileEntry stores \(stored.subtracting(written).sorted()) that the profile encoder never writes")
 
-        // **Presence is not enough.** An encoder writing `[]` for `anchors` or `0` for `fileCount`
-        // keeps every key and loses the data, so the entry is read back and compared whole.
+        // Presence isn't enough: writing `[]` for `anchors` or `0` for `fileCount` keeps every key
+        // and loses the data, so the entry is read back and compared whole.
         let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(read.folders["Finance"] == full, "a field was written but with the wrong value")
     }
@@ -904,14 +781,9 @@ import Testing
         return mirror.displayStyle == .optional && mirror.children.isEmpty
     }
 
-    /// The `note` the file carries about itself has to describe what the builder actually produced.
-    ///
-    /// It claimed `anchors` and `axes` were "left empty rather than guessed" and that "filing falls
-    /// back to folder names" — neither true: the survey derives both, measuring 99.73% for anchors
-    /// and 99.80%-100% across the axes. Quote the floor rather than the best of them — 99.87% is
-    /// `axes.lifecycle` alone, and the weakest axis is `axes.person` at 99.80%. These headers exist
-    /// so a person auditing a bad suggestion can trust the artifact, which is exactly the reader a
-    /// false note misdirects.
+    /// The `note` the file carries must describe what the survey produces: it derives `anchors` and
+    /// `axes`, so the note must not say they are left empty or that filing falls back to folder
+    /// names. A person auditing a bad suggestion reads this header to judge the artifact.
     @Test func theEmbeddedNoteDescribesWhatTheSurveyActuallyDerives() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

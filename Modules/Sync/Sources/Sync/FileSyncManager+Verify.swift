@@ -4,46 +4,29 @@ import Foundation
 /// A "copy the verified-identical files left→right" offer, together with the
 /// `fileOperationsEpoch` its verdicts were hashed under.
 ///
-/// The two are ONE value on purpose. `confirmVerifiedCopy()` compares `asOf` against the live
-/// epoch and refuses the bulk copy if a file operation has intervened, so the stamp is the
-/// difference between a checked write and an unchecked one. Kept as a separate property it was
-/// maintained by a `didSet` on the list, which certified whatever anyone assigned as current —
-/// and that made a data-integrity guard fail OPEN. A writer that publishes a STALE list (a
-/// stashed offer, a restored one, a future caller reusing the property) got it waved through
-/// into a silent bulk overwrite, which is the expensive direction. Making the stamp part of the
-/// value means it cannot be forgotten rather than being supplied wrongly by default; and a
-/// caller who supplies the wrong one now fails CLOSED — one refused copy and a banner saying
-/// so, which is visible and recoverable.
-///
-/// It also restores the state space to tests. While every assignment auto-certified itself, an
-/// offer stamped BEHIND the live epoch could not be constructed at all except by driving a real
-/// verify pass across a real file operation, so exactly one test covered the guard and every
-/// other test of this path was blind to it.
+/// One value on purpose: `confirmVerifiedCopy()` refuses the bulk copy when `asOf` no longer
+/// matches the live epoch. A stamp kept apart from the list could be certified current for a
+/// stale list, and the guard would fail open into a silent bulk overwrite. As part of the value
+/// it can't be forgotten, and a wrong one fails closed: one refused copy and a banner. It also
+/// lets tests build an offer stamped behind the live epoch.
 public struct VerifiedCopyOffer: Equatable, Sendable {
     /// The differences that verified byte-identical.
     public let differences: [FileDifference]
     /// `fileOperationsEpoch` as it stood when these verdicts were taken.
     public let asOf: Int
-    /// Both ends of each pair as they read on DISK the instant before its bytes were hashed,
-    /// keyed by difference id.
+    /// Both ends of each pair as they read on disk just before their bytes were hashed, keyed by
+    /// difference id. The epoch answers "did we write anything since?"; this answers "did anyone?".
+    /// A cloud daemon syncing a new right-side version while the dialog is open moves no epoch,
+    /// count or scan generation, and Confirm would overwrite it with the stale left copy.
     ///
-    /// The epoch stamp above answers "did WE write anything since?"; this answers "did anyone?".
-    /// Nothing in this path had looked at the files themselves between the hash and the confirm,
-    /// so a cloud daemon syncing a new right-side version down while the dialog sat open moved
-    /// no epoch, no count and no scan generation, and Confirm bulk-overwrote it with the stale
-    /// left copy — no per-file prompt, bytes that were never the bytes that got hashed.
-    ///
-    /// Read BEFORE the content read, not after, so the recorded value also covers the hashing
-    /// window itself: a write that lands mid-hash moves the endpoint away from what was recorded
-    /// and the confirm-time re-stat sees it, without the pass needing a second stat per side.
+    /// Read before the content, so the stamp also covers the hash itself: a write landing mid-hash
+    /// shows up in the confirm-time re-stat.
     public let stamps: [UUID: FilePairStamp]
 
-    /// - Parameter stamps: pass `nil` to stamp the pairs from disk right now. That default is
-    ///   what keeps this guard from failing OPEN the way the epoch stamp once did (see above):
-    ///   an offer built without stamps would otherwise certify every pair as unchanged, and a
-    ///   caller who simply forgot the argument would get the unchecked write. Callers that
-    ///   hashed earlier — `verifyAllWithChecksum` is the only one — pass the values they took
-    ///   at hash time, which are the honest ones.
+    /// - Parameter stamps: pass `nil` to stamp the pairs from disk now, so a caller that forgets
+    ///   the argument still gets a checked write rather than every pair certified unchanged.
+    ///   Callers that hashed earlier (only `verifyAllWithChecksum`) pass the values taken at hash
+    ///   time.
     public init(
         differences: [FileDifference],
         asOf: Int,
@@ -72,19 +55,12 @@ public struct VerifiedCopyOffer: Equatable, Sendable {
     }
 
     /// Re-stats every pair and returns the first that no longer reads as it did at hash time,
-    /// or `nil` when the whole offer is still describable by its verdicts.
+    /// or `nil` when the whole offer still stands.
     ///
-    /// Reports the FIRST offender rather than a filtered subset on purpose. The offer is one
-    /// bulk permission over a list the user read as a whole; quietly shrinking it would write a
-    /// different set than the one that was confirmed, and a daemon that has just rewritten one
-    /// file in a synced folder is the least likely writer to have finished. One refused copy and
-    /// a banner naming the file is visible and costs one re-verify.
-    ///
-    /// A pair with no stamp counts as stale, not as clean. `verifyAllWithChecksum` stamps every
-    /// pair it offers and the memberwise init stamps whatever it is handed, so this is
-    /// unreachable today — which is exactly when the direction of a default gets chosen
-    /// carelessly. Same reasoning as `asOf` itself: an offer that cannot substantiate its
-    /// verdicts must cost one re-verify, not one unchecked bulk write.
+    /// The first offender refuses the whole offer rather than shrinking it: the user confirmed the
+    /// list as a whole, and a daemon that just rewrote one file may not be done. A pair with no
+    /// stamp counts as stale (unreachable today), so an offer that can't back its verdicts costs
+    /// one re-verify, never an unchecked bulk write.
     func firstStaleness(fileManager: FileManaging) -> Staleness? {
         for diff in differences {
             guard let recorded = stamps[diff.id] else { return .unstamped(diff) }
@@ -97,14 +73,11 @@ public struct VerifiedCopyOffer: Equatable, Sendable {
 }
 
 /// One end of a pair as a later re-stat can compare it: size and modification date, as they
-/// stood at the moment a decision was based on them.
+/// stood when a decision was based on them.
 ///
-/// Deliberately NOT a content hash. This exists to detect that the bytes a verdict describes
-/// may have moved under it, and the cheap reading is the right one to take at a click — a
-/// second hashing pass would cost as much as the first and still be a reading taken before the
-/// write. Its blind spot is a rewrite that lands on the same size AND the same timestamp;
-/// APFS records modification times at nanosecond resolution, so two distinct writes colliding
-/// on both is not a case any writer produces by accident.
+/// Not a content hash: it only has to notice that the bytes may have moved, cheaply, at a click.
+/// A second hash would cost as much as the first. Its blind spot is a rewrite with the same size
+/// and timestamp, which APFS's nanosecond times make an accident no writer produces.
 public struct FileEndpointStamp: Equatable, Sendable {
     public let size: Int64
     public let modified: Date
@@ -114,10 +87,9 @@ public struct FileEndpointStamp: Equatable, Sendable {
         self.modified = modified
     }
 
-    /// Stats `path` without following symlinks — the same item the copy primitive acts on.
-    /// `nil` means "nothing to stat", which is a VALUE and not a failure: `nil` recorded and a
-    /// stamp found later is how "the destination appeared while the dialog was open" is
-    /// detected, and the reverse is how a deletion is.
+    /// Stats `path` without following symlinks, the same item the copy acts on. `nil` means
+    /// "nothing there", a value and not a failure: `nil` then a stamp means the file appeared while
+    /// the dialog was open, and the reverse means it was deleted.
     public static func read(atPath path: String, fileManager: FileManaging) -> FileEndpointStamp? {
         guard let attributes = try? fileManager.attributesOfItem(atPath: path),
               let modified = attributes[.modificationDate] as? Date else { return nil }
@@ -165,31 +137,23 @@ public struct FilePairStamp: Equatable, Sendable {
 
 extension FileSyncManager {
 
-    /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
-    /// Pass `subset` to scope verification to specific differences (e.g. the current table selection or
-    /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
-    /// Cancellable via activeProgress.
+    /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but
+    /// same size). `subset` scopes it (e.g. the table selection); `nil` verifies every eligible
+    /// difference. Up to 4 in parallel; cancellable via activeProgress.
     ///
-    /// When done it publishes `verifiedIdenticalForCopy` — the offer the UI turns into a
-    /// copy-left→right dialog — stamped with the file-operations epoch its verdicts were hashed
-    /// under, and only while nothing has superseded them.
+    /// Publishes `verifiedIdenticalForCopy`, the offer behind the copy-left→right dialog, stamped
+    /// with the epoch its verdicts were hashed under, and only while nothing has superseded them.
     ///
-    /// A pass that ends with nothing to offer RETRACTS any offer still standing rather than
-    /// leaving it, and that covers all three ways of getting there: no ELIGIBLE candidates, no
-    /// pair verifying identical, or CANCELLATION — which keeps only the partial set that
-    /// happened to drain before the click, and is the one the user actively asked to stop.
-    /// Retracting matters because this pass is read-only: the confirm-time guards would see an
-    /// unmoved epoch and a zero count, and let the old list through to a bulk disk write.
+    /// A pass with nothing to offer retracts any standing offer: no eligible candidates, nothing
+    /// identical, or cancellation. This pass writes nothing, so the confirm-time guards would see
+    /// an unmoved epoch and a zero count and let the old list through to a bulk write.
     public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
-        // Refuse to start while anything is writing — or is about to write — the files this
-        // run would hash: a file mid-overwrite can checksum as "identical" and poison
-        // `verifiedIdenticalForCopy` with a wrong bulk-copy offer. `isBulkSyncRunning` covers
-        // both bulk runs — syncAll from its prepare phase (stat pass + collision prompts,
-        // before any operation is enqueued) and the verified-copy bulk copy;
-        // `syncingDifferenceIds` covers a single syncFile parked at its collision
-        // prompt; `activeFileOperationsCount` covers every queued file operation (copy, move,
-        // delete, undo). Verify is read-only, so this is purely about result validity — and
-        // the user gets a banner, not a silent no-op.
+        // Refuse to start while anything is writing, or about to write, the files this run would
+        // hash: a file mid-overwrite can hash as "identical" and produce a wrong bulk-copy offer.
+        // `isBulkSyncRunning` covers syncAll from its prepare phase and the verified-copy bulk
+        // copy; `syncingDifferenceIds` a syncFile parked at its collision prompt;
+        // `activeFileOperationsCount` every queued file operation, undo included. The user gets a
+        // banner, not a silent no-op.
         guard !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before verifying")
@@ -200,15 +164,9 @@ extension FileSyncManager {
 
         let candidates = subset ?? differences
         let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
-        // Retract here too, not only at the empty-verdict branch below: this early return is in
-        // FRONT of it, so a pass with no eligible candidates used to leave a standing offer
-        // untouched — and that is the COMMON empty case, not the rare one. Verify All is always
-        // invoked with a subset in production (the current selection), so "the selection holds
-        // no date-only same-size row" is one stray click away, while an eligible set that
-        // verifies nothing identical takes a real hashing pass to reach. Same reasoning as
-        // below: this pass has nothing to offer, so the standing offer is no better supported
-        // than it was, and verify writes nothing — the confirm-time guards would see an unmoved
-        // epoch and wave the old list through.
+        // Retract here too, not only in the empty-verdict branch below, which this return skips.
+        // A selection with no date-only same-size row is the common empty case, and the
+        // confirm-time guards would otherwise wave the old offer through.
         guard !toVerify.isEmpty else {
             if verifiedIdenticalForCopy != nil {
                 Logger.shared.debug("Verify All: no eligible pairs in the selection — retracted the standing verified-copy offer")
@@ -216,25 +174,19 @@ extension FileSyncManager {
             verifiedIdenticalForCopy = nil
             return
         }
-        // The banner below reports how this pass ENDED; this is the only record that one began —
-        // a verify that hangs or is force-quit mid-hash otherwise leaves no trace at all.
+        // The banner reports how the pass ended; this records that it began, so a hang or a
+        // force-quit mid-hash leaves a trace.
         Logger.shared.info("Verify All: hashing \(toVerify.count) same-size pair(s)")
 
-        // The differences being hashed belong to this scan generation. A rescan can complete
-        // during the long parallel hashing (a finished file op fires refreshSubject), replacing
-        // `differences` with regenerated rows; publishing the copy offer then would point it at a
-        // superseded set. Capture the generation now and re-check before publishing (same guard
-        // autoVerifySameSizePairs uses).
+        // A rescan can complete during the hash and replace `differences`, and an offer
+        // published then would point at a superseded set. Re-checked before publishing, as in
+        // autoVerifySameSizePairs.
         let startGeneration = scanRequestGeneration
-        // A rescan is not the only way the hashed bytes go stale. A file operation can overwrite
-        // a candidate mid-hash and FINISH before its refresh-triggered rescan bumps the
-        // generation, so the generation guard alone still publishes verdicts that predate the
-        // write — and this offer feeds a bulk disk write on confirm. Undo is the live route:
-        // every write path is gated on `isVerifyAllRunning` EXCEPT ⌘Z, deliberately (see the
-        // commit body — blocking undo during a long verify would be its own regression), and it
-        // reaches the disk through `enqueueFileOperation` like everything else. Capture the
-        // operations epoch (bumped there before any I/O runs) and re-check it before publishing,
-        // mirroring `autoVerifySameSizePairs`.
+        // A file operation can also overwrite a candidate mid-hash and finish before its rescan
+        // bumps the generation. ⌘Z is the live route: every other write path waits for
+        // `isVerifyAllRunning`, but undo deliberately doesn't, since blocking it through a long
+        // verify would be worse. `enqueueFileOperation` bumps this epoch before any I/O, so it is
+        // re-checked before publishing too.
         let startOperationsEpoch = fileOperationsEpoch
 
         let progress = Progress(totalUnitCount: Int64(toVerify.count))
@@ -254,8 +206,7 @@ extension FileSyncManager {
         let collector = VerifyResultsCollector()
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = toVerify.count
-        // One @Published write per whole percent instead of one per file — see
-        // `ProgressPublishGate` for what the ungated version cost the window.
+        // One @Published write per whole percent, not per file (`ProgressPublishGate`).
         let publishGate = ProgressPublishGateBox()
         let progressRef = ProgressRef(progress)
 
@@ -268,9 +219,8 @@ extension FileSyncManager {
                 weakRef.value?.verifyAllProgress = (completed, totalCount)
             }
         ) { diff in
-            // Stamped BEFORE the read, not after: the recorded value then also covers the hash
-            // itself, so a write landing mid-read is caught by the confirm-time re-stat rather
-            // than being baked in as "how it looked when we hashed it".
+            // Stamped before the read, so a write landing mid-read is caught by the confirm-time
+            // re-stat instead of being recorded as how it looked when hashed.
             let stamp = FilePairStamp.read(diff, fileManager: activeFM)
             // Stop is a `Progress` cancel, not a task cancel, so the hash asks it per chunk: a
             // pair of 5 GB files would otherwise read to the end after the click.
@@ -290,55 +240,34 @@ extension FileSyncManager {
             }
         }
 
-        // Keep the digests regardless of what this pass decides to publish below — including on
-        // cancellation, where the partial verdicts are deliberately discarded. The verdicts are
-        // what nobody asked for; the bytes were read either way, and re-reading them is the
-        // expensive thing this cache exists to avoid.
+        // Keep the digests whatever this pass publishes, even on cancellation when its verdicts
+        // are discarded: the bytes were read either way, and re-reading is what the cache saves.
         await ContentHashCache.shared.save()
 
         let (verifiedIdentical, stamps, differed, skipped) = await collector.get()
         if progress.isCancelled || verifiedIdentical.isEmpty {
-            // Nothing this pass stands behind, so retract any offer a previous pass left standing.
-            // Falling through instead — which is what the publish condition alone did — leaves
-            // the old list AND its old stamp in place, and nothing downstream would catch it:
-            // verify writes nothing, so the epoch has not moved and the count is zero, and
-            // `confirmVerifiedCopy`'s guards both pass. The user would confirm a bulk copy over
-            // a list this very pass declined to stand behind.
+            // Nothing this pass stands behind, so retract any offer a previous pass left. Kept,
+            // its old list and stamp would pass `confirmVerifiedCopy`'s guards, since verify
+            // writes nothing. Unconditional on the supersedence checks below: dropping it costs one
+            // re-verify, keeping it a bulk write.
             //
-            // Deliberately unconditional on the two supersedence checks below. Whatever the
-            // reason this pass has nothing to offer, the standing offer is no better supported
-            // than it was — and the cost of dropping it is one re-verify, against a bulk disk
-            // write for keeping it.
-            //
-            // Cancellation lands here for the same reason, and it is the branch's live case.
-            // `processInParallel` stops pulling items once the progress is cancelled, so the
-            // collector holds whatever happened to drain first — a PARTIAL result the user
-            // never asked to have completed. Publishing it offered someone who had just hit
-            // Cancel a one-permission bulk write over however many pairs got hashed before the
-            // click ("180 files verified identical… No per-file confirmation"), behind a banner
-            // reading "Verify All cancelled". The two surfaces contradicted each other, and the
-            // expensive one won. Those partial verdicts are sound, but nobody asked for them:
-            // re-run Verify All to get an offer.
+            // Cancellation lands here too. The collector then holds only the pairs that drained
+            // before the click; offering a bulk write over them under a "cancelled" banner is
+            // what the user just declined. Re-run Verify All to get an offer.
             if verifiedIdenticalForCopy != nil {
                 Logger.shared.debug("Verify All: \(progress.isCancelled ? "cancelled" : "nothing verified identical") — retracted the standing verified-copy offer")
             }
             verifiedIdenticalForCopy = nil
         } else if scanRequestGeneration == startGeneration,
                   fileOperationsEpoch == startOperationsEpoch {
-            // Publish only if no rescan superseded these differences while we hashed AND no file
-            // operation started since the hash began (see `startOperationsEpoch` above — an
-            // operation that ran start-to-finish mid-hash may have rewritten the very bytes
-            // these verdicts describe, before its rescan could move the generation).
-            //
-            // Stamped with the epoch the verdicts were actually hashed under, not with whatever
-            // the live epoch happens to read at this instant. The guard above has just
-            // established the two are the same, so this is the honest one of the pair.
+            // Publish only if no rescan superseded these differences and no file operation
+            // started during the hash (`startOperationsEpoch` above). Stamped with the epoch the
+            // verdicts were hashed under, which the guard just showed equals the live one.
             verifiedIdenticalForCopy = VerifiedCopyOffer(
                 differences: verifiedIdentical, asOf: startOperationsEpoch, stamps: stamps
             )
-            // The offer is a standing permission for a bulk overwrite with no per-file prompt —
-            // the log should show it was extended, not only (via the bulk copy's own lines)
-            // whether it was taken.
+            // The offer is a standing permission for a bulk overwrite with no per-file prompt, so
+            // log that it was extended, not only whether it was taken.
             Logger.shared.info("Verify All: \(verifiedIdentical.count) pair(s) verified identical — offering copy left→right")
         }
         var parts: [String] = []
@@ -356,29 +285,19 @@ extension FileSyncManager {
         }
     }
 
-    /// Dismisses the "copy verified" dialog without copying; hides the verified identical items
-    /// from the list — but only on verdicts still worth acting on.
+    /// Dismisses the "copy verified" dialog without copying, and hides the verified-identical rows,
+    /// but only on verdicts still worth acting on.
     ///
-    /// Hiding a row is a claim about the files ("these two are byte-identical, stop showing me"),
-    /// so it rests on the same verdicts the copy would have. `confirmVerifiedCopy` refuses
-    /// outright once the epoch has moved or an operation is pending; dismissing under those same
-    /// conditions used to hide every row in the offer regardless, which is the one thing a
-    /// refusal is not allowed to do — quietly resolve what it declined to act on. An undo landing
-    /// while the dialog is up makes a verified pair genuinely differ again, and Cancel would hide
-    /// it along with the rest; the undo's own rescan re-derives the row, but only if it completes
-    /// and is not superseded, so the hide could outlive its justification until a manual rescan.
-    ///
-    /// Same terms as the confirm guard, for the same reasons (see there). Dropping the offer is
-    /// unconditional either way — it is the hiding that has to be earned.
+    /// Hiding a row claims the two files are byte-identical, so it rests on the same verdicts as
+    /// the copy and passes the same guards as `confirmVerifiedCopy`. An undo landing while the
+    /// dialog is up can make a pair differ again, and a hide on a stale verdict would last until a
+    /// manual rescan. The offer is dropped either way; only the hiding has to be earned.
     public func dismissVerifiedCopyDialogWithoutCopy() {
         guard let offer = verifiedIdenticalForCopy else { return }
         verifiedIdenticalForCopy = nil
         guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else { return }
-        // And on the same terms as the confirm's disk re-check, for the same reason the epoch
-        // terms are shared: hiding a row asserts "these two are byte-identical, stop showing
-        // me", which a pair that has since been rewritten by something outside this app no
-        // longer supports. Nothing rescans after an out-of-app write, so a hide granted here
-        // would outlive its justification until the user asks for a scan by hand.
+        // And the confirm's disk re-check: a pair rewritten outside this app is no longer
+        // identical, and nothing rescans after such a write, so the hide would outlive its reason.
         guard offer.firstStaleness(fileManager: fileManager) == nil else { return }
         for diff in offer.differences {
             verifiedSameDifferenceIds.insert(diff.id)
@@ -387,13 +306,10 @@ extension FileSyncManager {
     }
 
     /// For the dialog's `isPresented` binding: defers the "dismissed without copy" cleanup by one
-    /// main-actor turn. SwiftUI writes `false` into the binding on ANY dismissal — including the
-    /// confirm button — and the order of the setter vs. the button action is not guaranteed, so
-    /// cleaning up synchronously here could destroy the list before `confirmVerifiedCopy()` claims
-    /// it. Both button paths run synchronously in the same turn; whichever claimed the list first
-    /// wins and this deferred cleanup becomes a no-op.
-    /// - Returns: The deferred cleanup task, so tests can await the turn instead of sleeping for a
-    ///   guessed duration (same reason `confirmVerifiedCopy()` hands back its copy task).
+    /// main-actor turn. SwiftUI writes `false` on any dismissal, the confirm button included, in no
+    /// guaranteed order against the button action, so a synchronous cleanup could destroy the list
+    /// before `confirmVerifiedCopy()` claims it. Deferred, a claimed list makes this a no-op.
+    /// - Returns: The deferred cleanup task, so tests can await the turn instead of sleeping.
     @discardableResult
     public func verifiedCopyDialogDismissed() -> Task<Void, Never> {
         Task { @MainActor in
@@ -408,60 +324,36 @@ extension FileSyncManager {
     @discardableResult
     public func confirmVerifiedCopy() -> Task<Void, Never>? {
         guard let offer = verifiedIdenticalForCopy, !offer.differences.isEmpty else { return nil }
-        // The offer can outlive its verdicts: a file operation (an unguarded ⌘Z undo, most
-        // directly) landing while the dialog is up rewrites verified bytes, and the rescan that
-        // would clear the offer only does so when it COMPLETES — seconds later on a large tree.
-        // A confirm inside that window would bulk-overwrite the bytes the operation just wrote.
-        // Refuse it: the operation's rescan is already on its way to re-derive fresh rows.
+        // The offer can outlive its verdicts: a file operation (⌘Z most directly) landing while
+        // the dialog is up rewrites verified bytes, and its rescan clears the offer only once it
+        // completes. A confirm in that window would overwrite what the operation just wrote.
         //
-        // BOTH terms are load-bearing, because they answer different questions. The epoch says
-        // an operation already RAN. The count says one is already claimed and about to run — and
-        // there is still a caller for which the two genuinely differ: the CONFIRMATION-GATED
-        // TRANSFER path (`transferItems`) calls `preCountFileOperation()` before its modal and
-        // only reaches `enqueueFileOperation` — where the epoch is bumped — once the user
-        // confirms, which can be minutes later. On the epoch alone a confirm placed in that gap
-        // passes, the transfer then claims the serial queue, and the bulk copy queues behind it
-        // and overwrites the bytes it just wrote.
+        // Both terms are needed. The epoch says an operation ran; the count says one is claimed
+        // and about to. They differ for `transferItems`, which calls `preCountFileOperation()`
+        // before its modal and bumps the epoch in `enqueueFileOperation` only once the user
+        // confirms, maybe minutes later. On the epoch alone the bulk copy would queue behind that
+        // transfer and overwrite what it wrote.
         //
-        // The undo/redo paths used to be the example here, and are no longer: they now
-        // `claimFileOperationSlot()` synchronously inside `undo()`, which moves the count AND the
-        // epoch together, so for them the epoch term alone would already be true. The count term
-        // is the one this file's entry guard and `sweepOrphanedTempArtifactsNow` also carry; the
-        // PAIRING is unique to here, since neither of those looks at the epoch at all.
+        // `bulkCopyDifferencesLeftToRight` checks both again, since these readings age before it
+        // orders its write; this check keeps the offer and banner honest at click time.
         //
-        // Checked again inside `bulkCopyDifferencesLeftToRight`, on the same two terms, because
-        // these readings age: the run is several main-actor hops from ordering its write. This
-        // guard is still the one that keeps the offer and the banner honest at click time — the
-        // one downstream refuses a run that is already under way.
+        // The scan-checksum pass is epoch-only at commit time on purpose
+        // (`autoVerifySameSizePairs`): there a declined pre-counted operation would void a hashed
+        // batch for nothing. Here refusing costs one re-verify and allowing costs an unverified
+        // bulk write. Don't merge the two guards.
         //
-        // Not in tension with the scan-checksum pass, which is epoch-ONLY at commit time on
-        // purpose (see `autoVerifySameSizePairs`): there, a pre-counted operation the user then
-        // DECLINES ran no I/O, so voiding a whole hashed batch for it cost real coverage and
-        // bought nothing. Here the cost of refusing a pre-counted operation is one re-verify,
-        // and the cost of allowing it is a bulk disk write over bytes nobody verified. Do not
-        // simplify one guard into the other.
-        //
-        // The wording says only what the guard OBSERVED — "an operation ran, or one is pending".
-        // It cannot tell whether any VERIFIED file was touched: a filing move on the other pane,
-        // an undo of a folder rename, an unrelated delete all land here too.
+        // The banner says only what the guard can see: an operation ran or is pending, not that a
+        // verified file was touched.
         guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else {
             verifiedIdenticalForCopy = nil
             banner = .warning("A file operation ran or is pending — run Verify All again")
             return nil
         }
-        // The epoch and count above are blind to every writer that is not this app, and the
-        // dialog has no expiry — it sits open for as long as the user leaves it. A cloud daemon
-        // syncing a new right-side version down in that window moves none of the three counters
-        // this path watches, so a confirm ran the bulk overwrite with no per-file prompt over
-        // bytes that arrived after the hash. Re-stat instead of expiring: an expiry would be a
-        // duration picked out of the air that still admits every write inside it, where the
-        // re-stat asks the only question that matters — do these two files still read as they
-        // did when we hashed them — and it is the same shape as every other guard here, a value
-        // captured at decision time and re-checked before acting on it.
-        //
-        // Two stats per pair, on the main actor, at a click: the bulk copy this gates reads and
-        // writes both files in full, so the check is orders of magnitude cheaper than the thing
-        // it is protecting.
+        // The epoch and count can't see writers outside this app, and the dialog can stay open
+        // indefinitely: a cloud daemon syncing a new right-side version would be overwritten with
+        // no per-file prompt. So re-stat both ends rather than expire the offer, which would still
+        // admit any write inside its window. Two stats per pair on the main actor is far cheaper
+        // than the copy it gates.
         if let staleness = offer.firstStaleness(fileManager: fileManager) {
             verifiedIdenticalForCopy = nil
             let name = staleness.difference.relativePath
@@ -475,27 +367,22 @@ extension FileSyncManager {
             return nil
         }
         verifiedIdenticalForCopy = nil
-        // The moment the standing permission is exercised — the counterpart of the offer line.
-        // FR41: a pair stamped at hash time has its date matched, not its bytes copied.
+        // The counterpart of the offer's log line. A pair stamped at hash time has its date
+        // matched, not its bytes copied.
         Logger.shared.info("Verified-copy confirmed: matching \(offer.differences.count) file(s) left→right without per-file prompts")
-        // Hand the stamp on so the run can re-check it at the moment it orders the write; these
-        // readings are already several main-actor hops old by the time that happens.
+        // Hand the stamps on so the run can re-check them as it orders the write, several
+        // main-actor hops later.
         return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf, stamps: offer.stamps) }
     }
 
-    /// The largest file a pass the user did not ask for reads whole: 100 MB, the limit every hash
-    /// once had. The scan-time verify and the filing scan's already-filed check.
+    /// The largest file a pass the user didn't ask for reads whole: the scan-time verify and the
+    /// filing scan's already-filed check. Both run unasked, so a 5 GB file would add seconds of
+    /// reading. Larger pairs stay listed for Verify All, which the user starts and can stop; a
+    /// larger loose file isn't checked against the tree.
     ///
-    /// **Kept for them when the hasher dropped it.** Both run unasked — after every scan, and on
-    /// every filing scan before its list appears — so a 5 GB file would add seconds of reading
-    /// nobody asked for. Larger pairs stay listed for Verify All, which the user starts and can
-    /// stop; a larger loose file is simply not checked against the tree.
-    ///
-    /// **100,000,000 bytes, not 100 MiB**: sizes are shown in decimal units (`formatBytes`, as
-    /// Finder does), so this is the number the Settings help can call "100 MB" and mean it.
-    ///
-    /// Checked against the file's size at the moment it would be read (``isWithinUnaskedLimit``),
-    /// not only the size a scan recorded: a download still landing grows past it in between.
+    /// 100,000,000 bytes, not 100 MiB: sizes are shown in decimal units (`formatBytes`, as Finder
+    /// does), so Settings help can call it "100 MB". Checked against the size as the file is read
+    /// (``isWithinUnaskedLimit``), not only the scanned size, since a landing download grows.
     nonisolated static let unaskedPassMaxFileBytes = 100_000_000
 
     /// Whether `path` is small enough, right now, for a pass nobody asked for to read it whole.
@@ -512,25 +399,19 @@ extension FileSyncManager {
     /// ones via `verifiedSameDifferenceIds` — the same mechanism as a dismissed Verify All, so
     /// the rows reappear if a later scan finds them genuinely changed.
     ///
-    /// Unlike Verify All this never publishes progress or offers the copy-to-match-dates
-    /// dialog, and it does not claim `isVerifyAllRunning` — blocking a bulk sync behind an
-    /// automatic pass the user didn't ask for would be worse than re-hashing. Validity is
-    /// protected the other way: the pass skips entirely while anything is writing, skips
-    /// rows that start syncing, and publishes only while `scanGeneration` is still current
-    /// (a newer scan supersedes both the rows and their verification).
+    /// Unlike Verify All it publishes no progress, offers no copy-to-match-dates dialog, and
+    /// doesn't claim `isVerifyAllRunning`: blocking a bulk sync behind an unasked pass would be
+    /// worse than re-hashing. Instead it skips while anything is writing, skips rows that start
+    /// syncing, and publishes only while `scanGeneration` is still current.
     func autoVerifySameSizePairs(scanGeneration: Int) async {
         guard autoVerifySameSizeDuringScan,
               !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0 else { return }
 
-        // The entry guard above only proves nothing was writing when the pass STARTED. A
-        // copy/move that begins during the long parallel hash can overwrite a candidate
-        // mid-read, and if it also finishes before the commit below — before its rescan bumps
-        // `scanRequestGeneration` — a pre-operation "identical" verdict would hide a row that
-        // now genuinely differs. Capture the operations epoch (bumped whenever an operation
-        // begins, never decremented) and discard the whole batch if it moved: stronger than
-        // re-checking `activeFileOperationsCount == 0`, which an op that ran start-to-finish
-        // during the hash would pass.
+        // The entry guard only proves nothing was writing at the start. An operation that begins
+        // and finishes during the hash, before its rescan bumps `scanRequestGeneration`, would let
+        // a stale "identical" hide a row that now differs. The epoch only ever grows, so the
+        // batch is discarded if it moved; a count check would miss an operation already done.
         let startOperationsEpoch = fileOperationsEpoch
 
         let candidates = rawDifferences.filter {
@@ -541,8 +422,7 @@ extension FileSyncManager {
 
         let activeFM = fileManager
         let collector = VerifyResultsCollector()
-        // A private Progress solely for processInParallel's cancellation contract — never
-        // published, so nothing shows in the UI.
+        // A private Progress only for processInParallel's cancellation contract; never published.
         let progress = Progress(totalUnitCount: Int64(candidates.count))
 
         await Self.processInParallel(
@@ -561,35 +441,27 @@ extension FileSyncManager {
                 cache: ContentHashCache.shared
             )
             if same == true {
-                // No stamp: this pass publishes no copy offer and orders no write — it only
-                // hides rows, which the next scan re-derives.
+                // No stamp: this pass makes no copy offer; it only hides rows the next scan
+                // re-derives.
                 await collector.addIdentical(diff, stamp: nil)
             }
         }
 
-        // Same reasoning as the duplicate scan: the reads have happened and are the expensive
-        // part, so keep them whatever this run goes on to publish.
+        // Keep the digests whatever this run publishes: the reads were the expensive part.
         await ContentHashCache.shared.save()
 
         let identical = await collector.get().verifiedIdentical
-        // Publish only against the scan the candidates came from; a newer scan owns the rows
-        // now. Checked AFTER the last suspension point above, so a scan requested while the
-        // collector drained can't slip past the gate.
+        // Publish only against the scan the candidates came from. Checked after the last
+        // suspension point, so a scan requested while the collector drained can't slip past.
         guard scanGeneration == scanRequestGeneration else { return }
-        // Re-check the operations epoch at commit time (see `startOperationsEpoch` above): an
-        // operation that started — even one that already finished — since entry may have
-        // rewritten the very bytes these verdicts describe. Discard the batch; the operation's
-        // own rescan re-runs this pass over fresh rows.
+        // Re-check the epoch at commit time: an operation started since entry, even a finished
+        // one, may have rewritten these bytes. Discard the batch; that operation's rescan re-runs
+        // this pass.
         //
-        // The epoch is the WHOLE commit-time exclusion, deliberately: re-checking the entry
-        // guard's other two terms discarded batches that nothing had written. The count can
-        // only exceed the epoch's knowledge for an operation pre-counted but not yet enqueued
-        // — its confirmation prompt still up — and `isBulkSyncRunning` is latched before
-        // syncAll's read-only stat pass and prompts; in both states not a byte has been
-        // written, since every write goes through `enqueueFileOperation`, which bumps the
-        // epoch first. Discarding on them cost real coverage: if the user then DECLINED, no
-        // I/O ran, nothing sent `refreshSubject`, and no rescan re-ran this pass — so pairs
-        // already hashed as identical stayed listed until a manual rescan.
+        // Only the epoch, deliberately. The entry guard's other terms (a pre-counted operation
+        // at its prompt, syncAll's stat pass) mean nothing is written yet, since every write goes
+        // through `enqueueFileOperation`, which bumps the epoch first. Discarding on them would
+        // leave identical pairs listed if the user then declined, because no rescan would follow.
         guard fileOperationsEpoch == startOperationsEpoch else {
             Logger.shared.debug("Scan checksum pass: discarded — the file operations epoch moved mid-hash")
             return
@@ -611,10 +483,9 @@ private actor VerifyResultsCollector {
     private var stamps: [UUID: FilePairStamp] = [:]
     private var differed: Int = 0
     private var skipped: Int = 0
-    /// The stamp travels with the verdict rather than being re-read on the way out: it is only
-    /// evidence about the bytes this worker hashed if it was taken around that read.
-    /// No default on `stamp`: the scan-time pass has no use for one and says so explicitly,
-    /// rather than a forgotten argument silently producing an offer that cannot be re-checked.
+    /// The stamp travels with the verdict, since it is evidence only if taken around that read.
+    /// No default on `stamp`, so a forgotten argument can't produce an offer that can't be
+    /// re-checked; the scan-time pass passes `nil` explicitly.
     func addIdentical(_ diff: FileDifference, stamp: FilePairStamp?) {
         verifiedIdentical.append(diff)
         stamps[diff.id] = stamp

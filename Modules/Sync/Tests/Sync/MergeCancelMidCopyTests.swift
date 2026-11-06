@@ -2,34 +2,26 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The one duplicate-merge guard with no coverage: `cancelledMidCopy`.
+/// The duplicate merge's `cancelledMidCopy` guard: a partially folded copy is never trashed. A
+/// regression doesn't throw or warn; it trashes a folder whose contents only partly reached the
+/// keeper. The sibling refusals are pinned in `FileSyncManagerDuplicatesTests`.
 ///
-/// Every sibling refusal (keeper drift, source drift, symlinked keeper dir, vanished keeper,
-/// trash failure, nested copy) is pinned in `FileSyncManagerDuplicatesTests`; the cancel branch —
-/// the one that enforces "a partially-folded copy is NEVER trashed" — was not. A regression here
-/// does not throw or warn: it trashes a folder whose contents only partly reached the keeper.
-///
-/// The cancel point is chosen deterministically by parking the merge inside its FIRST file copy,
-/// cancelling the run's `Progress` while it cannot advance, then releasing it — so the second
-/// plan step is guaranteed to be the one that observes the cancellation.
+/// The cancel point is deterministic: the merge is parked inside its first file copy, its
+/// `Progress` is cancelled while it can't advance, then it is released, so the second plan step is
+/// the one that observes the cancellation.
 @Suite struct MergeCancelMidCopyTests {
 
-    /// A real `FileManager` (the merge hashes real bytes, so a mock disk cannot drive this path)
-    /// that cancels the run's `Progress` from inside the FIRST `copyItem` — after the copy phase
-    /// has begun, before that copy returns — and then lets the copy complete. Step 2 is therefore
-    /// guaranteed to be the iteration that observes the cancellation.
+    /// A real `FileManager` (the merge hashes real bytes, so a mock disk can't drive this path)
+    /// that cancels the run's `Progress` from inside the first `copyItem`, then lets the copy
+    /// finish, so step 2 observes the cancellation.
     ///
-    /// The gate cancels on the worker's own thread rather than signalling the test to do it: a
-    /// test-side cancel must be scheduled on the MainActor, which the full parallel suite can
-    /// starve for seconds while the copy sits parked, and the cancel would then land in the wrong
-    /// place (or not at all).
-    ///
-    /// A `FileManager` subclass rather than a `FileManaging` wrapper for the reason `buildTree`
-    /// documents: only the `fileManager is FileManager` fast path yields file sizes, and without
-    /// sizes there is nothing to hash or plan.
+    /// It cancels on the worker's own thread: a test-side cancel would have to be scheduled on the
+    /// main actor, which the parallel suite can starve for seconds, so it could land in the wrong
+    /// place or not at all. A subclass rather than a `FileManaging` wrapper because only the
+    /// `fileManager is FileManager` fast path in `buildTree` yields file sizes to hash and plan.
     private final class FirstCopyCancelGate: FileManager, @unchecked Sendable {
-        /// FileManager is already (unchecked) Sendable, so a subclass may not add mutable stored
-        /// state directly — it lives in a lock-guarded box.
+        /// A `FileManager` subclass can't add mutable stored state (it is already unchecked
+        /// Sendable), so the state lives in a lock-guarded box.
         private final class Gate: @unchecked Sendable {
             private let lock = NSLock()
             private var fired = false
@@ -55,8 +47,8 @@ import Foundation
         }
         private let gate = Gate()
 
-        /// Hands the gate the merge's Progress. The gate waits for it, so a late install cannot
-        /// make the cancellation land early.
+        /// Hands the gate the merge's Progress. The gate waits for it, so a late install can't make
+        /// the cancellation land early.
         func installProgress(_ progress: Progress) { gate.install(progress) }
 
         override func copyItem(at srcURL: URL, to dstURL: URL) throws {
@@ -75,15 +67,15 @@ import Foundation
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesCancelTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
-        // Unique folder name so the assertion below can also prove nothing reached ~/.Trash, and
-        // so a regression (which WOULD trash it) leaves no ambiguity about whose folder it is.
+        // A unique name, so the check below can prove nothing reached ~/.Trash, and a regression
+        // that trashes it leaves no doubt whose folder it is.
         let rName = "Redundant-\(UUID().uuidString)"
         let redundant = base.appendingPathComponent(rName)
         let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
         defer { try? FileManager.default.removeItem(at: trashed) }
 
-        // shared.txt is byte-identical on both sides, so it is skipped by the plan; the two unique
-        // files become plan steps in name order — step 1 "a-unique.txt", step 2 "b-unique.txt".
+        // shared.txt is identical on both sides, so the plan skips it; the two unique files become
+        // steps in name order: step 1 "a-unique.txt", step 2 "b-unique.txt".
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
         try write(redundant.appendingPathComponent("a-unique.txt"), bytes: 5000, fill: 0x41)
@@ -108,35 +100,34 @@ import Foundation
 
         #expect(ok == false)
 
-        // THE INVARIANT: a copy whose fold did not complete is never trashed.
+        // The invariant: a copy whose fold didn't complete is never trashed.
         #expect(FileManager.default.fileExists(atPath: redundant.path),
                 "the partially-folded copy must stay on disk")
         #expect(FileManager.default.fileExists(atPath: trashed.path) == false,
                 "nothing may reach the Trash after a mid-copy cancel")
-        // Its contents are all still there — including the file that never got folded in.
+        // Its contents are all still there, including the file that never got folded in.
         for name in ["shared.txt", "a-unique.txt", "b-unique.txt"] {
             #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent(name).path),
                     "\(name) must survive in the cancelled copy")
         }
 
-        // The cancel landed exactly between the two steps: the first file folded in, the second
-        // never started. (If it had cancelled before any copy, or after both, the branch under
-        // test would not be the one exercised.)
+        // The cancel landed between the two steps: the first file folded in, the second never
+        // started. Before any copy or after both, a different branch would be exercised.
         #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("a-unique.txt").path),
                 "the in-flight copy completes")
         #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("b-unique.txt").path) == false,
                 "no step may start after the cancel")
 
         // The group stays listed so a retry can finish it, and the banner says so rather than
-        // claiming a merge that did not happen.
+        // claiming a merge that didn't happen.
         #expect(manager.duplicateGroups.count == 1)
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("canceled") == true)
         #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears on the cancel path too")
     }
 
-    /// A Trash-less volume whose `copyItem` cancels the run from inside the Nth call — so the
-    /// cancel can be aimed at a LATER fold, after an earlier one has completed in full.
+    /// A Trash-less volume whose `copyItem` cancels the run from inside the Nth call, so the cancel
+    /// can be aimed at a later fold after an earlier one has completed in full.
     private final class NthCopyCancelGate: FileManager, @unchecked Sendable {
         private final class Gate: @unchecked Sendable {
             private let lock = NSLock()
@@ -172,18 +163,15 @@ import Foundation
         }
     }
 
-    /// **A Cancel must not START a destructive step that had not begun.** The duplicates
-    /// restructure moved the merge's trash out of the per-fold loop into one deferred
-    /// `deleteItems` after it — and that call ran unconditionally, so a fold completed BEFORE the
-    /// user pressed Cancel was trashed AFTER it. Measured at 6fe2c8c7 on a Trash-less volume: the
-    /// Cancel was answered by a modal permanent-delete alert the user never asked for
-    /// (`permanentDeletePrompts=[["A-…"]]`), and a second "Moving N items to the Trash" progress dialog with
-    /// its own, different Cancel appeared behind it. Before the restructure a Cancel stopped
-    /// further trashing, because each fold was trashed inside the loop.
+    /// A Cancel must not start a destructive step that hadn't begun. The merge trashes its folds in
+    /// one deferred `deleteItems` after the fold loop, so that call must not run once the user has
+    /// cancelled: on a Trash-less volume a fold completed before Cancel would otherwise be deleted
+    /// after it, behind a permanent-delete alert the user never asked for and a second progress
+    /// dialog with its own Cancel.
     ///
-    /// Two redundant copies: A folds completely (one unique file), B has two, and the cancel is
-    /// fired from inside B's FIRST copy so B's second step observes it — leaving A finished and
-    /// queued for the deferred trash at the moment the user cancelled.
+    /// Two redundant copies: A folds completely (one unique file), B has two, and the cancel fires
+    /// inside B's first copy so B's second step observes it, with A finished and queued for the
+    /// deferred trash.
     @MainActor
     @Test func cancellingAfterAFoldCompletedDoesNotTrashItAfterTheFact() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeCancelDeferredTrash")
@@ -201,7 +189,7 @@ import Foundation
         try write(b.appendingPathComponent("b1.txt"), bytes: 5000, fill: 0x42)
         try write(b.appendingPathComponent("b2.txt"), bytes: 5000, fill: 0x43)
 
-        // Copy #1 is A's a-only.txt; copy #2 is B's b1.txt — cancelling there makes B's b2.txt the
+        // Copy #1 is A's a-only.txt, copy #2 is B's b1.txt: cancelling there makes B's b2.txt the
         // step that observes it, with A already complete and queued for the deferred trash.
         let gate = NthCopyCancelGate(cancelOnCopyNumber: 2)
         let manager = FileSyncManager(fileManager: gate)
@@ -233,15 +221,15 @@ import Foundation
         #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("b2.txt").path) == false,
                 "a step started after the cancel — the cancel landed too late for this pin")
 
-        // THE INVARIANT: the cancel stopped the trash that had not begun.
+        // The invariant: the cancel stopped the trash that hadn't begun.
         #expect(prompts.withLock { $0 }.isEmpty,
                 "the Cancel was answered with a permanent-delete confirmation the user never asked for: \(prompts.withLock { $0 })")
         #expect(FileManager.default.fileExists(atPath: a.path),
                 "the fold completed before the Cancel was destroyed after it")
         #expect(FileManager.default.fileExists(atPath: b.path))
 
-        // The banner says what actually happened — nothing was trashed — and carries the flag, so
-        // `invalidateUndoableBanner` can retire the ⌘Z offer when the stack moves on.
+        // The banner says nothing was trashed and carries the flag, so `invalidateUndoableBanner`
+        // can retire the ⌘Z offer when the stack moves on.
         let message = manager.banner?.message ?? ""
         #expect(message.contains("canceled"), "banner: “\(message)”")
         #expect(message.contains("nothing was trashed"),

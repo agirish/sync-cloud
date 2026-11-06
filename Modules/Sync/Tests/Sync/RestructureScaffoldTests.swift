@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The manifest's laws, and the scaffold that first exercises them (ROADMAP v5 §5.4, §5.2).
+/// The manifest's laws, and the scaffold that first exercises them.
 @Suite struct RestructureManifestTests {
 
     private static func backlogFinding(scaffold: [String]) -> StructureFinding {
@@ -34,7 +34,7 @@ import Foundation
             profileId: "p", manifestId: "m", createdAt: "t") == nil)
     }
 
-    /// §5.4's inverse rules, as laws: reversed order, swapped ends, `create-dir` ↔
+    /// The inverse rules, as laws: reversed order, swapped ends, `create-dir` ↔
     /// `remove-empty-dir` — and the inverse of the inverse is the original, exactly.
     @Test func theInverseIsMechanicalAndInvolutive() {
         let manifest = RestructureManifest(
@@ -69,8 +69,8 @@ import Foundation
     }
 }
 
-/// One scaffold landing against a real temporary tree — the first proof of the guards, the
-/// ledger and the re-probe on disk rather than in a model.
+/// One scaffold landing against a real temporary tree: the guards, the ledger and the re-probe
+/// proved on disk rather than in a model.
 @MainActor
 @Suite struct RestructureScaffoldApplyTests {
 
@@ -122,8 +122,8 @@ import Foundation
             atPath: root.appendingPathComponent("Health/Dental/2025/Statements").path,
             isDirectory: &isDir) && isDir.boolValue)
 
-        // The ledger: one record, finalised counts, and the inverse ON DISK — reread from the
-        // file, not from memory, because §5.5's whole point is surviving a quit.
+        // The ledger: one record, finalised counts, and the inverse on disk, reread from the file,
+        // not from memory, because the ledger exists to survive a quit.
         let store = try #require(manager.restructureStore)
         let record = try #require(store.applied.first)
         #expect(record.created == 1)
@@ -178,10 +178,10 @@ import Foundation
     @Test func oneGroupedUndoRemovesEverythingTheLandingCreated() async throws {
         let (manager, base, root, _) = try makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
-        // Event-grouping ON, as the app's window undo manager has it: with it off, the redo
+        // Event grouping on, as the app's window undo manager has it: with it off, the redo
         // registration inside the undo closure fires "must begin a group before registering
-        // undo" — the scaffold's explicit begin/end pair NESTS inside the event group, exactly
-        // as BulkSync's does.
+        // undo". The scaffold's explicit begin/end pair nests inside the event group, as
+        // BulkSync's does.
         let undo = UndoManager()
         manager.undoManager = undo
         // A trash that fails escalates to the permanent-delete confirmation — which a headless

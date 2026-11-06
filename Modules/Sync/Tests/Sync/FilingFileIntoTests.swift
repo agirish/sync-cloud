@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE287 — To File reads loose files from one folder and files them into another tree: where it
+/// To File reads loose files from one folder and files them into another tree: where it
 /// files into (``FilingDestinationRoot``), the scan's record of files only in the cloud, and
 /// Download and Read, which fetches those and places them from page 1.
 @Suite struct FilingDestinationRootTests {
@@ -16,13 +16,13 @@ import Testing
                                       surveyRoot: survey, stored: stored, isDirectory: Self.isDirectory)
     }
 
-    /// GI: a cloud source keeps its own tree, even with a survey of another one loaded.
+    /// A cloud source keeps its own tree, even with a survey of another one loaded.
     @Test func aCloudSourceFilesIntoItsOwnAnchor() {
         #expect(resolve(local: false) == "/C/Docs")
     }
 
-    /// GH: a folder source files into the survey's root — not its own, which for the Home folder
-    /// is 400,000 entries the scan stops to ask about.
+    /// A folder source files into the survey's root, not its own, which for the Home folder is
+    /// 400,000 entries the scan stops to ask about.
     @Test func aFolderSourceFilesIntoTheSurveysRoot() {
         #expect(resolve(local: true, anchor: "/U") == "/U/Cloud/Documents")
     }
@@ -160,7 +160,7 @@ import Testing
         #expect(!m.isDownloadingFilingFiles)
     }
 
-    /// His saved rule decides where the downloaded page goes, as in the scan: a rule that needed
+    /// A saved rule decides where the downloaded page goes, as in the scan: a rule that needed
     /// the page to match is not overruled by the router's best.
     @Test func downloadAndReadFollowsASavedRuleOverTheRouter() async throws {
         let rule = AutomationRule(name: "Rentals", conditions: [.mentionsAny(["tenancy"])],
@@ -199,8 +199,8 @@ import Testing
         #expect(m.banner?.message == "Couldn’t download 1 file — open it in Finder to download.")
     }
 
-    /// Read Scan's FR44 guard: cards from one scan, the index and root of another. Routing would
-    /// put the file in the other tree; it is refused, said, and nothing is downloaded.
+    /// Read Scan's stale-cache guard: cards from one scan, the index and root of another. Routing
+    /// would put the file in the other tree; it is refused, said, and nothing is downloaded.
     @Test func aCacheFromAnotherScanIsRefused() async throws {
         let (m, root, cloud, _) = try await Self.makeScan()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -231,8 +231,8 @@ import Testing
     }
 }
 
-/// When To File files into a tree that is not the scanned source (TE287), the walk of that tree
-/// must not answer Names and Renames for the source.
+/// When To File files into a tree that is not the scanned source, the walk of that tree must not
+/// answer Names and Renames for the source.
 @Suite @MainActor struct FilingTreeFindingsTests {
 
     @Test func aScanIntoAnotherTreeReportsNoNamesFromIt() async throws {

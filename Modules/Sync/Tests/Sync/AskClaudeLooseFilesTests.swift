@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A folder's loose files for Ask Claude's filing card (TE285), on a real folder.
+/// A folder's loose files for Ask Claude's filing card, on a real folder.
 @Suite struct AskClaudeLooseFilesTests {
 
     private func scratch() throws -> String {
@@ -17,7 +17,7 @@ import Testing
         if let modified { try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: path) }
     }
 
-    /// Decision FZ: files at the top and in subfolders, newest first; hidden, unfinished and
+    /// Files at the top and in subfolders, newest first; hidden, unfinished and
     /// inside-a-package skipped; installers kept apart.
     @Test func looseFilesAreEveryFileAtAnyDepthLessTheSkipped() throws {
         let dir = try scratch()
@@ -52,7 +52,7 @@ import Testing
         #expect(found.files.count == 3 && found.truncated)
     }
 
-    /// Decision GA: only a folder whose every file is on the card, and the outermost of those.
+    /// Only a folder whose every file is on the card, and the outermost of those.
     @Test func emptiedFoldersAreThoseWhoseEveryFileIsOnTheCard() throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -68,7 +68,7 @@ import Testing
         #expect(AskClaudeLooseFiles.emptiedFolders(found, onCard: onCard.union([dir + "/Half/e.pdf"])) == [dir + "/Half", dir + "/Trip"])
     }
 
-    /// Decision GF: the same bytes, never only the same size or name.
+    /// The same bytes, never only the same size or name.
     @Test func theSameFileIsFoundByItsBytes() throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -115,8 +115,8 @@ import Testing
         #expect(AskClaudeLooseFiles.page(files, from: 20, shown: []).files.map(\.name) == (20..<25).map { "f\($0)" })
     }
 
-    /// Decision GE: two files of one name going to one folder both land under their own name,
-    /// said on each row, and a pick from the menu says the new folder's.
+    /// Two files of one name going to one folder both land under their own name, said on each
+    /// row, and a pick from the menu says the new folder's.
     @Test func eachRowSaysTheNameItLandsUnderAfterTheRowsAbove() throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -162,7 +162,7 @@ import Testing
         #expect(try JSONDecoder().decode(AskClaudePlan.Change.self, from: JSONEncoder().encode(twin)) == twin)
     }
 
-    /// Decision GE: a taken name lands numbered, as filing's own move names it.
+    /// A taken name lands numbered, as filing's own move names it.
     @Test func aTakenNameLandsNumbered() throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -191,7 +191,7 @@ import Testing
         #expect(plan.tickedCount == 2)
     }
 
-    /// Decision GD: a pick from the menu moves the row to that folder's group and ticks it.
+    /// A pick from the menu moves the row to that folder's group and ticks it.
     @Test func choosingAFolderMovesTheRowAndTicksIt() {
         var plan = AskClaudePlan(title: "", subtitle: "", rows: [row(0, "d.pdf", to: "Health", confidence: .low, ticked: false)])
         #expect(plan.groups.map(\.group) == [.needsPick])

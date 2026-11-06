@@ -4,18 +4,15 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// **An item the Trash took without reporting where is moved to the Trash, not deleted** (RD2).
-///
-/// `deleteItems` used to tell the two apart by the Trash location alone, so an item the platform
-/// trashed with a nil `resultingItemURL` — or `trashAfterReregistering`'s `.trashed(nil)` — was
-/// recorded, logged and announced as permanently deleted: Sync History labelled it "Delete", which
-/// Help says has no way back, the banner said "Deleted", and the log said "unrecoverable". It is
-/// in the Trash; only ⌘Z, which needs the location, cannot bring it back.
+/// An item the Trash took without reporting where is recorded as moved to the Trash, not deleted.
+/// A nil `resultingItemURL`, or `trashAfterReregistering`'s `.trashed(nil)`, still means it is in
+/// the Trash, so Sync History, the banner and the log must not call it permanently deleted. Only
+/// ⌘Z, which needs the location, can't bring it back.
 @MainActor
 @Suite struct DeleteTrashedWithoutLocationTests {
 
     /// Deletes one file, named for this case alone: `LogCapture` sees every case's lines, so an
-    /// assertion has to name a sentence only this case can log.
+    /// assertion must name a sentence only this case can log.
     private func run(reportsLocation: Bool) async throws -> (FileSyncManager, LogCapture, String, DeleteOutcome) {
         let log = LogCapture()
         let manager = FileSyncManager()
@@ -40,8 +37,8 @@ import EventsTestSupport
         let (manager, log, name, outcome) = try await run(reportsLocation: false)
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
 
-        // Counted as what it is (L3): not deleted, which a merge's log then claimed, and not
-        // undoable, which is what the callers' ⌘Z offer reads.
+        // Counted as what it is: not deleted (a merge's log reads this), and not undoable (the
+        // callers' ⌘Z offer reads this).
         #expect(outcome == DeleteOutcome(trashedWithoutLocation: 1), "\(outcome)")
         #expect(outcome.removed == 1)
         #expect(!outcome.isUndoable)

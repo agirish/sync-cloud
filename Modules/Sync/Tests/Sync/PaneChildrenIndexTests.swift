@@ -3,8 +3,8 @@ import Foundation
 import Events
 @testable import Sync
 
-/// `PaneChildrenIndex` exists to keep a column stack off a recursive tree walk — the shape that
-/// froze the main thread for 17 s before `PaneTree` flattened it. Two properties matter:
+/// `PaneChildrenIndex` keeps a column stack off a recursive tree walk, which on a large tree can
+/// freeze the main thread for seconds. Two properties matter:
 ///
 ///   - it answers `children(atPath:)` for *any* directory, including the tree root and empty
 ///     folders, because a column that can't resolve its folder renders nothing;
@@ -96,12 +96,9 @@ import Events
     }
 }
 
-/// **The fact the children map cannot express.**
-///
-/// `childrenByPath` gives `[]` both for a folder with nothing in it and for one the walk reported
-/// without reading — so a column reading only that map has to guess, and it guessed "Empty". That
-/// is a claim the walk never made: `FileSyncManager` logs the same distinction from the other side
-/// ("shown as unexplored, not empty").
+/// The fact the children map can't express. `childrenByPath` gives `[]` both for an empty folder
+/// and for one the walk reported without reading, so a column reading only that map would show
+/// "Empty", a claim the walk never made. `isUnexplored(atPath:)` keeps the two apart.
 @Suite struct PaneChildrenIndexUnexploredTests {
 
     private func node(_ path: String, isDirectory: Bool = true,
@@ -120,8 +117,8 @@ import Events
         #expect(idx.isUnexplored(atPath: "/r/held"))
     }
 
-    /// **And one that is genuinely empty is not** — the whole point of keeping the two apart. Both
-    /// answer `[]` from the children map, which is why that map could not be the source of truth.
+    /// A genuinely empty directory is not flagged. Both answer `[]` from the children map, which is
+    /// why that map can't be the source of truth.
     @Test func aGenuinelyEmptyDirectoryIsNotFlagged() {
         let idx = index([node("/r/empty", children: [])])
         #expect(!idx.isUnexplored(atPath: "/r/empty"))
@@ -144,8 +141,8 @@ import Events
         #expect(!idx.isUnexplored(atPath: "/r/a/b"))
     }
 
-    /// **A path this index has never heard of is not a claim that a folder went unread.** False is
-    /// the safe direction: the caption falls back to whatever the rows say.
+    /// A path this index has never heard of is not a claim that a folder went unread. False is the
+    /// safe direction: the caption falls back to whatever the rows say.
     @Test func anUnknownPathIsNotFlagged() {
         #expect(!index([node("/r/a")]).isUnexplored(atPath: "/r/nowhere"))
         #expect(!index([node("/r/a")]).isUnexplored(atPath: ""))

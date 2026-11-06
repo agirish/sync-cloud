@@ -2,11 +2,9 @@ import Foundation
 
 /// What a folder's emptiness is, when it is empty enough to classify (ROADMAP v5 §5.2).
 ///
-/// **Crowding is a property of the scope, not a finding** — always non-zero on a real tree — so
-/// these never become cards or take a badge. The lens renders them as the crowding strip's three
-/// filtered counts, and only the ``empty`` class has a rule-backed action (the removal sheet):
-/// a single-file leaf can be a destination waiting for its next file, and a pass-through folder
-/// costs one click in a column view against a rename of every path beneath it.
+/// Crowding is a property of the scope, not a finding (it is never zero on a real tree), so these
+/// never become cards or badges. The lens shows them as the crowding strip's three counts, and only
+/// ``empty`` has an action, the removal sheet (see `StructureDeadWeight` for why).
 public enum DeadWeightClass: String, Equatable, Sendable, CaseIterable {
     /// No files, exactly one subfolder — `A/B/…` that could be `A/…`.
     case passThrough
@@ -34,16 +32,14 @@ public struct StructureReport: Equatable, Sendable {
 /// The whole detector set behind one call — pure functions of the profile, like the shape
 /// detector that ships (ROADMAP v5 §5.8).
 ///
-/// **Scope is deliberately not a parameter.** The report is computed once per profile and cached
-/// behind `FileSyncManager.structureReport`; the lens scopes it at render time by path prefix,
-/// which is how `LensWorkspaceView` already treats `structureFindings`. A scoped cache would be a
-/// second cache dimension with its own invalidation to get wrong, for no measured win.
+/// Scope is deliberately not a parameter. The report is computed once per profile and cached
+/// behind `FileSyncManager.structureReport`; the lens scopes it by path prefix at render time. A
+/// scoped cache would add invalidation to get wrong, for no measured win.
 public enum StructureDetectors {
 
     public static func run(in profile: FolderProfile) -> StructureReport {
-        // Built once and handed to every detector, the shape detector included. It used to build
-        // its own second copy AND, through `vocabulary`, re-walk the whole profile per child of
-        // every family — O(folders²), and 1.6 s of Organize's 1.9 s first-visit stall.
+        // Built once and handed to every detector: rebuilt per detector or per family child, the
+        // work is O(folders²) and stalls Organize's first visit.
         let children = StructureDivergence.families(in: profile)
         var findings = StructureDivergence.findings(in: profile, childrenByParent: children)
         findings += StructureBacklog.findings(in: profile, childrenByParent: children)
@@ -56,27 +52,25 @@ public enum StructureDetectors {
                                deadWeight: StructureDeadWeight.classify(profile))
     }
 
-    /// §5.2's grouping rule, applied at the source: two detectors naming one folder is correct —
-    /// they are different observations — but two cards about one folder scattered down the list
-    /// reads as a bug. **Sort a folder's rows together**, kinds in their declared order within a
-    /// subject, so the lens can let the first row carry the path as a heading. Cheaper than a
-    /// precedence table, and it never has to decide which observation matters more.
+    /// §5.2's grouping rule: two detectors may name one folder, but scattered down the list that
+    /// reads as a bug. So a folder's rows sort together, kinds in declared order, and the lens lets
+    /// the first carry the path as a heading. No precedence table has to rank the observations.
     static func grouped(_ findings: [StructureFinding]) -> [StructureFinding] {
         let order = Dictionary(uniqueKeysWithValues:
             FindingKind.allCases.enumerated().map { ($0.element, $0.offset) })
         let sorted = findings.sorted {
             ($0.subject, order[$0.kind] ?? .max) < ($1.subject, order[$1.kind] ?? .max)
         }
-        // One row per identity, deterministically: a folder can be seen twice by one kind's two
-        // sub-rules (a child echoing its parent AND a sibling), and `ForEach` over two rows with
-        // one id renders one of them twice. The sort above makes "first wins" stable.
+        // One row per identity: one kind's two sub-rules can see a folder twice (a child echoing
+        // its parent and a sibling), and `ForEach` over two rows with one id renders one twice.
+        // The sort makes "first wins" stable.
         var seen = Set<String>()
         return sorted.filter { seen.insert($0.id).inserted }
     }
 
     /// Name → tokens, for the rules that compare names: lowercased runs of letters and digits.
-    /// (`FilingRouter.tokenize` deliberately not reused — see `FolderSurveyBuilder`'s measured
-    /// .320-vs-.997 note on unifying tokenizers because both make tokens out of names.)
+    /// Deliberately not `FilingRouter.tokenize`; see `FolderSurveyBuilder.anchorWords` on why
+    /// tokenizers aren't unified.
     static func tokens(_ name: String) -> [String] {
         name.lowercased()
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })

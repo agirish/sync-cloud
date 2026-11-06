@@ -5,8 +5,8 @@
 
 import Foundation
 
-/// RD67's memory of the last state both sides agreed on: one-way sync from iCloud Drive ▸ Documents
-/// to Dropbox ▸ Documents.
+/// The one-way sync's memory of the last state both sides agreed on, syncing iCloud Drive ▸
+/// Documents to Dropbox ▸ Documents.
 ///
 /// Each side is diffed against this record, never against the other side, so it is the only
 /// thing that can tell "deleted in iCloud" from "added in Dropbox". It is tied to this Mac and
@@ -37,11 +37,11 @@ public struct OneWaySyncRecord: Codable, Equatable, Sendable {
     /// Files SyncCloud moved to Dropbox ▸ SyncCloud Removed because iCloud deleted them. If the
     /// iCloud ID turns up again, the file is moved back rather than uploaded again.
     public var removed: [OneWaySyncRemovedFile]
-    /// iCloud files whose copy Dropbox refused (ES): never counted as synced, listed as skipped,
+    /// iCloud files whose copy Dropbox refused: never counted as synced, listed as skipped,
     /// and tried again only once the file changes in iCloud.
     public var refused: [OneWaySyncRefusedFile]
     /// Copies SyncCloud wrote whose upload Dropbox hadn't reported by the pass's deadline: recorded
-    /// as synced, and read again at the next pass, which lists a refused one as skipped (ES) and
+    /// as synced, and read again at the next pass, which lists a refused one as skipped and
     /// stops at once while Dropbox still reports the account full.
     public var pendingUploads: [OneWaySyncPendingUpload]
     /// The next unused `key`, shared by folder and file records.
@@ -205,7 +205,7 @@ public struct OneWaySyncFileRecord: Codable, Equatable, Sendable {
     public var dropboxModified: Int64?
     /// iCloud's change time (`st_ctimespec`) in nanoseconds since 1970, when the file was on this
     /// Mac as recorded; nil while it was offloaded, or unknown (a version 1 record). An edit that
-    /// keeps the size and date moves it (ET), and so do tags, attributes and offloading.
+    /// keeps the size and date moves it, and so do tags, attributes and offloading.
     public var changed: Int64?
     public var tags: [String]
     public var contentHash: String?

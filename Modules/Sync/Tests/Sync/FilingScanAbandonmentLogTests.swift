@@ -5,20 +5,14 @@ import EventsTestSupport
 @testable import Sync
 
 /// A started Filing scan must account for itself in the log, however it ends.
-///
-/// `findFilingSuggestions` is a sequence of `await`s punctuated by cancellation checks, and every
-/// one of those was a bare `return`. A scan could therefore be started — announced, in the
-/// auto-rescan case — and then abandoned without writing a line, which left the log unable to
-/// distinguish "ran and found nothing" from "never ran". These pin the three ways out that
-/// produce no suggestions, and the one way out that does.
-///
-/// Folder names are unique per test on purpose: `Logger.shared` is a process-wide singleton and
-/// this suite runs alongside every other, so an assertion that matches on "some scan was
-/// abandoned" would be reading other tests' lines. Each test matches only its own folder.
+/// `findFilingSuggestions` is a run of `await`s and cancellation checks, and a silent exit leaves
+/// the log unable to tell "ran and found nothing" from "never ran". These pin the three exits that
+/// produce no suggestions and the one that does. Folder names are unique per test because
+/// `Logger.shared` is process-wide and suites run in parallel.
 @Suite struct FilingScanAbandonmentLogTests {
 
     /// The first line `log` captured containing `fragment`. A capture, not the shared buffer, so
-    /// the rest of the package logging past the line cannot take it away.
+    /// other suites logging past the line can't push it out.
     @MainActor
     private func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
         await log.entries.first { $0.message.contains(fragment) }?.message
@@ -31,9 +25,8 @@ import EventsTestSupport
         try Data(repeating: 0x41, count: bytes).write(to: url)
     }
 
-    /// The positive control, and the reason the two assertions below are worth anything: a scan
-    /// that runs to completion logs its result and says nothing about abandonment. Without this,
-    /// a `defer` that logged unconditionally would pass every test in this suite.
+    /// Control: a scan that completes logs its result and nothing about abandonment. Without it, a
+    /// `defer` that logged unconditionally would pass every test here.
     @MainActor
     @Test func aScanThatCompletesReportsItsResultAndNotAbandonment() async throws {
         let log = LogCapture()
@@ -53,10 +46,9 @@ import EventsTestSupport
                 "a completed scan must not claim it was abandoned")
     }
 
-    /// Cancellation — the case that produced no line at all. The scan is cancelled before its
-    /// body reaches the first cancellation check, so it stops in phase 1, and the line has to say
-    /// so: naming the phase is what separates "gave up before reading anything" from "gave up
-    /// after the expensive classifier pass".
+    /// Cancellation. The scan is cancelled before its first cancellation check, so it stops in
+    /// phase 1, and the line names the phase: "gave up before reading anything" and "gave up after
+    /// the expensive classifier pass" must read differently.
     @MainActor
     @Test func aCancelledScanSaysWhichPhaseItStoppedIn() async throws {
         let log = LogCapture()
@@ -68,8 +60,8 @@ import EventsTestSupport
         let manager = FileSyncManager()
         manager.startFindFilingSuggestions(folder: root.appendingPathComponent("CancelledMidScan"),
                                            providerRoot: root)
-        // Synchronous, so it lands before the task body gets its first chance to run: the scan
-        // observes cancellation at the check after the loose-file walk, still in phase 1.
+        // Synchronous, so it lands before the task body first runs: the scan sees cancellation at
+        // the check after the loose-file walk, still in phase 1.
         manager.cancelFindFilingSuggestions()
         await manager.filingScanTask?.value
 
@@ -84,14 +76,9 @@ import EventsTestSupport
                 "a cancelled scan must not log a result")
     }
 
-    /// The case this was reported from: an auto-rescan announces itself into the log *before* the
-    /// scan starts, so its announcement is a promise the scan can break. Whatever else happens,
-    /// the announcement must be followed by an accounting — here, an abandonment naming the phase.
-    ///
-    /// The observed incident turned out not to be an abandoned scan at all (the scan completed
-    /// 58 minutes late, blocked walking an iCloud-backed folder that makes no progress while the
-    /// display is asleep), but reading the log could not establish that: silence was consistent
-    /// with all four silent exits as well as with a scan still running. That is what this closes.
+    /// An auto-rescan logs its announcement before the scan starts, so the announcement must always
+    /// be followed by an accounting, here an abandonment naming the phase. Otherwise silence can't
+    /// be told from a scan still running (say, an iCloud walk stalled while the display sleeps).
     @MainActor
     @Test func anAnnouncedAutoRescanIsAlwaysFollowedByAnAccounting() async throws {
         let log = LogCapture()
@@ -122,9 +109,8 @@ import EventsTestSupport
                 "and name the phase, got: \(line ?? "no line")")
     }
 
-    /// The re-entrancy guard, which returns before `beginScan` and so is the one exit the `defer`
-    /// cannot cover. It reports itself, and it reports itself as a no-op rather than as an
-    /// abandonment — nothing was given up, the running scan covers the same ground.
+    /// The re-entrancy guard returns before `beginScan`, the one exit the `defer` can't cover. It
+    /// reports itself as a no-op, not an abandonment: the running scan covers the same ground.
     @MainActor
     @Test func aScanRefusedBecauseOneIsRunningSaysThatInsteadOfNothing() async throws {
         let log = LogCapture()

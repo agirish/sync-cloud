@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// RD67's matching order, through the examples the design names: what each record now is on
-/// disk, and the plan that follows from it.
+/// One-way sync's matching order, through the examples the design names: what each record now is
+/// on disk, and the plan that follows from it.
 @Suite struct OneWaySyncMatchingTests {
     static let a = "Finance/a.pdf"
     static let b = "Finance/b.pdf"

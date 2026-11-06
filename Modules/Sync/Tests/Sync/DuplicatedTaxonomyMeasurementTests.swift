@@ -2,23 +2,21 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The §5.9 measurement** (proposal O18) — the yield of the duplicated-taxonomy detector on the
-/// reference tree, and the share threshold swept across it.
+/// The duplicated-taxonomy detector's yield on the reference tree, with the share threshold swept
+/// across it (`ROADMAP.md` §5.9).
 ///
-/// The roadmap's standing order for this detector is that **no number goes anywhere until a scan
-/// has run**: its yield cannot be derived from `folder-profile.json` the way the other seven
-/// detectors' were, because its evidence is document *content*. This suite is that scan, run
-/// through the production path — `DuplicateFinder.findGroups` over a real walk of the profile's
-/// root, fed the persisted content-hash and content-fingerprint indexes the app itself uses, then
-/// `StructureDuplicatedTaxonomy.findings` over the groups that come back.
+/// Its yield can't be derived from `folder-profile.json` as the other detectors' can, because its
+/// evidence is document content, so no number is written down until a scan has run. This is that
+/// scan, through the production path: `DuplicateFinder.findGroups` over a real walk of the
+/// profile's root, fed the app's persisted content-hash and fingerprint indexes, then
+/// `StructureDuplicatedTaxonomy.findings` over the groups.
 ///
-/// It **prints** rather than asserting a yield. A count off one machine's tree is a measurement,
-/// not an invariant, and pinning it here would fail the moment he files a document. What the
-/// pinned fixture next door asserts is the *rule*; this is where the number to write down comes
-/// from, and the line it prints is the evidence for the note in ROADMAP v5 §5.9.
+/// It prints rather than asserting a yield: one machine's count is a measurement, not an
+/// invariant, and would fail the moment he files a document. The fixture next door asserts the
+/// rule.
 ///
-/// Machine-pinned on `liveProfile`: it needs his profile, his tree and his indexes. On CI that
-/// gate is closed by design, and the report line says so rather than the suite vanishing.
+/// Machine-pinned on `liveProfile`: it needs his profile, tree and indexes. On CI that gate is
+/// closed by design, and the report line says so rather than the suite vanishing.
 @Suite(.machinePinned(.liveProfile))
 struct DuplicatedTaxonomyMeasurementTests {
 
@@ -62,13 +60,11 @@ struct DuplicatedTaxonomyMeasurementTests {
             return
         }
 
-        // **The reachability gate, and it is the one that actually bites.** `~/Documents` is
-        // TCC-protected: a `swift test` process whose responsible app has not been granted Full
-        // Disk Access gets "Operation not permitted" and the walker returns an EMPTY tree with
-        // `stalled == false` — indistinguishable, downstream, from a tree with no duplicates in
-        // it. The first version of this suite printed "0 findings" at every threshold on exactly
-        // that basis, which is the false zero §5.9's standing order exists to keep out of the
-        // roadmap. So the tree is checked for content before a single number is computed.
+        // The reachability gate. `~/Documents` is TCC-protected: a `swift test` process whose
+        // responsible app lacks Full Disk Access gets "Operation not permitted", and the walker
+        // returns an empty tree with `stalled == false`, indistinguishable from a tree with no
+        // duplicates. That would print a false "0 findings" at every threshold, so the tree is
+        // checked for content before any number is computed.
         guard !FileManager.default.contents(ofDirectoryReadable: root).isEmpty else {
             print("[dup-taxonomy] BLOCKED — \(root) is not readable by this process "
                   + "(TCC: Full Disk Access). NOTHING was measured; any zero below would be a "
@@ -117,9 +113,8 @@ struct DuplicatedTaxonomyMeasurementTests {
         let sameText = groups.filter { $0.matchType == .sameText && !$0.isDirectory }
         print("[dup-taxonomy] groups=\(groups.count) sameText=\(sameText.count)")
 
-        // The sweep: the open question §5.9 carries is whether the share of the smaller folder
-        // should be a half or a third. Both, plus the ends, so the shape of the curve is visible
-        // rather than two points to choose between.
+        // The sweep: the open question is whether the share of the smaller folder should be a
+        // half or a third. Both, plus the ends, so the shape of the curve is visible.
         for share in [0.2, 1.0 / 3.0, 0.5, 0.75, 1.0] {
             let findings = StructureDuplicatedTaxonomy.findings(
                 groups: groups, in: profile, minimumShare: share)
@@ -134,10 +129,8 @@ struct DuplicatedTaxonomyMeasurementTests {
             if pairs.count > 12 { print("[dup-taxonomy]     … \(pairs.count - 12) more") }
         }
 
-        // The one thing that is not a matter of how the tree looks today: a lower share threshold
-        // can only admit more pairs, never fewer. A sweep that violated this would mean the
-        // filter is not the monotone rule it is written as, and every number above would be
-        // uninterpretable.
+        // What doesn't depend on the tree: a lower share threshold can only admit more pairs,
+        // never fewer. If not, the filter isn't monotone and every number above is meaningless.
         let loose = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile,
                                                           minimumShare: 0.2).count
         let tight = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile,
@@ -147,8 +140,8 @@ struct DuplicatedTaxonomyMeasurementTests {
 }
 
 private extension FileManager {
-    /// The root's own entries, or empty when the process may not look — the distinction the
-    /// walker erases, and the one that decides whether a zero below means anything.
+    /// The root's own entries, or empty when the process may not look: the distinction the walker
+    /// erases, and the one that decides whether a zero means anything.
     func contents(ofDirectoryReadable path: String) -> [String] {
         (try? contentsOfDirectory(atPath: path)) ?? []
     }

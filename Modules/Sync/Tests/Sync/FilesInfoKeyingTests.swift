@@ -4,21 +4,19 @@ import Testing
 
 /// Pins `filesInfo(fromTree:basePath:)`'s keys.
 ///
-/// A key is the path of NAMES from the base down to the node, read off the tree's shape — the
-/// function's doc says why. Before that, each key was stripped off the node's id; `legacyKey`
-/// below is that strip as it first shipped, verbatim. The two must agree wherever the strip was
-/// right, which is every node whose id continues its parent's: every node the walk lists in place,
-/// in any script or normalization, under a base spelled either way. The first group pins that, each
-/// case against a written-out key AND the strip — two implementations agreeing proves only that
-/// they agree, and the literal is what says the agreed answer is the right one.
+/// A key is the path of names from the base down to the node, read off the tree's shape (the
+/// function's doc says why). `legacyKey` below strips the key off the node's id instead; the two
+/// must agree on every node whose id continues its parent's, in any script or normalization, under
+/// a base spelled either way. The first group pins that, each case against a written-out key and
+/// the strip, since two implementations agreeing proves only that they agree.
 ///
-/// The second group pins where they part, on purpose. A node whose id does NOT continue its
-/// parent's is what the walk makes of a folder linked in from outside — listed in the link's place
-/// as the real folder — and of anything reached through a folder symlink, whose listing comes back
-/// resolved. It is keyed where it sits, because that is where the disk walk keys it.
+/// The second group pins where they part. A node whose id doesn't continue its parent's is what the
+/// walk makes of a folder linked in from outside (listed in the link's place as the real folder)
+/// and of anything reached through a folder symlink, whose listing comes back resolved. It is keyed
+/// where it sits, as the disk walk keys it.
 @Suite struct FilesInfoKeyingTests {
 
-    /// The id strip as it first shipped, kept exactly as it was.
+    /// The id-strip keying, kept verbatim as the second implementation.
     private func legacyKey(_ id: String, basePath: String) -> String {
         var relativePath = id
         if relativePath.hasPrefix(basePath) {
@@ -75,8 +73,8 @@ import Testing
               "non-ASCII names")
     }
 
-    /// A multi-byte base, where a byte count and a grapheme count of it disagree — which the strip
-    /// had to get right, and which the shape never counts at all.
+    /// A multi-byte base, where its byte and grapheme counts disagree: the strip must count right,
+    /// and the shape never counts at all.
     @Test func keysATreeUnderANonAsciiBase() {
         check([branch(under: "/a/café", "x.txt")], base: "/a/café",
               expected: ["/a/café/x.txt": "x.txt"], "accented base")
@@ -126,8 +124,8 @@ import Testing
         #expect(map.count == 1, "the root was keyed by its name as well: \(map.keys)")
     }
 
-    /// A base node that DOES carry children. No walk returns one, but the strip keyed them from the
-    /// base, and so does the shape — from the base, not from under the base's own name.
+    /// A base node that does carry children. No walk returns one; the strip and the shape both key
+    /// them from the base, not from under the base's own name.
     @Test func theBasesOwnChildrenKeyFromTheBase() {
         let root = FileNode(id: "/a/b", name: "b", isDirectory: true, children: [branch(under: "/a/b", "d/e.txt")])
         check([root], base: "/a/b", expected: ["/a/b/d": "d", "/a/b/d/e.txt": "d/e.txt"], "the base's children")
@@ -135,12 +133,12 @@ import Testing
 
     // MARK: - Where they part, on purpose
 
-    /// **A folder the walk lists in a link's place is keyed where it sits.** The walk substitutes the
-    /// real folder for one linked in from outside — iCloud Drive's `Documents` — so its id and every
-    /// id under it say where the folder really is (`/U/Documents`), nowhere near the base. The strip
-    /// keyed them off those ids, near-absolute, where the disk walk keys them under the link. The
-    /// base here is the container's parent (a Compare on `~/Library`): no table at the base names
-    /// the link, so no lookup in one could have fixed it.
+    /// A folder the walk lists in a link's place is keyed where it sits. The walk substitutes the
+    /// real folder for one linked in from outside (iCloud Drive's `Documents`), so every id under it
+    /// says where the folder really is (`/U/Documents`), nowhere near the base. The strip keys them
+    /// near-absolute, where the disk walk keys them under the link. The base here is the
+    /// container's parent (a Compare on `~/Library`): no table at the base names the link, so no
+    /// lookup can fix it.
     @Test func aLinkedFolderIsKeyedWhereTheWalkListedIt() {
         let tree = [FileNode(id: "/L/c", name: "c", isDirectory: true, children: [
             FileNode(id: "/U/Documents", name: "Documents", isDirectory: true, children: [
@@ -153,11 +151,11 @@ import Testing
         #expect(legacyKey("/U/Documents/x.txt", basePath: "/L") == "U/Documents/x.txt", "what the strip made of it")
     }
 
-    /// **A folder the walk reaches twice is keyed once per route.** At Home, `~/Documents` is a
-    /// child of the base AND where the container's link leads; the walk lists it in both places
-    /// with one id, and marks the container's copy `isCoveredElsewhere`. The strip keyed both copies
-    /// onto the direct one's keys, so the container's vanished, where the disk walk lists both —
-    /// and that flag is for consumers that add the tree up, not for this one.
+    /// A folder the walk reaches twice is keyed once per route. At Home, `~/Documents` is a child of
+    /// the base and where the container's link leads; the walk lists it in both places with one id
+    /// and marks the container's copy `isCoveredElsewhere`. The strip keys both onto the direct
+    /// one's keys and loses the container's copy, which the disk walk lists. That flag is for
+    /// consumers that add the tree up, not this one.
     @Test func aFolderReachedTwiceIsKeyedOncePerRoute() {
         let note = FileNode(id: "/H/Documents/x.txt", name: "x.txt", isDirectory: false)
         let tree = [
@@ -177,11 +175,10 @@ import Testing
                 "what the strip made of BOTH copies")
     }
 
-    /// **So where a node's id says it lives never enters its key — only its own name does.** These
-    /// are inputs the strip once pinned as "what shipped": a sibling sharing the base's prefix kept
-    /// the tail of its name, a path outside the base kept the path, and a byte match that split a
-    /// grapheme kept the whole path. Each keyed a node off its absolute path — the shape of the
-    /// defect above — where a top-level node is a child of the base, keyed by its name.
+    /// So where a node's id says it lives never enters its key; only its own name does. Under the
+    /// strip, each of these (a sibling sharing the base's prefix, a path outside the base, a byte
+    /// match splitting a grapheme) keeps part or all of its absolute path. A top-level node is a
+    /// child of the base, keyed by its name.
     @Test func aTopLevelNodeIsKeyedByItsNameWhereverItsPathPoints() {
         let cases: [(id: String, base: String, legacy: String)] = [
             ("/a/bb/x.txt", "/a/b", "b/x.txt"),
@@ -220,32 +217,21 @@ import Testing
         var baseHoldsTheTargets: Bool { self == .aboveTheContainerAndItsTargets }
     }
 
-    /// The invariant `FileInfo`'s own doc claims — "the warm (tree) and cold (disk walk) scan
-    /// branches agree" — asserted WHOLESALE over a real directory, rather than field by field on
-    /// a few chosen keys as the existing symlink test does.
+    /// The invariant `FileInfo`'s own doc claims, that the warm (tree) and cold (disk walk) scan
+    /// branches agree, asserted wholesale over a real directory rather than field by field. They
+    /// build URLs from different sources (the enumerator's URLs, a node's path string), and a
+    /// divergence makes a scan report differently depending on whether the cache was warm.
     ///
-    /// It is here because the `isDirectory:` hint changed how the warm branch builds its URLs,
-    /// and the two branches build them from entirely different sources: the cold one takes the
-    /// enumerator's URLs, the warm one constructs them from a node's path string. Nothing
-    /// previously compared the maps as a whole, so a divergence between them — the exact thing
-    /// that makes a scan report differently depending on whether the cache happened to be warm —
-    /// could only have been caught by noticing a wrong row in the UI.
+    /// A folder linked in from outside the root is one such shape: iCloud Drive's `Documents`, at
+    /// the container. The walk lists it as the folder it points at, so its nodes carry the real
+    /// path, which the base is no prefix of. Keyed by prefix they'd come out near-absolute while the
+    /// disk walk keys them through the link, and a warm Compare would offer to copy the whole folder
+    /// into `<other side>/Users/…/Documents`. The table is the fixture's own.
     ///
-    /// **A folder linked in from outside the root is one of those shapes** — iCloud Drive's
-    /// `Documents`, at the container. The walk lists it as the folder it points at, so its nodes
-    /// carry the REAL path, which the base is no prefix of; keyed by plain prefix they came out
-    /// near-absolute (`private/var/…/Documents/report.txt`) while the disk walk keyed them through
-    /// the link (`Documents/report.txt`), and a warm Compare at the container offered to copy the
-    /// whole folder into `<other side>/Users/…/Documents`. The table is the fixture's own.
-    ///
-    /// **And the base need not BE the container** — run at every distance one can sit from it.
-    /// One level above it (a Compare on `~/Library`) the walk still substitutes the links where it
-    /// lists the container, and the warm map keyed those nodes near-absolute again, because the
-    /// table it consulted names the container, not the base. At an ancestor that also holds the
-    /// links' targets (a Compare at Home), the real folder is reached twice — directly, and through
-    /// the container, where the walk marks it `isCoveredElsewhere` — and both routes keyed onto the
-    /// direct one's keys, so the container's copy of the subtree vanished from the map while the
-    /// disk walk listed it under the container.
+    /// Run at every distance the base can sit from the container. One level above it (`~/Library`)
+    /// the walk still substitutes the links, and a table naming the container can't key them. At an
+    /// ancestor that also holds the targets (Home), the real folder is reached twice, directly and
+    /// through the container (marked `isCoveredElsewhere`), and each route must keep its own keys.
     @Test(arguments: LinkedContainerPlacement.allCases)
     func warmAndColdBranchesProduceTheSameMap(_ placement: LinkedContainerPlacement) async throws {
         let fm = FileManager.default
@@ -253,12 +239,11 @@ import Testing
         let outside = try makeCanonicalTempRoot(prefix: "WarmColdAgreementOutside")
         defer { try? fm.removeItem(at: root); try? fm.removeItem(at: outside) }
 
-        // Shapes that have historically diverged or been handled specially: nested dirs, an
-        // empty dir, a dotfile, non-ASCII and NFD names, a name with a trailing space, a name that
-        // opens with a combining mark (one Character with the `/` before it, so a Character-wise
-        // strip left the disk walk's key its slash), a symlink to a file (a broken link is dropped
-        // by both, pinned elsewhere), and two folders linked into a container from outside it,
-        // the container sitting where `placement` says.
+        // Shapes that need care: nested dirs, an empty dir, a dotfile, non-ASCII and NFD names, a
+        // trailing space, a name opening with a combining mark (one Character with the `/` before
+        // it, so a Character-wise strip would keep the slash), a symlink to a file (a broken link
+        // is dropped by both, pinned elsewhere), and two folders linked into a container from
+        // outside it, the container sitting where `placement` says.
         try fm.createDirectory(at: root.appendingPathComponent("dir/sub"), withIntermediateDirectories: true)
         try fm.createDirectory(at: root.appendingPathComponent("empty"), withIntermediateDirectories: true)
         try Data("a".utf8).write(to: root.appendingPathComponent("dir/a.txt"))
@@ -326,15 +311,15 @@ import Testing
         }
     }
 
-    /// The other way a node's id stops continuing its parent's, and the commoner: **`contentsOfDirectory(at:)`
-    /// hands back symlink-RESOLVED URLs for a folder reached through a symlink** — listing
-    /// `dlink/sub` returns `real/sub/deep`, measured. So the tree's ids go real from two levels below
-    /// any folder link, and everywhere under a base reached through one.
+    /// The other way a node's id stops continuing its parent's, and the commoner:
+    /// `contentsOfDirectory(at:)` returns symlink-resolved URLs for a folder reached through a
+    /// symlink (listing `dlink/sub` returns `real/sub/deep`). So the tree's ids go real from two
+    /// levels below any folder link, and everywhere under a base reached through one.
     enum FolderSymlinkShape: String, CaseIterable, Sendable {
-        /// A folder symlink inside the base: the strip keyed `dlink/sub/deep` onto `real/sub/deep`,
-        /// and the link's copy vanished.
+        /// A folder symlink inside the base: the strip keys `dlink/sub/deep` onto `real/sub/deep`,
+        /// losing the link's copy.
         case aLinkInsideTheBase
-        /// A pane focused inside a linked folder: every key came out near-absolute.
+        /// A pane focused inside a linked folder: under the strip, every key is near-absolute.
         case aBaseInsideALinkedFolder
         /// A root spelled through a symlink, `/var/…` for `/private/var/…`: near-absolute again.
         case aBaseSpelledThroughASymlink
@@ -384,8 +369,8 @@ import Testing
         }
     }
 
-    /// The `isDirectory:` hint added to the URL initializer must not change what consumers read.
-    /// Every production reader of `FileInfo.url` goes through `.path`.
+    /// The `isDirectory:` hint on the URL initializer must not change what consumers read; every
+    /// production reader of `FileInfo.url` goes through `.path`.
     @Test func theDirectoryHintLeavesUrlPathUnchanged() {
         let dir = FileNode(id: "/a/b/sub", name: "sub", isDirectory: true, children: [])
         let file = FileNode(id: "/a/b/f.txt", name: "f.txt", isDirectory: false)

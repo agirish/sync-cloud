@@ -3,26 +3,21 @@ import Foundation
 /// The defaults Reset All Settings leaves in place: what protects him, what records money spent,
 /// what he made by hand, and the marks that say which shape the stored data is in.
 ///
-/// - **The Never show Claude list.** A reset that emptied it showed Claude every folder he had hidden.
-/// - **The spending limits** — Ask Claude's monthly limit and Refine's monthly and lifetime caps. A
-///   reset returned them to $25, no cap and $5, which loosens a limit he had set lower.
-/// - **The spend records** — Ask Claude's per-month totals, and Refine's history, lifetime totals,
-///   last scan and the `.unreadable` copies of a history or total that failed to read. They are what
-///   the limits count against: wiped, this month's limit started again from nothing.
-/// - **What he made by hand** — Rules, saved signatures, Organize's "not here" corrections, the
-///   duplicate groups he kept separate, the risky names he kept, the people he said a file was not
-///   about, and his sidebar Favorites, Jump pins and their order. Choices about his files, not
-///   settings. The legacy filing rules go with their "migrated" flag: under a reset flag, the next
-///   launch would migrate them again, bringing back any legacy rule he had since deleted or changed.
-///   What he only passed through resets: Jump recents and stays, recent files, the Add Signature
-///   sheet's last face, pen and smoothing.
-/// - **Migration marks.** What the running app writes after a reset — its tabs, at once — is in the
-///   current shape, so a reset that dropped the mark had the next launch migrate it again — and the
-///   roots moves are not idempotent: `RootsMigration.stampKey`'s note says a second pass prepends
-///   again, `Documents/Documents/…`.
+/// - The Never show Claude list: emptied, Claude would see every folder he hid.
+/// - The spending limits (Ask Claude's monthly limit, Refine's monthly and lifetime caps): reset
+///   defaults would loosen a limit he set lower.
+/// - The spend records the limits count against, including `.unreadable` copies: wiped, this
+///   month's limit would start again from nothing.
+/// - What he made by hand: Rules, saved signatures, Organize corrections, kept duplicate groups and
+///   risky names, the people he said a file is not about, sidebar Favorites, Jump pins and their
+///   order. The legacy filing rules keep their "migrated" flag, or the next launch would bring back
+///   rules he deleted. What he only passed through (Jump recents, recent files, the signature
+///   sheet's last pen) resets.
+/// - Migration marks: the app writes current-shape data at once after a reset, so a dropped mark
+///   would migrate it again, and the roots moves are not idempotent (`RootsMigration.stampKey`).
 ///
-/// Everything else in the domain is reset, `askClaudeSharedFolders` included: its default, none,
-/// is the stricter one.
+/// Everything else resets, `askClaudeSharedFolders` included: its default, none, is the stricter
+/// one.
 public enum SettingsResetKeeps {
 
     public static let keys: Set<String> = [
@@ -62,8 +57,8 @@ public enum SettingsResetKeeps {
         "paneBarArrangementMigration",          // PaneBar.migrationKey
         "browseSidebarFavoritePlacesMigration", // SidebarFavoritePlaces.migrationKey
         "paneColumnWidthFloorLifted",           // PaneViewMode.columnWidthFloorLiftKey
-        // InfoPreviewMigration.doneKey (the app's): run again after a reset, it read the preview's
-        // reset keys as on and opened Info (review 2 of 11-04). Pinned by the app's tests.
+        // InfoPreviewMigration.doneKey (the app's): run again after a reset, it would read the
+        // preview's reset keys as on and open Info. Pinned by the app's tests.
         "infoPreviewMigrationDone",
     ]
 

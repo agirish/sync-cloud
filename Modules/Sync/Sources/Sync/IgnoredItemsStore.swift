@@ -1,25 +1,15 @@
 import Foundation
 import Events
 
-/// Persists the paths the user ignored from the Differences list (and pane context menus)
-/// so they survive rescans, navigation, and app relaunches. `FileSyncManager.ignoredPaths`
-/// remains the session layer (focus-relative, cleared on navigation); this store holds the
-/// durable set in *pane-root-relative* coordinates, keyed per provider pair so ignores for
-/// one comparison never bleed into another.
+/// Persists the paths the user ignored from the Differences list (and pane context menus) across
+/// rescans, navigation and relaunches. `FileSyncManager.ignoredPaths` is the session layer
+/// (focus-relative, cleared on navigation); this store holds the durable set, pane-root-relative,
+/// keyed per provider pair so one comparison's ignores never bleed into another.
 ///
-/// The pair key is unordered, so one key serves the pair in either orientation and a pane swap
-/// keeps the same stored set.
-///
-/// **That costs an extra rule, and it is not this type's to enforce.** The key names two ids and
-/// says nothing about which pane held which — which was free while every source's root was its
-/// documents folder, because an item's root-relative path then read the same from either side.
-/// A source's root is now the account above that folder and it lands at `openAt`, so the same
-/// item is `Family/x` from an iCloud pane and `Documents/Family/x` from a OneDrive one. Entries
-/// here are therefore quoted against **the source whose id sorts first** — the id this key names
-/// first — rather than against whichever source is currently on the left, so a swap re-reads the
-/// same strings rather than the other source's. `FileSyncManager.ignoreAnchorIsLeft` is that
-/// choice; `RootsMigration.rebaseIgnoredItems` makes the same one when it moves the entries into
-/// the new roots.
+/// The pair key is unordered, so a pane swap keeps the same set. **Entries are relative to the
+/// source whose id sorts first**, not to whichever is on the left: the same item can be `Family/x`
+/// from one source's root and `Documents/Family/x` from another's. Callers enforce this
+/// (`FileSyncManager.ignoreAnchorIsLeft`, `RootsMigration.rebaseIgnoredItems`).
 @MainActor
 public final class IgnoredItemsStore: ObservableObject {
     /// Root-relative paths ignored for the currently active provider pair. Published so the
@@ -40,8 +30,8 @@ public final class IgnoredItemsStore: ObservableObject {
         "ignoredItems_v1_" + [providerIdA, providerIdB].sorted().joined(separator: "|")
     }
 
-    /// Loads the persisted set for the given pair key; no-op when the key is already active
-    /// (so provider-id onChange churn during launch/swap never clobbers unsaved edits).
+    /// Loads the persisted set for the given pair key; a no-op when the key is already active, so
+    /// provider-id onChange churn during launch or swap never clobbers unsaved edits.
     public func activate(pairKey: String) {
         guard pairKey != activeKey else { return }
         activeKey = pairKey
@@ -76,16 +66,10 @@ public final class IgnoredItemsStore: ObservableObject {
 
     private func save() {
         guard let activeKey else {
-            // No pair is active yet, so there is nowhere to write. The edit already landed in the
-            // published set, which is what the UI shows — so an ignore added before `activate()`
-            // (a context-menu Ignore during launch, before the provider-id onChange has fired)
-            // looked durable and silently vanished on relaunch. Nothing else reports this: the
-            // caller gets no return value and no error, and the visible state is indistinguishable
-            // from a successful save. Say so in the log so the disappearance is explainable.
-            // Deliberately does NOT quote a count: `rootRelativePaths` is the post-mutation set, so
-            // it describes the whole session rather than this edit — and after a `remove`/`removeAll`
-            // it would read "0 ignore(s) were not persisted", which says the opposite of what
-            // happened.
+            // No pair is active yet, so there is nowhere to write, though the UI already shows the
+            // edit: an ignore made before `activate()` would look saved and vanish on relaunch.
+            // Logged so that is explainable. No count: `rootRelativePaths` is the whole
+            // post-mutation set, not this edit.
             Logger.shared.warning("Ignored items: this change was not persisted — no provider pair is active yet, so it is session-only and will be gone on relaunch")
             return
         }

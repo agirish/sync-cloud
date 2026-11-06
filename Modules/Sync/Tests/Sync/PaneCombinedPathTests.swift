@@ -4,9 +4,8 @@ import Events
 @testable import Sync
 
 /// The header renders one location, but a pane holds two: its comparison scope and where it is
-/// browsing inside it. Joining them is what stops the path line describing a folder the pane is not
-/// showing; splitting a click back apart is what stops a crumb inside the scope triggering a
-/// rescan it does not need.
+/// browsing inside it. Joining them keeps the path line on the folder the pane shows; splitting a
+/// click back apart stops a crumb inside the scope triggering a needless rescan.
 @MainActor
 @Suite struct PaneCombinedPathTests {
 
@@ -77,9 +76,8 @@ import Events
 
     // MARK: - Tree draws no columns
 
-    /// The reported bug, in the model: a pane flipped to Tree kept its header reading the folder
-    /// the columns were last parked in — `Documents/Claude/Projects/Investing` over a tree sitting
-    /// at its root. Tree lists the scope whole, so the scope is where that pane *is*.
+    /// A pane flipped to Tree must not keep its header on the folder its columns were parked in.
+    /// Tree lists the scope whole, so the scope is where that pane is.
     @Test func testATreePaneIsAtItsScopeNotWhereItsParkedColumnsStopped() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Claude", isLeft: true)
@@ -90,14 +88,12 @@ import Events
         #expect(m.paneLocation(isLeft: true, drawsColumns: false) == "Claude",
                 "a tree pane's header must not name a folder only its parked columns knew about")
 
-        // Parked, not cleared: the whole reason the two answers differ is that flipping back to
-        // Columns has to restore the columns *and* the path that describes them.
+        // Parked, not cleared: flipping back to Columns restores the columns and their path.
         #expect(m.leftBrowsePath.components == ["Projects", "Investing"])
         #expect(m.paneLocation(isLeft: true, drawsColumns: true) == "Claude/Projects/Investing")
     }
 
-    /// A tree pane at its root has nothing below the root crumb, which is the shape the screenshot
-    /// showed — and the one place a stale stack was loudest.
+    /// A tree pane at its root has nothing below the root crumb, whatever stack is parked.
     @Test func testATreePaneAtItsRootReadsAsTheRootEvenWithADeepStackParked() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Home", "Accessories"])
@@ -106,9 +102,9 @@ import Events
         #expect(m.paneLocation(isLeft: true, drawsColumns: true) == "Home/Accessories")
     }
 
-    /// In Tree every crumb and quick-jump target is a re-root: routing one into the stack wrote to
-    /// state the pane draws nowhere, so the click landed on nothing at all. Re-rooting is also what
-    /// puts the move on the back stack, where a navigation belongs.
+    /// In Tree every crumb and quick-jump target is a re-root: routing one into the stack would
+    /// write state the pane draws nowhere, so the click would do nothing. Re-rooting also puts the
+    /// move on the back stack.
     @Test func testATreeCrumbReRootsRatherThanMovingAStackItCannotDraw() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Home"])
@@ -119,8 +115,8 @@ import Events
         #expect(m.canGoBack(isLeft: true, drawsColumns: false), "a tree navigation must be undoable by Back")
     }
 
-    /// The same click in Columns is a browse move — the two presentations really do route the same
-    /// crumb differently, which is why the flag is threaded rather than assumed.
+    /// The same click in Columns is a browse move: the two presentations route the same crumb
+    /// differently, which is why the flag is passed in rather than assumed.
     @Test func testTheSameCrumbIsABrowseMoveInColumns() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Home"])
@@ -130,11 +126,9 @@ import Events
         #expect(m.leftBrowsePath.components == ["Family"])
     }
 
-    /// Clicking the folder a tree is already rooted at must not stack a history entry that makes
-    /// Back appear to stall — and it must leave the parked stack alone. The Columns branch for the
-    /// same path drops the stack deliberately (that crumb *means* "back to the resting column"), so
-    /// a tree click routed through it would silently throw away the columns waiting to be flipped
-    /// back to.
+    /// Clicking the folder a tree is already rooted at must not add a history entry (Back would
+    /// seem to stall) and must leave the parked stack alone. The Columns branch for that path drops
+    /// the stack on purpose, so a tree click routed through it would lose the parked columns.
     @Test func testATreeCrumbForTheFolderItIsAlreadyRootedAtChangesNothing() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Claude", isLeft: true)
@@ -148,9 +142,8 @@ import Events
                 "the parked columns must survive a click that moved nothing")
     }
 
-    /// `‹` in Tree: it must move the history, not spend the click unwinding columns nobody can see.
-    /// Three deep before flipping to Tree, Back used to do nothing three times over — and quietly
-    /// ate the stack that the flip back to Columns was going to restore.
+    /// `‹` in Tree moves the history, not columns nobody can see. Unwinding them would make Back do
+    /// nothing visible and eat the stack the flip back to Columns restores.
     @Test func testBackInTreeMovesTheHistoryAndLeavesTheParkedColumnsAlone() {
         let m = FileSyncManager()
         m.focusOn(relativePath: "Claude", isLeft: true)
@@ -160,8 +153,7 @@ import Events
         #expect(m.leftRelativePath == "", "one Back must undo the one real navigation")
         #expect(m.leftBrowsePath.components == ["Projects", "Investing"], "the parked stack is not Back's to spend")
 
-        // The same pane in Columns really does step out of a column first — the branch that is
-        // right there and wrong here.
+        // The same pane in Columns does step out of a column first.
         m.focusOn(relativePath: "Claude", isLeft: true)
         m.leftBrowsePath = PaneBrowsePath(components: ["Projects", "Investing"])
         m.goBack(isLeft: true, drawsColumns: true)
@@ -184,15 +176,15 @@ import Events
         #expect(!m.canGoForward(isLeft: true, drawsColumns: false))
     }
 
-    /// The presentation is per pane, so a linked crumb click is genuinely two different moves at
-    /// once. Asking the clicked pane's mode on the sibling's behalf is the bug this rules out.
+    /// The presentation is per pane, so a linked crumb click can be two different moves at once.
+    /// The sibling must route by its own mode, not the clicked pane's.
     @Test func testLinkedPanesEachRouteThroughTheirOwnPresentation() {
         let m = FileSyncManager()
         m.leftBrowsePath = PaneBrowsePath(components: ["Home"])
         m.rightBrowsePath = PaneBrowsePath(components: ["Home"])
 
-        // The sibling really has `Family`, so the prune that follows a browse move keeps it — this
-        // test is about routing, and an index that pruned the stack away would hide the answer.
+        // The sibling has `Family`, so the prune after a browse move keeps it and can't hide the
+        // routing under test.
         let family = FileNode(id: "/other/Family", name: "Family", isDirectory: true, children: [])
         m.navigateBothPanes(toCombinedPath: "Family", from: true,
                             drawsColumns: false, otherDrawsColumns: true,

@@ -4,10 +4,9 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Pins the bulk-failure alert aggregation: `currentError` holds one error at a time, so a
-/// bulk run with several failures must present a single aggregate summary (every failure is
-/// still logged individually) instead of presenting per failure and leaving only the last
-/// one visible.
+/// Pins the bulk-failure alert aggregation: `currentError` holds one error at a time, so a bulk
+/// run with several failures presents one summary (each failure still logged) rather than one per
+/// failure, which would leave only the last visible.
 @Suite struct BulkFailureAggregationTests {
 
     private func makeMissingSourceDiff(_ name: String) -> FileDifference {
@@ -39,8 +38,8 @@ import EventsTestSupport
         #expect(error.title == "Sync Failed")
         #expect(error.message.contains("2 items"))
         #expect(error.message.contains("Activity’s log"))
-        // The alert carries the first failure's details (worker order is nondeterministic,
-        // so "first" is whichever the run collected first — one of the two sources).
+        // The alert carries the first collected failure's details; worker order is
+        // nondeterministic, so either source.
         #expect(error.path == "/src/a.txt" || error.path == "/src/b.txt")
         #expect(error.reason?.isEmpty == false)
         #expect(error.isRetryable == false)
@@ -65,11 +64,9 @@ import EventsTestSupport
         #expect(error.path == "/src/only.txt")
     }
 
-    /// A bulk run whose ONLY failure is a single file must still land in the persistent audit log,
-    /// not just the (ephemeral) alert. The single-failure branch relies on `present()` to write the
-    /// error line — unlike the `> 1` branch, it logs no line of its own — so these tests guard the
-    /// invariant end-to-end: if either the branch stops calling `present()` or `present()` stops
-    /// logging, a one-file failure would silently vanish from the log and these would fail.
+    /// A bulk run's single failure still reaches the persistent log, not just the alert. That
+    /// branch logs nothing itself and relies on `present()`, so this fails if either the branch
+    /// stops calling `present()` or `present()` stops logging.
     @MainActor
     @Test func testSyncAllSingleFailureIsLoggedAsError() async throws {
         let log = LogCapture()
@@ -87,9 +84,8 @@ import EventsTestSupport
         #expect(await loggerHasError(log, containing: "onlySyncLog.txt"))
     }
 
-    /// True when `log` captured an ERROR entry whose message contains `fragment` — the fragment is
-    /// a per-test unique file name, so another test's lines can't false-match. A capture, not the
-    /// shared buffer, so the rest of the package logging past the line cannot take it away.
+    /// True when `log` captured an error entry containing `fragment`, a per-test file name so other
+    /// tests' lines can't match. A capture, not the shared buffer, which other suites can evict.
     @MainActor
     private func loggerHasError(_ log: LogCapture, containing fragment: String) async -> Bool {
         await log.holds(.error, containing: fragment)
@@ -103,9 +99,8 @@ import EventsTestSupport
             firstReason: "disk full"
         )
         #expect(error.title == "Copy Failed")
-        // Names where the failed ROWS are, not only where the error text is. `firstItem` is no
-        // longer in the message — one name out of N was never the useful part, and the filter
-        // shows all of them.
+        // Names where the failed rows are, not just the log. No single item name: the filter shows
+        // all of them.
         #expect(error.message == "Couldn’t copy 3 items. They are listed under the “Failed to transfer” filter; the reason for each is in Activity’s log (⌘L).")
         #expect(error.path == "/src/a.txt")
         #expect(error.reason == "disk full")
@@ -114,9 +109,8 @@ import EventsTestSupport
 
     // MARK: The failed rows, recorded where the table can find them
 
-    /// The CALL SITE, not the rule: `recordTransferFailures` is unit-tested on its own, and a pure
-    /// function's test says nothing about whether anything calls it. This drives a real `syncAll`
-    /// whose copies all fail and asserts the record came out the other end.
+    /// The call site, not the rule (`recordTransferFailures` has its own tests): a real `syncAll`
+    /// whose copies all fail records its failed rows.
     @MainActor
     @Test func testSyncAllRecordsItsFailedRowsForTheFailedFilter() async throws {
         let mockFM = MockFileManager()
@@ -131,13 +125,12 @@ import EventsTestSupport
         await manager.syncAll(direction: .copyToRight)
 
         #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)))
-        // ...and the rows themselves are still in the list for that filter to select — a record
-        // pointing at rows the run had removed would show an empty table.
+        // The rows are still listed for the filter to select; otherwise it shows an empty table.
         #expect(Set(manager.differences.map(\.id)) == Set(diffs.map(\.id)))
     }
 
-    /// The same call site's other half: a run with nothing to report clears the record. Without
-    /// this the Failed filter would keep offering the previous run's rows after they went through.
+    /// A run with nothing to report clears the record, or the Failed filter keeps offering the
+    /// previous run's rows after they went through.
     @MainActor
     @Test func testACleanSyncAllClearsAPreviousRunsFailedRows() async throws {
         let mockFM = MockFileManager()
@@ -158,14 +151,10 @@ import EventsTestSupport
         #expect(manager.lastTransferFailures == nil)
     }
 
-    /// The SECOND bulk path — Verify All's Match Dates — records its failed rows and logs each as
-    /// an error too.
-    ///
-    /// This test exists because deleting the call in this path left all 1403 Sync tests green: the
-    /// `syncAll` test above covers one site and says nothing about the other, and two call sites
-    /// with identical code is exactly the shape where one gets fixed and one does not. The run
-    /// copied then; it sets dates now (review E6), so the failure is a date that cannot be set:
-    /// the right files are locked (`uchg`), which `utimensat` refuses and a stat does not see.
+    /// The second bulk path, Verify All's Match Dates, also records its failed rows and logs each
+    /// as an error. Two call sites with the same code each need a test, or one can drift. The run
+    /// sets dates, so the failure is a date that can't be set: the right files are locked (`uchg`),
+    /// which `utimensat` refuses and a stat doesn't see.
     @MainActor
     @Test func testTheMatchDatesPathRecordsAndLogsItsFailedRowsToo() async throws {
         let log = LogCapture()
@@ -193,8 +182,8 @@ import EventsTestSupport
         manager.differences = diffs
         let stamps = Dictionary(uniqueKeysWithValues: diffs.map { ($0.id, FilePairStamp.read($0, fileManager: fm)) })
 
-        // `asOf` is re-checked against the live epoch at the point the write is ordered; passing
-        // the current one is what a confirm with nothing in between would have carried.
+        // `asOf` is re-checked against the live epoch when the write is ordered; the current one is
+        // what a confirm with nothing in between carries.
         await manager.bulkCopyDifferencesLeftToRight(diffs, asOf: manager.fileOperationsEpoch, stamps: stamps)
 
         #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)), "the failed rows were not marked")

@@ -2,11 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The pane search's matching, ordering, annotation and reveal arithmetic.
-///
-/// Everything the pane draws while searching is decided here, so this is where it can be pinned
-/// without mounting anything: which rows matched, which run of each name, which folders must stay
-/// bright, which side a hit is on, and where ↩ leaves you.
+/// The pane search's matching, ordering, annotation and reveal arithmetic. Everything the pane
+/// draws while searching is decided here, so it is pinned without mounting anything: which rows
+/// matched, which run of each name, which folders stay bright, which side a hit is on, and where ↩
+/// leaves you.
 @Suite struct PaneTreeSearchTests {
 
     // MARK: - Fixture
@@ -68,14 +67,9 @@ import Foundation
     }
 
     /// The same name spelled decomposed (as some volumes hand it back) must be found by a query
-    /// typed precomposed.
-    ///
-    /// **This pins a property, not a line.** There is no explicit precompose in the fold to delete —
-    /// the version that had one survived its removal with this test green, because Swift compares
-    /// `Character`s on canonical equivalence and the two spellings simply are one character. What
-    /// this catches is the change that WOULD break it: a matcher rewritten to compare
-    /// `unicodeScalars`, which is where canonical equivalence stops applying. The scalar assertion
-    /// below is the fixture's own proof that the two spellings are genuinely different input.
+    /// typed precomposed. This pins a property, not a line: Swift compares `Character`s by
+    /// canonical equivalence, so no explicit precompose is needed. It fails if the matcher compares
+    /// `unicodeScalars` instead. The scalar assertion proves the two spellings are different input.
     @Test("A decomposed name is found by a precomposed query")
     func matchingIsNormalizationInsensitive() {
         let decomposed = "Cafe\u{0301} Menu.pdf"
@@ -108,9 +102,9 @@ import Foundation
         #expect(String(Array(hit.name)[hit.match]) == "notes")
     }
 
-    /// The alignment case the parallel index exists for: “ß” folds to “ss”, so a match found at
-    /// folded offset 3 sits at original offset 2. A naive `folding()` + offset would highlight the
-    /// wrong characters here — and would run past the end for a match at the tail.
+    /// The case the parallel index exists for: “ß” folds to “ss”, so folded and original offsets
+    /// differ. A naive `folding()` plus offset would highlight the wrong characters, or run past
+    /// the end for a match at the tail.
     @Test("A fold that changes length still highlights the right characters")
     func theMatchRangeSurvivesALengthChangingFold() throws {
         let tree = PaneTree(side: .left, version: 1, nodes: [Self.file("Straße.txt")])
@@ -118,9 +112,8 @@ import Foundation
         #expect(String(Array(hit.name)[hit.match]) == "Straße")
     }
 
-    /// A match whose LAST character folds into two must still include that character. Taking the
-    /// source index one past the run's end (rather than the last character's own index, plus one)
-    /// is the off-by-one that drops it.
+    /// A match whose last character folds into two must still include it. Taking the source index
+    /// one past the run's end, rather than the last character's own index plus one, drops it.
     @Test("A match ending on a multi-character fold keeps its last character")
     func theMatchRangeIncludesAFinalExpandedCharacter() throws {
         let tree = PaneTree(side: .left, version: 1, nodes: [Self.file("Maß")])
@@ -138,8 +131,8 @@ import Foundation
 
     // MARK: - Order and position
 
-    /// ↩ has to walk DOWN the pane, so the hits must arrive in the order the outline draws them:
-    /// depth-first, pre-order. Finance's two hits precede IRS's, which precedes nothing in Movies.
+    /// ↩ walks down the pane, so the hits arrive in the order the outline draws them: depth-first,
+    /// pre-order.
     @Test("Hits arrive in the order the pane lists them")
     func hitsArriveInOutlineOrder() {
         #expect(hits("tax").map(\.relativePath) == [
@@ -155,9 +148,9 @@ import Foundation
         #expect(hit.ancestorPaths == ["/root/Documents", "/root/Documents/Finance"])
     }
 
-    /// The Columns reveal writes exactly this. The hit itself is never a component — opening a
-    /// matched FOLDER's own column would list its contents and leave the matched row behind in the
-    /// column to the left, where the selection the reveal sets could not be seen.
+    /// The Columns reveal writes exactly this. The hit itself is never a component: opening a
+    /// matched folder's own column would leave the matched row in the column to its left, where the
+    /// reveal's selection can't be seen.
     @Test("A hit's browse path opens the columns down to its parent, never into itself")
     func aHitsBrowsePathStopsAtItsParent() throws {
         let file = try #require(hits("notes").first)
@@ -206,8 +199,8 @@ import Foundation
         #expect(sides["/root/Documents/IRS/taxes.csv"] == .thisSideOnly)
     }
 
-    /// The rail has no opposite pane, so “left only” is a statement about a comparison it is not
-    /// making — it must produce no annotation at all rather than a wrong one.
+    /// The rail has no opposite pane, so “left only” would describe a comparison it isn't making:
+    /// no annotation rather than a wrong one.
     @Test("With no opposite pane there is no side annotation")
     func aSingleSourceSurfaceAnnotatesNothing() {
         #expect(PaneTreeSearch.sides(for: hits("tax"), otherPaths: nil).isEmpty)
@@ -299,9 +292,8 @@ import Foundation
         #expect(idle.summary(at: 0) == nil)
     }
 
-    /// …and neither is whitespace. Matching trims, so a lone space found nothing — but the results
-    /// judged themselves ACTIVE from the raw text, which dimmed every row off a path to an answer
-    /// and put "No matches" in the field for a keystroke that asked nothing.
+    /// …and neither is whitespace. Matching trims, so activity must too, or a lone space would dim
+    /// every row and show "No matches" for a keystroke that asked nothing.
     @Test("A whitespace-only query is not a search either")
     func aWhitespaceQueryIsInactive() {
         let spaces = results("   ")
@@ -356,9 +348,8 @@ import Foundation
     // MARK: - Where the walk lands after a recomputation
 
     /// A republish must not move the user. The pane republishes on every scan, copy and
-    /// hidden-files toggle — and the OTHER pane's republish counts too — so restarting the walk
-    /// there yanks them to the first hit and, because the reveal fires on the index, scrolls them
-    /// away from the row they were reading.
+    /// hidden-files toggle, and on the other pane's too, so restarting the walk would jump to the
+    /// first hit and scroll away from the row being read.
     @Test("A republish keeps the walk on the file it was standing on")
     func aRepublishFollowsThePath() {
         let before = results("tax", generation: 1)
@@ -366,14 +357,9 @@ import Foundation
         #expect(after.walkIndex(after: before, standingAt: 2) == 2)
     }
 
-    /// …and it follows the FILE, not the number.
-    ///
-    /// **The fixture has to make the two rules disagree, or it proves nothing.** The first version
-    /// of this test used a shrunken tree where the old index was simply out of range, so
-    /// "follow the index" fell back to the top — which was also the expected answer, and the test
-    /// passed against a mutation that ignored the path entirely. Here the reordered tree still has
-    /// three hits, so index 2 is perfectly valid and names a DIFFERENT file: following the number
-    /// answers 2, following the path answers 0.
+    /// …and it follows the file, not the number. The fixture makes the two rules disagree: the
+    /// reordered tree still has three hits, so index 2 is valid but names a different file.
+    /// Following the number answers 2; following the path answers 0.
     @Test("It follows the path, not the index")
     func theWalkFollowsTheFileNotTheNumber() throws {
         let before = results("tax", generation: 1)
@@ -410,7 +396,7 @@ import Foundation
         #expect(after.walkIndex(after: before, standingAt: 2) == PaneSearchWalk.restart)
     }
 
-    /// The file they were standing on stopped matching — deleted, renamed, filtered out. The top is
+    /// The file the walk stood on stopped matching (deleted, renamed, filtered out), so the top is
     /// the only honest answer.
     @Test("A hit that is gone restarts the walk")
     func aVanishedHitRestartsTheWalk() {
@@ -431,8 +417,8 @@ import Foundation
 
     // MARK: - The stamp
 
-    /// The whole point of the type: the payload is three maps and an array a broad query can fill
-    /// with thousands of entries, and `FileTreeView.==` compares this on every render.
+    /// The point of the type: the payload is three maps and an array a broad query can fill with
+    /// thousands of entries, and `FileTreeView.==` compares this on every render.
     @Test("Two results from the same computation compare equal without walking the hits")
     func equalityIsTheStamp() {
         #expect(results("tax") == results("tax"))

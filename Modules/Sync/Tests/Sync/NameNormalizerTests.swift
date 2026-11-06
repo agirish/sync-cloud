@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Coverage for the pure ``NameNormalizer`` detector (in-memory ``FileNode`` trees, no disk) and one
+/// Covers the pure ``NameNormalizer`` detector (in-memory ``FileNode`` trees, no disk) and one
 /// engine-level test that the apply path never overwrites on a name collision.
 @Suite struct NameNormalizerTests {
 
@@ -38,13 +38,13 @@ import Foundation
     }
 
     @Test func oneDriveReservedNameIsSuffixed() {
-        // sanitized("CON") de-reserves the BASE component.
+        // sanitized("CON") de-reserves the base component.
         let risky = scan([file("/r/CON", "CON")], .oneDrive)
         #expect(risky.count == 1)
         #expect(risky[0].sanitizedName == "CON-1")
         #expect(risky[0].reason.contains("reserved"))
 
-        // With an extension, the base — not the whole string — is suffixed.
+        // With an extension, the base, not the whole string, is suffixed.
         let withExt = scan([file("/r/CON.txt", "CON.txt")], .oneDrive)
         #expect(withExt.first?.sanitizedName == "CON-1.txt")
     }
@@ -62,7 +62,7 @@ import Foundation
     }
 
     @Test func dropboxIgnoresOneDriveOnlyForbiddenCharacters() {
-        // A colon is a OneDrive rule, not a Dropbox one — Dropbox leaves it alone.
+        // A colon is a OneDrive rule, not a Dropbox one; Dropbox leaves it alone.
         #expect(scan([file("/r/a:b.txt", "a:b.txt")], .dropBox).isEmpty)
     }
 
@@ -82,11 +82,10 @@ import Foundation
         #expect(risky[0].reason.contains("zero-width"))
     }
 
-    /// A *pure* NFC/NFD difference is NOT flagged, by design. macOS treats the two forms as the same
+    /// A pure NFC/NFD difference is not flagged, by design. macOS treats the two forms as the same
     /// name (Swift `==` is canonical, and APFS finds a name by either form), and a rename through
-    /// Foundation writes it decomposed, so such a "fix" can't land as written AND would fire on
-    /// nearly every accented filename on disk. Only a hazard that
-    /// is canonically *distinct* from its fix is worth surfacing.
+    /// Foundation writes it decomposed, so such a "fix" can't land as written and would fire on
+    /// nearly every accented filename. Only a hazard canonically distinct from its fix is surfaced.
     @Test func pureNFDDifferenceIsNotFlagged() {
         let nfd = "cafe\u{0301}"   // "café" decomposed (e + combining acute)
         // Sanity: the two forms differ at the scalar level but are canonically equal.
@@ -96,7 +95,7 @@ import Foundation
         #expect(scan([file("/r/\(nfd)", nfd)], .oneDrive).isEmpty)
     }
 
-    /// `sanitize` still normalizes to NFC, so when a name IS flagged for a real hazard its safe
+    /// `sanitize` still normalizes to NFC, so when a name is flagged for a real hazard its safe
     /// replacement comes out precomposed (NFD café + trailing space → NFC "café").
     @Test func sanitizedReplacementIsNFC() {
         let name = "cafe\u{0301} "   // NFD "café" + trailing space (OneDrive rejects the space)
@@ -123,7 +122,7 @@ import Foundation
     // MARK: Dir-inclusive walk (folders are flagged too)
 
     @Test func riskyFolderNameIsFlagged() {
-        // A risky folder that also contains a risky file — both surface, folder included.
+        // A risky folder that also contains a risky file: both surface, folder included.
         let tree = [
             dir("/r/Photos:", "Photos:", [
                 file("/r/Photos:/clean.jpg", "clean.jpg"),
@@ -151,7 +150,7 @@ import Foundation
         #expect(NameNormalizer.hasInvisibleHazard("plain.txt") == false)
         #expect(NameNormalizer.hasInvisibleHazard("zero\u{200D}width") == true)
         #expect(NameNormalizer.hasInvisibleHazard("no\u{00A0}break") == true)
-        // A pure NFC/NFD difference is NOT a fixable hazard on macOS (the same name to APFS).
+        // A pure NFC/NFD difference isn't a fixable hazard on macOS (the same name to APFS).
         #expect(NameNormalizer.hasInvisibleHazard("cafe\u{0301}") == false)
     }
 
@@ -167,8 +166,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
 
         // A clean file already occupies the safe name; the risky one (a zero-width space) would
-        // sanitize onto it. Zero-width names are filesystem-robust (distinct on APFS, not trimmed
-        // by URL handling), unlike trailing-space/dot names.
+        // sanitize onto it. Zero-width names are robust on disk (distinct on APFS, not trimmed by
+        // URL handling), unlike trailing-space or trailing-dot names.
         let cleanURL = root.appendingPathComponent("photo.jpg")
         let riskyURL = root.appendingPathComponent("photo\u{200B}.jpg")
         try write(cleanURL, bytes: 111)
@@ -184,7 +183,7 @@ import Foundation
 
         await manager.normalizeNames([risky])
 
-        // The original clean file is untouched (never overwritten); the fixed one kept-both.
+        // The original clean file is untouched (never overwritten); the fixed one is kept beside it.
         #expect(FileManager.default.fileExists(atPath: cleanURL.path))
         let cleanData = try Data(contentsOf: cleanURL)
         #expect(cleanData.count == 111)   // still the ORIGINAL clean file, not clobbered
@@ -192,11 +191,10 @@ import Foundation
         #expect(!FileManager.default.fileExists(atPath: riskyURL.path))   // renamed away
         #expect(manager.riskyNames.isEmpty)                                // fixed row dropped
         #expect(manager.banner?.severity == .success)
-        // **The `undoable:` flag is the whole offer.** It shows the message's Undo button, which
-        // wears the ⌘Z keycap — so the sentence no longer says "Press ⌘Z to undo" (TE216) — and it
-        // is what `invalidateUndoableBanner` reads to retire the offer once another operation
-        // registers its own undo; defaulted to false, this banner outlived its step and kept
-        // offering ⌘Z after that shortcut had come to mean the OTHER operation.
+        // The `undoable:` flag is the whole offer: it shows the message's Undo button (which wears
+        // the ⌘Z keycap, so the sentence doesn't say "Press ⌘Z to undo"), and
+        // `invalidateUndoableBanner` reads it to retire the offer once another operation registers
+        // its own undo. Without it the banner would keep offering ⌘Z for the other operation.
         let banner = try #require(manager.banner)
         #expect(!banner.message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it: \(banner.message)")
         #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")

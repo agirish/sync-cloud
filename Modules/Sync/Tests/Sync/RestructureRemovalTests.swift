@@ -2,8 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The removal step's manifest builder — one construction serving both origins (ROADMAP v5 §5.5's
-/// landing-scoped removal and §5.2's decided route for the folders that were already empty).
+/// The removal step's manifest builder: one construction serving both origins, a landing's own
+/// removal and the route for folders that were already empty.
 @Suite struct RestructureRemovalTests {
 
     private static let stamp = "2026-08-29T09:15:00"
@@ -26,9 +26,8 @@ import Foundation
                 "every operation carries its written justification — the 6 Aug log's rule")
     }
 
-    /// The landing origin's id and sentences are what shipped, and this pins them: the builder
-    /// replaced two hand-written copies of this construction, and a landing removal whose id
-    /// changed shape would orphan the ledger records already on disk.
+    /// Pins the landing origin's id and sentences: a landing removal whose id changed shape would
+    /// orphan the ledger records already on disk.
     @Test func theLandingRemovalKeepsItsLandingsIdentityInTheId() throws {
         let manifest = try #require(RestructureRemoval.manifest(
             paths: ["Finance/US/Income Tax/2013/State Tax"],
@@ -97,9 +96,9 @@ import Foundation
         #expect(RestructureRemoval.commonAncestor(of: []) == ".")
     }
 
-    /// The sentence the PAIR SHEET prints above its operation list, before Apply. This is a
-    /// different type from the apply outcome's summary, and pinning one left the other free — a
-    /// review screen reading "1 folders carried whole" was what rendering caught.
+    /// The sentence the pair sheet prints above its operation list, before Apply. A different type
+    /// from the apply outcome's summary, so it needs its own pin, or "1 folders carried whole" can
+    /// reach the review screen.
     @Test func theLedgersOwnSentenceReadsInTheSingular() {
         let one = RestructureLedger(of: RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
@@ -118,9 +117,9 @@ import Foundation
 
     // MARK: The verifier's verdict, as the card will read it
 
-    /// Step 4's verdict now outlives the log on the Applied card, so the sentence it hands over
-    /// names the count and the FIRST mismatch — a card listing forty would be the log with worse
-    /// formatting, and the log keeps every one of them regardless.
+    /// Step 4's verdict outlives the log on the Applied card, so the sentence it hands over names
+    /// the count and the first mismatch: a card listing forty would be the log with worse
+    /// formatting, and the log keeps every one of them.
     @Test func theVerifierNoteNamesTheFirstAndCountsTheRest() {
         #expect(FileSyncManager.verifierNote([]) == nil,
                 "agreement is the absence of a note, not an empty one")
@@ -130,8 +129,8 @@ import Foundation
                     == "a is missing (and 2 more; each one is in the log)")
     }
 
-    /// The two new fields are optionals so every store already on disk decodes — absent is not
-    /// a verdict, and a record from before they existed must not start claiming one.
+    /// The two verdict fields are optionals so every store already on disk decodes: absent is not a
+    /// verdict, and a record older than the fields must not start claiming one.
     @MainActor
     @Test func aRecordWithoutTheVerifierFieldsStillDecodes() throws {
         let json = """
@@ -158,8 +157,8 @@ import Foundation
 
     /// Two spellings reach the root — `"."`, which is how a profile keys it, and `""`, which is
     /// what deleting the last component of a top-level folder leaves. Both have to read as words:
-    /// the label lands in a ⌘Z menu item and in an exported plan's filename, and
-    /// `"Reorganise "` with nothing after it was a real menu item for a top-level pair.
+    /// the label lands in a ⌘Z menu item and in an exported plan's filename, where `"Reorganise "`
+    /// with nothing after it would show for a top-level pair.
     @Test func aRootFamilyIsLabelledInWords() {
         #expect(RestructurePaths.familyLabel(".") == "the tree")
         #expect(RestructurePaths.familyLabel("") == "the tree")
@@ -167,7 +166,7 @@ import Foundation
         #expect(RestructurePaths.familyLabel("Travel") == "Travel")
     }
 
-    /// A prefix match on the STRING would call `Finance/INbox` a child of `Finance/IN`. The rule
+    /// A prefix match on the string would call `Finance/INbox` a child of `Finance/IN`. The rule
     /// compares path components, and this is the fixture that tells the two apart.
     @Test func theAncestorComparesComponentsNotCharacters() {
         #expect(RestructureRemoval.commonAncestor(

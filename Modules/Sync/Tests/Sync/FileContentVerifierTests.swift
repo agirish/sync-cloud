@@ -59,7 +59,7 @@ import CryptoKit
 
     /// A symlinked file must verify against its target's bytes: `attributesOfItem` lstats the
     /// link itself (its "size" is the destination-path byte count) while the FileHandle read
-    /// follows the link, so without resolving, every symlink came out "Could not verify".
+    /// follows the link, so without resolving, every symlink would come out "Could not verify".
     @Test func testSymlinkedFileVerifiesAgainstTargetContent() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -84,7 +84,7 @@ import CryptoKit
     // MARK: Classified outcomes (hashOutcome)
 
     /// A sparse file: `size` bytes of zeros, holding no disk blocks, with `bytes` written at their
-    /// offsets. Lets a test hash a file past the old 100 MB cap without writing 100 MB.
+    /// offsets. Lets a test hash a file over 100 MB without writing 100 MB.
     private func sparseFile(at url: URL, size: Int, bytes: [Int: UInt8]) throws {
         #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
         let handle = try FileHandle(forWritingTo: url)
@@ -96,10 +96,10 @@ import CryptoKit
         }
     }
 
-    /// One byte past the old 100 MB cap, which used to answer `skippedTooLarge` without a read. The
-    /// expected digest is from Python's `hashlib` over the same bytes — an implementation that is
-    /// not this one — and the marked bytes sit either side of the first 4 MB chunk boundary and on
-    /// the very last byte, the one the old cap excluded, so a lost or doubled chunk changes it.
+    /// A file one byte over 100 MB is hashed whole: there is no size cap. The expected digest is
+    /// from Python's `hashlib` over the same bytes, an independent implementation, and the marked
+    /// bytes sit either side of the first 4 MB chunk boundary and on the last byte, so a lost or
+    /// doubled chunk changes it.
     @Test func aFileJustOverTheOldCapIsHashedWhole() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -127,11 +127,11 @@ import CryptoKit
     /// waits — bounded — to be cancelled. So the stop always lands mid-wait. Without the stop the
     /// check waits out its bound and the file is read whole and cached.
     ///
-    /// **The wait ends at the stop, not its bound.** The check runs on the hash lane's detached
-    /// task, which `onHashLane` cancels along with its flag. Before it did, `Task.isCancelled` here
-    /// stayed false and every run that reached the check waited the whole 10 s on a pool thread;
-    /// with two other parks it held all three of a hosted runner's (2026-11-03). Now each of the two
-    /// waits takes milliseconds, but each still needs another pool thread to end it, so it reserves.
+    /// The wait ends at the stop, not its bound. The check runs on the hash lane's detached task,
+    /// which `onHashLane` cancels along with its flag; otherwise `Task.isCancelled` here stays false
+    /// and the check holds a pool thread for the whole 10 s. Each of the two waits takes
+    /// milliseconds, but each needs another pool thread to end it, so the test declares
+    /// `.parksAThread`.
     @Test(.parksAThread) func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -170,8 +170,8 @@ import CryptoKit
         let caller = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             // The spawn's own cancel can land just after the lane's task starts, so a loaded
-            // runner could read the flag first (review 2 of 11-04): wait for it, bounded. Without
-            // that cancel the wait runs out and this is red.
+            // runner could read the flag first: wait for it, bounded. Without that cancel the wait
+            // runs out and this is red.
             return await FileContentVerifier.onHashLane { _ in
                 let until = Date().addingTimeInterval(5)
                 // Task.sleep, not usleep: it parks no pool thread, and ends at once on the cancel.
@@ -234,8 +234,7 @@ import CryptoKit
     static let chunkBoundarySizes: [Int] = [0, 1, chunk - 1, chunk, chunk + 1, 2 * chunk + 3]
 
     /// The streamed digest equals a one-shot SHA-256 of the same bytes at every size that meets a
-    /// chunk boundary — the sizes where a streaming loop drops or repeats bytes. These are the
-    /// digests the hasher gave under the old cap too: what changed is which files reach the loop.
+    /// chunk boundary, the sizes where a streaming loop drops or repeats bytes.
     @Test(arguments: Self.chunkBoundarySizes)
     func streamedDigestMatchesAOneShotDigest(size: Int) async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
@@ -271,12 +270,13 @@ import CryptoKit
                                                       isCloudOnly: { _ in false }).hash != nil)
     }
 
-    /// Cancelling the CALLING task reaches the read, though it runs on a detached task that does
-    /// not inherit cancellation. Deterministic: the task is cancelled from inside its own second
-    /// check, the one before chunk one, and the next check must see it through the forwarded cancellation alone — the
-    /// closure keeps answering no. Without the forwarding the whole file is hashed. Exactly the
-    /// next check, under any load, because the forwarding's handler is in place before the read
-    /// starts (`onHashLane`); spawning the read first let this count reach 3 on a loaded runner.
+    /// Cancelling the calling task reaches the read, though it runs on a detached task that doesn't
+    /// inherit cancellation. Deterministic: the task is cancelled from inside its own second check
+    /// (the one before chunk one), and the next check must see it through the forwarded
+    /// cancellation alone; the closure keeps answering no. Without the forwarding the whole file is
+    /// hashed. It is exactly the next check under any load because `onHashLane` installs the
+    /// handler before the read starts; spawning the read first would let the count reach 3 under
+    /// load.
     @Test func cancellingTheCallerStopsTheReadAtTheNextChunk() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -305,8 +305,8 @@ import CryptoKit
     // MARK: Edge samples (the duplicate scan's pre-check)
 
     /// Equal ends give equal samples whatever the middle holds; a different first or last byte
-    /// gives a different one. The sample proves difference only — which is why the middle case is
-    /// the one that must come out EQUAL.
+    /// gives a different one. The sample proves difference only, which is why the middle case must
+    /// come out equal.
     @Test func anEdgeSampleSeesBothEndsAndNotTheMiddle() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -365,9 +365,9 @@ import CryptoKit
     }
 
     @Test func cachedHashStillWinsOverTheCloudOnlySkip() async throws {
-        // A file hashed while local and since evicted to cloud-only: the cache key (path, mtime,
-        // size) still matches — eviction doesn't change content — so the stored digest is
-        // returned without a read instead of degrading to a skip.
+        // A file hashed while local and since evicted to cloud-only: its cache key still matches
+        // (eviction doesn't change content), so the stored digest is returned without a read
+        // instead of degrading to a skip.
         let dir = try makeCanonicalTempRoot(prefix: "SyncTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let f = dir.appendingPathComponent("evicted.bin")

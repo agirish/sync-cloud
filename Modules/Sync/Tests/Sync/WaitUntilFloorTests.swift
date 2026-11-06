@@ -1,48 +1,40 @@
 import Testing
 
-/// Pins `waitUntil`'s poll floor — the constant ~150 call sites in this target depend on, and its
-/// twin in `SyncCloudTests/TestSupport.swift` with it.
+/// Pins `waitUntil`'s poll floor, which the many waits in this target depend on, and its twin in
+/// `SyncCloudTests/TestSupport.swift` with it.
 ///
-/// The floor exists because a deadline is in seconds while everything these waits wait for arrives
-/// on main-actor turns, and under load the two units come apart (`docs/flaky-tests.md`, mechanism
-/// 2). That failure only reproduces under congestion, which is exactly why it must not be the thing
-/// the fix is argued from: the floor's *guarantee* is deterministic even though the bug it prevents
-/// is not — a property of this loop, provable with a counter and an already-spent deadline, on an
-/// idle machine, in milliseconds.
+/// A deadline is in seconds while what these waits wait for arrives on main-actor turns, and under
+/// load the two come apart (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). That failure
+/// needs congestion to reproduce, but the floor's guarantee doesn't: a counter and an already-spent
+/// deadline prove it on an idle machine, in milliseconds.
 ///
-/// Modelled on the pass-floor tests for `LayoutPumpWait` in the FileExplorer target on the v3 line,
-/// including the trap they record: the demand below is a literal and must not be derived from the
-/// floor, or zeroing the floor also zeroes the requirement and the test passes against the exact
-/// change it exists to catch.
+/// The demand below is a literal, never derived from the floor: zeroing the floor would zero the
+/// requirement too, and the test would pass against the change it exists to catch.
 ///
-/// **There is no "a condition that never holds still gets a verdict" case here**, unlike that
-/// suite: `waitUntil` reports expiry by recording a failure rather than returning a Bool, so a test
-/// that drove it to expiry would fail by construction. That half was verified by hand instead —
-/// with the floor in place and a condition of `false`, the wait gives up naming its poll count.
+/// There is no "a condition that never holds still gets a verdict" case: `waitUntil` reports
+/// expiry by recording a failure, not by returning a Bool, so such a test would fail by
+/// construction.
 @MainActor
 @Suite struct WaitUntilFloorTests {
 
-    /// How many polls the condition below demands — a LITERAL, deliberately not derived from
-    /// `waitPollFloor`. See the suite comment.
+    /// How many polls the condition below demands: a literal, not derived from `waitPollFloor`
+    /// (see the suite comment).
     private static let pollsDemanded = 25
 
     /// Keeps that literal meaningful: it must be reachable within the floor, or the test below
     /// would be measuring the deadline instead.
     ///
-    /// This guard is also the only thing that catches a floor lowered to just *under* the demand.
-    /// The loop evaluates the condition once more after the deadline, in the `#expect`, so a floor
-    /// of 24 still buys a 25th evaluation and the floor test below stays green — the real guarantee
-    /// is `waitPollFloor + 1`.
+    /// It is also the only thing that catches a floor lowered to just under the demand: the loop
+    /// evaluates the condition once more after the deadline, in the `#expect`, so a floor of 24
+    /// still buys a 25th evaluation. The real guarantee is `waitPollFloor + 1`.
     @Test func theDemandUsedByThisTestSitsBelowTheFloor() {
         #expect(Self.pollsDemanded < waitPollFloor,
                 "\(Self.pollsDemanded) polls is not reachable within a floor of \(waitPollFloor) — the floor test below would be measuring the deadline")
     }
 
-    /// The load-bearing property. With the deadline ALREADY spent, a condition that needs turns
-    /// still gets them — which is precisely what a congested run has too few of.
-    ///
-    /// Both halves matter. `waitUntil` records its own labeled failure if it gives up, so a broken
-    /// floor turns this red without any assertion of mine; the count below then says by how much.
+    /// The load-bearing property: with the deadline already spent, a condition that needs turns
+    /// still gets them, which is what a congested run has too few of. `waitUntil` records its own
+    /// labeled failure if it gives up, so a broken floor turns this red; the count says by how much.
     @Test func theFloorOutlivesAnExpiredDeadline() async {
         var polls = 0
         await waitUntil("a condition needing \(Self.pollsDemanded) polls never held", timeout: 0) {

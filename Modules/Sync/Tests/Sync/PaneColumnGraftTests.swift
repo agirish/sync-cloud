@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Filling in one budgeted-out directory**, which is the half of the node budget that keeps a
-/// pane navigable rather than merely fast.
-///
-/// The budget stops the walk and marks everything past it unexplored; without the graft a column
-/// opened on one of those folders would be blank for as long as the pane stayed on that root. These
-/// pin the pure half — the replacement itself — because that is where a partial tree can be
-/// corrupted rather than merely incomplete.
+/// Filling in one budgeted-out directory: the half of the node budget that keeps a pane navigable
+/// rather than merely fast. The budget marks everything past it unexplored, and without the graft a
+/// column opened on one of those folders stays blank. These pin the pure replacement, which is
+/// where a partial tree can be corrupted rather than merely incomplete.
 @Suite struct PaneColumnGraftTests {
 
     private func dir(_ path: String, children: [FileNode]?, unexplored: Bool = false) -> FileNode {
@@ -40,10 +37,9 @@ import Testing
                 "the grafted node still reads as unexplored, so the column would ask for it again forever")
     }
 
-    /// `nil`, not `false`. The field's own documentation defines nil as "walked", and it is what a
-    /// node built by the walk carries — writing `false` would be a second spelling of one fact, and
-    /// `isUnexplored == true` checks all over the codebase would pass either way, which is exactly
-    /// what makes the drift survivable and therefore likely.
+    /// `nil`, not `false`: nil means "walked" and is what a walked node carries. `false` would be a
+    /// second spelling of one fact that `isUnexplored == true` checks can't tell apart, so the drift
+    /// would go unnoticed.
     @Test func theClearedMarkMatchesWhatAWalkedNodeCarries() throws {
         let filled = try #require(FileSyncManager.grafting(children: [], atPath: "/r/b", under: "/r", into: tree))
         let b = try #require(filled.first { $0.id == "/r/b" })
@@ -89,18 +85,13 @@ import Testing
         #expect(filled.first { $0.id == "/r/b" }?.isUnexplored == true, "the wrong node was grafted")
     }
 
-    /// **Not entering a sibling at all.**
+    /// The descent doesn't enter a prefix-sharing sibling. The graft rebuilds the nodes on its
+    /// path, so entering one would copy its whole subtree to find nothing, a real cost on trees
+    /// large enough to be budgeted out.
     ///
-    /// The graft rebuilds the nodes on its path, so a descent into a prefix-sharing sibling would
-    /// copy that sibling's entire subtree to find nothing. On the trees this runs against — the
-    /// ones large enough to have been budgeted out — that is the per-column-open cost a one-branch
-    /// descent exists to avoid.
-    ///
-    /// Measured by buffer identity rather than by a clock, because a timing assertion on a shared
-    /// machine is a flake. An untouched node keeps its children array's existing storage; a
-    /// rebuilt one allocates. The original tree is still alive in `subject` throughout, so its
-    /// buffer cannot have been freed and handed back at the same address — the comparison means
-    /// what it says.
+    /// Measured by buffer identity, not a clock: an untouched node keeps its children array's
+    /// storage and a rebuilt one allocates. `subject` stays alive throughout, so its buffer can't be
+    /// freed and reused at the same address.
     @Test func theDescentSkipsSiblingsSharingANamePrefix() throws {
         func storage(_ node: FileNode?) -> UInt? {
             guard let children = node?.children else { return nil }
@@ -119,9 +110,8 @@ import Testing
         #expect(filled.first { $0.id == "/r/bc" }?.children?.count == 1, "the target was not grafted")
     }
 
-    /// A file at the target path is not a directory to fill. This cannot happen from the real call
-    /// site — the request comes from a column, which only exists over a directory — but the
-    /// function is public and the answer should not be "corrupt the node".
+    /// A file at the target path is not a directory to fill. The real call site can't do this (a
+    /// column only exists over a directory), but the function is public and mustn't corrupt the node.
     @Test func aFileAtTheTargetPathIsNotGrafted() {
         #expect(FileSyncManager.grafting(children: [], atPath: "/r/top.txt", under: "/r", into: tree) == nil)
     }
@@ -136,10 +126,9 @@ import Testing
                 "a sibling sharing a name prefix answered for /r/b")
     }
 
-    /// **A genuinely empty folder is not an unread one**, and this is the distinction the whole
-    /// budget rests on: `/r/bc` has children and `/r/b` has none, but so would an empty directory
-    /// that was walked. Only the mark separates them, and a request for an empty walked folder
-    /// would relist it on every render forever.
+    /// A genuinely empty folder is not an unread one, the distinction the budget rests on. Only the
+    /// mark separates an empty walked folder from an unread one, and asking for an empty walked
+    /// folder would relist it on every render forever.
     @Test func anEmptyWalkedDirectoryIsNotAskedFor() {
         let walkedEmpty = [dir("/r/empty", children: [])]
         #expect(!FileSyncManager.isUnexplored(atPath: "/r/empty", under: "/r", in: walkedEmpty))
@@ -147,11 +136,10 @@ import Testing
 
     // MARK: - Asked by id
 
-    /// **The outline asks with a row's id**, and under a root spelled through a link — `/var/…`,
-    /// whose walk lists `/private/var/…` — no id is a path under the root, so the names find nothing
-    /// and the id prefix has to. It found these folders before the names did, and the outline still
-    /// needs it. The separator matters here: the descent commits to the first prefix match, so
-    /// without it `…/bc` would enter `…/b` and come back empty-handed.
+    /// The outline asks with a row's id, and under a root spelled through a link (`/var/…`, whose
+    /// walk lists `/private/var/…`) no id is a path under the root, so the id prefix must find it.
+    /// The separator matters: the descent commits to the first prefix match, so without it `…/bc`
+    /// would enter `…/b` and come back empty-handed.
     @Test func aFolderAskedByAnIdNotSpelledUnderTheRootIsFound() throws {
         let resolved = [dir("/private/r/b", children: [], unexplored: true),
                         dir("/private/r/bc", children: [file("/private/r/bc/x.txt")])]
@@ -169,22 +157,16 @@ import Testing
     }
 }
 
-/// **A deferred listing is identified by the pane that asked, not by the folder alone.**
-///
-/// Keyed by path only — which is how it shipped — two panes on the SAME source suppress each
-/// other. Comparing a folder against itself is an ordinary thing to do here (the log carries
-/// "comparing Dropbox and Dropbox"), and in that state the left pane's request made the right's
-/// look like a duplicate. The right column then never filled: its `onAppear` had already fired,
-/// `isLoading` never changed again, and nothing re-asks.
+/// A deferred listing is keyed by the pane that asked, not by the folder alone. Keyed by path, two
+/// panes on the same source (an ordinary comparison here) would suppress each other: the right
+/// pane's request would look like a duplicate of the left's, and since its `onAppear` has already
+/// fired and nothing re-asks, its column would never fill.
 @Suite struct ColumnGraftKeyTests {
 
-    /// **`makeCanonicalTempRoot`, and nothing else will do.** `buildTree` canonicalises through
-    /// `canonicalPathKey`, which gives `/private/var/folders/…`; the temporary directory answers
-    /// `/var/folders/…`, and `resolvingSymlinksInPath()` does NOT fix it — that call deliberately
-    /// strips `/private`, as `FileDiffEngine`'s own note records. A fixture that gets this wrong
-    /// builds a tree whose node ids never match the paths the test asks about, and every assertion
-    /// fails for a reason that has nothing to do with the subject. Production is unaffected: the
-    /// paths a column asks about come out of the tree itself.
+    /// Must use `makeCanonicalTempRoot`. `buildTree` canonicalises to `/private/var/folders/…`,
+    /// the temporary directory answers `/var/folders/…`, and `resolvingSymlinksInPath()` strips
+    /// `/private` (see `FileDiffEngine`). Otherwise node ids never match the paths the test asks
+    /// about. Production is unaffected: a column asks with paths from the tree itself.
     @MainActor
     private func fixture() throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "graftkey")
@@ -246,14 +228,11 @@ import Testing
     }
 }
 
-/// **That the graft actually lands**, which the pure `grafting` above cannot say.
-///
-/// `ColumnGraftKeyTests` checks what a request STARTS; this checks what it finishes. Between the
-/// two sits everything the pure function is not: the unexplored guard against the raw tree, the
-/// re-read after the await, the generation bump that makes the index compare unequal, and the write
-/// back into `prefetchedTrees`. Each is a line that can be deleted with every other test still
-/// green — the cache write especially, whose whole symptom is that walking out of a folder and back
-/// re-blanks the column, one navigation later than anyone is looking.
+/// That the graft actually lands, which the pure `grafting` can't say. `ColumnGraftKeyTests` checks
+/// what a request starts; this checks what it finishes: the unexplored guard against the raw tree,
+/// the re-check after the await, the generation bump that makes the index compare unequal, and the
+/// write back into `prefetchedTrees`. A missing cache write shows only when the user walks out of
+/// the folder and back, and the column is blank again.
 @Suite struct ColumnGraftLandingTests {
 
     @MainActor
@@ -273,17 +252,12 @@ import Testing
         return nil
     }
 
-    /// **A listing started before a swap must not land after it.**
+    /// A listing started before a swap must not land after it. `loadColumnChildren` captures
+    /// `isLeft` and lands on the main actor later; after a swap the capture names the other pane,
+    /// and two panes on one source would fill the wrong column with plausible rows.
     ///
-    /// `loadColumnChildren` captures `isLeft` and comes back on the main actor some time later. A
-    /// swap in that window makes the capture name the other pane, and the graft would write a
-    /// directory read for one pane into the other pane's tree. It survives casual inspection
-    /// because the listing is CORRECT for its absolute path — two panes on one source would fill
-    /// the wrong column with entirely plausible rows.
-    ///
-    /// Driven by bumping the generation directly rather than by calling `swapPanes`: the point
-    /// under test is that the graft consults it, and going through the swap would also exchange the
-    /// trees, so a green could come from the path no longer being found rather than from the guard.
+    /// Bumps the generation directly instead of calling `swapPanes`, which also exchanges the trees,
+    /// so a green could come from the path no longer being found rather than from the guard.
     @MainActor
     @Test func aListingIsDroppedWhenThePanesSwappedWhileItRan() async throws {
         let root = try fixture()
@@ -334,20 +308,18 @@ import Testing
         #expect(manager.rawTreeGeneration > generationBefore,
                 "the index's stamp did not move, so `PaneChildrenIndex` compares equal and the column never re-resolves")
 
-        // **A second wait, not a second assertion.** The in-flight key is dropped in a `defer` that
-        // runs after the tree write AND after the `applyFilters()` await, so at the moment the
-        // graft is visible the request legitimately still is too — `emptyCaption`'s `isUnexplored`
-        // conjunction exists for precisely that overlap. Read as an immediate expectation this
-        // passed alone and failed under a parallel run, which is a test measuring the machine.
+        // A wait, not an assertion: the in-flight key is dropped in a `defer` after the tree write
+        // and the `applyFilters()` await, so while the graft is visible the request may still be
+        // too (`emptyCaption` checks `isUnexplored` for that overlap). An immediate expectation
+        // would be timing-dependent under a parallel run.
         await waitUntil("the request clears once the listing has landed") {
             manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
         }
     }
 
-    /// **And into the cache the next navigation serves from.** `loadTree`'s fast path returns
-    /// `prefetchedTrees[focusPath]` without touching disk, so an ungrafted entry there un-does this
-    /// the moment the user walks out of the folder and back — silently, and only on the second
-    /// visit.
+    /// And into the cache the next navigation serves from. `loadTree`'s fast path returns
+    /// `prefetchedTrees[focusPath]` without touching disk, so an ungrafted entry there undoes the
+    /// graft silently when the user walks out of the folder and back.
     @MainActor
     @Test func theListingReachesTheCachedTreeToo() async throws {
         let root = try fixture()
@@ -371,18 +343,14 @@ import Testing
                 "the cached tree is still the ungrafted one — walking away and back re-blanks the column")
     }
 
-    /// **A listing must not land on a folder that was fully walked while it ran.**
+    /// A listing must not land on a folder that was fully walked while it ran. A refresh or the
+    /// deep walk can publish the node fully walked before the listing lands, with the path still
+    /// present, so `grafting` alone would overwrite the deep subtree with a one-level listing,
+    /// re-mark its child folders unexplored, and cache that poorer tree for the next warm scan.
+    /// The outline row's open fires the request ungated, so the race is ordinary.
     ///
-    /// The pre-await guard asks the tree that existed when the column asked; a refresh or the deep
-    /// walk itself can publish this node FULLY WALKED before the listing lands, and the path is
-    /// still present — so `grafting` alone would happily overwrite the deep subtree with a
-    /// one-level listing whose child directories are re-marked unexplored, and the cache write
-    /// would hand that poorer tree to the next warm scan. The outline row's open fires the request
-    /// ungated, so the race is ordinary, not exotic.
-    ///
-    /// Driven by replacing the raw tree between the request and the landing, which is exactly the
-    /// window the post-await re-check exists for; the replacement is synchronous with the call, so
-    /// it lands before the graft's task first runs — the same timing the swap test above relies on.
+    /// The raw tree is replaced synchronously after the request, before the graft's task first
+    /// runs, as in the swap test above.
     @MainActor
     @Test func aListingIsDroppedWhenTheFolderWasFullyWalkedWhileItRan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "graftstale")
@@ -398,13 +366,13 @@ import Testing
                      "the fixture arrived already walked — this measures nothing")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)
-        // The window: before the listing lands, a full walk publishes the node explored — into the
-        // raw tree AND the cache, which is what the deep walk's adopt does.
+        // Before the listing lands, a full walk publishes the node explored into the raw tree and
+        // the cache, as the deep walk's adopt does.
         let full = await FileSyncManager.buildTree(url: root, sortOption: .name)
         try #require(node(deep, in: full)?.isUnexplored == nil,
                      "the replacement tree still reads as unread — the guard under test would be right to graft")
-        // The path is still present, so the pre-existing `grafting != nil` guard alone would NOT
-        // drop this answer — only the post-await unexplored re-check can.
+        // The path is still present, so the `grafting != nil` guard alone would not drop this
+        // answer; only the post-await unexplored re-check can.
         try #require(FileSyncManager.grafting(children: [], atPath: deep, under: root.path, into: full) != nil,
                      "the path is gone from the replaced tree — the older not-found guard drops this and the re-check is never exercised")
         manager.rawLeftTree = full
@@ -426,25 +394,22 @@ import Testing
                 "the cache took the stale graft — the next warm scan compares a poisoned tree")
     }
 
-    /// **A sort change during the listing lands the graft in the LIVE order.** The listing is
-    /// built in the option captured at request time; a change while it runs re-sorts the pane's
-    /// trees, and a graft in the old order would be the one out-of-order column on screen.
+    /// A sort change during the listing lands the graft in the live order. The listing is built in
+    /// the option captured at request time, and a graft in the old order would be the one
+    /// out-of-order column on screen.
     ///
-    /// Real filesystem, because a mock-built tree carries no sizes (`TreeBuilder.stat` reads
-    /// metadata only from a real `FileManager`) and every sort option ties back to name order
-    /// without them. The change is made synchronously after the request, on the main actor, so it
-    /// is in place before the landing can possibly run — and the assertion is confined to the
-    /// GRAFTED children, deliberately: `resortTreesAndRefilter` discards itself when the graft's
-    /// generation bump beats it, so the root level's final order depends on scheduling, but the
-    /// grafted children are size-ordered on every interleaving only if the landing re-sorts them.
+    /// Real filesystem, because a mock-built tree carries no sizes (`TreeBuilder.stat` reads them
+    /// only from a real `FileManager`). The change is made synchronously after the request. Only
+    /// the grafted children are asserted: `resortTreesAndRefilter` discards itself when the graft's
+    /// generation bump beats it, so the root level's order depends on scheduling.
     @MainActor
     @Test func aListingLandsReSortedWhenTheSortChangedWhileItRan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "graftsort")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
                                                 withIntermediateDirectories: true)
-        // Name order [apple, zebra]; size order [zebra, apple]. If the two agreed, the assertion
-        // below could not tell the captured option from the live one.
+        // Name order [apple, zebra], size order [zebra, apple], so the captured and live options
+        // give different answers.
         try Data("x".utf8).write(to: root.appendingPathComponent("deep/apple.txt"))
         try Data("xxx".utf8).write(to: root.appendingPathComponent("deep/zebra.txt"))
         let deep = root.appendingPathComponent("deep").path
@@ -456,8 +421,8 @@ import Testing
         try #require(manager.sortOption == .name, "the fixture does not start from the captured option")
 
         manager.loadColumnChildren(atPath: deep, isLeft: true)
-        // Synchronous with the call above, exactly like the swap test's generation bump: the task
-        // has not run yet, so the listing is built under .name and lands under .size.
+        // Synchronous with the call, like the swap test's bump: the listing is built under .name
+        // and lands under .size.
         manager.sortOption = .size
 
         await waitUntil("the listing grafts into the pane's tree") {
@@ -469,8 +434,7 @@ import Testing
     }
 
     /// A folder the walk already read is not re-listed. The call site is a view modifier that fires
-    /// for reasons a view cannot see, so this guard is what stops an ordinary column from asking
-    /// for its own contents on every appearance.
+    /// for reasons a view can't see, so this guard stops a column asking on every appearance.
     @MainActor
     @Test func aWalkedFolderIsNotRelisted() async throws {
         let root = try fixture()
@@ -487,12 +451,10 @@ import Testing
                 "a directory the walk already read was queued for a second listing")
     }
 
-    /// **An unreadable folder is asked for once, not on every appearance.** The tree's "Can’t be
-    /// read" placeholder asks in `.onAppear`, and each scroll back into view started the same
-    /// doomed listing and drew a spinner over the caption for its length. The outcome is
-    /// remembered — and forgotten when the side is walked afresh, which is when a retry can
-    /// answer differently. A readable unexplored folder beside it still asks: the control that
-    /// tells "remembered" from "the guard refuses everything".
+    /// An unreadable folder is asked for once, not on every appearance. The "Can’t be read"
+    /// placeholder asks in `.onAppear`, so each scroll back into view would start the same doomed
+    /// listing and draw a spinner. The outcome is remembered until the side is walked afresh. A
+    /// readable unexplored folder beside it still asks, so the guard isn't refusing everything.
     @MainActor
     @Test func anUnreadableFolderIsNotAskedForAgainUntilTheTreeIsWalkedAfresh() async throws {
         let root = try makeCanonicalTempRoot(prefix: "graftunreadable")
@@ -565,10 +527,9 @@ import Testing
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// **An explicit open retries a folder found unreadable.** "Unreadable" is also what a slow
-    /// dataless cloud folder looks like when the deadline defers it (`DatalessFolderReads`: the
-    /// deadline defers a slow folder, it never drops it) — opening it again is how a person asks
-    /// once it has downloaded. Only the placeholder's scroll-past ask is held back.
+    /// An explicit open retries a folder found unreadable. A slow dataless cloud folder that the
+    /// deadline deferred (`DatalessFolderReads`) also looks unreadable, and opening it again is how
+    /// a person asks once it has downloaded. Only the placeholder's scroll-past ask is held back.
     @MainActor
     @Test func anExplicitOpenRetriesAFolderFoundUnreadable() async throws {
         let (manager, root, locked, _) = try await unreadableFixture("graftretry")
@@ -589,9 +550,9 @@ import Testing
         }
     }
 
-    /// **An answer about a tree that was walked afresh is not remembered.** ⌘R while the listing
-    /// runs clears the memory; the stale answer landing after it must not re-fill it, or the
-    /// fresh tree's placeholder would never ask.
+    /// An answer about a tree that was walked afresh is not remembered. ⌘R while the listing runs
+    /// clears the memory, and the stale answer landing after it must not refill it, or the fresh
+    /// tree's placeholder would never ask.
     @MainActor
     @Test func anUnreadableAnswerFromBeforeAFreshWalkIsNotRemembered() async throws {
         let (manager, root, locked, shallow) = try await unreadableFixture("graftstale")
@@ -605,8 +566,8 @@ import Testing
         }
         #expect(!manager.columnGraftsUnreadable.contains(.init(isLeft: true, path: locked.path)),
                 "an answer about the tree ⌘R replaced was remembered against the fresh one")
-        // The control: the same answer with no walk in between IS remembered, so the guard is
-        // what kept it out above, not a listing that never reported.
+        // Control: with no walk in between the same answer is remembered, so the guard kept it out
+        // above, not a listing that never reported.
         manager.loadColumnChildren(atPath: locked.path, isLeft: true)
         await waitUntil("the second listing comes back") {
             manager.columnGraftsInFlightPaths(isLeft: true).isEmpty

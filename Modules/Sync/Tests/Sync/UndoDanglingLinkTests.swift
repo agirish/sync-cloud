@@ -4,12 +4,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A dangling link is something at its path** (final review U6, FR28's rule at three more sites).
-///
-/// `fileExists` follows a link, so a link whose target is gone reads as nothing there. The delete's
-/// redo skipped a dangling link its undo had just restored ("trashed 0 of 1"), and the delete- and
-/// move-undo's "is the original's place taken?" read one as free, then failed under a banner
-/// blaming the Trash. Real links in real folders; a Trash of the test's own.
+/// A dangling link is something at its path. `fileExists` follows a link, so one whose target is
+/// gone reads as nothing there. The delete's redo must still trash a dangling link its undo
+/// restored, and the delete- and move-undo must see one as taking the original's place, not fail
+/// under a banner blaming the Trash. Real links in real folders; a Trash of the test's own.
 @Suite struct UndoDanglingLinkTests {
 
     @MainActor
@@ -100,7 +98,7 @@ import Testing
         #expect(await occupied(source, in: log))
     }
 
-    /// The refusal for THIS path — a sibling case's refusal names its own.
+    /// The refusal for this path; a sibling case's refusal names its own.
     @MainActor
     private func occupied(_ url: URL, in log: LogCapture) async -> Bool {
         await log.entries.contains { $0.message.contains("at \(url.path) from backup") && $0.message.contains("already occupied by another item") }

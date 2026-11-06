@@ -2,18 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The failure this guards reports itself as success, which is why it gets a suite before it
-/// gets a caller.**
-///
-/// ``FilingSurvey/surveyedRegion(corpus:memory:)`` is derived from the corpus and
-/// ``FilingSurvey/documentsToRead(tree:corpus:memory:)`` scopes on it, so a half-finished corpus on
-/// disk makes the region cover only the part of the tree already read — and the next survey skips
-/// the rest of it permanently, reporting *0 documents read*, which is indistinguishable from a
-/// settled tree. There is no error, no log line and no user-visible symptom beyond suggestions that
-/// are quietly worse forever.
-///
-/// So the assertions below are about a file **not** being seen, and about two files that live in
-/// one directory never being taken for each other.
+/// The survey checkpoint must never be taken for the corpus, because that failure looks like
+/// success. ``FilingSurvey/surveyedRegion(corpus:memory:)`` comes from the corpus and
+/// ``FilingSurvey/documentsToRead(tree:corpus:memory:)`` scopes on it, so a half-finished corpus
+/// makes the next survey skip the unread rest of the tree forever, reporting *0 documents read*,
+/// with no error or log line. So these assert a file is not seen, and that two files in one
+/// directory are never taken for each other.
 @Suite struct DocumentSurveyCheckpointTests {
 
     private func makeDir() throws -> URL {
@@ -39,8 +33,8 @@ import Testing
 
     // MARK: - The invariant
 
-    /// **The one assertion this whole type exists for.** A checkpoint on disk must be invisible to
-    /// the corpus reader: not an empty corpus, not a partial one — absent.
+    /// The core invariant: a checkpoint on disk is invisible to the corpus reader. Not an empty
+    /// corpus, not a partial one: absent.
     @Test func aCheckpointOnDiskIsNotACorpus() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -73,11 +67,10 @@ import Testing
         #expect(!checkpoint.lastPathComponent.contains("corpus"))
     }
 
-    /// **The second door.** `FilingCorpus`'s decoder is lenient by design, so before the `kind`
-    /// guard a checkpoint that ARRIVED at the corpus path — a recovery script, a hand copy, a
-    /// refactor reusing `corpusURL` — decoded successfully as an *empty corpus*. `.loaded`, not
-    /// `.unreadable`, so the survey's byte-preserving refusal never ran and the next write replaced
-    /// the memory with nothing.
+    /// `FilingCorpus`'s decoder is lenient by design, so without the `kind` guard a checkpoint that
+    /// lands at the corpus path (a recovery script, a hand copy, a refactor reusing `corpusURL`)
+    /// would decode as an empty `.loaded` corpus. The survey's byte-preserving refusal wouldn't
+    /// run, and the next write would replace the memory with nothing.
     @Test func aCheckpointCOPIEDToTheCorpusPathIsUnreadableNotEmpty() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -115,9 +108,8 @@ import Testing
         #expect(back.documents["x.pdf"]?.anchors == ["kaiser"])
     }
 
-    /// A corpus written before `kind` existed — the offline builder's output, and every corpus on
-    /// disk today — still loads. The guard fires on a `kind` that names something else, never on
-    /// its absence.
+    /// A corpus with no `kind` (the offline builder's output, and older corpora on disk) still
+    /// loads. The guard fires on a `kind` that names something else, never on its absence.
     @Test func aCorpusPredatingTheKindKeyStillLoads() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -151,8 +143,8 @@ import Testing
         #expect(back.plan == original.plan)
         #expect(back.nextIndex == original.nextIndex)
         #expect(back.read == original.read)
-        // The stamps go through `FilingArtifactStamp`, which is whole seconds — compare at that
-        // resolution rather than asserting an equality the format does not promise.
+        // The stamps go through `FilingArtifactStamp`, which keeps whole seconds, so compare at
+        // that resolution.
         #expect(abs(back.startedAt.timeIntervalSince(original.startedAt)) < 1)
         #expect(abs(back.updatedAt.timeIntervalSince(original.updatedAt)) < 1)
     }
@@ -254,8 +246,8 @@ import Testing
             Issue.record("the checkpoint survived being discarded")
             return
         }
-        // Twice, because the caller has just finished a three-hour survey and must not be handed
-        // an error because the thing it wanted gone was already gone.
+        // Twice: a caller that just finished a long survey must not get an error because the
+        // checkpoint was already gone.
         try DocumentSurveyCheckpointStore.discard(id: "t", in: dir)
     }
 

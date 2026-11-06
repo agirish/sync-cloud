@@ -4,17 +4,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A move-by-copy never deletes the only complete copy** (final review P2).
-///
-/// On a volume with no Trash the original is removed outright once its copy has landed, and a
-/// folder's `removeItem` deletes what it can before it throws — a locked file inside is enough,
-/// verified. The cleanup then "reverted" by removing the copy, so part of the original and all of
-/// the copy were gone. Real folders here, because the defect is in what is left on disk; the double
-/// stands in only for the Trash-less volume and the removal that stops part-way.
+/// A move-by-copy never deletes the only complete copy. On a volume with no Trash the original is
+/// removed outright once its copy lands, and a folder's `removeItem` deletes what it can before it
+/// throws (a locked file inside is enough). Reverting by removing the copy would then lose part of
+/// the original and all of the copy. Real folders, since what matters is what is left on disk; the
+/// double stands in only for the Trash-less volume and the part-way removal.
 @Suite struct CrossVolumeCleanupTests {
 
     /// The real disk with no Trash, whose removal of `partial` deletes one file inside and then
-    /// throws — what a locked or busy entry does to a real `removeItem`.
+    /// throws, as a locked or busy entry makes a real `removeItem` do.
     private final class TrashlessPartialRemoveDisk: FileManager, @unchecked Sendable {
         let partial: String
         init(partial: String) { self.partial = partial; super.init() }
@@ -71,19 +69,19 @@ import Testing
         }
         #expect(names(in: destination) == ["a.txt", "b.txt"],
                 "the revert put the old destination back over the only complete copy")
-        // The item it replaced is kept too — no Trash here, so as the hidden backup beside it.
+        // The item it replaced is kept too: no Trash here, so as the hidden backup beside it.
         let backups = names(in: destination.deletingLastPathComponent()).filter { $0.hasPrefix(".rollback_") }
         let backup = try #require(backups.first)
         #expect(backups.count == 1)
         #expect(names(in: destination.deletingLastPathComponent().appendingPathComponent(backup)) == ["old.txt"])
-        // **B2: and the alert says where** — the hidden backup is the one place it is, and nothing
-        // sweeps it.
+        // And the alert says where: the hidden backup is the replaced item's only copy, and
+        // nothing sweeps it.
         #expect(thrown == .originalPartlyRemoved(name: "Photos", replacedItemKeptAt: .hiddenBesideDestination(name: backup)))
         #expect(thrown?.errorDescription?.contains("“\(backup)”") == true, "\(String(describing: thrown?.errorDescription))")
     }
 
-    /// The Trash-less, part-way-removing disk, on which a rename of `from` fails as across
-    /// volumes — so an undo's or redo's own move takes the copy-and-remove path.
+    /// The Trash-less, part-way-removing disk, on which renaming `partial` fails as across volumes,
+    /// so an undo's or redo's own move takes the copy-and-remove path.
     private final class CrossVolumePartialRemoveDisk: FileManager, @unchecked Sendable {
         let partial: String
         init(partial: String) { self.partial = partial; super.init() }
@@ -104,9 +102,9 @@ import Testing
         }
     }
 
-    /// **B3.** A ⌘Z whose move back runs across volumes puts the folder back WHOLE and then cannot
-    /// fully remove what is left where it was. That is not a failed restore: the old banner said
-    /// the original "may have been removed from the Trash".
+    /// A ⌘Z whose move back runs across volumes puts the folder back whole, then can't fully remove
+    /// what is left where it was. Not a failed restore, so the banner must not say the original
+    /// "may have been removed from the Trash".
     @MainActor
     @Test func anUndoThatMovedBackWholeButLeftRemainsSaysSo() async throws {
         let base = try makeCanonicalTempRoot(prefix: "b3")
@@ -131,8 +129,8 @@ import Testing
         #expect(banner == "Undo moved “Photos” back, but the copy where it was couldn’t be fully removed", "\(banner)")
     }
 
-    /// **P8: a staging item that will not go is logged, with its path.** The last removal was a
-    /// `try?`, so a hidden full-size copy left beside the destination left no line anywhere.
+    /// A staging item that won't go is logged with its path, or a hidden full-size copy left
+    /// beside the destination leaves no trace.
     @MainActor
     @Test func aStagingItemThatCannotBeRemovedIsLogged() async throws {
         final class UnremovableDisk: FileManager, @unchecked Sendable {

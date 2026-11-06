@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Surveys by source (GK–GN): which survey places a tree's files, the store that records a source's
-/// own survey and choice, and learning one without ever re-aiming the primary.
+/// Surveys by source: which survey places a tree's files, the store that records a source's own
+/// survey and choice, and learning one without ever re-aiming the primary.
 @Suite @MainActor struct SourceSurveyTests {
 
     static func profile(_ id: String, root: String, _ folders: [String]) -> FolderProfile {
@@ -33,7 +33,7 @@ import Testing
         #expect(!r.chosen)
     }
 
-    /// GN: at least half borrows, under half is placed by name. 50% exactly borrows; 49% does not.
+    /// At least half borrows, under half is placed by name. 50% exactly borrows; 49% does not.
     @Test func halfOrMoreBorrowsThePrimarySurvey() {
         func kind(_ matched: Int, _ total: Int) -> FilingSurveyInUse.Kind {
             FilingSurveyInUse.resolve(providerRoot: "/d", primaryRoot: "/u/Documents", entry: nil,
@@ -205,7 +205,7 @@ import Testing
     }
 
     /// Learn Its Folders: the own survey lands beside the primary, is listed in the store, is what
-    /// the tree now uses — and `profiles.json` still names the primary.
+    /// the tree now uses, and `profiles.json` still names the primary.
     @Test func learningASourceWritesItsOwnSurveyAndLeavesThePrimaryActive() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -261,8 +261,8 @@ import Testing
         #expect(f.manager.filingSurveyInUse?.kind == .byName, "back to the measured default")
     }
 
-    /// The router index is keyed on the tree's folders, which do not move when only the survey
-    /// does — so switching the survey must drop it, or the rescan reuses the index of the old one.
+    /// The router index is keyed on the tree's folders, which don't move when only the survey does,
+    /// so switching the survey must drop it, or the rescan reuses the old survey's index.
     @Test func switchingTheSurveyRebuildsTheRouterIndex() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -290,8 +290,8 @@ import Testing
         #expect(SourceSurveyStore.entries(in: f.profiles).isEmpty)
     }
 
-    /// GM: Ask Claude answers a Google Drive file from Google Drive's survey and places it there;
-    /// a file anywhere else from the primary.
+    /// Ask Claude answers a Google Drive file from Google Drive's survey and places it there, and a
+    /// file anywhere else from the primary.
     @Test func askClaudeFollowsTheSource() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }

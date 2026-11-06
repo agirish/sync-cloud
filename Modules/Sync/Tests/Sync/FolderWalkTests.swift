@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Walking a tree and writing a profile from it.
-///
-/// The derivation and the write were both shipped and had nothing between them: no code path walked
-/// a tree and put the two together, so a machine that never ran the out-of-repo builder had no way
-/// to get a profile at all. These are the seams of that path — what it records, what it refuses, and
-/// the one outcome that looks like success and is not.
+/// Walking a tree and writing a profile from it, the path that gives a machine a profile without
+/// the out-of-repo builder: what it records, what it refuses, and the one outcome that looks like
+/// success and isn't.
 @MainActor
 @Suite struct FolderWalkTests {
 
@@ -56,10 +53,9 @@ import Testing
         #expect(!written.acceptsNewFiles("Finance/TODO"), "an inbox was recorded as a destination")
     }
 
-    /// The confirmed places reach the profile, and nothing else becomes one.
-    ///
-    /// The mining is only 83.2% right and every point of the gap is an invention, so the vocabulary
-    /// is handed in. This is the assertion that the hand-in is actually honoured.
+    /// The confirmed places reach the profile, and nothing else becomes one. Mining places from
+    /// names is only about 83% right, and every miss is an invention, so the vocabulary is handed
+    /// in; this checks the hand-in is honoured.
     @Test func onlyConfirmedPlacesBecomeJurisdictions() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -100,11 +96,9 @@ import Testing
         }
     }
 
-    /// Two walks inside one second do not collide.
-    ///
-    /// The stamp is second-resolution and `writeProfile` refuses over an existing id, so without a
-    /// suffix the ordinary act of pressing *Learn again* on a small tree reported "the profile could
-    /// not be written".
+    /// Two walks inside one second don't collide. The stamp is second-resolution and `writeProfile`
+    /// refuses over an existing id, so without a suffix pressing Learn again on a small tree would
+    /// report "the profile could not be written".
     @Test func twoWalksInTheSameSecondBothLand() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -132,11 +126,9 @@ import Testing
         #expect(throws: FileSyncManager.FolderWalkFailure.noProfilesDirectory) { try result.get() }
     }
 
-    /// An unreadable root is not "your tree has no folders".
-    ///
-    /// **Recording an empty profile would be worse than refusing.** It decodes perfectly, reads as a
-    /// surveyed tree everywhere downstream, and answers every routing question with "no destination"
-    /// — a confident wrong answer, latched, which is the failure mode this repo has hit before.
+    /// An unreadable root is refused, not recorded as "your tree has no folders". An empty profile
+    /// decodes fine, reads as a surveyed tree everywhere downstream, and answers every routing
+    /// question with a confident, latched "no destination".
     @Test func anUnreadableRootIsRefusedRatherThanRecordedAsEmpty() async throws {
         let profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: profiles) }
@@ -150,12 +142,9 @@ import Testing
                 "a refused walk still moved the pointer")
     }
 
-    /// A readable folder with nothing in it is refused too, and for its own reason.
-    ///
-    /// Distinct from unreadable: this one the app *could* profile, and the profile would be empty —
-    /// which decodes perfectly, reads as a surveyed tree everywhere downstream, and answers every
-    /// routing question with a confident "no destination" while telling the user their tree was
-    /// learned.
+    /// A readable folder with nothing in it is refused too, for its own reason: the app could
+    /// profile it, but the empty profile would answer every routing question with "no destination"
+    /// while telling the user their tree was learned.
     @Test func anEmptyFolderIsRefusedRatherThanProfiledAsNothing() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -165,10 +154,8 @@ import Testing
         #expect(FilingProfileStore.activeProfileId(in: profiles) == nil)
     }
 
-    /// The root's own entry is always there, so it cannot stand for a learned tree.
-    ///
-    /// The reason `nothingToLearn` counts entries below the root rather than asking `isEmpty`: a
-    /// walk of a folder with nothing in it still produces a one-folder profile.
+    /// The root's own entry is always there, so it can't stand for a learned tree. This is why
+    /// `nothingToLearn` counts entries below the root rather than asking `isEmpty`.
     @Test func anEmptyTreeStillProducesTheRootEntry() {
         let built = FolderSurveyBuilder.build(tree: [], root: "~/x", profileId: "p", registry: nil)
         #expect(built.folders.keys.sorted() == [FolderSurveyBuilder.rootEntryPath],
@@ -186,11 +173,9 @@ import Testing
         #expect(throws: FileSyncManager.FolderWalkFailure.rootUnreadable(file.path)) { try result.get() }
     }
 
-    /// **A write the disk refuses says why in a sentence, not as an `NSError` dump.**
-    ///
-    /// The refusal carried `String(describing: error)`, which for a Foundation error is
-    /// `Error Domain=NSCocoaErrorDomain Code=… UserInfo={…}` — and setup's Structure screen put that
-    /// on screen under "Couldn’t save your folder profile".
+    /// A write the disk refuses says why in a sentence, not as an `NSError` dump
+    /// (`Error Domain=… UserInfo={…}`), since setup's Structure screen shows it under
+    /// "Couldn’t save your folder profile".
     @Test func aRefusedWriteSaysWhyInASentence() async throws {
         let root = try Self.scratch(), elsewhere = try Self.scratch()
         defer {
@@ -231,18 +216,16 @@ import Testing
 
     // MARK: - The outcome that looks like success
 
-    /// A walk on a machine with a hand-built profile succeeds, lands on disk, and is **not** used.
-    ///
-    /// **This is the one worth reporting rather than swallowing.** The store refuses to re-point
-    /// away from a profile it did not write — correctly, since a hand-built one records judgements a
-    /// walk cannot see — so the honest outcome is "done, and it changed nothing you will notice".
-    /// A report that said only "learned 3,013 folders" would be true and misleading.
+    /// A walk on a machine with a hand-built profile succeeds, lands on disk, and is not used. The
+    /// store won't re-point away from a profile it didn't write, since a hand-built one records
+    /// judgements a walk can't see, so the report must say it changed nothing you'll notice; a
+    /// plain "learned 3,013 folders" would be true and misleading.
     @Test func aWalkBesideAHandBuiltProfileSaysItIsNotInUse() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
         try Self.tree(in: root)
 
-        // A hand-built profile: no `builtBy` header at all, which is how every one of them reads.
+        // A hand-built profile: no `builtBy` header at all, which is how they all read.
         let handBuilt = profiles.appendingPathComponent("father")
         try FileManager.default.createDirectory(at: handBuilt, withIntermediateDirectories: true)
         try #"{"schemaVersion": 1, "profileId": "father", "root": "~/Documents", "folders": []}"#
@@ -264,10 +247,8 @@ import Testing
                 "the derived profile should be on disk — it is refused the pointer, not the write")
     }
 
-    /// A second walk on a machine whose profile the app wrote **does** take over.
-    ///
-    /// The other side of the rule, and the case the old existence-keyed guard got wrong: a survey
-    /// would run to completion and then be ignored, with nothing saying so.
+    /// A second walk on a machine whose profile the app wrote does take over. Otherwise a survey
+    /// would run to completion and be ignored, with nothing saying so.
     @Test func aSecondWalkSupersedesTheFirst() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -286,8 +267,8 @@ import Testing
                 "the superseded profile was deleted — it is the only record of what was in use")
     }
 
-    /// A Save while a reorganization lands is refused and says so (review R5): the landing's
-    /// re-derive publishes its own profile when its replay ends, over whatever the walk wrote.
+    /// A Save while a reorganization lands is refused and says so: the landing's re-derive publishes
+    /// its own profile when its replay ends, over whatever the walk wrote.
     @Test @MainActor func aWalkIsRefusedWhileALandingIsInProgress() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -322,9 +303,9 @@ import Testing
                                                 producedProfileId: id, summary: "1 moved")))
     }
 
-    /// Re-running Setup's Learn and Save writes a new walk profile and makes it active. The
-    /// roster, the verdicts and the ledger used to stay behind in the old folder, so the app read
-    /// an empty roster, the verdicts and the Undo vanished, and a later refresh deleted them.
+    /// Re-running Setup's Learn and Save writes a new walk profile and makes it active, and the
+    /// roster, the verdicts and the ledger must move with it. Left in the old folder, the app would
+    /// read an empty roster, lose the verdicts and the Undo, and a later refresh would delete them.
     @Test @MainActor func aSecondWalkCarriesWhatTheUserMade() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -349,7 +330,7 @@ import Testing
                 == "landing-1", "the same folder walked again keeps the last landing's Undo")
     }
 
-    /// A walk of a DIFFERENT folder still brings the roster, but not the Undo: the ledger's
+    /// A walk of a different folder still brings the roster, but not the Undo: the ledger's
     /// inverse is relative to the root, and Undo would replay it under the new one.
     @Test @MainActor func aWalkOfAnotherFolderDoesNotOfferTheOldUndo() async throws {
         let root = try Self.scratch(), other = try Self.scratch(), profiles = try Self.scratch()

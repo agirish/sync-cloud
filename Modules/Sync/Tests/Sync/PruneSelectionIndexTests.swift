@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **`pruneSelection` looks the selection up in the per-version path index** (speed audit item 8)
-/// rather than collecting every path in the tree into a set of its own. These pin that the answer
-/// did not move: the same pruned selection as the full walk it replaced, on generated trees, and
-/// never an answer about a tree that has since been replaced.
+/// `pruneSelection` looks the selection up in the per-version path index rather than collecting
+/// every path in the tree. These pin that it gives the same answer as a full walk on generated
+/// trees, and never an answer about a tree that has since been replaced.
 @MainActor
 @Suite struct PruneSelectionIndexTests {
 
@@ -28,7 +27,7 @@ import Foundation
         nodes.flatMap { [$0.id] + allPaths($0.children ?? []) }
     }
 
-    /// The rule the index replaced, kept here as the reference: every path in the tree, collected.
+    /// The reference rule: every path in the tree, collected.
     private static func referencePrune(_ selection: Set<String>, in tree: [FileNode]) -> Set<String> {
         let all = Set(allPaths(tree))
         return selection.filter { all.contains($0) }
@@ -52,7 +51,7 @@ import Foundation
             let manager = FileSyncManager()
             let before = Self.tree(root: "/l\(trial)", width: 6, depth: 4)
             let paths = Self.allPaths(before)
-            // Drop a random tenth of the tree — a deleted folder takes its whole subtree with it.
+            // Drop a random tenth of the tree; a deleted folder takes its whole subtree with it.
             let dropped = Set(paths.filter { _ in Int.random(in: 0..<10, using: &rng) == 0 })
             let after = Self.tree(root: "/l\(trial)", width: 6, depth: 4, drop: dropped.contains)
             var selection = Set(paths.filter { _ in Bool.random(using: &rng) })
@@ -67,8 +66,8 @@ import Foundation
 
             let expected = Self.referencePrune(selection, in: after)
             #expect(manager.selectedLeftPaths == expected, "trial \(trial)")
-            // The fixture really removed a SELECTED path that was in the tree — the path that was
-            // never there is pruned by any rule, so it cannot be the evidence.
+            // The fixture really removed a selected path that was in the tree: the never-there path
+            // is pruned by any rule, so it can't be the evidence.
             let selectedAndRemoved = selection.subtracting(["/l\(trial)/never-there"]).subtracting(expected)
             #expect(!selectedAndRemoved.isEmpty, "trial \(trial) removed no selected path from the tree")
         }

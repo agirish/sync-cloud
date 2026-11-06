@@ -2,26 +2,17 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **`redundantCopies` must never name the path the keeper itself names** — the second lock on a
-/// list that feeds a Trash.
-///
-/// Independent of whatever builds the group. The old filter compared against a `fallbackKeeperID`
-/// that was nil whenever ANY copy carried the keeper flag, so it guarded only the no-flag case; a
-/// group holding two copies at ONE path, one flagged and one not, walked straight through it and
-/// recommended trashing the keeper's own path. That shape was reachable — see
-/// `CoveredElsewhereTests` for the walk that produced it — and this suite holds the line whether or
-/// not anything upstream ever builds one again.
+/// `redundantCopies` must never name the keeper's own path: a second lock on a list that feeds a
+/// Trash, whatever builds the group. A group with two copies at one path, one flagged as keeper
+/// and one not, would otherwise recommend trashing the keeper. `CoveredElsewhereTests` covers the
+/// walk that can produce that shape.
 @Suite struct RedundantCopiesSelfPairTests {
 
     static let size = 5_000_000
     static let home = "/H"
 
-    /// **`redundantCopies` must never name the keeper's own path**, whatever produced the group.
-    ///
-    /// The walk fix above removes the one shape known to reach this, and this is the second lock:
-    /// the list feeds a Trash, so it should refuse a self-pair on its own rather than relying on
-    /// nothing upstream ever building one again. The old filter compared against a fallback id that
-    /// was nil whenever any copy carried the keeper flag, so exactly this group walked through it.
+    /// Two copies at one path, one flagged as keeper: neither is recommended for removal. A filter
+    /// comparing only against a fallback keeper id, nil whenever a copy is flagged, would let it by.
     @Test func aGroupHoldingOnePathTwiceRecommendsRemovingNeither() {
         func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
             DuplicateCopy(id: path, name: "Documents", isDirectory: true, size: Self.size,
@@ -37,7 +28,7 @@ import Foundation
         #expect(group.redundantCopies.isEmpty)
     }
 
-    /// And the ordinary two-path group is untouched — the guard must not stop removing real copies.
+    /// The ordinary two-path group is untouched: the guard must not stop removing real copies.
     @Test func aRealDuplicatePairStillRecommendsRemovingTheCopy() {
         func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
             DuplicateCopy(id: path, name: "report.pdf", isDirectory: false, size: Self.size,

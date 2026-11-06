@@ -4,13 +4,11 @@ import Testing
 
 /// What the classifier is allowed to answer with, and what a verdict is allowed to override.
 ///
-/// Both rules exist because of one card. A visa foil in `TODO` was suggested for
-/// `Immigration/Form I-94/Father` at High confidence, with the reason "the file name clearly
-/// matches the name of the Form I-94" — a name match that does not exist. The model was not
-/// reasoning badly: the folder the file belonged in, `Immigration/Visa/US/H-1B Visa/2024-2026`, was
-/// 1,344th in the depth-ordered list that gets truncated at 250, so neither it nor any folder under
-/// `Visa/US` was in the prompt at all. And the file's page-1 text — which names the consulate, the
-/// visa class and the expiry — was withheld because its filename was "meaningful enough".
+/// A depth-ordered folder list cut at 250 can leave a file's real folder out of the prompt
+/// entirely (a visa foil's `Immigration/Visa/US/H-1B Visa/2024-2026` ranks 1,344th), and a model
+/// with no good option names a wrong folder at High with an invented reason. Withholding page 1
+/// because the filename "looks meaningful" hides the very text (consulate, visa class, expiry) that
+/// would have told it.
 @Suite struct FilingClassifierMenuTests {
 
     // MARK: - classifierFolders
@@ -72,7 +70,7 @@ import Testing
                             ext: "pdf", year: nil, contentSnippet: nil)
     }
 
-    /// **Round-robin, not concatenated.** With more files than budget, taking each file's list in
+    /// Round-robin, not concatenated. With more files than budget, taking each file's list in
     /// turn spends the menu on every file's best guess; taking them in file order would spend the
     /// whole thing on the first few and leave the rest a menu that says nothing about them.
     @Test func everyFilesFirstChoiceSurvivesABudgetSmallerThanTheShortlists() {
@@ -114,21 +112,19 @@ import Testing
 
     // MARK: - Which files are blind in the first place
 
-    /// **Every rule below is asked about a set no test used to compute.** All four `contentBlind`
-    /// suites pass the set explicitly, and the parameter defaults to `[]` — the feature-off value —
-    /// so the derivation at the two call sites had no coverage of any kind while the rules it feeds
-    /// had plenty.
+    /// The set every rule below is asked about. The four `contentBlind` suites pass it explicitly
+    /// and the parameter defaults to `[]` (feature off), so this is what covers the derivation the
+    /// two call sites use.
     @Test func aFileHandedOverWithNoTextIsBlindAndOneWithTextIsNot() {
         let blind = FilingEngine.contentBlindFiles(
             handedOver: ["/root/a.pdf", "/root/b.pdf"], read: ["/root/b.pdf"], hadReader: true)
         #expect(blind == ["/root/a.pdf"])
     }
 
-    /// **The half that keeps installs without a reader working.** "We read it and got nothing" and
-    /// "we did not read" look identical at the call site: a scan with reading switched off hands
-    /// EVERY file over on its name, and calling all of them blind would cap every verdict at `.low`,
-    /// refuse every new folder and demote every backend answer — leaving those machines with no
-    /// intelligent suggestions at all, while telling the user nothing true, since nobody looked.
+    /// The half that keeps installs without a reader working. "We read it and got nothing" and "we
+    /// didn't read" look identical at the call site: with reading off, every file is handed over on
+    /// its name, and calling all of them blind would cap every verdict at `.low`, refuse every new
+    /// folder and demote every backend answer, on a claim nobody checked.
     @Test func noReaderMeansNoFileIsCalledBlind() {
         #expect(FilingEngine.contentBlindFiles(
             handedOver: ["/root/a.pdf", "/root/b.pdf"], read: [], hadReader: false).isEmpty)
@@ -147,9 +143,8 @@ import Testing
             handedOver: [], read: ["/root/z.pdf"], hadReader: true).isEmpty)
     }
 
-    /// And both call sites reach it. The rule used to be written out twice, once per pass, with the
-    /// same comment above each — and the pass that was missed on the last two filing fixes was the
-    /// refine one, which is the pass that actually reaches the cloud model.
+    /// And both call sites reach it, so neither classifier pass can drift from the rule; the refine
+    /// pass is the one that reaches the cloud model.
     @Test func bothClassifierPassesDeriveBlindnessFromTheSameRule() throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -203,7 +198,7 @@ import Testing
         #expect(out.first?.best?.fromAI == true)
     }
 
-    /// **A backend that has not read the document may not invent folders for it.** Naming an
+    /// A backend that has not read the document may not invent folders for it. Naming an
     /// existing folder from a filename is a guess the user checks at a glance; naming one that does
     /// not exist yet asks them to accept a new shape for their tree on the same evidence.
     @Test func aBlindVerdictMayNotProposeANewFolder() throws {
@@ -225,8 +220,8 @@ import Testing
                     .first?.best?.path == "/root/Finance/US/Accounts")
     }
 
-    /// **A folder is never the file itself.** The model answered with the full path *including the
-    /// file*, so the card offered to create a folder called `DetailedBillApr2025.pdf` and put
+    /// A folder is never the file itself. A model answering with the full path including the file
+    /// would have the card create a folder called `DetailedBillApr2025.pdf` and put
     /// `DetailedBillApr2025.pdf` in it.
     @Test func aVerdictEndingInTheFilesOwnNameKeepsTheParent() throws {
         let path = "/root/TODO/DetailedBillApr2025.pdf"
@@ -241,8 +236,7 @@ import Testing
     }
 
     /// The narrow half of that rule. `tesla.pdf` → `Vehicles/Tesla` is a perfectly good new folder
-    /// named for the vendor; matching the file's STEM rather than its whole name deletes it. This
-    /// is the pair that caught the first version of the rule being too broad.
+    /// named for the vendor; matching the file's stem rather than its whole name would delete it.
     @Test func aFolderNamedLikeTheFilesStemIsStillAFolder() throws {
         let path = "/root/TODO/tesla.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "tesla.pdf", size: 10,
@@ -254,10 +248,10 @@ import Testing
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
     }
 
-    /// **A backend that has not read the document cannot report high confidence.** It saw a
-    /// filename; that is a `.low` claim however sure the model says it is, and the badge is what
-    /// the user reads before accepting a home. So a blind verdict no longer displaces a filename
-    /// match the deterministic engine made from *the same information* and rated `.medium`.
+    /// A backend that has not read the document cannot report high confidence. It saw a filename;
+    /// that is a `.low` claim however sure the model says it is, and the badge is what the user
+    /// reads before accepting a home. So a blind verdict doesn't displace a filename match the
+    /// deterministic engine made from the same information and rated `.medium`.
     @Test func aBlindVerdictIsCappedAndCannotDisplaceAFilenameMatch() {
         let path = "/root/TODO/scan.pdf"
         let dest = FilingDestination(path: "/root/Documents/Visa", confidence: .medium, reasons: ["name"],
@@ -285,10 +279,10 @@ import Testing
         #expect(best.confidence == .low, "a filename-only verdict was published as \(best.confidence)")
     }
 
-    /// **The model re-ranks the router's shortlist; it does not answer past it.** The same visa
-    /// foil returned three different `.high` folders in three scans of one afternoon, so the
-    /// arbitration cannot be confidence against confidence. A verdict naming an existing folder the
-    /// router never shortlisted leaves the router's home on the card.
+    /// The model re-ranks the router's shortlist; it does not answer past it. One file can come
+    /// back as three different `.high` folders in three scans, so arbitration can't be confidence
+    /// against confidence. A verdict naming an existing folder the router never shortlisted leaves
+    /// the router's home on the card.
     @Test func aVerdictOutsideTheRouterShortlistDoesNotLead() {
         let path = "/root/TODO/H1B Visa - Nov 2026.pdf"
         let base = [routed(path, to: "/root/Documents/Visa")]
@@ -323,11 +317,10 @@ import Testing
         #expect(out.first?.best?.path == "/root/Documents/I-94")
     }
 
-    /// **A path segment carrying a file extension is a file, not a folder.** Asked where
-    /// `Son - eOCI.pdf` goes, the model answered `Immigration/OCI/Son/eOCI.pdf` — the name of
-    /// the PEER document already filed there — and the apply path created a folder called
-    /// `eOCI.pdf` and moved the file into it. Trimming it lands on the folder the model was
-    /// reaching for, which is where the file belongs.
+    /// A path segment carrying a file extension is a file, not a folder. Asked where
+    /// `Son - eOCI.pdf` goes, a model can answer `Immigration/OCI/Son/eOCI.pdf`, the name of the
+    /// peer document already filed there, and the apply path would create a folder `eOCI.pdf`.
+    /// Trimming it lands on the folder the model was reaching for.
     @Test func aVerdictEndingInAnotherFilesNameKeepsTheFolder() throws {
         let path = "/root/TODO/Son - eOCI.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Son - eOCI.pdf", size: 10,
@@ -339,7 +332,7 @@ import Testing
         #expect(best.newSegments.isEmpty, "the folder already existed; nothing should be created")
     }
 
-    /// **A folder that already exists is the user's, whatever it is called.** The trim only ever
+    /// A folder that already exists is the user's, whatever it is called. The trim only ever
     /// applies to a segment that would be CREATED — otherwise a real folder named `Backup.old`
     /// would become unreachable.
     @Test func anExistingFolderWithAnExtensionIsLeftAlone() throws {
@@ -367,12 +360,11 @@ import Testing
 
     // MARK: - A new folder has to be declared
 
-    /// **An undeclared new folder is an invention, not a proposal.** Both schemas let a backend
-    /// answer with a folder that does not exist — that is how a genuinely new destination gets
-    /// offered — so until it had to SAY so, a deliberate proposal and a composed path segment were
-    /// the same signal. Asked where `Son - eOCI.pdf` belonged, the model answered
-    /// `Immigration/OCI/Son/eOCI.pdf`, split out of the file's OWN NAME, and a folder called
-    /// `eOCI.pdf` was created on disk.
+    /// An undeclared new folder is an invention, not a proposal. Both schemas let a backend answer
+    /// with a folder that doesn't exist (that is how a new destination is offered), so it must say
+    /// so: otherwise a deliberate proposal and a segment split out of the file's own name
+    /// (`Immigration/OCI/Son/eOCI.pdf` for `Son - eOCI.pdf`) are the same signal, and a folder
+    /// `eOCI.pdf` is created on disk.
     @Test func anUndeclaredNewSegmentIsDroppedBackToWhatExists() throws {
         let path = "/root/TODO/Son - eOCI.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Son - eOCI.pdf", size: 10,
@@ -414,7 +406,7 @@ import Testing
         #expect(renamed.fromAI)
     }
 
-    /// **Renaming an EXISTING folder would not rename anything** — it would name a different folder
+    /// Renaming an existing folder would not rename anything: it would name a different folder
     /// and quietly propose creating it. So a destination that creates nothing refuses the edit, and
     /// the card cannot turn "file into this" into "create that" by accident.
     @Test func anExistingDestinationRefusesTheRename() {
@@ -423,13 +415,10 @@ import Testing
         #expect(dest.renamingNewFolder(to: "Something Else") == dest)
     }
 
-    /// **A colon is not a legal folder name here, and this used to accept one.**
-    ///
-    /// The guard listed `/`, `.`, `..` and empty by hand, while every other new-folder path in the
-    /// app goes through `validateItemName` — which rejects `:` because Finder maps it to `/` per
-    /// HFS+ semantics, so the folder created is not the one the name shows. Two hand-maintained
-    /// lists is how one of them drifts, and this was the one that had; it now calls the shared
-    /// predicate the others do.
+    /// A colon is not a legal folder name here. Every new-folder path in the app goes through
+    /// `validateItemName`, which rejects `:` because Finder maps it to `/` per HFS+ semantics, so
+    /// the folder created isn't the one the name shows. This guard calls the same predicate rather
+    /// than keeping a hand-made list that can drift.
     @Test func aRenameTheSharedValidatorRefusesIsRefusedHereToo() {
         let dest = FilingDestination(path: "/root/Documents/Visa/Suggested", confidence: .high,
                                      reasons: [], newSegments: ["Suggested"])
@@ -475,10 +464,10 @@ import Testing
                                 dir("/root/Documents/Travel", [dir("/root/Documents/Travel/Elder - 2021")])]),
     ]
 
-    /// **Of every error this arc produced, filing one family member's document into another's is
-    /// the one worth a hard rule** — least likely to be noticed, most annoying to undo. Asked where
-    /// `Daughter OCI.pdf` belonged, the on-device model answered `Immigration/OCI/Son/Application`
-    /// while `Immigration/OCI/Daughter` exists, holds `Daughter - eOCI.pdf`, and was the router's top pick.
+    /// Filing one family member's document into another's is the error worth a hard rule: least
+    /// likely to be noticed, most annoying to undo. Asked where `Daughter OCI.pdf` belongs, a model
+    /// can answer `Immigration/OCI/Son/Application` while `Immigration/OCI/Daughter` exists, holds
+    /// `Daughter - eOCI.pdf`, and is the router's top pick.
     @Test func aVerdictNamingADifferentPersonDoesNotLead() {
         let path = "/root/TODO/Daughter OCI.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Daughter OCI.pdf", size: 10,
@@ -502,10 +491,10 @@ import Testing
         #expect(best.path == "/root/Documents/OCI/Daughter")
     }
 
-    /// **Asked of the profile's person AXIS, not of the words in the path.** A trip folder called
+    /// Asked of the profile's person axis, not of the words in the path. A trip folder called
     /// `Elder - 2021` holds the whole family's travel documents, and the profile records it with no
-    /// person axis at all. Testing the path text would refuse those — measured, it would fire on 15
-    /// of the corpus's 756 person-named documents instead of 3.
+    /// person axis. Testing the path text would refuse those: on the corpus it fires on 15 of 756
+    /// person-named documents instead of 3.
     @Test func aFolderWithNoPersonAxisIsNotAPersonFolder() throws {
         let path = "/root/TODO/Granny Travel Letter.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Granny Travel Letter.pdf", size: 10,
@@ -544,8 +533,8 @@ import Testing
         ])
     }
 
-    /// A profile whose person folders include Mom's, recorded under her legal name — which is how
-    /// the real tree records it, and where the misfire lived.
+    /// A profile whose person folders include Mom's, recorded under her legal name, which is how
+    /// the real tree records it and where an alias can misfire.
     private static func aliasProfile() -> Sync.FolderProfile {
         func entry(_ path: String, person: String) -> FolderProfileEntry {
             FolderProfileEntry(path: path, role: .personBucket, naming: nil, anchors: [],
@@ -571,10 +560,9 @@ import Testing
         ]),
     ]
 
-    /// **The veto used to fire against the CORRECT folder.** `Mom - passport.pdf` names Granny,
-    /// and the folder's axis says `Granny` — but with the alias map flattened away, `mom` was just
-    /// a token that failed to equal `granny`, so the suggestion read as a cross-person mistake and
-    /// was refused. The registry resolves both to one person.
+    /// The veto must not fire against the correct folder. `Mom - passport.pdf` names Granny and the
+    /// folder's axis says `Granny`; compared as bare tokens, `mom` fails to equal `granny` and the
+    /// suggestion reads as a cross-person mistake. The registry resolves both to one person.
     @Test func anAliasResolvesToThePersonItNames() throws {
         let path = "/root/TODO/Mom - passport.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
@@ -589,9 +577,8 @@ import Testing
                 "Granny's passport was refused by her own folder because Mom read as someone else")
     }
 
-    /// The same fixture without a registry keeps the old token comparison — and the old bug. Pinned
-    /// deliberately: it is what proves the test above is measuring the registry rather than some
-    /// incidental change to the fixture.
+    /// The same fixture without a registry keeps the bare token comparison and its misfire. Pinned
+    /// so the test above is known to measure the registry, not an incidental fixture change.
     @Test func withoutARegistryTheAliasStillReadsAsAContradiction() {
         let path = "/root/TODO/Mom - passport.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Mom - passport.pdf", size: 10,
@@ -603,10 +590,9 @@ import Testing
         #expect(out.first?.best == nil)
     }
 
-    /// **A full name is not two people.** `Daughter Father - OCI.pdf` names the daughter; the token
-    /// comparison reads it as naming her father as well, so her own folder — whose axis is `Daughter`
-    /// — contains a person the file "names" that is not the destination's, and the correct
-    /// suggestion is refused.
+    /// A full name is not two people. `Daughter Father - OCI.pdf` names the daughter; a token
+    /// comparison reads it as naming her father too, so her own folder (axis `Daughter`) lacks a
+    /// person the file "names", and the correct suggestion would be refused.
     @Test func aFullNameDoesNotVetoTheOwnersOwnFolder() throws {
         let path = "/root/TODO/Daughter Father - OCI.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Daughter Father - OCI.pdf", size: 10,
@@ -632,9 +618,9 @@ import Testing
         #expect(out.first?.best == nil)
     }
 
-    /// **A scan gets the protection its filename could never earn.** `Scan 2026-08-02.pdf` names
-    /// nobody, so the filename-only rule left it unguarded; the page the scan already read names
-    /// Daughter, and that is enough to refuse Son's folder.
+    /// A scan gets the protection its filename can't earn. `Scan 2026-08-02.pdf` names nobody, so
+    /// the filename alone leaves it unguarded; the page the scan already read names Daughter, and
+    /// that is enough to refuse Son's folder.
     @Test func aNamelessFileIsProtectedByThePageItWasReadFrom() {
         let path = "/root/TODO/Scan 2026-08-02.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Scan 2026-08-02.pdf", size: 10,
@@ -647,9 +633,9 @@ import Testing
         #expect(out.first?.best == nil, "the page named Daughter and the file went to Son anyway")
     }
 
-    /// **A refusal has to be reportable, or the rule working perfectly is indistinguishable from
-    /// it not existing.** The veto's entire job is to make a wrong suggestion not happen; nothing
-    /// appears on screen when it does, so the only way the user learns it acted is this callback.
+    /// A refusal has to be reportable, or the rule working is indistinguishable from it not
+    /// existing: nothing appears on screen when the veto acts, so this callback is the only way the
+    /// user learns of it.
     @Test func aRefusalIsReported() throws {
         let path = "/root/TODO/Daughter Father - OCI.pdf"
         let base = [FilingSuggestion(filePath: path, fileName: "Daughter Father - OCI.pdf", size: 10,
@@ -684,11 +670,10 @@ import Testing
         #expect(refusals.isEmpty)
     }
 
-    /// **The filename outranks the page — it does not merely add to it.** A page-1 mention is
-    /// testimony: an application prints the sponsor, a sibling, a witness. A file the user has
-    /// *labelled* `Daughter` is Daughter's, so a verdict sending it to Son's folder must be refused
-    /// even though the page names Son — which is exactly what folding the two sets together
-    /// would permit, since Son would then be "named".
+    /// The filename outranks the page; it doesn't merely add to it. A page-1 mention is testimony
+    /// (an application prints the sponsor, a sibling, a witness), but a file the user has labelled
+    /// `Daughter` is Daughter's, so a verdict sending it to Son's folder is refused even though the
+    /// page names Son. Folding the two sets together would let it through.
     ///
     /// The second half is the same rule read the other way: a supporting name on the page cannot
     /// veto the person the filename declares.

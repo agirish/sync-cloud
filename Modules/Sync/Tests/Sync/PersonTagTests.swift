@@ -4,17 +4,15 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// `person-tags.json` — the file, its forward compatibility, and the store that writes it.
-///
-/// **Pinned against literal JSON, not against a round-trip through this build's own encoder.** A
-/// round-trip test passes just as happily when both halves are wrong together, which is precisely
-/// the failure that matters for a file another build has to read.
+/// `person-tags.json`: the file, its forward compatibility, and the store that writes it. Pinned
+/// against literal JSON, not a round-trip through this build's encoder, which passes when both
+/// halves are wrong together, the failure that matters for a file another build reads.
 @Suite struct PersonTagTests {
 
     // MARK: - The file, as bytes
 
-    /// The exact shape written today. A change to any of these key names is a change to a file
-    /// other builds read, and has to be a deliberate one.
+    /// The exact shape written. Changing a key name changes a file other builds read, so it must
+    /// be deliberate.
     static let literal = """
         {
           "schemaVersion": 1,
@@ -49,8 +47,8 @@ import EventsTestSupport
         #expect(mother.recordedPath == "Financial/Father - Family insurance card.pdf")
     }
 
-    /// What this build writes is what this build reads — asserted against the literal above rather
-    /// than against itself.
+    /// What this build writes is what it reads, asserted against the literal above rather than
+    /// against itself.
     @Test func writesTheFileTheSameWayItReadsIt() throws {
         let decoded = try JSONDecoder().decode(PersonTagFile.self, from: Data(Self.literal.utf8))
         let encoder = JSONEncoder()
@@ -67,12 +65,9 @@ import EventsTestSupport
 
     // MARK: - The failure this file is shaped to avoid
 
-    /// **A verdict this build has never heard of costs that tag and nothing else.**
-    ///
-    /// This is the `personIs` data-loss bug asked in a different place: rule conditions were one
-    /// blob with a synthesized decoder, so meeting one unknown case threw on the whole array and
-    /// silently wiped every rule the user had. Here the container decodes tag by tag, so a future
-    /// `"maybe"` is skipped and the two verdicts either side of it survive.
+    /// A verdict this build has never heard of costs that tag and nothing else. The container
+    /// decodes tag by tag, so one unknown case can't throw for the whole array and wipe every
+    /// verdict; a future `"maybe"` is carried and the verdicts either side survive.
     @Test func oneUnknownVerdictDoesNotTakeTheFileWithIt() throws {
         let fromTheFuture = """
             {
@@ -92,8 +87,8 @@ import EventsTestSupport
                 "an unknown verdict must never be acted on — guessing it means yes is a wrong answer")
     }
 
-    /// A structurally broken tag — one naming no document at all — costs itself, and the loop still
-    /// advances past it rather than stopping there.
+    /// A structurally broken tag, such as one naming no document, costs only itself, and the loop
+    /// still advances past it.
     @Test func aMalformedTagCostsOnlyItself() throws {
         let broken = """
             {
@@ -110,12 +105,8 @@ import EventsTestSupport
                 "the two readable tags after the broken ones must survive")
     }
 
-    /// **An entry this build cannot read is a judgement, not litter.**
-    ///
-    /// The test above proves the two readable tags survive a broken neighbour. It says nothing
-    /// about the neighbour — which was swallowed by an ignore-wrapper, uncounted and unlogged, and
-    /// then deleted by the next save. Forty verdicts could go that way with nothing on screen and
-    /// nothing in the log.
+    /// An entry this build can't read is a judgement, not litter: it is kept, not swallowed and
+    /// then deleted by the next save with nothing on screen or in the log.
     @Test func anEntryThisBuildCannotReadIsKept() throws {
         let broken = """
             {
@@ -128,12 +119,12 @@ import EventsTestSupport
             """
         let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
         #expect(file.tags.map(\.personId) == ["son"])
-        // The string AND the object with neither key — both unreadable, both kept.
+        // The string and the object with neither key: both unreadable, both kept.
         #expect(file.unreadable.count == 2, "an unreadable entry was dropped; got \(file.unreadable)")
         #expect(file.unreadable.contains(.string("not even an object")))
     }
 
-    /// And the save that would have destroyed them puts them back.
+    /// The next save writes them back.
     @MainActor @Test func anUnreadableEntrySurvivesTheNextVerdict() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("person-tags-\(UUID().uuidString)")
@@ -153,7 +144,7 @@ import EventsTestSupport
         let store = PersonTagStore(directory: dir, profileId: "p")
         #expect(store.tags.isEmpty, "the entry has no key this build understands")
 
-        // Any write rewrites the whole file — the moment the entry would be lost.
+        // Any write rewrites the whole file: the moment the entry would be lost.
         store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
@@ -167,19 +158,15 @@ import EventsTestSupport
             Issue.record("carried entry changed shape: \(reread.unreadable[0])")
         }
 
-        /// **And the version is not stamped down.** A file written under a newer schema, rewritten
-        /// by this build as version 1, would be the only thing left claiming the entry it just
-        /// carried is v1 shaped.
+        /// The version isn't stamped down: rewritten as version 1, a newer schema's file would
+        /// claim the entry it carried is v1 shaped.
         #expect(reread.schemaVersion == 7, "a newer schema was relabelled as this build's own")
     }
 
-    /// **Clearing withdraws what recording would have replaced.**
-    ///
-    /// `record` supersedes across key KINDS at one recorded path — a fingerprint-keyed verdict and
-    /// a path-keyed one about the same document are one answer given twice. `clear` matched the
-    /// exact key only, so asking it to withdraw the verdict on a document whose tag is stored under
-    /// the other kind removed nothing and said nothing: a silent no-op for exactly the documents
-    /// the durable key exists for.
+    /// Clearing withdraws what recording would have replaced. `record` supersedes across key kinds
+    /// at one recorded path, since a fingerprint-keyed and a path-keyed verdict on one document are
+    /// one answer given twice. Matching the exact key only, `clear` would silently do nothing for
+    /// the documents the durable key exists for.
     @MainActor @Test func clearingWithdrawsAVerdictStoredUnderTheOtherKindOfKey() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -187,7 +174,7 @@ import EventsTestSupport
         store.record(personId: "daughter", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
         #expect(store.tags.count == 1)
 
-        // The caller has the path — which is all the People queue ever has for a row.
+        // The caller has the path, which is all the People queue ever has for a row.
         store.clear(personId: "daughter", key: .path("a.pdf"), path: "a.pdf")
         #expect(store.tags.isEmpty, "the verdict survived a withdrawal aimed at the same document")
     }
@@ -202,9 +189,9 @@ import EventsTestSupport
         #expect(store.tags.map(\.personId) == ["son"])
     }
 
-    /// **The verbatim round-trip.** An unrecognized verdict read from a newer build has to go back
-    /// to disk exactly as it arrived — a build that quietly rewrote `"maybe"` as `"rejected"`, or
-    /// dropped it, would be destroying the newer build's data while looking like it worked.
+    /// An unrecognized verdict from a newer build goes back to disk exactly as it arrived.
+    /// Rewriting `"maybe"` as `"rejected"`, or dropping it, would destroy the newer build's data
+    /// while looking like it worked.
     @MainActor @Test func anUnknownVerdictIsWrittenBackUntouched() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("person-tags-\(UUID().uuidString)")
@@ -223,7 +210,7 @@ import EventsTestSupport
 
         let store = PersonTagStore(directory: dir, profileId: "p")
         #expect(store.tags.isEmpty, "an unactionable verdict is carried, not offered as a verdict")
-        // Any write at all rewrites the whole file — which is the moment a carried tag would be lost.
+        // Any write rewrites the whole file: the moment a carried tag would be lost.
         store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
@@ -244,7 +231,7 @@ import EventsTestSupport
         return (PersonTagStore(directory: dir, profileId: "p"), dir)
     }
 
-    /// Changing your mind leaves **one** verdict, not two that disagree.
+    /// Changing your mind leaves one verdict, not two that disagree.
     @MainActor @Test func aSecondVerdictReplacesTheFirst() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -276,7 +263,7 @@ import EventsTestSupport
                 == .rejected)
     }
 
-    /// Withdrawing puts the document back in front of the channels — the undo for a misclick, and
+    /// Withdrawing puts the document back in front of the channels: the undo for a misclick, and
     /// the only way a row returns to the queue.
     @MainActor @Test func clearingAVerdictPutsTheRowBack() throws {
         let (store, dir) = try makeStore()
@@ -289,13 +276,10 @@ import EventsTestSupport
 
     // MARK: - Finding a verdict again
 
-    /// **A fingerprint-keyed verdict is findable at the path it was made at.**
-    ///
-    /// Without this the durable key would be inert in the surface that uses it: a gather walks
-    /// paths, nothing computes 10,171 digests to answer "whose is this?", and the persisted
-    /// fingerprint index only exists once a duplicates scan has run. The digest is still the key — it is
-    /// what survives the file moving — but the recorded path is how the queue finds it before
-    /// anything has fingerprinted the tree.
+    /// A fingerprint-keyed verdict is findable at the path it was made at. A gather walks paths and
+    /// computes no digests, and the fingerprint index exists only after a duplicates scan. The
+    /// digest is still the key, surviving a move; the recorded path is how the queue finds it
+    /// before anything has fingerprinted the tree.
     @Test func aFingerprintKeyedVerdictIsFoundByPathWhenNoDigestIsInHand() {
         let index = PersonTagIndex(tags: [
             PersonTag(personId: "daughter", key: .fingerprint("fp"), verdict: .rejected,
@@ -320,18 +304,11 @@ import EventsTestSupport
 
     // MARK: One document, one verdict — whichever key each judgement happened to use
 
-    /// **A reversal supersedes the original even when the key changed underneath it.**
-    ///
-    /// `recordPersonVerdict` picks the key at judgement time: a fingerprint when the PDF can be
-    /// read, the path when it cannot. Both are live states for the same file — evicted to iCloud,
-    /// or locked — so two judgements of one document can land under different keys, and matching
-    /// only on `(personId, key)` stored the second beside the first.
-    ///
-    /// **This is the ordering that actually went stale.** `PersonFiles.gather` asks
-    /// `verdict(personId:path:)` with no fingerprint, so the index consults `.path` FIRST — a
-    /// path-keyed tag therefore beats a fingerprint-keyed one, and a path-keyed "yes" followed by
-    /// a fingerprint-keyed "no" kept serving the withdrawn confirmation. (The first version of
-    /// this test staged the reverse, which that same precedence already answered correctly.)
+    /// A reversal supersedes the original even when the key changed underneath it.
+    /// `recordPersonVerdict` keys by fingerprint when the PDF can be read and by path when it can't
+    /// (evicted, locked), so one document's two judgements can land under different keys. This
+    /// order matters most: `PersonFiles.gather` looks up by path first, so a path-keyed "yes" left
+    /// beside a fingerprint-keyed "no" would keep serving the withdrawn confirmation.
     @MainActor @Test func aReversalUnderADifferentKeySupersedesTheOriginal() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -348,10 +325,9 @@ import EventsTestSupport
                 "the withdrawn confirmation still wins the lookup the gather actually makes")
     }
 
-    /// The other ordering, which the lookup precedence already answered — but which still left the
-    /// confirmation in `confirmedPaths`, so the `unseenConfirmations` sweep re-listed a document
-    /// the user had rejected as "theirs". That is the outcome on screen, and it is what this
-    /// asserts rather than the tag count.
+    /// The other ordering. The lookup precedence answers it, but a confirmation left in
+    /// `confirmedPaths` would have the `unseenConfirmations` sweep re-list a rejected document as
+    /// "theirs". Asserted on that outcome, not on the tag count.
     @MainActor @Test func aRejectionAlsoWithdrawsTheDocumentFromTheConfirmedSet() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -365,8 +341,8 @@ import EventsTestSupport
                 "a rejected document is still listed as confirmed, so the gather re-lists it as theirs")
     }
 
-    /// And the other direction, so the sweep is not simply deleting whatever it finds: a verdict on
-    /// a **different** document is untouched, and so is another person's on the same one.
+    /// The sweep doesn't delete whatever it finds: a verdict on a different document is untouched,
+    /// and so is another person's on the same one.
     @MainActor @Test func supersedingLeavesOtherDocumentsAndOtherPeopleAlone() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -383,13 +359,10 @@ import EventsTestSupport
         #expect(index.verdict(personId: "son", path: "a.pdf") == .confirmed)
     }
 
-    /// **Re-answering a document that has since moved takes.**
-    ///
-    /// The gather looks a fingerprint-keyed tag up by path, so once Organize files the document
-    /// the row comes back as an open question — that much is expected, and `keyKind` says so. What
-    /// was not expected: pressing the same answer again did nothing at all. `record` computed the
-    /// same key, found the tag, saw the same verdict and returned before touching `recordedPath`,
-    /// so the row reappeared on every gather afterwards and the button never took.
+    /// Re-answering a document that has moved takes. The gather finds a fingerprint-keyed tag by
+    /// path, so once Organize files the document the row comes back as an open question (as
+    /// `keyKind` says). The same answer must then update `recordedPath`, not return early on an
+    /// unchanged verdict, or the row reappears on every gather.
     @MainActor @Test func reAnsweringAMovedDocumentUpdatesWhereItWasRecorded() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -408,8 +381,8 @@ import EventsTestSupport
                 "the confirmed set still names the old path")
     }
 
-    /// And the early return still does its job: re-recording the SAME answer at the SAME path
-    /// writes nothing, which is what keeps a gather from rewriting the file on every pass.
+    /// The early return still does its job: the same answer at the same path writes nothing, so a
+    /// gather doesn't rewrite the file on every pass.
     @MainActor @Test func reAnsweringTheSameDocumentIdenticallyIsANoOp() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -420,13 +393,10 @@ import EventsTestSupport
         #expect(before == after, "an identical re-answer rewrote the file")
     }
 
-    /// **Two fingerprint-keyed tags at one path are two documents, not one answered twice.**
-    ///
-    /// The supersede sweep matches on `recordedPath`, and a path is re-used: a scanner writes
-    /// `Inbox/Scan.pdf` again, Organize files the first one away. Dropping the earlier tag there
-    /// would discard a durable record about a document that still exists somewhere else — which is
-    /// the opposite of what the fingerprint key is for. Only a cross-kind pair (a path claim and a
-    /// fingerprint claim) is one document answered twice.
+    /// Two fingerprint-keyed tags at one path are two documents, not one answered twice. Paths are
+    /// re-used (a scanner writes `Inbox/Scan.pdf` again after Organize filed the first), and
+    /// dropping the earlier tag would discard a record of a document that still exists. Only a
+    /// cross-kind pair at one path is one document answered twice.
     @MainActor @Test func twoDocumentsThatOccupiedOnePathKeepTheirOwnVerdicts() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -444,11 +414,8 @@ import EventsTestSupport
     }
 }
 
-/// **"Left on disk untouched" has to survive the next verdict, or it is not a promise.**
-///
-/// `load()` refuses to parse a file that is not JSON at all and says, in a comment and in the log,
-/// that it leaves it alone so the user can recover it. That held exactly until the user judged
-/// anything: `record` calls `save`, and `save` wrote a fresh file straight over it.
+/// A tags file this build can't read is left for the user to recover, and that must survive the
+/// next verdict: `record` calls `save`, which must set the file aside rather than write over it.
 @MainActor
 @Suite struct PersonTagCorruptFileTests {
 
@@ -460,8 +427,8 @@ import EventsTestSupport
         return dir
     }
 
-    /// Every set-aside beside the store, sorted by name — ``setAsidesBeside(_:)``. The kept name is
-    /// unique per episode, so tests discover the files rather than assuming a single fixed slot.
+    /// Every set-aside beside the store, sorted by name (``setAsidesBeside(_:)``). The kept name is
+    /// unique per episode, so tests discover the files rather than assume one fixed slot.
     private func setAsides(in dir: URL) -> [URL] {
         setAsidesBeside(dir.appendingPathComponent("p/person-tags.json"))
     }
@@ -478,7 +445,7 @@ import EventsTestSupport
 
         store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
-        // The bytes are still recoverable — beside the live file, not under it.
+        // The bytes are still recoverable, beside the live file, not under it.
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
                 "the unreadable file was destroyed by the next verdict")
@@ -487,8 +454,8 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// The set-aside copy is written once, not re-written on every later save — a second verdict
-    /// must not replace the preserved bytes with the working file this build has since produced.
+    /// The set-aside copy is written once: a later save must not replace the preserved bytes with
+    /// the working file this build has since produced.
     @Test func theSetAsideCopyIsNotOverwrittenByLaterSaves() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -500,7 +467,7 @@ import EventsTestSupport
         store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
 
-        // One episode, one set-aside — the second save neither rewrites it nor adds another.
+        // One episode, one set-aside: the second save neither rewrites it nor adds another.
         let kept = setAsides(in: dir)
         #expect(kept.count == 1, "one unreadable episode produced \(kept.count) set-aside(s)")
         #expect(kept.first.flatMap { FileManager.default.contents(atPath: $0.path) } == corrupt)
@@ -508,11 +475,9 @@ import EventsTestSupport
 
     // MARK: - A file the process cannot even READ gets the same promise
 
-    /// **The read layer has the same two states as the parse layer, and it lost them.** A file
-    /// that exists but cannot be opened — mode 000, an ACL, an I/O error — failed the `try?` read
-    /// exactly like no file at all, so `fileWasUnreadable` never armed, and the first verdict's
-    /// atomic write (which needs permission on the *directory*, not the file) landed straight on
-    /// top of every verdict the user had recorded.
+    /// A file that exists but can't be opened (mode 000, an ACL, an I/O error) must arm
+    /// `fileWasUnreadable`, not read as no file. The atomic write needs permission only on the
+    /// directory, so the first verdict would land on every verdict the user had recorded.
     @Test func aVerdictDoesNotOverwriteAFileTheProcessCannotOpen() throws {
         let dir = try makeDir()
         let url = dir.appendingPathComponent("p/person-tags.json")
@@ -525,7 +490,7 @@ import EventsTestSupport
             }
             try? fm.removeItem(at: dir)
         }
-        // A perfectly good file — real prior verdicts, not corruption. Only the read fails.
+        // A good file with real prior verdicts, not corruption. Only the read fails.
         let original = Data(PersonTagTests.literal.utf8)
         try original.write(to: url)
         try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
@@ -544,9 +509,9 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// The same hole through the other door: the store path symlinked somewhere that does not
-    /// resolve right now — a volume that is not mounted. The read fails, and the write would
-    /// replace the *link itself* with a plain file, orphaning the verdicts it points at.
+    /// The same hole through a symlink: the store path linked to an unmounted volume. The read
+    /// fails, and the write would replace the link itself with a plain file, orphaning the verdicts
+    /// it points at.
     @Test func aDanglingSymlinkAtTheStorePathIsSetAsideNotReplaced() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -558,7 +523,7 @@ import EventsTestSupport
         let store = PersonTagStore(directory: dir, profileId: "p")
         store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
-        // The link survives, moved aside — still pointing where the user aimed it.
+        // The link survives, moved aside, still pointing where the user aimed it.
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: kept.path)
         #expect(dest == target, "the symlink was destroyed instead of being set aside")
@@ -566,10 +531,9 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// **A failed set-aside must stay armed, or the guard lasts exactly one verdict.** The catch
-    /// already refused to write when the move failed — but the flag was cleared *before* the move
-    /// was attempted, so the NEXT verdict's save ran unguarded and landed its atomic write on the
-    /// user's still-in-place file: the exact loss this suite exists to prevent, one save later.
+    /// A failed set-aside must stay armed, or the guard lasts exactly one verdict. If the flag were
+    /// cleared before the move, the next save would run unguarded and write over the user's
+    /// still-in-place file.
     @Test func aFailedSetAsideKeepsRefusingUntilTheMoveSucceeds() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -587,15 +551,14 @@ import EventsTestSupport
         #expect(FileManager.default.contents(atPath: url.path) == corrupt,
                 "a failed set-aside let the write land on the unreadable file")
 
-        // Save 2, the move still failing: the refusal must repeat — this is the observable form
-        // of "the flag is still armed". Under the cleared-up-front flag this is the save that
-        // overwrote.
+        // Save 2, the move still failing: the refusal must repeat, which is how "the flag is still
+        // armed" shows. Must fail if the flag is cleared before the move.
         store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
         #expect(FileManager.default.contents(atPath: url.path) == corrupt,
                 "one failed set-aside disarmed the guard, and the next verdict overwrote the file")
 
-        // The obstruction clears: save 3 sets the ORIGINAL bytes aside and writes fresh —
-        // carrying every verdict recorded while they could live only in memory.
+        // The obstruction clears: save 3 sets the original bytes aside and writes fresh, carrying
+        // every verdict recorded while they lived only in memory.
         store.record(personId: "granny", key: .path("c.pdf"), verdict: .confirmed, path: "c.pdf")
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
@@ -605,10 +568,9 @@ import EventsTestSupport
                 "a verdict recorded while the set-aside was failing was lost")
     }
 
-    /// A leftover set-aside from an earlier session — including one under the old fixed
-    /// `person-tags.json.unreadable` name a previous build wrote — must neither block the rescue
-    /// nor be destroyed by it: the kept name is unique per episode, so this episode's move lands
-    /// beside the leftover rather than on it.
+    /// A leftover set-aside from an earlier session, including one under the fixed
+    /// `person-tags.json.unreadable` name older builds wrote, neither blocks the rescue nor is
+    /// destroyed by it: the kept name is unique per episode, so the move lands beside it.
     @Test func aLeftoverSetAsideFromAnEarlierEpisodeNeitherBlocksNorIsDestroyed() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -630,10 +592,9 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// The pathological same-instant case: two episodes composing their kept name from the same
-    /// second must get distinct names, not a collision. Pinned with a frozen date because the
-    /// two-episode test above only exercises the disambiguator when both rescues land inside one
-    /// second — usually, but not deterministically.
+    /// Two episodes composing their kept name from the same second get distinct names. A frozen
+    /// date makes this deterministic; the two-episode test only reaches the disambiguator when both
+    /// rescues happen to land in one second.
     @Test func sameInstantEpisodesGetDistinctSetAsideNames() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -652,16 +613,10 @@ import EventsTestSupport
         #expect(third != first && third != second)
     }
 
-    /// **The disambiguator must terminate whatever the probe answers.**
-    ///
-    /// The loop asks `attributesOfItem` for candidate after candidate until one comes back absent.
-    /// A manager that never says absent is an infinite loop — measured: a test double answering
-    /// "present" for every path spun the test host at 100% CPU for ten minutes before it was
-    /// killed. Real filesystems terminate it; nothing in the loop did.
-    ///
-    /// Bounded rather than made to give up, because a set-aside that returns no destination means
-    /// the caller refuses its write, and refusing every write on the strength of a stat that keeps
-    /// answering "yes" would be the worse failure of the two.
+    /// The disambiguator terminates whatever the probe answers. It asks `attributesOfItem` for
+    /// candidate after candidate until one is absent, so a manager that never says absent would
+    /// spin forever. Bounded rather than made to give up: no destination means the caller refuses
+    /// its write, and refusing every write over a stat that keeps saying "yes" is the worse failure.
     @Test func theDisambiguatorTerminatesAgainstAProbeThatNeverSaysAbsent() throws {
         final class AlwaysPresent: FileManager, @unchecked Sendable {
             override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
@@ -671,20 +626,16 @@ import EventsTestSupport
         let url = URL(fileURLWithPath: "/tmp/never-absent/person-tags.json")
         let now = Date(timeIntervalSince1970: 1_766_000_000)
 
-        // No `waitUntil` here: the failure this pins is a hang, so the assertion is that control
-        // comes back at all. A bounded loop returns in microseconds.
+        // No `waitUntil`: the failure is a hang, so the assertion is that control comes back at
+        // all. A bounded loop returns in microseconds.
         let dest = UnreadableSetAside.destination(for: url, at: now, fileManager: AlwaysPresent())
         #expect(dest != url, "the set-aside would land on the file it is rescuing")
         #expect(dest.lastPathComponent.hasPrefix("person-tags.json.unreadable-"))
     }
 
-    /// **A second unreadable episode must not destroy the only copy of the first episode's
-    /// rescue.** Episode 1 sets the original aside and never re-ingests it — the set-aside IS the
-    /// only copy of those verdicts. Under a single-slot kept name, episode 2's collision handling
-    /// permanently deleted it; the in-code justification ("what moves in is still the user's
-    /// original" / "the more current of the two records") was factually wrong for this shape,
-    /// because "more current" does not mean "supersedes" when the earlier record was never read
-    /// back.
+    /// A second unreadable episode must not destroy the first episode's rescue. Episode 1 sets the
+    /// original aside and never re-reads it, so the set-aside is the only copy of those verdicts; a
+    /// later episode's set-aside is not more current, and must land beside it.
     @Test func aSecondUnreadableEpisodeDoesNotDestroyTheFirstEpisodesRescue() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -710,13 +661,9 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["daughter"])
     }
 
-    /// **A failed set-aside move must not have removed anything first.** The single-slot era
-    /// confined its pre-move `removeItem(at: kept)` to the collision arm, and the reviewer showed
-    /// that narrowing was completely unpinned: reverting it to an unconditional remove-then-move
-    /// passed every test. Per-episode names have since removed the collision arm entirely — no
-    /// remove exists at all — and this pin is what keeps one from coming back: a move that fails
-    /// (here a permissions refusal) must leave an earlier set-aside's bytes untouched, whatever
-    /// name it sits under.
+    /// A failed set-aside move must not have removed anything first. A move that fails (here a
+    /// permissions refusal) leaves an earlier set-aside's bytes untouched, whatever name it sits
+    /// under. Must fail if a remove-then-move comes back.
     @Test func aMoveThatFailsForAnotherReasonDoesNotCostAnEarlierSetAside() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -738,11 +685,10 @@ import EventsTestSupport
                 "the refused save landed on the unreadable file anyway")
     }
 
-    /// **A source that vanishes mid-session is the protection arriving by other means, not an
-    /// obstruction.** With the guard armed, the user hand-deletes the corrupt file — the set-aside
-    /// move then fails source-absent, an error the refusal arm was never meant for: there is
-    /// nothing left to protect, so the move can never succeed, and a guard that stays armed
-    /// refuses every save for the rest of the session and silently loses every verdict at quit.
+    /// A source that vanishes mid-session is not an obstruction: with nothing left to protect, the
+    /// guard disarms. If the user hand-deletes the corrupt file, the set-aside move fails
+    /// source-absent and can never succeed; a guard that stayed armed would refuse every save and
+    /// lose every verdict at quit.
     @Test func handDeletingTheCorruptFileMidSessionDoesNotLockOutEverySave() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -757,17 +703,16 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"],
                 "the save was refused although there was nothing left to set aside")
 
-        // ...and it stays healed: the next save is ordinary, not another refusal.
+        // And it stays healed: the next save is ordinary, not another refusal.
         store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
         let again = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(again.tags.map(\.personId).sorted() == ["daughter", "son"],
                 "the guard stayed armed after the source was gone, and the next save was refused")
     }
 
-    /// **The verdict line may only claim what happened.** While persistence is refusing — the
-    /// unreadable guard armed and the set-aside failing — `record` still logged its ordinary
-    /// "People: X is Y's" line, so a session whose every save was refused read like a run of
-    /// durable records right up to the quit that lost them all.
+    /// The verdict line may only claim what happened. While persistence is refusing (the guard
+    /// armed and the set-aside failing), `record`'s "People: X is Y's" line must say NOT saved, or
+    /// the log reads like durable records right up to the quit that loses them.
     @Test func aRefusedSaveIsSaidOutLoudInTheVerdictLine() async throws {
         let log = LogCapture()
         let dir = try makeDir()
@@ -807,8 +752,8 @@ import EventsTestSupport
         #expect(store.savedRevision == 1, "a landed save did not bump the saved-revision signal")
     }
 
-    /// A first launch has no file, and must stay exactly as quiet and ordinary as it is today:
-    /// nothing set aside, nothing protected, the first verdict simply writes the file.
+    /// A first launch has no file and stays quiet: nothing set aside, nothing protected, and the
+    /// first verdict simply writes the file.
     @Test func aGenuinelyAbsentFileStillWritesNormally() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -823,10 +768,8 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// **`clear` claimed persistence it may not have had — the same lie `record` was just fixed
-    /// out of, one door over.** A withdrawal is a save like any other, so while the unreadable
-    /// guard is armed and the set-aside keeps failing it lives in memory until the quit that loses
-    /// it. The line said "withdrew the verdict" regardless.
+    /// The same rule for `clear`: a withdrawal is a save like any other, so while the guard is
+    /// armed and the set-aside keeps failing it lives only in memory, and its line must say so.
     @Test func aRefusedWithdrawalIsSaidOutLoudInTheLine() async throws {
         let log = LogCapture()
         let dir = try makeDir()

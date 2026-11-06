@@ -3,14 +3,10 @@ import Foundation
 import Events
 @testable import Sync
 
-/// The tab list's own rules, which are the ones a user would notice within a second of using the
-/// strip: what closing a tab selects next, what a duplicate carries, and — the one that is not
-/// obvious — that the ACTIVE entry is a stale snapshot until something parks it.
-///
-/// The last of those is why `captureActive` exists and why every verb in
-/// `FileSyncManager+PaneTabs` calls it before it does anything else. A test suite that only ever
-/// asked "is the right tab selected" would pass with every capture removed and the feature would
-/// silently forget where each tab was.
+/// The tab list's own rules: what closing a tab selects next, what a duplicate carries, and, less
+/// obviously, that the active entry is a stale snapshot until something parks it. That is why
+/// every verb in `FileSyncManager+PaneTabs` calls `captureActive` first; checking only which tab
+/// is selected would pass with every capture removed.
 @Suite struct PaneTabListTests {
 
     private func tab(_ path: String, provider: String = "iCloud") -> PaneTab {
@@ -37,9 +33,9 @@ import Events
         #expect(tabs.active.relativePath == "C")
     }
 
-    /// **A background tab waits; the live one stays live** — files opened together from Finder put
-    /// the first on screen and each other one in a tab of its own. Mutation: select the appended
-    /// tab, as `open` does, and the active check fails.
+    /// A background tab waits and the live one stays live: files opened together from Finder put
+    /// the first on screen and each other in a tab of its own. Fails if the appended tab is
+    /// selected, as `open` does.
     @Test func aBackgroundTabLandsAtTheTrailingEndAndLeavesTheActiveOne() {
         var tabs = list(["A", "B"], selected: 0)
         let id = tabs.openInBackground(PaneTab(providerId: "dropbox", relativePath: "C", selection: ["/c/C/x.md"]))
@@ -131,22 +127,14 @@ import Events
 
     // MARK: The overlay a save writes over the active entry
 
-    /// **What a save has to do to the active entry, and everything it must leave alone.**
+    /// What a save does to the active entry, and everything it leaves alone. The active entry is a
+    /// snapshot from when the tab was last parked, so a strip written straight off it would store
+    /// the tab on screen where it was opened, losing its columns across a quit. `saveBrowseTabs`
+    /// uses this overlay, kept here where tests can run it.
     ///
-    /// The list's active entry is a snapshot from when that tab was last parked, so a strip written
-    /// straight off it stores the tab on screen at the folder it was *opened* at. That is what "the
-    /// active tab lost its columns across a quit while every parked tab kept theirs" was. The fix
-    /// lived inline in `ContentView.saveBrowseTabs` — a `View` extension nothing can instantiate —
-    /// so deleting it whole passed every test in the repo.
-    ///
-    /// The fixture makes the bug and the fix answer differently on every line: the parked entry is
-    /// on another source at another folder, and it is PINNED while the live pane (which knows
-    /// nothing about pinning) is not.
-    ///
-    /// **`recentlyClosed` is seeded, because an empty one cannot fail.** It stood as `[] == []` —
-    /// the fixture never closed anything — so no mutation to the overlay could have moved it. It is
-    /// the reopen stack: an overlay that reset it would make Reopen Closed Tab a no-op after every
-    /// save, which is to say after every pane move.
+    /// Every line answers differently with and without the overlay: the entry is on another source
+    /// at another folder, and pinned while the live pane is not. `recentlyClosed` is seeded so a
+    /// reset of the reopen stack would fail.
     @Test func theSaveOverlayWritesTheLivePaneOverTheActiveEntryAndNothingElse() {
         let live = PaneTab(providerId: "iCloud", relativePath: "Finance", isPinned: true)
         let parked = PaneTab(providerId: "iCloud", relativePath: "Photos")
@@ -165,8 +153,7 @@ import Events
         // The id: a save is the same tab with a newer location, and the strip's `ForEach` is keyed
         // on it.
         #expect(saving.active.id == live.id, "the saved entry is a different tab from the one it replaced")
-        // The pin: read from anywhere but the list, this would unpin the active tab on the next
-        // thing that saves.
+        // The pin: read from anywhere but the list, it would unpin the active tab on the next save.
         #expect(saving.active.isPinned, "the tab on screen was unpinned by the act of saving it")
         // …and nothing else moved.
         #expect(saving.tabs[1] == parked, "a parked tab was rewritten by the active tab's save")
@@ -174,15 +161,13 @@ import Events
         #expect(saving.count == 2)
         #expect(saving.recentlyClosed == [closed],
                 "the save emptied the reopen stack — Reopen Closed Tab dies on the next pane move")
-        // The strip it was asked of is untouched: this is a projection for the store, not a
-        // mutation of the pane's list.
+        // The strip it was asked of is untouched: this is a projection for the store.
         #expect(strip.active.providerId == "iCloud", "the overlay mutated the live strip")
         #expect(strip.active.relativePath == "Finance")
     }
 
-    /// The overlay on a **parked** tab's neighbour, from the other end: whichever tab is live is the
-    /// one that gets written, not index 0. A rule pinned only at the head passes with the index
-    /// hardcoded, which is the one-line mistake this whole file's `isLeft` scans exist for.
+    /// Whichever tab is live is the one written, not index 0: a rule tested only at the head would
+    /// pass with the index hardcoded.
     @Test func theSaveOverlayFollowsTheSelectionRatherThanTheHeadOfTheStrip() {
         let strip = PaneTabList(tabs: [PaneTab(providerId: "iCloud", relativePath: "A"),
                                        PaneTab(providerId: "iCloud", relativePath: "B"),
@@ -192,27 +177,18 @@ import Events
                                            browsePath: PaneBrowsePath())
         #expect(saving.tabs.map(\.relativePath) == ["A", "B", "Live"],
                 "the overlay wrote over the wrong tab")
-        // **And WHICH tab is live has to survive the overlay**, asserted off a non-head selection
-        // because that is the only place it can fail: the sibling test above selects index 0, which
-        // is `PaneTabList.init`'s own default, so `selectedIndex == strip.selectedIndex` there is
-        // `0 == 0` and a `copy.selectedIndex = 0` in the overlay passes it. It is the same class of
-        // bug the overlay exists to fix — the pane reopens on the wrong tab after a quit — and it
-        // is the one thing the store is handed besides the tabs.
+        // Which tab is live must survive the overlay, or the pane reopens on the wrong tab after a
+        // quit. Asserted off a non-head selection: index 0 is `PaneTabList.init`'s default, so the
+        // test above can't see an overlay that resets it.
         #expect(saving.selectedIndex == 2,
                 "the save moved the selection to another tab, so the pane reopens on the wrong one")
     }
 
-    /// **The overlay throws the active tab's history away, and that is on purpose.**
-    ///
-    /// `replacingActive` omits `history:`, so `PaneTab.init` re-seeds it from the path being
-    /// written — the returned entry can walk back to the root and nowhere else. Right for the only
-    /// caller (`saveBrowseTabs`, whose store reads providerId, path, depth and pin and holds no
-    /// history at all) and right for the invariant `applyTab` relies on, but a discard under a
-    /// general-sounding public name is the kind of thing that gets reached for by a second caller
-    /// and quietly kills Back. Pinned so that reaching for it has to come past this test.
-    ///
-    /// The fixture answers differently either way: the live tab has walked two folders deep, and
-    /// the overlay writes a third that is in neither of them.
+    /// The overlay throws the active tab's history away, on purpose. `replacingActive` omits
+    /// `history:`, so `PaneTab.init` re-seeds it from the path written, and the entry can walk back
+    /// to the root only. Right for `saveBrowseTabs`, whose store holds no history, but a second
+    /// caller reaching for it would quietly kill Back, so it is pinned here. The live tab has
+    /// walked two folders deep; the overlay writes a third.
     @Test func theSaveOverlayReSeedsTheActiveTabsHistoryRatherThanCarryingIt() {
         var walked = PaneNavigationHistory()
         walked.push("Finance")
@@ -223,16 +199,16 @@ import Events
         let saving = strip.replacingActive(providerId: "iCloud", relativePath: "School",
                                            browsePath: PaneBrowsePath(relativePath: "US"))
 
-        // Seeded from the SCOPE, which is what a pane's history tracks (`PaneTabArrival` compares
-        // `history.current` against `leftRelativePath`) — not from the combined location.
+        // Seeded from the scope, which is what a pane's history tracks (`PaneTabArrival` compares
+        // `history.current` against `leftRelativePath`), not from the combined location.
         #expect(saving.active.history.entries == ["", "School"],
                 "the overlay carried a history across — it now disagrees with the path beside it")
         #expect(saving.active.history.current == "School",
                 "the saved entry's history does not agree with its own scope")
         #expect(saving.active.history.canGoBack,
                 "the seeded history cannot walk out of the folder it names")
-        // The strip it was asked of keeps the real walk: this is a projection for the store, and
-        // the pane the user is looking at must still be able to go Back twice.
+        // The strip it was asked of keeps the real walk, so the pane on screen can still go Back
+        // twice.
         #expect(strip.active.history == walked, "the overlay mutated the live tab's history")
     }
 
@@ -258,8 +234,8 @@ import Events
         #expect(closed)
         let reopened = tabs.reopenLastClosed()
         #expect(reopened?.relativePath == "B")
-        // A fresh id: Close Other Tabs pushes several at once, so a reopened tab can collide with
-        // one still on the stack — and two chips sharing an id is a `ForEach` collision.
+        // A fresh id: Close Other Tabs pushes several at once, so a reopened tab could collide with
+        // one still on the stack, and two chips sharing an id is a `ForEach` collision.
         #expect(reopened?.id != closedId)
         #expect(tabs.active.relativePath == "B")
     }
@@ -277,7 +253,7 @@ import Events
         var tabs = PaneTabList(tabs: (0...20).map { tab("F\($0)") }, selectedIndex: 0)
         while tabs.count > 1 { _ = tabs.close(at: 0) }
         #expect(tabs.recentlyClosed.count == PaneTabList.reopenLimit)
-        // The NEWEST survive — reopen is a stack, so dropping from the front is what keeps it one.
+        // The newest survive: reopen is a stack, so the oldest are dropped.
         #expect(tabs.recentlyClosed.last?.relativePath == "F19")
     }
 
@@ -318,7 +294,7 @@ import Events
         #expect(isPartitioned(tabs))
     }
 
-    /// **Pinned tabs survive Close Other Tabs** — that is most of what pinning is for.
+    /// Pinned tabs survive Close Other Tabs: that is most of what pinning is for.
     @Test func closeOthersKeepsThePinnedOnes() {
         var tabs = list(["A", "B", "C", "D"], selected: 0)
         tabs.pin(id: tabs.tabs.first(where: { $0.relativePath == "D" })!.id)
@@ -377,7 +353,7 @@ import Events
 
     // MARK: Reorder
 
-    /// Dragging a tab moves the chip, **not** which tab you are looking at.
+    /// Dragging a tab moves the chip, not which tab you are looking at.
     @Test func reorderingKeepsTheSameTabLive() {
         var tabs = list(["A", "B", "C"], selected: 2)
         tabs.move(from: 0, to: 2)
@@ -411,16 +387,15 @@ import Events
         #expect(deep.displayName(providerName: "iCloud Drive") == "2024")
     }
 
-    /// At the root there is no folder to name, and an unnamed chip is the one tab you cannot tell
-    /// from another — which is exactly the state ⌘T creates.
+    /// At the root there is no folder to name, and an unnamed chip can't be told from another; ⌘T
+    /// creates exactly that state.
     @Test func aTabAtTheRootWearsItsSourcesName() {
         #expect(PaneTab(providerId: "iCloud").displayName(providerName: "iCloud Drive") == "iCloud Drive")
     }
 
-    /// **The two positions a tab carries have to agree.** `applyTab` publishes the pane's path out
-    /// of the tab's HISTORY, so a constructor that seeded a history disagreeing with `relativePath`
-    /// would land the pane somewhere the chip does not name. Every way of making a tab is checked
-    /// here, because the invariant is what lets `applyTab` pick either one.
+    /// The two positions a tab carries must agree. `applyTab` publishes the pane's path from the
+    /// tab's history, so a history disagreeing with `relativePath` would land the pane somewhere
+    /// the chip doesn't name. Every way of making a tab is checked.
     @Test func everyConstructedTabHasAHistoryThatAgreesWithItsPath() {
         let plain = PaneTab(providerId: "iCloud", relativePath: "Finance/US")
         #expect(plain.history.current == plain.relativePath)
@@ -440,8 +415,8 @@ import Events
         #expect(reopened?.history.current == reopened?.relativePath, "a reopened tab disagrees with itself")
     }
 
-    /// A tab seeded at a folder must be able to walk back OUT of it, or Back is dead in a restored
-    /// tab and the pane has a location with no way home.
+    /// A tab seeded at a folder must be able to walk back out of it, or Back is dead in a restored
+    /// tab.
     @Test func aSeededTabCanGoBackToItsRoot() {
         let seeded = PaneTab(providerId: "iCloud", relativePath: "Finance/US")
         #expect(seeded.history.current == "Finance/US")
@@ -452,28 +427,19 @@ import Events
     }
 }
 
-/// What survives a quit — and, as much, what deliberately does not.
+/// What survives a quit, and what deliberately does not.
 ///
-/// **`.serialized` for the two log assertions, and they are the only reason.** `Logger.shared` is
-/// process-wide and this suite has a sibling that writes the very line one of them asserts:
-/// `aCorruptValueReadsAsNothingStored` loads a `{not json` LEFT strip, which emits "The stored left
-/// browse tab strip could not be read". Run in parallel with
-/// `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced`, that line can land inside the
-/// window the presence half reads and satisfy it while the call under test wrote nothing at all —
-/// a pass for another test's work. Serializing closes the intra-suite half; the cross-suite half
-/// needs nothing here, because a package-wide grep shows these two sentences are written from this
-/// suite alone.
+/// `.serialized` only for the two log assertions: `aCorruptValueReadsAsNothingStored` emits the
+/// line `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` looks for, and in parallel
+/// it could land in that test's window and satisfy it. Only this suite writes those sentences.
 @Suite(.serialized) struct PaneTabsStoreTests {
 
     /// Everything logged between two of this test's own markers, with `act` run between them.
     ///
-    /// **Read from the log FILE, through `logLines(tag:during:)`, never from `Logger.shared.entries`.**
-    /// `entries` is a rolled 1000-line window shared by every suite in the package, and a full
-    /// parallel run logs past this test's own marker while it works: the marker's `#require` then
-    /// failed on `main` at `7090870d2` with nothing wrong with the tab strip (flaky-tests
-    /// mechanism "A log assertion reading a window that has already rolled"). The file is
-    /// per-process and is never trimmed under a test, so the window between this test's markers is
-    /// whole. Levels are read by NAME off the canonical line, `[WARN]`.
+    /// Read from the log file through `logLines(tag:during:)`, never `Logger.shared.entries`, a
+    /// rolled 1000-line window a parallel run can log past (`docs/flaky-tests.md`, "A log assertion
+    /// reading a window that has already rolled"). The file is per-process and never trimmed under
+    /// a test. Levels are read by name off the canonical line, `[WARN]`.
     @MainActor
     private func loggedWindow(_ act: () -> Void) async throws -> [String] {
         try await logLines(tag: "pane-tabs \(UUID().uuidString)") { act() }
@@ -501,8 +467,7 @@ import Events
         #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.relativePath == "Finance/US/2024")
     }
 
-    /// No key at all is what tells the caller to seed from the pane's own stored provider, so it
-    /// must be distinguishable from an empty strip — which cannot exist.
+    /// Pins survive a save, a load and a restore.
     @Test func pinsSurviveAQuit() {
         let defaults = ScratchDefaults("PaneTabsStore-pins")
         var list = PaneTabList(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance"),
@@ -519,12 +484,8 @@ import Events
         #expect(restored?.list.pinnedCount == 1)
     }
 
-    /// **A strip written before pinning existed still decodes.** `Codable` rejects the whole file
-    /// on a missing key, and that file is the user's tabs — they would vanish on the first launch
-    /// after the upgrade, with nothing to say why.
-    /// A stored strip that interleaves pinned and unpinned tabs comes back partitioned. The file
-    /// is not a promise — every rule in `PaneTabList` reads the pinned run as a PREFIX, and a list
-    /// that broke it would have `pinnedCount` and `pinned` disagreeing about itself.
+    /// A stored strip that interleaves pinned and unpinned tabs comes back partitioned. Every rule
+    /// in `PaneTabList` reads the pinned run as a prefix, and the file is not a promise.
     @Test func aStoredStripThatBreaksThePartitionIsRepairedOnTheWayIn() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "A"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "B", pinned: true),
@@ -540,6 +501,8 @@ import Events
         #expect(restored?.list.active.relativePath == "C")
     }
 
+    /// A strip with no `pinned` key still decodes. `Codable` rejects the whole value on a missing
+    /// key, and that value is the user's tabs.
     @Test func aStripWrittenBeforePinningStillDecodes() {
         let defaults = ScratchDefaults("PaneTabsStore-legacy")
         defaults.set(#"[{"providerId":"iCloud","relativePath":"Finance"}]"#, forKey: PaneTabsStore.tabsKey)
@@ -548,6 +511,8 @@ import Events
         #expect(loaded?.entries.first?.pinned == false)
     }
 
+    /// No key at all tells the caller to seed from the pane's own stored provider, so it must be
+    /// distinguishable from an empty strip, which can't exist.
     @Test func nothingStoredReadsAsNothingRatherThanAsAnEmptyStrip() {
         let defaults = ScratchDefaults("PaneTabsStore-empty")
         #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
@@ -559,22 +524,17 @@ import Events
         #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
     }
 
-    /// **…and says so, which is the whole of what it does about it.**
-    ///
-    /// A key that is present but unreadable returns the same `nil` as a key that was never written,
-    /// so the caller seeds a fresh strip and the next save overwrites the value for good. That
-    /// stays the right answer — there is nothing there to restore, and a strip the app refuses to
-    /// replace is a pane that cannot save its tabs — but in silence it loses a strip the user had
-    /// with nothing to say it existed. Reachable by a hand-edited plist, which `split` and `restore`
-    /// both already treat as a live source of nonsense, and by any later change to the format.
+    /// …and says so. An unreadable key returns the same `nil` as a missing one, so the caller
+    /// seeds a fresh strip and the next save overwrites it for good. That is right (there is
+    /// nothing to restore), but it must not lose the user's strip in silence. Reachable by a
+    /// hand-edited plist or a later format change.
     @MainActor
     @Test func anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced() async throws {
         let defaults = ScratchDefaults("PaneTabsStore-corruptLog")
         defaults.set(#"[{"providerId":"iCloud","relativePath":]"#, forKey: PaneTabsStore.tabsKey)
 
-        // Read between this test's own markers rather than over the whole buffer. The old reading
-        // was a bare `contains` across all 1000 entries, which a rolled window fails spuriously —
-        // the line IS written, and scrolls off while the assertion is being reached.
+        // Read between this test's own markers, not over the whole buffer, where the line could
+        // scroll off before the assertion reads it.
         var loaded: (entries: [PaneTabsStore.Entry], selected: Int)?
         let logged = try await loggedWindow { loaded = PaneTabsStore.load(isLeft: true, from: defaults) }
 
@@ -585,22 +545,12 @@ import Events
         }, "an unreadable strip is thrown away by the next save with nothing said")
     }
 
-    /// The other direction, and it is the one that would make the line worthless: **no key at all
-    /// is the ordinary case** — every fresh install, and every right pane that has never held a
-    /// second tab — so a warning there would fire on launches where nothing is wrong. An empty
-    /// array decodes fine and is the same "seed it" answer, so it is quiet too.
+    /// The other direction: no key at all is the ordinary case (every fresh install, every right
+    /// pane that never held a second tab), so a warning there would fire when nothing is wrong. An
+    /// empty array is the same "seed it" answer and is quiet too.
     ///
-    /// **An absence assertion is the half that has to be guarded, not the half that looks safe.**
-    /// This used to be `!Logger.shared.entries.contains { … }` over the whole rolled buffer, with
-    /// its flush marker written after the loads and never checked — so once 1000 lines had rolled
-    /// past, "the line is not there" would have been true of a window that no longer contained the
-    /// moment being judged, and the test would have passed without looking at anything. Reading
-    /// between two of its own markers, with the opening one `#require`d, means a rolled window is
-    /// REPORTED rather than silently granted.
-    ///
-    /// It was latent rather than live when this was fixed — measured: planting a warning on the
-    /// empty-decode path makes it fail under `--filter` and under the full package alike, so the
-    /// window does not roll inside this test today. The guard is for the day the package grows.
+    /// An absence needs guarding: reading between the test's own markers, with the opening one
+    /// required, reports a rolled window instead of passing on a window that never held the moment.
     @MainActor
     @Test func aStripThatWasNeverWrittenOrIsEmptyIsNotReported() async throws {
         let defaults = ScratchDefaults("PaneTabsStore-quietLoad")
@@ -641,17 +591,10 @@ import Events
         #expect(restored?.list.active.relativePath == "")
     }
 
-    /// **A re-rooted tab is invisible in the list it comes back in, and that is why the restore
-    /// reports it separately.**
-    ///
-    /// The tab is not dropped: the count of restored tabs matches the count of stored ones, so
-    /// nothing about the returned strip distinguishes a tab whose folder was deleted while the app
-    /// was closed from a tab the user genuinely left at the source root. The stored path is the last
-    /// place that folder is named at all — the first save writes the root over it — so it comes back
-    /// beside the strip or it is gone.
-    ///
-    /// The fixture keeps a second tab whose folder is fine, so this cannot pass by reporting every
-    /// entry.
+    /// A re-rooted tab looks like any tab at the root in the restored list, so the restore reports
+    /// it separately. The stored path is the last place that folder is named (the first save writes
+    /// the root over it), so it comes back beside the strip or not at all. A second tab whose folder
+    /// is fine stops this passing by reporting every entry.
     @Test func aRestoreNamesTheFolderEachReRootedTabLost() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Taxes/2019"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos")]
@@ -664,17 +607,10 @@ import Events
         #expect(restored?.list.tabs.map(\.combinedRelativePath) == ["", "Photos"])
     }
 
-    /// **The report is in STORED order, which is not the strip's**, and the doc said the opposite.
-    ///
-    /// Entries are appended as the file is walked, and the strip is then re-sorted so the pinned run
-    /// is a prefix — so a pinned entry stored second comes back first in `list.tabs` and second in
-    /// `lostFolders`. Left uncorrected, a reader matching the warnings against the chips left to
-    /// right would pair each loss with the wrong tab. The existing lost-folder test has one entry
-    /// and no pins, so it cannot see the difference at all.
-    ///
-    /// Stored order is the right answer for this half, not merely the observed one: the report
-    /// names STORED paths, which the strip no longer holds anywhere — the tabs it re-rooted are all
-    /// at `""` — so the file's order is the only order these strings are in.
+    /// The report is in stored order, not the strip's. The strip is re-sorted so the pinned run is
+    /// a prefix, so a pinned entry stored second comes back first in `list.tabs` and second in
+    /// `lostFolders`. Stored order is right: the report names stored paths the strip no longer
+    /// holds (its re-rooted tabs are all at `""`).
     @Test func theLostFolderReportIsInStoredOrderRatherThanStripOrder() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Taxes/2019"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos/2020",
@@ -690,8 +626,8 @@ import Events
                 "the lost-folder report is not in the stored order its doc promises")
     }
 
-    /// The ordinary launch: every folder in place, nothing to say. A report that fired here would
-    /// put a warning in the log on every launch and stop meaning anything.
+    /// The ordinary launch: every folder in place, nothing to say, or the warning would fire on
+    /// every launch and stop meaning anything.
     @Test func aRestoreWithEveryFolderStillThereReportsNothingLost() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Taxes/2019"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos")]
@@ -701,8 +637,8 @@ import Events
         #expect(restored?.lostFolders.isEmpty == true)
     }
 
-    /// A tab stored **at** its source root has no folder to lose — the fallback lands it exactly
-    /// where it already was. Reporting it would name `""` in a warning about a deleted folder.
+    /// A tab stored at its source root has no folder to lose; reporting it would name `""` in a
+    /// warning about a deleted folder.
     @Test func aTabStoredAtItsRootIsNotReportedAsLost() {
         let restored = PaneTabsStore.restore(
             entries: [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "")],
@@ -713,9 +649,8 @@ import Events
                 "a pane sitting at its source root was warned about as a lost folder")
     }
 
-    /// And a tab **dropped** for its source is not also reported as a lost folder: it never reaches
-    /// the folder check, and one tab counted in both places would double-report a single loss in a
-    /// log whose whole job here is to say what went where.
+    /// A tab dropped for its source is not also reported as a lost folder: it never reaches the
+    /// folder check, and counting it twice would double-report a single loss.
     @Test func aTabDroppedForItsSourceIsNotAlsoReportedAsALostFolder() {
         let entries = [PaneTabsStore.Entry(providerId: "Gone", relativePath: "Taxes/2019"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos")]
@@ -740,8 +675,8 @@ import Events
         #expect(restored?.list.selectedIndex == 0)
     }
 
-    /// **The selection follows its own entry, not its index.** Dropping an entry ahead of the
-    /// selected one shifts it down; a clamp would land on a different folder and say nothing.
+    /// The selection follows its own entry, not its index. Dropping an entry ahead of the selected
+    /// one shifts it down; a clamp would silently land on a different folder.
     @Test func theSelectionFollowsItsOwnTabPastDroppedOnes() {
         let entries = [PaneTabsStore.Entry(providerId: "Gone", relativePath: "A"),
                        PaneTabsStore.Entry(providerId: "iCloud", relativePath: "B"),
@@ -778,14 +713,9 @@ import Events
 
     // MARK: The column stack across a quit
 
-    /// **The regression this section exists for.** A tab drilled four columns deep came back as one
-    /// full-width column: the save joined scope and stack into one string and the restore handed the
-    /// whole thing back as scope, and scope draws exactly one column (`columnDirectories`).
-    ///
-    /// The fixture is deliberately built so the bug and the fix give *different* answers on every
-    /// line: a non-empty scope with a non-empty stack, so restoring everything-as-scope (the old
-    /// behaviour) fails the scope check, the stack check and the depth check rather than passing one
-    /// of them by coincidence.
+    /// A drilled tab keeps its columns across a quit. The save joins scope and stack into one
+    /// string, and restoring it all as scope would draw one column (`columnDirectories`). A
+    /// non-empty scope and stack make all-as-scope fail every check, not just one.
     @Test func aDrilledColumnStackSurvivesTheRoundTrip() {
         let defaults = ScratchDefaults("PaneTabsStore-stack")
         let tab = PaneTab(providerId: "iCloud",
@@ -800,21 +730,16 @@ import Events
         #expect(restored?.list.active.relativePath == "School", "the scope came back wrong")
         #expect(restored?.list.active.browsePath.relativePath == "US/Daughter/Homework",
                 "the column stack did not survive the quit")
-        // What the user actually sees, and the only assertion that speaks in columns: the stack
-        // draws one column per component on top of the scope's own.
+        // What the user sees: the stack draws one column per component on top of the scope's own.
         #expect(restored?.list.active.browsePath.depth == 3)
-        // …and the joined location is unchanged, which is what keeps the header's path line reading
-        // the same string it did before the quit.
+        // …and the joined location is unchanged, so the header's path line reads as before the quit.
         #expect(restored?.list.active.combinedRelativePath == "School/US/Daughter/Homework")
     }
 
-    /// **The active tab's columns, end to end through the thing that actually writes them.**
-    ///
-    /// `aDrilledColumnStackSurvivesTheRoundTrip` above saves a tab whose LIST entry is already
-    /// where the pane is, which is true of every parked tab and false of the live one. This starts
-    /// from the shape a real save meets: the active entry is a stale snapshot at the source root,
-    /// the pane has walked three columns deep since, and the overlay is what puts the two together.
-    /// Without it the tab on screen goes to disk at the root — the one tab that loses its place.
+    /// The active tab's columns, end to end through the overlay that writes them. The test above
+    /// saves an entry already where the pane is, true of parked tabs only. Here the active entry is
+    /// a stale snapshot at the root and the pane has walked three columns deep; without the overlay
+    /// the tab on screen would go to disk at the root.
     @Test func theActiveTabIsSavedWhereThePaneIsAndNotWhereItWasParked() {
         let defaults = ScratchDefaults("PaneTabsStore-activeOverlay")
         let strip = PaneTabList(tabs: [PaneTab(providerId: "iCloud"),
@@ -830,15 +755,14 @@ import Events
                 "the tab on screen was saved where it was parked, not where it is")
         #expect(loaded?.entries.first?.stackDepth == 3,
                 "the active tab's columns were flattened on the way to disk")
-        // The parked tab beside it went to disk untouched, so this cannot pass by writing the live
-        // pane over the whole strip.
+        // The parked tab went to disk untouched, so this can't pass by writing the live pane over
+        // the whole strip.
         #expect(loaded?.entries.last?.relativePath == "Photos")
         #expect(loaded?.selected == 0)
     }
 
-    /// A tab that was never drilled into is all scope and no stack, and must stay that way — this is
-    /// the ⌘T / Open in New Tab case, and restoring it with a stack would claim columns the user
-    /// never opened.
+    /// A tab never drilled into is all scope and no stack, and stays that way (the ⌘T / Open in New
+    /// Tab case); a stack would claim columns the user never opened.
     @Test func aTabOpenedAtAFolderRatherThanDrilledComesBackWithNoStack() {
         let defaults = ScratchDefaults("PaneTabsStore-noStack")
         PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Finance/US")],
@@ -852,10 +776,9 @@ import Events
         #expect(restored?.list.active.browsePath.isEmpty == true)
     }
 
-    /// **Old strip, new build.** A strip written before the stack was persisted has no `stackDepth`,
-    /// and must decode rather than take the user's whole set of tabs with it — the same hazard
-    /// `aStripWrittenBeforePinningStillDecodes` covers for the pin. It restores the way it always
-    /// did: all scope, one column.
+    /// Old strip, new build: a strip with no `stackDepth` must decode, not take the user's tabs
+    /// with it (as `aStripWrittenBeforePinningStillDecodes` covers for the pin). It restores as all
+    /// scope, one column.
     @Test func aStripWrittenBeforeTheStackWasPersistedStillDecodes() {
         let defaults = ScratchDefaults("PaneTabsStore-legacyStack")
         defaults.set(#"[{"providerId":"iCloud","relativePath":"School/US/Daughter"}]"#,
@@ -870,10 +793,9 @@ import Events
         #expect(restored?.list.active.browsePath.isEmpty == true)
     }
 
-    /// **New strip, old build.** The other direction, and the reason the format adds a depth beside
-    /// `relativePath` instead of redefining it as the scope alone: a build that has never heard of
-    /// `stackDepth` reads `relativePath` and must still land on the folder the user left, not on an
-    /// ancestor of it. Asserted on the encoded JSON, which is the only thing that build would see.
+    /// New strip, old build: the format adds a depth beside `relativePath` rather than redefining
+    /// it as the scope, so a build that ignores `stackDepth` still lands on the folder the user
+    /// left. Asserted on the encoded JSON, all that build would see.
     @Test func theStoredPathStaysTheWholeLocationSoAnOlderBuildLandsOnIt() {
         let defaults = ScratchDefaults("PaneTabsStore-forward")
         let tab = PaneTab(providerId: "iCloud",
@@ -886,13 +808,9 @@ import Events
                 "the stored path is no longer the whole location: \(raw)")
     }
 
-    /// `stackDepth` arrives from a file, so it is not trusted.
-    ///
-    /// **The negative case is the one with teeth**, and the two are worth telling apart: removing
-    /// `max(0,` from the clamp makes this test die on a `dropLast` trap rather than fail — a `-1` in
-    /// a hand-edited strip crashes the app inside launch's restore, before a window. Removing the
-    /// upper clamp changes nothing at all, because `dropLast` and `suffix` already saturate; the
-    /// over-the-end half below pins the resulting behaviour but guards no code of ours.
+    /// `stackDepth` arrives from a file, so it is not trusted. The negative case matters: without
+    /// the `max(0,` clamp a `-1` in a hand-edited strip traps in `dropLast` during launch's restore.
+    /// The over-the-end half pins behaviour that `dropLast` and `suffix` already saturate.
     @Test func aStackDepthOutOfRangeIsClampedRatherThanTrusted() {
         let negative = PaneTabsStore.split(relativePath: "A/B", stackDepth: -3)
         #expect(negative.scope == "A/B", "a negative depth should leave the whole path as scope")
@@ -903,14 +821,9 @@ import Events
         #expect(deep.stack.relativePath == "A/B")
     }
 
-    /// **The user's actual case, and the fixture whose absence hid a regression.** Drilling straight
-    /// down from the root — no re-rooting — leaves the scope EMPTY and puts every component in the
-    /// stack. Every other fixture here has a non-empty scope, so none of them exercised the shape
-    /// where `relativePath` comes back `""` while the tab is four columns deep.
-    ///
-    /// That shape is what broke `restoreBrowseTabs`: its "is this the fresh-install strip?" guard
-    /// read `relativePath`, saw `""`, and skipped the whole restore. `isSeedState` now owns the
-    /// rule and the two tests below pin it.
+    /// Drilling straight down from the root leaves the scope empty and puts every component in the
+    /// stack: `relativePath` is `""` while the tab is four columns deep. The launch restore's
+    /// "fresh install?" check must not read that as the seed state; `isSeedState` owns the rule.
     @Test func aTabDrilledFromTheRootKeepsEveryColumnAndReportsAnEmptyScope() {
         let defaults = ScratchDefaults("PaneTabsStore-rootDrilled")
         let tab = PaneTab(providerId: "iCloud",
@@ -930,8 +843,7 @@ import Events
                 "a strip holding a four-column tab was mistaken for a fresh install and skipped")
     }
 
-    /// The other direction of that guard — the state it genuinely exists to detect, so the rule is
-    /// pinned from both sides rather than only where it must say no.
+    /// The other side of that guard: the state it exists to detect.
     @Test func aLoneUnpinnedTabAtTheRootIsTheSeedState() {
         #expect(PaneTabList(single: PaneTab(providerId: "iCloud")).isSeedState == true)
         // …and each way out of it, separately.
@@ -945,9 +857,8 @@ import Events
 
     // MARK: Two panes, two strips
 
-    /// **The whole risk in persisting a second strip is the two writing over each other.** One pane
-    /// saving must leave the other's stored strip untouched, in both directions — a shared key, or
-    /// a `keys(isLeft:)` that ignored its argument, would show up here and nowhere else.
+    /// One pane saving must leave the other's stored strip untouched, in both directions. A shared
+    /// key, or a `keys(isLeft:)` that ignored its argument, would show only here.
     @Test func eachPanesStripIsStoredUnderItsOwnKey() {
         let defaults = ScratchDefaults("PaneTabsStore-sides")
         PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Left")],
@@ -961,17 +872,16 @@ import Events
         #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.providerId == "iCloud")
         #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.entries.first?.providerId == "Dropbox")
 
-        // Re-saving one side must not disturb the other — the case a read-modify-write of a single
-        // shared blob would break, which is why the two keys are separate.
+        // Re-saving one side must not disturb the other, which a read-modify-write of one shared
+        // blob would break.
         PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "LeftAgain")],
                            selected: 0, isLeft: true, to: defaults)
         #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.entries.first?.relativePath == "Right",
                 "saving the left strip overwrote the right one")
     }
 
-    /// The left keeps the original, side-less key names so no strip already on disk is orphaned by
-    /// the right pane arriving. Pinned as a literal because that is exactly the kind of thing a
-    /// later tidy-up renames for consistency, silently losing every existing user's tabs.
+    /// The left keeps the side-less key names, so no strip already on disk is orphaned. Pinned as
+    /// literals: a tidy-up rename would silently lose every existing user's tabs.
     @Test func theLeftPaneKeepsTheOriginalKeyNames() {
         #expect(PaneTabsStore.tabsKey == "browseTabs")
         #expect(PaneTabsStore.selectedKey == "browseSelectedTab")
@@ -979,9 +889,9 @@ import Events
         #expect(PaneTabsStore.rightSelectedKey != PaneTabsStore.selectedKey)
     }
 
-    /// A right pane that has never been written reads as nothing stored, so the caller falls through
-    /// to the older `lastRightFocusPath` restore rather than seeding an empty strip over it. This is
-    /// the first-launch-after-upgrade path, where only the left key exists.
+    /// A right pane never written reads as nothing stored, so the caller falls through to the
+    /// `lastRightFocusPath` restore rather than seeding an empty strip over it (only the left key
+    /// exists).
     @Test func aRightStripThatWasNeverWrittenReadsAsNothingStored() {
         let defaults = ScratchDefaults("PaneTabsStore-rightMissing")
         PaneTabsStore.save(tabs: [PaneTab(providerId: "iCloud", relativePath: "Left")],
@@ -1004,9 +914,9 @@ import Events
         #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.selected == 2)
     }
 
-    /// A tab whose folder is gone loses the stack along with the scope. The components name folders
-    /// *under* a path that no longer resolves, so there is nothing for them to be relative to — a
-    /// stack kept here would point the pane's New Folder and paste at a path that does not exist.
+    /// A tab whose folder is gone loses its stack with the scope: the components name folders under
+    /// a path that no longer resolves, and would point New Folder and paste at a path that doesn't
+    /// exist.
     @Test func aTabWhoseFolderIsGoneLosesItsStackToo() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud",
                                            relativePath: "School/US/Daughter/Homework", stackDepth: 3)]
@@ -1016,10 +926,8 @@ import Events
         #expect(restored?.list.active.relativePath == "")
         #expect(restored?.list.active.browsePath.isEmpty == true)
     }
-    /// The count "Close Other Tabs" acts on, which is **not** `count - 1`: pins survive it, so a
-    /// strip of three whose other two are pinned has nothing to close. One rule, because the host
-    /// logs this number and the strip gates its menu item on it — two spellings is how the menu and
-    /// the log come to disagree about the same click.
+    /// The count "Close Other Tabs" acts on, which is not `count - 1`: pins survive it. One rule,
+    /// because the host logs this number and the strip gates its menu item on it.
     @Test func closableOthersCountsWhatTheGestureWouldActuallyClose() {
         let a = PaneTab(providerId: "iCloud", relativePath: "A")
         let b = PaneTab(providerId: "iCloud", relativePath: "B", isPinned: true)
@@ -1035,16 +943,14 @@ import Events
     }
 }
 
-/// Where a newly opened tab sits — the half that made "the columns are collapsed again after a
-/// restart" a creation bug rather than a persistence one.
+/// Where a newly opened tab sits: its scope and column stack, cut the way the pane's are, so its
+/// columns survive a restart.
 @MainActor
 @Suite struct PaneTabOpeningTests {
 
-    /// **⌘T from a pane four columns deep gives a tab four columns deep.** It gave one full-width
-    /// column: `openTabHere` handed `combinedRelativePath` over as the SCOPE with no stack, so the
-    /// tab was flattened the moment it was created and every save/restore round-tripped that
-    /// flattening perfectly. His stored strip, verbatim:
-    /// `Health/Medical/Included Health/Expert Opinions` at `stackDepth` 0.
+    /// ⌘T from a pane four columns deep gives a tab four columns deep. Passing
+    /// `combinedRelativePath` as the scope with no stack would flatten the tab at creation, and
+    /// save and restore would keep it flat.
     @Test func openingHereKeepsThePanesOwnColumnCut() {
         let stack = PaneBrowsePath(components: ["Health", "Medical", "Included Health", "Expert Opinions"])
         let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
@@ -1054,8 +960,8 @@ import Events
         #expect(cut.stack.depth == 4, "a tab opened from four open columns came back with none")
     }
 
-    /// The same when the pane's location is split the other way — scope deep, a shallow stack on
-    /// top. The cut is the PANE's, not a fixed one.
+    /// The same with the pane's location split the other way, scope deep and a shallow stack on
+    /// top: the cut is the pane's, not a fixed one.
     @Test func openingHereHonoursAScopeThatIsNotTheRoot() {
         let cut = PaneTabOpening.location(of: "Health/Medical/Included Health",
                                           openedFromScope: "Health")
@@ -1063,8 +969,8 @@ import Events
         #expect(cut.stack.components == ["Medical", "Included Health"])
     }
 
-    /// Open in New Tab on a folder UNDER the pane keeps the scope and puts the rest in the stack,
-    /// so the new tab has the ancestor columns a column browser is for.
+    /// Open in New Tab on a folder under the pane keeps the scope and puts the rest in the stack,
+    /// so the new tab has the ancestor columns.
     @Test func openingAFolderUnderThePaneGivesItTheAncestorColumns() {
         let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
                                           openedFromScope: "Health")
@@ -1072,24 +978,23 @@ import Events
         #expect(cut.stack.components == ["Medical", "Included Health", "Expert Opinions"])
     }
 
-    /// A target that is not under the pane's scope keeps the old answer — all scope, no stack.
-    /// The components would otherwise name folders under a path that does not contain them.
+    /// A target outside the pane's scope is all scope, no stack; the components would otherwise
+    /// name folders under a path that doesn't contain them.
     @Test func aTargetOutsideTheScopeIsAllScope() {
         let cut = PaneTabOpening.location(of: "Legal/US", openedFromScope: "Family")
         #expect(cut.scope == "Legal/US")
         #expect(cut.stack.isEmpty)
     }
 
-    /// A pane at its root opening its root is the seed state, and must stay it — otherwise the
-    /// launch restore's `isSeedState` skip stops recognising a fresh install.
+    /// A pane at its root opening its root is the seed state, and must stay it, or the launch
+    /// restore's `isSeedState` skip stops recognising a fresh install.
     @Test func openingTheRootFromTheRootIsStillTheRoot() {
         let cut = PaneTabOpening.location(of: "", openedFromScope: "")
         #expect(cut.scope == "")
         #expect(cut.stack.isEmpty)
     }
 
-    /// **The round trip, end to end**: open a tab from a deep pane, save it, restore it — the
-    /// columns survive. Both halves had to be right for this; the restore already was.
+    /// The round trip: open a tab from a deep pane, save it, restore it, and the columns survive.
     @Test func aTabOpenedFromOpenColumnsSurvivesAQuit() throws {
         let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
                                           openedFromScope: "")

@@ -4,11 +4,10 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Pins the direction labels on the delete undo/redo audit trail. The two registrars had them
-/// swapped: undoing a delete (`registerRestoreItems`) logged "User triggered Redo" and redoing it
-/// (`registerTrashItems`) logged "User triggered Undo" — so a forensic read of the log showed the
-/// user doing the opposite of what actually ran. Each handler's header must match its direction,
-/// and its trailing summary must agree with its header.
+/// Pins the direction labels on the delete undo/redo audit trail: undoing a delete
+/// (`registerRestoreItems`) logs "User triggered Undo" and redoing it (`registerTrashItems`) logs
+/// "User triggered Redo", and each summary agrees with its header. Swapped, the log would show the
+/// user doing the opposite of what ran.
 @Suite struct UndoRedoLogLabelTests {
 
     /// True when `log` captured an entry with exactly `message`. A capture, not the shared buffer,
@@ -32,7 +31,7 @@ import EventsTestSupport
         await manager.deleteItems(at: ["/dst/label_pin.txt"], fileManager: mockFM)
         #expect(mockFM.virtualDisk["/dst/label_pin.txt"] == nil)
 
-        // ⌘Z restores the item from the Trash — the header must say Undo, and the summary agrees.
+        // ⌘Z restores the item from the Trash: the header says Undo, and the summary agrees.
         manager.undoManager?.undo()
         await waitUntil("undo restores the deleted item") { mockFM.virtualDisk["/dst/label_pin.txt"] != nil }
         #expect(await loggerContains(log, "User triggered Undo: Move to Trash"))
@@ -40,7 +39,7 @@ import EventsTestSupport
         // No delete redo has run yet, so no handler may have claimed the Redo label.
         #expect(!(await loggerContains(log, "User triggered Redo: Move to Trash")))
 
-        // ⌘⇧Z re-trashes the item — the header must say Redo, and the summary agrees.
+        // ⌘⇧Z re-trashes the item: the header says Redo, and the summary agrees.
         manager.undoManager?.redo()
         await waitUntil("redo re-trashes the item") { mockFM.virtualDisk["/dst/label_pin.txt"] == nil }
         #expect(await loggerContains(log, "User triggered Redo: Move to Trash"))

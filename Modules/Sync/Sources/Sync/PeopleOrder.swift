@@ -2,18 +2,13 @@ import Foundation
 
 /// The order a roster is shown in when nobody has arranged it by hand.
 ///
-/// **By relationship, not by name.** An alphabetical list put a daughter first and the person
-/// whose Mac this is fifth, which is the wrong way round for a list that exists to answer "whose
-/// document is this": the reader's own record is the one they check first, then the people
-/// closest to them. The tiers are the ones asked for, in that order — yourself, spouse, children,
-/// parents, siblings, then everyone else — and inside a tier the names are alphabetical so two
-/// children do not reshuffle between launches.
+/// By relationship, not by name: the list answers "whose document is this", so the reader's own
+/// record comes first, then the people closest to them. Tiers: yourself, spouse, children,
+/// parents, siblings, everyone else. Within a tier names are alphabetical, so two children don't
+/// reshuffle between launches.
 ///
-/// **Only until somebody moves a row.** `PeopleStore.orderIsCustom` records that the user has
-/// arranged the list themselves, and from then on the file's order is the order; this rule is the
-/// default, not a constraint. A relationship this cannot place — a friend, an in-law, a colleague,
-/// nothing at all — lands in the last tier, which is also where a work profile's roster would sit
-/// entirely, and that is fine: the rule costs nothing there and the user can still arrange it.
+/// Only a default: once the user moves a row, `PeopleStore.orderIsCustom` is set and the file's
+/// order wins. A relationship this can't place (friend, in-law, colleague, none) lands last.
 public enum PeopleOrder {
 
     /// The tiers, in the order they are listed. `rawValue` is the sort key.
@@ -34,12 +29,9 @@ public enum PeopleOrder {
         .siblings: ["brother", "sister", "sibling", "bro", "sis"],
     ]
 
-    /// Words that take a relationship OUT of the tier its other words would place it in.
-    ///
-    /// "mother-in-law" says `mother`, and is not a parent; "step son" says `son`. The tiers are the
-    /// user's own household — parents are *their* parents — so anything qualified is everyone else.
-    /// A single-word qualification ("grandmother", "stepson") never matches a tier word in the
-    /// first place and needs no entry here.
+    /// Words that take a relationship out of the tier its other words would place it in.
+    /// "mother-in-law" says `mother` but is not the user's parent, so anything qualified is
+    /// everyone else. One-word forms ("grandmother", "stepson") match no tier word and need no entry.
     static let qualifiers: Set<String> = ["law", "step", "grand", "half", "ex", "former", "late"]
 
     /// Where a relationship lands. `nil` and the unplaceable both land last.

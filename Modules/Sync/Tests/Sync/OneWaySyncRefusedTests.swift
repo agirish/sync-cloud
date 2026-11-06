@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// ES: a file whose copy Dropbox refuses never counts as synced. It stays listed as skipped, is
-/// never adopted however alike the two copies look, and is written again only once it changes in
-/// iCloud. Dropbox's refusal is stood in for by the upload reading (`Sync.refuse`).
+/// A file whose copy Dropbox refuses never counts as synced. It stays listed as skipped, is never
+/// adopted however alike the two copies look, and is written again only once it changes in iCloud.
+/// Dropbox's refusal is stood in for by the upload reading (`Sync.refuse`).
 @Suite struct OneWaySyncRefusedTests {
     typealias Sync = OneWaySyncRunTests.Sync
     let run = OneWaySyncRunTests()

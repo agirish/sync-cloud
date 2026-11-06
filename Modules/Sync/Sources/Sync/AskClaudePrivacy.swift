@@ -1,16 +1,14 @@
 import Foundation
 
-/// What Ask Claude may see and read (RD69): the “Never show Claude” list (decision DT, TE246) and
-/// the folders shared without asking (TE321). Each folder is one of three: asked about, shared
-/// without asking, or hidden (decision JT retired the global “Let Claude read files” switch).
+/// What Ask Claude may see and read: the “Never show Claude” list and the folders shared without
+/// asking. Each folder is one of three: asked about, shared without asking, or hidden.
 public enum AskClaudePrivacy {
 
     public static let hiddenFoldersKey = "askClaudeHiddenFolders"
-    /// The retired “Let Claude read files” switch (decision DQ, retired by JT); read once, by
-    /// `retireReadsFiles`.
+    /// The retired “Let Claude read files” switch; read once, by `retireReadsFiles`.
     public static let retiredReadsFilesKey = "askClaudeReadsFiles"
-    /// The folders Claude gets answers, passages and search names from without a card (his call
-    /// on TE321, "Share Without Asking"). Hidden wins over it; whole documents always ask.
+    /// The folders Claude gets answers, passages and search names from without a card ("Share
+    /// Without Asking"). Hidden wins over it; whole documents always ask.
     public static let sharedFoldersKey = "askClaudeSharedFolders"
     public static let didChange = Notification.Name("AskClaudePrivacyDidChange")
 
@@ -72,13 +70,13 @@ public enum AskClaudePrivacy {
 
     /// The hidden-folder check for many paths, such as every row of a folder.
     ///
-    /// - **Both spellings of a linked folder** count (iCloud's Documents is a link to ~/Documents).
-    /// - **Case is ignored**, as the Mac's disk ignores it: `documents/private` reads the same
-    ///   folder as `Documents/Private`, so it must be hidden the same. On a case-sensitive volume
-    ///   this hides a little more than asked, never less.
-    /// - **Links are resolved once per folder**, not once per row: rows share their parent, and
-    ///   resolving a path costs a file-system call per component. A row that is itself a link is
-    ///   resolved on its own.
+    /// - Both spellings of a linked folder count (iCloud's Documents is a link to ~/Documents).
+    /// - Case is ignored, as the Mac's disk ignores it: `documents/private` is the same folder as
+    ///   `Documents/Private`, so it must be hidden the same. On a case-sensitive volume this hides
+    ///   a little more than asked, never less.
+    /// - Links are resolved once per folder, not per row: rows share their parent, and resolving a
+    ///   path costs a file-system call per component. A row that is itself a link is resolved on
+    ///   its own.
     public final class Matcher {
         private let prefixes: [String]
         private var realParents: [String: String] = [:]
@@ -101,10 +99,10 @@ public enum AskClaudePrivacy {
             return matches(real(standard))
         }
 
-        /// **Whether `path` really is in one of the folders**, by where it is on disk alone — for a
-        /// list that loosens what Claude gets, such as the folders shared without asking (review
-        /// of TE319–TE323). `isHidden` counts a path by its spelling too, which is right for a
-        /// list that keeps things back: a link inside a shared folder would share its target.
+        /// Whether `path` really is in one of the folders, by where it is on disk alone: for a
+        /// list that loosens what Claude gets, such as the folders shared without asking. Counting
+        /// by spelling too, as `isHidden` does, is right only for a list that keeps things back:
+        /// here a link inside a shared folder would share its target.
         public func holds(_ path: String) -> Bool {
             guard !prefixes.isEmpty else { return false }
             let target = real((path as NSString).standardizingPath)
@@ -132,9 +130,9 @@ public enum AskClaudePrivacy {
         }
     }
 
-    /// **Carries the retired switch over** (decision JT): on, it shared every folder not hidden,
-    /// so `home` is shared without asking in its place; off, nothing changes. The key goes either
-    /// way, so this runs once. Hidden folders stay hidden: hidden wins over shared.
+    /// Carries the retired “Let Claude read files” switch over: on, it shared every folder not
+    /// hidden, so `home` is shared without asking in its place; off, nothing changes. The key goes
+    /// either way, so this runs once. Hidden folders stay hidden: hidden wins over shared.
     /// - Returns: a log line when it moved anything.
     @discardableResult
     public static func retireReadsFiles(home: String, in defaults: UserDefaults) -> String? {
@@ -152,10 +150,9 @@ public enum AskClaudePrivacy {
     }
 }
 
-/// **Names a content search found, held for their click** (decision IV, TE320): which files
-/// mention a word says what is inside them — "diagnosis" — so outside a folder shared without
-/// asking the list waits on a card, as a file's answer does (decision IU), and goes only by its
-/// share (Share Details or Customize's, TE323).
+/// Names a content search found, held for their click: which files mention a word says what is
+/// inside them ("diagnosis"), so outside a folder shared without asking the list waits on a card,
+/// as a file's answer does, and goes only by its share (Share Details or Customize's).
 public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     /// The words searched for, as Claude gave them.
     public let words: String
@@ -171,8 +168,8 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public let paths: [String]
     /// Whether they shared them; nil until they do.
     public var sent: Bool?
-    /// **Each file, to tick and to show what goes** (his call on TE320): its folder and date on
-    /// the card, and its row for Share N Files. Nil on a card saved before ticks.
+    /// Each file, to tick and to show what goes: its folder and date on the card, and its row for
+    /// Share N Files. Nil on an older saved card without ticks.
     public let files: [File]?
     /// The lines above the rows: how many matched, and the rows' columns.
     public let header: String?
@@ -180,14 +177,14 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     public var unticked: [String]?
     /// Whether what went was the names alone (Customize with every detail unticked).
     public var namesOnly: Bool?
-    /// **What found them** (TE323): a search inside files (nil, as every card before), or a
-    /// lookup beyond the folder on screen — a name search or a folder's listing.
+    /// What found them: a search inside files (nil, as on older saved cards), or a lookup beyond
+    /// the folder on screen (a name search or a folder's listing).
     public let source: Source?
     /// Whether Spotlight answered a name search; false when the pane's opened folders did.
     public let fromIndex: Bool?
     /// Whether every one is a file; a lookup can find folders too, which the card calls items.
     public let allFiles: Bool?
-    /// Customize is open (his call on TE323): the table gives way to ticks for files and details.
+    /// Customize is open: the table gives way to ticks for files and details.
     public var customizing: Bool?
     /// The details they left out under Customize, by key (`detailKeys`); names always go.
     public var omitted: [String]?
@@ -195,8 +192,8 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     /// The details a file can go with, in the order the card shows and the rows send them.
     public static let detailKeys = ["folder", "kind", "size", "date", "tags"]
 
-    /// Whether the card is in Customize: opened, or saved with the on-card ticks of a build before
-    /// it, which Customize shows and keeps.
+    /// Whether the card is in Customize: opened, or saved by an older build with on-card ticks,
+    /// which Customize shows and keeps.
     public var customized: Bool { customizing == true || unticked != nil }
 
     /// The details Customize sends: every one but those left out.
@@ -219,7 +216,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
             self.path = path
         }
 
-        /// The row with only the details chosen (TE323): its name, then each detail in `detailKeys`
+        /// The row with only the details chosen: its name, then each detail in `detailKeys`
         /// order, and no handle. The row's parts are handle|name|kind|size|modified|tags|folder
         /// (the handle empty until shared), and a part never holds a pipe (`AskClaudeScreenCard.escape`).
         public func row(with details: [String]) -> String {
@@ -280,9 +277,9 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     }
 }
 
-/// **Every file one question read, on one card** (his call on TE322): three cards for one
-/// question repeated the tick and the footnote three times. Each file keeps its answer, passage and
-/// whole text; a tick per file, as the search card has, says which go.
+/// Every file one question read, on one card, so the tick and footnote aren't repeated per file.
+/// Each file keeps its answer, passage and whole text; a tick per file, as the search card has,
+/// says which go.
 public struct AskClaudeReadGroup: Codable, Equatable, Sendable {
     public var files: [AskClaudePassage]
     /// The files they unticked, by index in `files`: no share sends them.
@@ -323,26 +320,26 @@ public struct AskClaudeReadGroup: Codable, Equatable, Sendable {
     }
 }
 
-/// A passage of a file that could go to Claude, offered to the person as a button (decision DS):
+/// A passage of a file that could go to Claude, offered to the person as a button:
 /// the on-device model read the file first, and sending the text itself is a second, explicit step.
 public struct AskClaudePassage: Codable, Equatable, Sendable {
     public let fileName: String
     /// “page 3”, “pages 2–4”, or “the start”.
     public let whereInFile: String
     public let text: String
-    /// The file, so a share can refuse it once its folder is hidden; nil in a passage
-    /// saved before it was kept.
+    /// The file, so a share can refuse it once its folder is hidden; nil in an older saved
+    /// passage.
     public let path: String?
-    /// **What the on-device model answered from the file, held for their click** (decision IU,
-    /// TE319): outside a folder shared without asking, an answer can carry the very fact a file
-    /// holds — an account number, a diagnosis — so it waits on the card like the passage. Nil on a
-    /// card that offers the passage alone, or one saved before answers were held.
+    /// What the on-device model answered from the file, held for their click: outside a folder
+    /// shared without asking, an answer can carry the very fact a file holds (an account number, a
+    /// diagnosis), so it waits on the card like the passage. Nil on a card that offers the passage
+    /// alone, or an older saved one.
     public let answer: String?
     /// What Claude asked of the file, said on the card above the answer.
     public let asked: String?
     /// Whether they sent the answer; nil until they do.
     public var answerSent: Bool?
-    /// **All the text read from the file, for Share All Content** (his call on TE319), held to
+    /// All the text read from the file, for Share All Content, held to
     /// `AskClaudeReading.wholeTokens`; nil when it adds nothing to `text`.
     public let whole: String?
     /// What `whole` covers: “all 12 pages”, “pages 1–40”, “all of it”, “the first part”.
@@ -351,7 +348,7 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     public let wholeIsAll: Bool?
     /// Whether they sent `whole`; nil until they do.
     public var wholeSent: Bool?
-    /// What went without a card, and why (TE321): nil when everything waited for a click.
+    /// What went without a card, and why: nil when everything waited for a click.
     public let autoShared: AutoShared?
 
     public enum AutoShared: String, Codable, Sendable {
@@ -380,11 +377,10 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     /// About how many tokens the passage is: ``estimatedTokens(_:)``.
     public var tokens: Int { Self.estimatedTokens(text) }
 
-    /// **About how many tokens `text` is, by script.** About four characters to a token in Latin
-    /// script; near one a character in Chinese, Japanese and Korean — 16,000 characters of Chinese
-    /// or Japanese were 12,522 tokens to Apple's on-device model (2026-11-02); Claude's count was
-    /// not measured, so each counts as one — and two characters to a token in any other script, a
-    /// guess, made high.
+    /// About how many tokens `text` is, by script: four characters to a token in Latin script; one
+    /// per character in Chinese, Japanese and Korean (Apple's on-device model counts about 0.8 a
+    /// character; Claude's is unmeasured); and two to a token in any other script, a guess made
+    /// high.
     public static func estimatedTokens(_ text: String) -> Int {
         var quarters = 0
         for character in text {
@@ -413,9 +409,9 @@ public struct AskClaudePassage: Codable, Equatable, Sendable {
     }
 }
 
-/// A file only in the cloud that Claude wanted to read or open, offered to the person as a card
-/// (TE258). Up to `AskClaudeBrowseTools.autoDownloadBytes` the read or open downloads it on its own
-/// (decision EJ); over that, or of unknown size, nothing downloads until they click.
+/// A file only in the cloud that Claude wanted to read or open, offered to the person as a card.
+/// Up to `AskClaudeBrowseTools.autoDownloadBytes` the read or open downloads it on its own; over
+/// that, or of unknown size, nothing downloads until they click.
 public struct AskClaudeDownload: Codable, Equatable, Sendable {
     /// What happens once the file is here.
     public enum Purpose: Codable, Equatable, Sendable {

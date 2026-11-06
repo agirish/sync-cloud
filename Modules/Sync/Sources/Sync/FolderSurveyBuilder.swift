@@ -1,49 +1,26 @@
 import Foundation
 
-/// Derives a ``FolderProfile`` from a tree walk — the half of the filing artifacts the app has
-/// never been able to produce for itself.
+/// Derives a ``FolderProfile`` from a tree walk, so a machine without the out-of-repo builder can
+/// still get the profile that drives the Organize router, the rename planner and the classifier's
+/// destination list (`resurveyFilingMemory` needs its `profileId`). A pure function of its
+/// arguments, with no `FileManager`, `Date()` or defaults, so it runs in a detached task and tests
+/// against a fixture.
 ///
-/// The profile that drives the Organize router, the rename planner and the classifier's
-/// destination list has only ever come from an out-of-repo Python script, so a machine without one
-/// has no way in: `resurveyFilingMemory` opens by requiring a `profileId` that only a profile
-/// carries. `ROADMAP.md` v5 §4.2 is this type, and everything here is a **pure function of its
-/// arguments** — no `FileManager`, no `Date()`, no defaults — so it can run inside a detached
-/// background task and be tested against a fixture with nothing on disk.
+/// Each rule was checked field by field against a hand-built profile of a real ~3,000-folder tree:
+/// paths, counts and year axes agree fully, and role, anchors, lifecycle and person at 99.7% or
+/// better.
 ///
-/// ## What it does and does not claim
+/// **`naming` is left nil, deliberately.** ``RenamePlanner`` reads it, and a wrong convention would
+/// have the rename pass propose renames toward a scheme nobody uses, with nothing looking wrong;
+/// with nil it infers from the folder's own files instead.
 ///
-/// Every rule below was measured against the hand-built profile of the developer's own tree
-/// (3,013 folders, `~/Documents`) by walking that tree and comparing field by field:
-///
-/// | field | agreement |
-/// |---|---|
-/// | `path`, `fileCount`, `subfolderCount` | 100% (tree drift aside) |
-/// | `role` | 99.80% |
-/// | `acceptsNewFiles` | 39 of 39 inboxes, no false positives |
-/// | `anchors` (whole list, in order) | 99.73% |
-/// | `axes.lifecycle` | 99.87% |
-/// | `axes.year`, `axes.fiscalYear` | 100% |
-/// | `axes.person` | 99.80% |
-/// | `axes.jurisdiction` | 100%, given the declared values |
-///
-/// **`naming` is left nil, deliberately, and that is not a gap to be filled later.** Two reasons.
-/// `ROADMAP.md` v5 §4.2: a wrong `naming` would have the rename pass propose renames toward a
-/// convention nobody actually has — silently, because a rename plan looks the same whether its
-/// premise is right or wrong. And ``FolderProfileEntry/naming`` is decoded but read nowhere outside
-/// test fixtures, so accuracy there buys nothing today. Guessing costs; abstaining does not.
-///
-/// **A profile built here must never be written over a hand-built one.** These rules re-derive what
-/// a walk can see; the hand-built profile also records judgements about names that a walk cannot
-/// (`folderSemantics`, `naming`, the `outbound-pack` refusals). The store's first-write guard is
-/// where that is enforced — this type only produces the value.
+/// **A profile built here must never be written over a hand-built one**, which records judgements
+/// a walk can't (`folderSemantics`, `naming`, `outbound-pack` refusals). The store's guard enforces
+/// that; this type only produces the value.
 public enum FolderSurveyBuilder {
 
-    /// The key the root's own entry is filed under.
-    ///
-    /// Named because callers have to be able to tell "this profile describes a tree" from "this
-    /// profile describes an empty folder": every profile has this entry, so a folder count of one
-    /// means nothing was found below the root — and a guard written as `folders.isEmpty` is a branch
-    /// that can never be taken.
+    /// The key the root's own entry is filed under. Every profile has it, so a folder count of one
+    /// means nothing was found below the root; a `folders.isEmpty` guard can never fire.
     public static let rootEntryPath = "."
 
 
@@ -51,39 +28,25 @@ public enum FolderSurveyBuilder {
     ///
     /// - Parameters:
     ///   - tree: the root's own children, as a walk produced them. Nested `children` are read
-    ///     recursively; a directory marked ``FileNode/isUnexplored`` contributes to its parent's
-    ///     `subfolderCount` but gets no entry of its own, because its counts would be fiction.
-    ///     Symlinks are skipped entirely (a link and its in-tree target would otherwise be surveyed
-    ///     twice, and a link out of the tree is not this tree's folder).
-    ///   - root: what the profile records as the tree it describes, e.g. `~/Documents`. Never
-    ///     touched on disk and never parsed — entry paths are built from node *names*, so a walk
-    ///     whose ids are absolute, relative or synthetic all produce the same profile.
-    ///   - registry: the household, for the person axis and the `person-bucket` role. Pass nil and
-    ///     both are simply absent — no folder is misattributed for want of a roster.
-    ///   - jurisdictionValues: the declared jurisdiction vocabulary (`US`, `IN`, …). The tree cannot
-    ///     be asked which of its folder names are jurisdictions — `Singapore` is one and `Chase` is
-    ///     not, and nothing in either name says so — so this is handed in, matched as a whole
-    ///     component, case-sensitively. Empty means the axis is never recorded.
+    ///     recursively; a directory marked ``FileNode/isUnexplored`` counts toward its parent's
+    ///     `subfolderCount` but gets no entry, since its counts would be fiction. Symlinks are
+    ///     skipped (no double survey of an in-tree target, no folder from outside the tree).
+    ///   - root: what the profile records as its tree, e.g. `~/Documents`. Never touched or parsed:
+    ///     entry paths come from node names, so absolute, relative or synthetic ids all agree.
+    ///   - registry: the household, for the person axis and the `person-bucket` role. With nil, both
+    ///     are absent rather than guessed.
+    ///   - jurisdictionValues: the declared jurisdiction vocabulary (`US`, `IN`, …), since nothing in
+    ///     a name says `Singapore` is one and `Chase` isn't. Matched as a whole component,
+    ///     case-sensitively. Empty means the axis is never recorded.
     public static func build(tree: [FileNode], root: String, profileId: String,
                              registry: PersonRegistry?,
                              jurisdictionValues: Set<String> = []) -> FolderProfile {
         var entries: [String: FolderProfileEntry] = [:]
         let roster = rosterForms(registry)
-        // **Tolerant of a duplicated id, and now unreachably so.**
-        // `Dictionary(uniqueKeysWithValues:)` traps on a repeated key, so a copy-pasted person block
-        // whose id was not changed used to kill the process here — one of two such sites, the other
-        // being the People settings pane, on the main actor.
-        //
-        // ``PersonRegistry/init(people:source:)`` now collapses a repeated id before anything reads
-        // the roster, so `registry.people` cannot deliver one twice and this keying can no longer
-        // fire. It stays anyway, for the reason the sibling guard in `SettingsView.allFacts` stays:
-        // it is what stops the trap coming back the day the collapse regresses, and both halves
-        // failing together is exactly how a defence disappears unnoticed.
-        //
-        // Last one wins, which is the collapse's own rule, so this agrees with the roster rather
-        // than merely avoiding a crash. (It used to disagree with half the registry — `phraseList`
-        // accumulated both records while `tokensByPerson` took the last — and that inconsistency
-        // is what the collapse removed.)
+        // Tolerates a duplicated person id rather than trapping as `uniqueKeysWithValues:` would.
+        // ``PersonRegistry/init(people:source:)`` already collapses repeats, so this is a second
+        // defence (like the one in `SettingsView.allFacts`) in case that regresses. Last one wins,
+        // the collapse's own rule, so this agrees with the roster.
         let displayNames = Dictionary((registry?.people ?? []).map { ($0.id, $0.displayName) },
                                       uniquingKeysWith: { _, latest in latest })
 
@@ -131,9 +94,8 @@ public enum FolderSurveyBuilder {
                        subfolderCount: subfolderCount, roster: roster),
             naming: nil,
             anchors: anchors(components: components, fileNames: fileNames),
-            // The one inbox rule in the codebase, asked of the whole path: a folder *under* `TODO`
-            // is as unfileable as `TODO` itself. Only an explicit `false` forbids filing, so
-            // everything else stays nil rather than claiming a permission the walk never checked.
+            // The inbox rule, asked of the whole path: a folder under `TODO` is as unfileable as
+            // `TODO`. Otherwise nil, not `true`, since the walk never checked a permission.
             acceptsNewFiles: FolderProfile.isInboxPath(relativePath) ? false : nil,
             fileCount: fileNames.count,
             subfolderCount: subfolderCount,
@@ -144,27 +106,16 @@ public enum FolderSurveyBuilder {
 
     // MARK: - Role
 
-    /// What a folder **is**, from its own name and its counts. Measured 99.80% against the
-    /// hand-built profile.
+    /// What a folder is, from its own name and counts. The order of the tests matters:
     ///
-    /// The order of these tests is load-bearing and each one was measured:
-    ///
-    /// - **Empty first.** `Finance/US/Income Tax/2025/Income/TODO` holds nothing and the profile
-    ///   calls it `empty`, not `inbox` — an empty inbox is still empty, and `acceptsNewFiles`
-    ///   already carries the refusal.
-    /// - **Inbox on the folder's OWN name, not the path.** ``FolderProfile/isInboxPath`` is the one
-    ///   inbox rule and it is reused here — but asked of the leaf. Asking it of the whole path
-    ///   drops role agreement from 99.80% to **99.20%**: `Finance/US/TODO/IRS/2023` is a
-    ///   `year-bucket` in the profile, not an inbox. Its *permission* is another matter, which is
-    ///   why `acceptsNewFiles` above does ask the whole path.
-    /// - **Archive on the folder's own name too.** Any-component matching costs the same way:
-    ///   `…/Archive/Standard Chartered/2010` is a `year-bucket`, and the `archive` fact about it is
-    ///   carried by `axes.lifecycle`, which *does* propagate. Any-component matching measured
-    ///   99.20% against 99.80%.
-    /// - **Year before person**, so a folder called `2019` never has to be checked against a roster.
-    /// - **Person only on an exact roster name.** `Credit 1892 (Mother)` and `Chase/Mother 2024`
-    ///   *detect* a person and are `destination`s in the profile; asking the matcher instead of
-    ///   requiring the whole name measured 99.17%.
+    /// - **Empty first.** An empty inbox is still empty; `acceptsNewFiles` carries the refusal.
+    /// - **Inbox on the folder's own name**, not the path: `TODO/IRS/2023` is a year bucket. Its
+    ///   permission is another matter, so `acceptsNewFiles` does ask the whole path.
+    /// - **Archive on its own name too**: the archived fact about what is below is carried by
+    ///   `axes.lifecycle`, which propagates.
+    /// - **Year before person**, so `2019` never needs a roster check.
+    /// - **Person only on an exact roster name.** `Credit 1892 (Mother)` mentions a person but is a
+    ///   destination.
     static func role(ownName: String, fileCount: Int, subfolderCount: Int,
                      roster: Set<String>) -> FolderRole {
         if fileCount == 0 && subfolderCount == 0 { return .empty }
@@ -176,27 +127,15 @@ public enum FolderSurveyBuilder {
         return .destination
     }
 
-    /// Every name form the household answers to, lowercased — display names, full names, aliases.
-    ///
-    /// Taken off ``PersonRegistry/people`` rather than re-derived: the roster is the registry's
-    /// data, and a second list of "who counts as a person folder" would drift the first time
-    /// somebody adds an alias.
+    /// Every name form the household answers to, lowercased: display names, full names, aliases.
+    /// Taken from ``PersonRegistry/people``, so a second list can't drift when an alias is added.
     static func rosterForms(_ registry: PersonRegistry?) -> Set<String> {
         var out = Set<String>()
-        // **Every record the registry holds — which is now one per id, and this comment used to say
-        // the opposite.** It argued for taking both halves of a duplicated id, on the grounds that
-        // the registry was internally inconsistent about them (overwriting its token index while
-        // accumulating phrases, and disabling the given-name shortcut by claiming it twice), so a
-        // superset here was the safer of two bad readings. ``PersonRegistry/init(people:source:)``
-        // now collapses a repeated id to a single record before any of that is built, so there is
-        // no inconsistency left to hedge against and no second half to include: the loop below sees
-        // the roster the rest of the app sees. Left as a loop over `people` rather than anything
-        // cleverer for the original reason, which still holds — this is the registry's own data.
+        // Every record the registry holds, one per id (``PersonRegistry/init(people:source:)``
+        // collapses repeats), so this sees the roster the rest of the app sees.
         for person in registry?.people ?? [] {
-            // ``Person/nameForms`` rather than the union spelled out again: the registry answers
-            // four other questions with the same union, and a fifth copy here is what would let
-            // `person-bucket` role detection stop matching a form that ``PersonRegistry/detect(in:)``
-            // — called one function away, for the person axis — still matches.
+            // ``Person/nameForms``, the union the registry uses elsewhere, so role detection
+            // matches the same forms as ``PersonRegistry/detect(in:)`` does for the person axis.
             for form in person.nameForms { out.insert(form.lowercased()) }
         }
         return out
@@ -206,47 +145,39 @@ public enum FolderSurveyBuilder {
 
     // MARK: - Axes
 
-    /// The axis values in play for a folder, read off the whole path so they propagate downward —
-    /// `Finance/US/Income Tax/2025/Income` is a US folder and a 2025 folder because its ancestors
-    /// say so. **Deeper wins** on every axis: a `2024` folder inside a `2023` one is about 2024.
+    /// The axis values in play for a folder, read off the whole path so they propagate downward:
+    /// `Finance/US/Income Tax/2025/Income` is US and 2025 because its ancestors say so. Deeper wins
+    /// on each axis: a `2024` folder inside a `2023` one is about 2024.
     static func axes(relativePath: String, components: [String],
                      registry: PersonRegistry?, displayNames: [String: String],
                      jurisdictionValues: Set<String>) -> [String: String] {
         var out: [String: String] = [:]
         for component in components {
-            // A bare year is one part (`2023`), a fiscal year two (`2013-2014`). Split without
-            // trimming, deliberately: `2006 - 2007` — spaces around the dash — is a folder *name*
-            // in this tree and the profile records no year axis for it. Both directions measured
-            // 100%. ``FolderProfileEntry/looksLikeYear`` is the shared shape test; the part count
-            // is what says which axis it lands on.
+            // A bare year is one part (`2023`), a fiscal year two (`2013-2014`). Not trimmed:
+            // `2006 - 2007`, with spaces, is a folder name, not a year axis.
+            // ``FolderProfileEntry/looksLikeYear`` tests the shape; the part count picks the axis.
             if FolderProfileEntry.looksLikeYear(component) {
                 let parts = component.split(separator: "-", omittingEmptySubsequences: false)
-                // **Both keys are kept when a path carries both**, deliberately, and the hand-built
-                // profile does the same — four folders on the reference tree record a `year` and a
-                // `fiscalYear` together (`…/H-1B/2016-2019/…/2016`), because both are true of them:
-                // the folder is about 2016, inside the 2016-2019 petition. Clearing one to make
-                // "deeper wins" hold between the keys was tried and is wrong — it throws away a fact
-                // the offline builder records, and it drops the ground truth's year agreement off
-                // 100%. Which of the two a *consumer* should answer with is a question about depth,
-                // and depth is in the path, so ``FolderProfileEntry/yearKey`` settles it there.
+                // Both keys are kept when a path carries both, as the hand-built profile does:
+                // `…/2016-2019/…/2016` is about 2016, inside the 2016-2019 span. Which one a
+                // consumer answers with is a depth question, settled by
+                // ``FolderProfileEntry/yearKey``.
                 out[parts.count == 1 ? "year" : "fiscalYear"] = component
             }
             if jurisdictionValues.contains(component) { out["jurisdiction"] = component }
             if let registry {
                 let ids = registry.detect(in: component)
-                // **Exactly one, or nobody.** A component naming two people ("Father & Mother")
-                // is not evidence for either, and picking one arbitrarily would file a joint
-                // document under half its owners. Leaving the ancestor's value standing is right:
-                // the shallower folder still describes this one.
+                // Exactly one, or nobody: "Father & Mother" is evidence for neither, and picking
+                // one would file a joint document under half its owners. The ancestor's value
+                // stands.
                 if ids.count == 1, let id = ids.first, let name = displayNames[id] {
                     out["person"] = name
                 }
             }
         }
-        // Lifecycle is the one axis read off the whole path rather than per component, because it
-        // *is* the propagating fact: everything under `Archive/` is archived, everything under
-        // `TODO/` is unfiled. Measured 99.87% — the four misses are folders like `TODO - 2023`,
-        // which name an inbox in passing without being one.
+        // Lifecycle is read off the whole path, not per component: everything under `Archive/` is
+        // archived, everything under `TODO/` unfiled. (A name like `TODO - 2023` reads as an inbox
+        // here even when it isn't one.)
         out["lifecycle"] = FolderProfile.isInboxPath(relativePath) ? "inbox"
             : (components.contains(archiveComponent) ? "archive" : "active")
         return out
@@ -255,27 +186,13 @@ public enum FolderSurveyBuilder {
     // MARK: - Anchors
 
     /// Tokens mined from the folder's last two path components and its first 40 filenames, ranked
-    /// by count and capped at ten. Measured **99.73% exact-list** agreement.
+    /// by count and capped at ten. Kept: count ≥ 2, or a token of those path components (a word two
+    /// files share is a subject; one file's word is noise). Ties break by first appearance, path
+    /// before files, parent before child.
     ///
-    /// The keep rule is *count ≥ 2, or the token names one of those two path components*: a word
-    /// two files share is a subject, a word one file mentions is noise, and the folder's own name
-    /// is a subject however many files repeat it. Ranking is count-descending, ties broken by first
-    /// appearance (path components before files, parent before child), which is what makes the list
-    /// an order and not a set.
-    ///
-    /// Every parameter here was swept against the real profile, and the neighbouring values are
-    /// worse by a lot — this is not a set of round numbers somebody liked:
-    ///
-    /// | knob | chosen | next best |
-    /// |---|---|---|
-    /// | path components | last 2 → 99.73% | last 1 → 21.35%, last 3 → 17.93% |
-    /// | filename cap | 40 → 99.73% | 20 → 98.97%, unbounded → 99.70% |
-    /// | token cap | 10 → 99.73% | 9 → 97.51%, 12 → 97.94% |
-    ///
-    /// The tokenizer is a parameter for one reason: the ground-truth suite re-measures this whole
-    /// pipeline with ``FilingRouter/tokenize`` swapped in, so the 30-point gap that justifies two
-    /// tokenizers is *derived* on the real tree rather than quoted from a comment. Production has
-    /// exactly one caller and it takes the default.
+    /// The three numbers were swept against the hand-built profile; their neighbours agree worse
+    /// (one or three path components are far worse). The tokenizer is a parameter only so the
+    /// ground-truth suite can measure ``FilingRouter/tokenize`` in its place.
     static func anchors(components: [String], fileNames: [String],
                         tokenizer: (String) -> [String] = anchorWords) -> [String] {
         var counts: [String: Int] = [:]
@@ -294,14 +211,12 @@ public enum FolderSurveyBuilder {
         let kept = order.enumerated().filter { _, token in
             guard (counts[token] ?? 0) >= 2 || fromPath.contains(token) else { return false }
             guard !anchorStopWords.contains(token) else { return false }
-            // A month is a filing *date*, not a subject — except when the folder is named for one
-            // (`Lacewings JAN`), where it is the only thing distinguishing that folder from its
-            // siblings. Dropping months unconditionally measured 99.20%.
+            // A month is a filing date, not a subject, unless the folder is named for one
+            // (`Lacewings JAN`), where it tells the folder from its siblings.
             return !(monthWords.contains(token) && !fromPath.contains(token))
         }
-        // Decorated sort because `sorted(by:)` is not stable: the first-seen index is what keeps
-        // ties in path-then-file order, and without it the list would reshuffle between runs of the
-        // same walk.
+        // Decorated sort because `sorted(by:)` isn't stable: the first-seen index keeps ties in
+        // order, or the list would reshuffle between runs of the same walk.
         return kept.sorted {
             let (a, b) = (counts[$0.element] ?? 0, counts[$1.element] ?? 0)
             return a == b ? $0.offset < $1.offset : a > b
@@ -312,64 +227,37 @@ public enum FolderSurveyBuilder {
     static let fileNameSample = 40
     static let anchorLimit = 10
 
-    /// Words that describe a document's *packaging* rather than its subject. Every one was
-    /// confirmed against the hand-built profile: each appears in folder names or filenames in this
-    /// tree and is never recorded as an anchor (`form` in 133 folder names, `forms` in 99,
-    /// `documents` in 43 — all dropped).
-    ///
-    /// Note `statements` is deliberately absent while `statement` is present: 145 folders are
-    /// *named* `Statements` and the profile keeps the token every time. The list is what was
-    /// measured, not what looks symmetrical.
+    /// Words for a document's packaging rather than its subject, each confirmed against the
+    /// hand-built profile, which never keeps them as anchors. `statements` is deliberately absent
+    /// though `statement` is present: folders named `Statements` keep it. Measured, not symmetrical.
     static let anchorStopWords: Set<String> = [
         "form", "forms", "document", "documents", "statement", "file", "files", "page", "pages",
         "copy", "all", "and", "the", "for", "with", "from", "not", "yes", "total", "more",
     ]
 
-    /// Month names as this tree writes them.
-    ///
-    /// **Derived from ``OrdinalMonthName``'s tables rather than retyped**, because the module would
-    /// otherwise hold two month vocabularies with nothing keeping them level: a spelling added there
-    /// — that table drives filed-name canonicalisation — would never reach anchor suppression, and
-    /// the rename pass would treat a token as a date while the profile recorded it as a subject.
-    /// The union of the abbreviations and the full names is exactly the list this used to spell out;
-    /// `theMonthVocabularyTracksTheRenamer` pins that.
-    ///
-    /// `sept` is deliberately **not** in either table — the profile keeps it as an anchor (6
-    /// folders), and a list assembled by symmetry rather than by measurement would have thrown it
-    /// away. Deriving preserves that: `sept` is absent because nothing measured put it there.
-    /// Both tables are lowercased here rather than trusted to be lowercase. `monthFullNames` happens
-    /// to be stored that way and its own doc only promises it is for *recognising* a month, while the
-    /// tokens matched against this set (``anchorWords(_:)``) are always lowercased — so a
-    /// capitalisation there would silently stop month suppression for all twelve full names.
+    /// Month names as this tree writes them, derived from ``OrdinalMonthName``'s tables so the
+    /// renamer and anchor suppression share one vocabulary (`theMonthVocabularyTracksTheRenamer`).
+    /// `sept` is in neither table, deliberately: the hand-built profile keeps it as an anchor.
+    /// Lowercased here because ``anchorWords(_:)`` tokens are, and a capitalised table entry would
+    /// silently stop suppression.
     static let monthWords: Set<String> = Set(
         (OrdinalMonthName.monthAbbreviations + OrdinalMonthName.monthFullNames).map { $0.lowercased() })
 
-    /// The anchor tokenizer: lowercased runs matching `[a-z][a-z0-9&+-]{2,}` — a letter, then at
-    /// least two more letters, digits, `&`, `+` or `-`.
+    /// The anchor tokenizer: lowercased runs matching `[a-z][a-z0-9&+-]{2,}`, a letter then at least
+    /// two more letters, digits, `&`, `+` or `-`.
     ///
-    /// **This is NOT ``FilingRouter/tokenize`` and must not be "unified" with it.** Measured on the
-    /// real tree, twice. Substituting `FilingRouter.tokenize` for the token *set* alone dropped
-    /// exact-list agreement from **99.83% to 68.66%** (852 tokens gained, 228 lost); re-running the
-    /// whole pipeline through it — which is what a unification would actually do — measures
-    /// **32.01% against 99.73%**, and `theRoutersTokenizerWouldBeMuchWorseHere` re-derives that
-    /// number on every run rather than trusting this comment. The two rules disagree on three
-    /// things that matter here. `tokenize` splits on every non-alphanumeric, so `PG&E`,
-    /// `parents-in-law` and `re-KYC` shatter into fragments the profile records whole; it accepts
-    /// two-character tokens, which floods a folder's list with `jn`, `iob` and `nb`; and it applies
-    /// a 60-word stop list built for *document text* (`california`, `united`, `states`, `new`,
-    /// `pdf`, `email`) that deletes tokens this tree's folder names genuinely turn on.
-    ///
-    /// The two exist for different jobs. `tokenize` feeds a scorer that must agree byte for byte
-    /// with the memory builder that wrote its index — its own doc says changing it fails silently.
-    /// This one feeds a human-readable list of what a folder is *about*. Keeping them apart is what
-    /// lets each be right.
+    /// **Not ``FilingRouter/tokenize``, and must not be unified with it**: through that tokenizer
+    /// anchor agreement falls from near-total to about a third
+    /// (`theRoutersTokenizerWouldBeMuchWorseHere` measures it). It shatters `PG&E` and
+    /// `parents-in-law`, keeps two-letter noise, and stops words folder names turn on. That one must
+    /// match the memory builder byte for byte; this one lists what a folder is about.
     static func anchorWords(_ text: String) -> [String] {
         var out: [String] = []
         var run = ""
         func flush() {
             defer { run = "" }
-            // The regex matches from the first letter in the run, so `2026-report` yields `report`
-            // and `1b-visa` yields `b-visa` — the leading digits are not part of any match.
+            // A match starts at the run's first letter: `2026-report` yields `report`, `1b-visa`
+            // yields `b-visa`.
             guard let start = run.firstIndex(where: { $0.isASCII && $0.isLetter }) else { return }
             let token = String(run[start...])
             if token.count >= 3 { out.append(token) }
@@ -386,19 +274,14 @@ public enum FolderSurveyBuilder {
     // MARK: - Walking
 
     /// Splits one directory's children into the filenames that count and the subfolders to descend
-    /// into. Dot-files are excluded from both — `.DS_Store` is not a document and would put every
-    /// folder's `fileCount` one over what the survey recorded — and so are symlinks.
+    /// into, leaving out dot-files and symlinks (``isSurveyed(_:)``).
     ///
-    /// **A package is a file here** (review R3): a `.pages`, a `.band`, a Photos library is one
-    /// document to the person using it, as Restructure's disk view already lists it. Descended
-    /// into, its insides became surveyed folders, and a finding about `Song.band/Media` could be
-    /// planned — a move of a document's insides.
+    /// **A package is a file here**: a `.pages`, `.band` or Photos library is one document, as
+    /// Restructure's disk view lists it. Descending would let a plan move a document's insides.
     ///
-    /// **Filenames are sorted here, not left in walk order**, because only the first
-    /// ``fileNameSample`` of them reach the anchors: `FileManager` promises no enumeration order,
-    /// so an unsorted walk would give the same folder different anchors on different runs — and the
-    /// profile is a persisted, fingerprinted artifact. Sorting costs nothing and makes the whole
-    /// builder a function of the tree rather than of the order it happened to be read in.
+    /// **Filenames are sorted**, because only the first ``fileNameSample`` reach the anchors and
+    /// `FileManager` promises no order: unsorted, one folder could get different anchors per run in
+    /// a persisted, fingerprinted artifact.
     static func partition(_ children: [FileNode]) -> (files: [String], folders: [FileNode]) {
         var files: [String] = []
         var folders: [FileNode] = []
@@ -408,31 +291,20 @@ public enum FolderSurveyBuilder {
         return (files.sorted(), folders)
     }
 
-    /// Whether the survey counts `node` at all.
-    ///
-    /// Dot-files are not documents — `.DS_Store` would put every folder's `fileCount` one over what
-    /// the survey recorded — and a symlink is skipped because a link and its in-tree target would
-    /// be surveyed twice, while a link out of the tree is not this tree's folder.
-    ///
-    /// Internal: the folder half of this rule is what other types need, and that is
-    /// ``isSurveyedFolder(_:)`` below.
+    /// Whether the survey counts `node` at all. Dot-files aren't documents (`.DS_Store` would
+    /// inflate every `fileCount`), and a symlink would survey its in-tree target twice or bring in a
+    /// folder from outside the tree. Other types use ``isSurveyedFolder(_:)``.
     static func isSurveyed(_ node: FileNode) -> Bool {
         !node.name.hasPrefix(".") && node.isSymbolicLink != true
     }
 
-    /// Whether the survey gives `node` an entry of its own and descends into it.
+    /// Whether the survey gives `node` an entry of its own and descends into it. An unexplored
+    /// directory passes ``isSurveyed(_:)`` and counts toward its parent's `subfolderCount`, but gets
+    /// no entry: its empty `children` is an artifact, not an observation.
     ///
-    /// An unexplored directory fails this while still passing ``isSurveyed(_:)``: it counts toward
-    /// its parent's `subfolderCount`, because it is really there, but it gets no entry, because its
-    /// own counts would be fiction — `children == []` on such a node is a construction artifact,
-    /// not an observation.
-    ///
-    /// **Public because it is the definition of "a folder this survey covers", and a second opinion
-    /// about that is a defect rather than a duplication.** ``JurisdictionCandidates`` proposes axis
-    /// values by counting folders and reports how many would take each one; when it filtered only on
-    /// `isDirectory` it counted dot-directories, symlinks and unexplored subtrees that the survey
-    /// then never gave an entry to, so the blast radius shown to the user was for a tree the survey
-    /// does not walk.
+    /// Public because it defines "a folder this survey covers", and any second opinion is a defect:
+    /// ``JurisdictionCandidates`` counts with it, so the folder counts it shows the user match what
+    /// the survey walks.
     public static func isSurveyedFolder(_ node: FileNode) -> Bool {
         node.isDirectory && !node.isPackage && isSurveyed(node) && node.isUnexplored != true
     }

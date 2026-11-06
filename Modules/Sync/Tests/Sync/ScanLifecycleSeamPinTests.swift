@@ -2,10 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins for the ScanLifecycle seam, as it stands after the shim-reduction / status-vocabulary
-/// unification. (The file was added with that migration, so nothing here can claim to have run
-/// against the pre-change code — what it does claim is that the state machine below is the one
-/// all six lenses share, and that it answers idle the same way for every one of them.)
+/// Pins for the ScanLifecycle seam: the state machine all six lenses share, answering idle the
+/// same way for every one of them.
 ///
 /// Three sections:
 /// - "State machine" pins exercise each of the six lifecycles through the manager's
@@ -13,8 +11,8 @@ import Testing
 ///   lifecycle objects, so they are independent of which forwarders survive.
 /// - "Idle spelling" pins record that an idle status is nil for every lens, and that an empty
 ///   or whitespace-only status normalizes to that same nil however it is written — the
-///   invariant every reader's `status ?? "Analyzing…"` fallback now rests on.
-/// - "Surviving forwarders" pins record that the legacy per-lens names still stand exactly in
+///   invariant every reader's `status ?? "Analyzing…"` fallback rests on.
+/// - "Surviving forwarders" pins record that the per-lens forwarders still stand exactly in
 ///   front of their own lifecycle's fields, through the whole scan cycle.
 ///
 /// Every mid-scan status string here is distinct from the UI fallbacks ("Analyzing…",
@@ -139,12 +137,10 @@ import Testing
 
     // MARK: Idle spelling — nil, and nothing else, however it is written
 
-    /// **An empty status can never reach a reader.** Every lens's spinner line now spells its
-    /// fallback `status ?? "Analyzing…"`, where before the migration it asked `isEmpty` too — so
-    /// a writer passing `""` would paint a blank line under a live spinner instead of the
-    /// fallback. `ScanLifecycle.status` normalizes empty-or-whitespace to nil on write, at the
-    /// one boundary all three write paths go through, which is what makes that unbuildable
-    /// rather than merely unbuilt.
+    /// An empty status can never reach a reader. Every lens's spinner line spells its fallback
+    /// `status ?? "Analyzing…"`, so a writer passing `""` would paint a blank line under a live
+    /// spinner. `ScanLifecycle.status` normalizes empty-or-whitespace to nil on write, at the one
+    /// boundary all three write paths go through, so that can't be built at all.
     ///
     /// Exercised at `beginScan` and `updateScan` here, and by direct assignment below — the
     /// third path, open to every file in the module because the setter is `internal(set)`.
@@ -173,7 +169,7 @@ import Testing
 
     /// Direct assignment is normalized too — the path `FileSyncManager+Filing`'s "Try another"
     /// re-ask uses, and the one no helper can guard. And a status that merely *contains*
-    /// whitespace is stored VERBATIM: normalizing means collapsing the blank cases to nil, not
+    /// whitespace is stored verbatim: normalizing means collapsing the blank cases to nil, not
     /// trimming what the lens chose to say.
     @MainActor
     @Test func aDirectStatusAssignmentIsNormalizedButNeverTrimmed() {
@@ -191,14 +187,8 @@ import Testing
 
     // MARK: Surviving forwarders
 
-    /// The kept running/has-completed forwarders follow their OWN lifecycle across the whole
-    /// cycle, including back to idle — which the mid-scan snapshot below never observes.
-    ///
-    /// This is what replaced two pins that asked the lifecycle for its status twice in one
-    /// expectation: before the migration those read the deleted `?? ""` shims and so compared two
-    /// different expressions, but with the shims gone both sides were the same stored property
-    /// and neither could fail on its own. The forwarders that DID survive are the seam still
-    /// worth pinning.
+    /// The running/has-completed forwarders follow their own lifecycle across the whole cycle,
+    /// including back to idle, which the mid-scan snapshot below never observes.
     @MainActor
     @Test func keptForwardersFollowTheirOwnLifecycleBackToIdle() {
         let manager = FileSyncManager()
@@ -241,7 +231,7 @@ import Testing
                 "and shows through that lens's forwarder ONLY")
     }
 
-    /// The surviving legacy forwarders still read and write their lifecycle's fields exactly.
+    /// The per-lens forwarders still read and write their lifecycle's fields exactly.
     @MainActor
     @Test func survivingForwardersMirrorTheirLifecycleFields() {
         let manager = FileSyncManager()

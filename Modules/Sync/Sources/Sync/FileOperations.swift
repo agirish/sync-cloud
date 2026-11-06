@@ -46,14 +46,14 @@ extension FileSyncManager {
         )
     }
 
-    /// Where the source pane places each node below its root, for the nodes whose id is not spelled
-    /// under it (P4): below a folder symlink, under a root spelled through a link. The transfer took
-    /// the id alone and refused every such row the pane was showing as "not inside the source pane’s
-    /// folder"; `paneRelativePath` reads the tree's shape there, as "Compare only this folder" does.
+    /// Where the source pane places each node below its root, for nodes whose id isn't spelled
+    /// under it (below a folder symlink, or under a root spelled through a link). By id alone these
+    /// rows would be refused as outside the pane; `paneRelativePath` reads the tree's shape, as
+    /// "Compare only this folder" does.
     private func panePlacements(of nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String) -> [String: String] {
         let root = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         guard !root.isEmpty else { return [:] }
-        // One walk of the tree for the whole selection (B4), not one per row.
+        // One walk of the tree for the whole selection, not one per row.
         let unspelled = nodes.filter { PathBoundary.relativize($0.id, under: root, links: linkedFolders) == nil }
         return paneRelativePaths(of: unspelled, isLeft: fromLeft, root: root)
     }
@@ -62,9 +62,8 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully copied.
     @discardableResult
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        // Expand once, and use the expanded value for both the root-existence guard and the
-        // per-item targets (mirroring paneTargetURL): the guard stats the expanded path, so a
-        // "~/…" caller must not derive its targets from the raw string.
+        // Expand once and use it for both the root-existence guard and the per-item targets, so a
+        // "~/…" caller's targets match the path the guard stats.
         let expandedDestination = (destinationPath as NSString).expandingTildeInPath
         return await transferItems(
             nodes: nodes,
@@ -80,8 +79,8 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        // Same single expansion as copyItems(toPath:) — a move also removes the sources, so a
-        // misdirected target would be worse than a stray copy.
+        // Same single expansion as copyItems(toPath:); a misdirected move would also remove the
+        // sources.
         let expandedDestination = (destinationPath as NSString).expandingTildeInPath
         return await transferItems(
             nodes: nodes,
@@ -93,11 +92,10 @@ extension FileSyncManager {
         )
     }
 
-    /// A folder's immediate children, hidden ones included, in name order — the order a merge
-    /// asks its questions in. Through the shared `listing(of:)`, so the children are spelled under
-    /// the path the transfer was given; and anything short of a complete listing throws, because a
-    /// merge of a folder it could only partly read would report itself done. A folder whose cloud
-    /// app did not answer throws as that, not as a permission problem.
+    /// A folder's immediate children, hidden ones included, in name order (the order a merge asks
+    /// its questions in), spelled under the path the transfer was given. Anything short of a
+    /// complete listing throws, or a partly read merge would report itself done. A folder whose
+    /// cloud app didn't answer throws as that, not as a permission problem.
     nonisolated static func mergeChildren(of folder: URL, fileManager fm: FileManaging) throws -> [URL] {
         let listing = fm.listing(of: folder)
         guard listing.isComplete else {
@@ -111,30 +109,26 @@ extension FileSyncManager {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    /// Whether a move's merge has left nothing in `folder` but a `.DS_Store` — the rule for putting
-    /// the emptied source folder in the Trash, held to by the merge itself and by its redo (FR35).
-    /// A folder that cannot be fully listed is not empty.
+    /// Whether a move's merge has left nothing in `folder` but a `.DS_Store`: the rule for trashing
+    /// the emptied source folder, held to by the merge and its redo. A folder that can't be fully
+    /// listed is not empty.
     nonisolated static func mergeLeftNothing(in folder: URL, fileManager fm: FileManaging) -> Bool {
         let left = (try? mergeChildren(of: folder, fileManager: fm)) ?? [folder]
         return left.allSatisfy { $0.lastPathComponent == ".DS_Store" }
     }
 
-    /// A move batch's undo list: `transferred` in its own order, with each source folder a merge
-    /// emptied and trashed (FR35) placed immediately ahead of that merge's first child.
+    /// A move batch's undo list: `transferred` in order, with each source folder a merge emptied
+    /// and trashed placed just ahead of that merge's first child.
     ///
-    /// The move-undo reverses its list front to back, so a folder ahead of its children is back in
-    /// place before they move back into it — rather than being recreated empty by the undo's
-    /// `createDirectory`. A merge records its folder only after its children (and after any
-    /// nested merge's folder, which shares the same first-child index when it is the first child),
-    /// so among folders at one index the LAST recorded — the outermost — comes first: the outer
-    /// folder is restored, then the inner one inside it.
+    /// The move-undo works front to back, so the folder is back before its children move into it,
+    /// rather than recreated empty by the undo's `createDirectory`. A merge records its folder after
+    /// its children (and after a nested merge's folder at the same index), so among folders at one
+    /// index the last recorded, the outermost, comes first.
     ///
-    /// **The batch's items are undone last first** (M2). `nodeStarts[k]` is where item `k`'s own
-    /// transfers begin in `transferred`, and each folder carries the item it belongs to. Within an
-    /// item the order above holds; across items the LATER one is undone first, because a later
-    /// item can write into an earlier one: move `A/f` and `B/f` into `D` and merge the second, and
-    /// `B/f`'s children land inside the `D/f` that `A/f` became. Undone front to back, `D/f` went
-    /// home to `A/f` with them inside, and their own undo then found nothing at `D/f`.
+    /// The batch's items are undone last first. `nodeStarts[k]` is where item `k`'s transfers
+    /// begin, and each folder carries its item. A later item can write into an earlier one (move
+    /// `A/f` and `B/f` into `D`, merging the second), so undoing front to back would send `D/f`
+    /// home with `B/f`'s children inside, and their undo would find nothing.
     nonisolated static func undoItems(_ transferred: [MoveItemState], nodeStarts: [Int],
                                       restoringFirst folders: [(node: Int, before: Int, item: MoveItemState)]) -> [MoveItemState] {
         var items: [MoveItemState] = []
@@ -164,26 +158,25 @@ extension FileSyncManager {
         return items
     }
 
-    /// The entry's own type, WITHOUT following a symlink (`attributesOfItem` does not follow), or
-    /// nil when nothing is there — a dangling link included, which `fileExists` would call absent.
+    /// The entry's own type, without following a symlink (`attributesOfItem` doesn't), or nil when
+    /// nothing is there. A dangling link counts as there, unlike with `fileExists`.
     nonisolated static func entryKind(at url: URL, fileManager fm: FileManaging) -> FileAttributeType? {
         guard let attributes = try? fm.attributesOfItem(atPath: url.path) else { return nil }
         return (attributes[.type] as? FileAttributeType) ?? (attributes[.type] as? String).map(FileAttributeType.init(rawValue:))
     }
 
-    /// Whether a merge may walk INTO `url`: a real folder — not a symlink to one (`attributesOfItem`
-    /// does not follow), and not a package. A `.pages` document, an `.app` or a `.photoslibrary` is a
-    /// folder on disk and a file to the person using it; merging two of them child by child builds
-    /// a bundle neither app wrote, so a package collides as a whole, the way Finder treats it.
+    /// Whether a merge may walk into `url`: a real folder, not a symlink to one and not a package.
+    /// A `.pages`, `.app` or `.photoslibrary` is a file to its user; merging two child by child
+    /// builds a bundle neither app wrote, so a package collides as a whole, as in Finder.
     nonisolated static func isMergeableFolder(_ url: URL, fileManager fm: FileManaging) -> Bool {
         guard entryKind(at: url, fileManager: fm) == .typeDirectory else { return false }
         return (try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isPackageKey]))?.isPackage != true
     }
 
-    /// Counts what Replace and Merge would each do to `destination`, for the collision alert
-    /// (RD23). **Bounded**, because it runs before the alert opens: past `entryLimit` entries or
-    /// `timeLimit` seconds it gives up and answers nil, and the alert says its sentence without
-    /// numbers — a partial count would be a number the app invented.
+    /// Counts what Replace and Merge would each do to `destination`, for the collision alert.
+    /// Bounded, because it runs before the alert opens: past `entryLimit` entries or `timeLimit`
+    /// seconds it answers nil and the alert goes without numbers, since a partial count would be
+    /// invented.
     ///
     /// Paths are compared the way the destination volume compares names: folded for case and
     /// normalization unless the volume is case-sensitive.
@@ -203,11 +196,9 @@ extension FileSyncManager {
             var entries: [String: Bool] = [:]
             var pending: [(url: URL, relative: String)] = [(root, "")]
             while let (folder, relative) = pending.popLast() {
-                // A folder whose contents are not on this Mac is not asked for here: that waits on
-                // its cloud app, for up to the reads' deadline — five times this whole preview's
-                // budget, spent before the alert can open. The merge itself asks, if it is chosen.
-                // And a folder that cannot be read gives up too, rather than being skipped: a count
-                // that leaves it out is a number the app invented, as much as a capped one is.
+                // A dataless folder isn't asked for here: waiting on its cloud app would far
+                // outlast this preview's budget, before the alert can open. The merge asks, if
+                // chosen. An unreadable folder gives up too, since skipping it would invent a count.
                 if fm.isDataless(at: folder) { return nil }
                 guard let children = try? mergeChildren(of: folder, fileManager: fm) else { return nil }
                 for child in children {
@@ -236,23 +227,20 @@ extension FileSyncManager {
     }
 
     /// Derives the cross-pane destination for a node: its path relative to the source pane root,
-    /// re-rooted under the opposite pane's root. Throws instead of guessing when the node is not
-    /// actually inside the source root — including the empty-root case (a provider dropped from
-    /// settings mid-session) and prefix aliasing ("/data/foo" must not claim "/data/foobar/x").
-    /// The old fallback kept the node's near-absolute path and grafted it under the destination
-    /// root, which is how pane swaps produced misdirected `<newRoot>/Users/…/<oldRoot>/…` copies.
+    /// re-rooted under the opposite pane's root. Throws rather than guess when the node isn't inside
+    /// the source root, including an empty root (a provider dropped from settings) and prefix
+    /// aliasing ("/data/foo" must not claim "/data/foobar/x"); grafting the absolute path under the
+    /// destination would misdirect the copy.
     ///
-    /// **Through `PathBoundary`, the way linked navigation goes** (FR37, FR38). The path is taken
-    /// relative to the source root link-aware — rows under iCloud's `Documents` carry the real
-    /// `~/Documents/…` path, which a bare prefix test called "outside the pane" for every item —
-    /// then moved from the source's landing folder to the destination's (`transferTarget`), and
-    /// joined link-aware. Re-rooting by account root alone put Dropbox `Documents/Tax.pdf` at the
-    /// Google Drive account root, outside `My Drive`, while the pane on screen showed
-    /// `My Drive/Documents`. At and above the landing folder the row keeps its name a level up,
-    /// never the other pane's root (P1, P3).
+    /// Goes through `PathBoundary`, as linked navigation does: relative to the source root
+    /// link-aware (rows under iCloud's `Documents` carry the real `~/Documents/…` path), moved from
+    /// the source's landing folder to the destination's (`transferTarget`), and joined link-aware.
+    /// So a Dropbox `Documents/Tax.pdf` lands in Google Drive's `My Drive/Documents`, as the pane
+    /// shows, not at the account root. At and above the landing folder a row keeps its name a level
+    /// up, never the other pane's root.
     ///
-    /// `placedByThePane` answers for a node whose id is not spelled under the root — below a folder
-    /// symlink, or under a root spelled through a link — with where the pane places it (P4).
+    /// `placedByThePane` answers for a node whose id isn't spelled under the root (below a folder
+    /// symlink, or under a root spelled through a link) with where the pane places it.
     nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String,
                                           leftOpenAt: String = "", rightOpenAt: String = "",
                                           placedByThePane: [String: String] = [:],
@@ -276,9 +264,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Whether a pane transfer's row IS the folder its source opens at (B5): `transferTarget` maps it
-    /// onto the other source's landing folder, which may be that pane's root, so the transfer offers
-    /// it as Merge only. A source that opens at its root has no such row.
+    /// Whether a pane transfer's row is the folder its source opens at: `transferTarget` maps it
+    /// onto the other source's landing folder, which may be that pane's root, so the transfer
+    /// offers only Merge. A source that opens at its root has no such row.
     nonisolated static func paneLandingFolderRow(fromLeft: Bool, leftRoot: String, rightRoot: String,
                                                  leftOpenAt: String = "", rightOpenAt: String = "",
                                                  placedByThePane: [String: String] = [:],
@@ -294,18 +282,15 @@ extension FileSyncManager {
         }
     }
 
-    /// Shared implementation behind the four copy/move entry points. The variants differ only in
-    /// how the destination URL is derived (`targetURL`), the primitive (`isMove` selects
-    /// safeMoveItem/safeCopyItem, the Move/Copy undo registrar, and the log wording), and the
-    /// same-URL policy: a copy onto itself keeps both under a uniquified name, a move onto
-    /// itself is skipped.
+    /// Shared implementation behind the four copy/move entry points. They differ only in how the
+    /// destination is derived (`targetURL`), the primitive (`isMove` picks safeMoveItem or
+    /// safeCopyItem, the undo registrar and the log wording), and the same-URL policy: a copy onto
+    /// itself keeps both under a new name, a move onto itself is skipped.
     ///
-    /// `destinationRoot` is the pane root or drop directory the transfer targets. It must
-    /// already exist on disk: silently recreating a vanished provider root (e.g.
-    /// `~/Library/CloudStorage/…` after the cloud app unmounted) would land files in a dead
-    /// local tree the provider never syncs — and a move would also remove the originals.
-    /// Missing intermediate folders UNDER a live root are still created per item by
-    /// `ensureParentDirectoryExists`; only the root itself is never auto-created.
+    /// `destinationRoot` (the pane root or drop folder) must already exist: recreating a vanished
+    /// provider root would land files in a dead local tree nothing syncs, and a move would also
+    /// remove the originals. Missing folders under a live root are still created per item by
+    /// `ensureParentDirectoryExists`.
     /// - Returns: The nodes that were successfully transferred, in processing order.
     private func transferItems(
         nodes: [FileNode],
@@ -318,17 +303,16 @@ extension FileSyncManager {
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
-        // A merge's children are a batch of their own — several collisions, one gesture — so they
-        // go through the bulk seam and its "apply to all", scoped to that one merge (RD23).
+        // A merge's children are a batch of their own (several collisions, one gesture), so they
+        // use the bulk resolver and its "apply to all", scoped to that merge.
         let resolveMergeChildCollision = bulkCollisionResolver
-        // The pre-write name check runs on the MainActor (its resolver presents UI); the
-        // detached loop below hops into this closure per item. Weak: if the manager is gone
-        // the operation is already a no-op via its own guard, so "clean" is a safe answer.
+        // The name check runs on the main actor (its resolver shows UI); the loop below hops here
+        // per item. Weak: with the manager gone the operation is a no-op, so "clean" is safe.
         let checkName: @MainActor (URL) -> DestinationNameDecision = { [weak self] url in
             self?.checkDestinationName(for: url, isMove: isMove) ?? .clean
         }
-        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
-        // syncFile's): a transfer starting mid-verify can overwrite a file as it's hashed.
+        // Verify All's exclusion, as in syncFile: a transfer mid-verify could overwrite a file
+        // as it's hashed.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before copying or moving items")
             return []
@@ -339,43 +323,27 @@ extension FileSyncManager {
         }
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
-        // Standardize away a trailing slash for the existence stat; an empty root must stay
-        // empty (URL(fileURLWithPath: "") would resolve against the process CWD).
+        // Drop a trailing slash for the existence stat; an empty root stays empty
+        // (URL(fileURLWithPath: "") would resolve against the process CWD).
         let destinationRootPath = destinationRoot.isEmpty
             ? ""
             : URL(fileURLWithPath: (destinationRoot as NSString).expandingTildeInPath).path
 
-        // Count the pending operation BEFORE the confirmation prompt, not at enqueue time:
-        // the prompt's modal spins the run loop, and the exclusion guards that protect
-        // checksum validity (Verify All, and the scan-time auto-verify pass — which is not
-        // click-gated, so the modal doesn't block it) read `activeFileOperationsCount`. An
-        // unlatched prompt would let them start hashing the very files this transfer is
-        // about to overwrite — the same window syncAll/syncFile close with their own latches.
-        // `enqueueFileOperation(alreadyCounted: true)`'s completion decrements; a decline
-        // reverts the count here. The COUNT only: `fileOperationsEpoch` moves at enqueue time,
-        // because a declined prompt runs no I/O and a monotonic bump can't be taken back.
+        // Count the operation before the confirmation prompt: its modal spins the run loop, and
+        // Verify All and the scan-time auto-verify read `activeFileOperationsCount`, so they could
+        // start hashing files this transfer will overwrite. Completion of
+        // `enqueueFileOperation(alreadyCounted: true)` decrements; a decline reverts it here. Only
+        // the count: `fileOperationsEpoch` moves at enqueue, since a bump can't be taken back.
         preCountFileOperation()
 
-        // Confirm before any I/O is queued: this is the seam that lets a mis-clicked
-        // Copy/Move be cancelled while it still costs nothing. Cancelling is not an error —
-        // no alert, just a debug breadcrumb and nothing transferred. An EMPTY destination
-        // root (provider dropped from settings mid-session) skips the prompt — asking the
-        // user to confirm `Copy "x" to ""?` and then failing anyway helps nobody; the
-        // enqueue guard below turns it into the destinationRootUnavailable error directly.
-        // (The on-disk existence stat deliberately stays on the operation queue.)
+        // Confirm before any I/O is queued, so a mis-click can be cancelled for free. A decline
+        // is not an error: a log line, nothing transferred. An empty destination root skips the
+        // prompt (confirming `Copy "x" to ""?` helps nobody); the enqueue guard reports it as
+        // destinationRootUnavailable. The existence stat stays on the operation queue.
         if let first = prunedNodes.first, !destinationRootPath.isEmpty {
-            // Name the folder the item actually LANDS in, not the destination root. The
-            // cross-pane derivation re-roots each item's relative path under the far root and
-            // `ensureParentDirectoryExists` builds the intermediate folders, so for anything
-            // inside a subfolder the root is two or more levels shallow — the prompt read
-            // `To: ~/Dropbox` for a file bound for `~/Dropbox/Reports/2025`. The drop and paste
-            // routes derive `<dir>/<name>`, whose parent IS the root, so they are unaffected.
-            //
-            // Representative of the FIRST item, exactly like `sourceDirectory` beside it: a
-            // mixed-folder selection genuinely lands in several folders and no single line can
-            // say so. A derivation that throws (item outside the source root) falls back to the
-            // root — the enqueue below turns that same condition into a proper error, and the
-            // prompt must not be what reports it.
+            // Name the folder the first item lands in, not the destination root, which for an item
+            // in a subfolder is levels too shallow. Like `sourceDirectory`, it speaks for the first
+            // item only. A derivation that throws falls back to the root; the enqueue reports it.
             let firstTargetDirectory = (try? deriveTargetURL(first))
                 .map { $0.deletingLastPathComponent().path } ?? destinationRootPath
             let confirmed = transferConfirmer(TransferSummary(
@@ -386,10 +354,8 @@ extension FileSyncManager {
                 destinationDirectory: firstTargetDirectory
             ))
             guard confirmed else {
-                // The breadcrumb matters: callers log "User initiating move…" before this
-                // prompt, and a decline with no record reads as a swallowed operation. At the
-                // same level as the initiation line, or an Info-level trace shows an operation
-                // start with no outcome — the exact swallowed read this exists to prevent.
+                // Callers log "User initiating move…" before the prompt, so a decline needs its
+                // own line at the same level, or the trace shows a start with no outcome.
                 Logger.shared.info("\(isMove ? "Move" : "Copy") of \(prunedNodes.count) item(s) cancelled at the confirmation prompt")
                 cancelPreCountedFileOperation()
                 return []
@@ -398,7 +364,7 @@ extension FileSyncManager {
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            // Sentence case, as Finder titles its progress (FD7) — the undo name stays Title Case.
+            // Sentence case, as Finder titles its progress; the undo name stays Title Case.
             progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "item"))"
             progress.isCancellable = true
             progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the copy")
@@ -406,61 +372,55 @@ extension FileSyncManager {
 
         let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)], nodeStarts: [Int], redirectedIntoTrash: [URL: URL], landedIdentities: [URL: ItemIdentity]) in
             guard self != nil else { return ([], [], [], 0, [], [], [], [:], [:]) }
-            // One stat, before any I/O: a missing destination root fails the whole operation
-            // rather than being recreated by the per-item intermediate-directory pass below.
+            // One stat before any I/O: a missing destination root fails the whole operation rather
+            // than being recreated by the per-item folder creation below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
                 return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [], [], [:], [:])
             }
-            // Publish progress only once this operation actually starts; setting it at enqueue
-            // time would clobber the progress of an operation still running ahead in the queue.
+            // Publish progress only once this operation starts, or it would clobber the progress
+            // of one still running ahead in the queue.
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-            // One identity walk per COPIED item (parallel to `targetItems`; unused and empty for
-            // moves), started the moment that item's own copy lands. Started HERE, inside the
-            // loop, because the loop blocks mid-batch on user prompts — `resolveCollision` and
-            // `checkName` await the main actor per item — and on slow-volume I/O, so a walk that
-            // starts only at registration time (after the whole batch) would record an edit the
-            // user made inside an already-landed copy during that tail as the copy's BASELINE:
-            // ⌘Z would then read `.unchanged` and trash the edit. Per-item, the edit postdates
-            // the recording and reads as drift, which refuses. Registration below stays
-            // synchronous and merely awaits these.
+            // One identity walk per copied item (parallel to `targetItems`; empty for moves),
+            // started the moment that copy lands. The loop can block on prompts (`resolveCollision`
+            // and `checkName` await the main actor) and slow I/O, so a walk after the batch would
+            // record the user's edits in a landed copy as its baseline, and ⌘Z would trash them as
+            // `.unchanged`. Registration below just awaits these.
             var identityWalks: [Task<CopyIdentityReading, Never>] = []
-            // Earlier copies' walk indices by aggressively folded destination path (precomposed
-            // + lowercased), for the duplicate-destination restart below. Aggressive on purpose:
-            // it only NOMINATES candidates — the volume-gated check at the hit decides.
+            // Earlier copies' walk indices by aggressively folded destination (precomposed and
+            // lowercased), for the duplicate-destination restart below. It only nominates
+            // candidates; the volume-gated check at the hit decides.
             var copyWalkIndicesByFoldedDestination: [String: [Int]] = [:]
-            // The same index for MOVES, over `targetItems` itself — see `recordLanded`.
+            // The same index for moves, over `targetItems` itself (see `recordLanded`).
             var moveIndicesByFoldedDestination: [String: [Int]] = [:]
-            // Items skipped because the move's target WAS its source. Counted rather than
-            // re-derived afterwards: the loop's target can be rewritten by the provider-name
-            // check, so only the loop knows which comparison actually decided the skip.
+            // Items skipped because the move's target was its source. Counted here because the
+            // name check can rewrite the target, so only the loop knows what decided the skip.
             var alreadyThere = 0
             // Nodes answered with Merge that landed at least one child. A merge's transfers are its
-            // CHILDREN's, so they cannot be matched back to the node by source path afterwards.
+            // children's, so they can't be matched back to the node by source path afterwards.
             var mergedNodeIDs: Set<String> = []
-            // Source folders a MOVE's merge emptied and put in the Trash (FR35), each with the
-            // index in `targetItems` where that merge's own children begin — the undo must put
-            // the folder back before any of them, so they move back INTO it. Kept apart from
-            // `targetItems`: these are not transfers, and nothing that counts or records the
-            // batch's transfers may see them.
+            // Source folders a move's merge emptied and trashed, each with the index in
+            // `targetItems` where its children begin, so the undo puts the folder back before they
+            // move into it. Kept apart from `targetItems`: they aren't transfers, and nothing that
+            // counts or records transfers may see them.
             var trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)] = []
-            // Where each selected item's own transfers begin in `targetItems`, and which item the
-            // loop is on — so the undo can take the batch back last item first (M2).
+            // Where each selected item's transfers begin in `targetItems`, and which item the loop
+            // is on, so the undo can take the batch back last item first.
             var nodeStarts: [Int] = []
             var currentNode = 0
-            // Each moved item's identity the moment it LANDED (M2), keyed by where it landed: a
-            // later item of the batch can write into it — a merge into the folder an earlier item
-            // became — and its undo, run first, takes that back out before this one is compared.
+            // Each moved item's identity the moment it landed, keyed by where it landed. A later
+            // item can write into it (a merge into the folder an earlier item became), and that
+            // item's undo, run first, takes it back out before this one is compared.
             var landedIdentities: [URL: ItemIdentity] = [:]
-            // Move records FR23 redirected into the Trash: where each now is → where it landed
-            // first. Its undo reads it the way it reads any Trash backup (U3), and Sync History
-            // names the destination the user moved it to, not the Trash (U8).
+            // Move records redirected into the Trash: where each is now → where it landed first.
+            // Its undo reads it as any Trash backup, and Sync History names the destination the
+            // user moved it to, not the Trash.
             var redirectedIntoTrash: [URL: URL] = [:]
-            // Children a merge skipped — by an answer, or a `.DS_Store` the destination keeps — so its
-            // log line can say what it did NOT do as well as what it did.
+            // Children a merge skipped (by an answer, or a `.DS_Store` the destination keeps), so
+            // its log line can say what it did not do as well as what it did.
             var mergeSkipped = 0
             // Set when Cancel abandons a copy mid-item, inside a merge or not: ends the batch.
             var abandonedAtCancel = false
@@ -470,13 +430,12 @@ extension FileSyncManager {
             func recordLanded(from sourceURL: URL, to targetURL: URL, overwritten trashed: URL?) {
                 var overwritten = trashed
                 if isMove {
-                    // **A move that replaced an item THIS batch moved there** (FR23). Moving
-                    // `/A/f.txt` and `/B/f.txt` into `/D` with Replace leaves A's file where the
-                    // replace put it — `trashed` — and B's at `/D/f.txt`. Both records said
-                    // "it is at /D/f.txt", so ⌘Z sent B's content to `/A`, restored A's at `/D`,
-                    // and left `/B` empty. So the earlier record now names where its file really
-                    // is, and this one inherits what `/D` held before the batch, which is what its
-                    // own undo must put back. Same on-disk-name test as the copy branch below.
+                    // A move that replaced an item this batch moved there. Moving `/A/f.txt`
+                    // and `/B/f.txt` into `/D` with Replace leaves A's file at `trashed` and B's at
+                    // `/D/f.txt`. If both records said `/D/f.txt`, ⌘Z would swap their contents.
+                    // So the earlier record names where its file really is, and this one inherits
+                    // what `/D` held before the batch, which its undo must put back. Same
+                    // on-disk-name test as the copy branch below.
                     let folded = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
                     var stillThere: [Int] = []
                     for i in moveIndicesByFoldedDestination[folded] ?? [] {
@@ -496,34 +455,22 @@ extension FileSyncManager {
                 targetItems.append((from: sourceURL, to: targetURL, overwritten: overwritten))
                 if isMove { landedIdentities[targetURL] = ItemIdentity.snapshot(at: targetURL, fileManager: fm) }
                 if !isMove {
-                    // A batch can land one destination TWICE — two same-named sources
-                    // through the replace prompt, under one spelling or two ("F.txt" then
-                    // "f.txt" on a folding volume). The copy that just landed replaced the
-                    // EARLIER item's output, so the earlier walk now describes an item this
-                    // batch itself superseded — not user drift. Left stale, the undo would
-                    // refuse the earlier registration (`.changed`) and strand its pre-batch
-                    // backup: the handler's duplicate-registration guard is built on both
-                    // registrations recording the FINAL state (pinned by
-                    // `copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`, which is
-                    // what caught this). Restart the superseded walks so they do; the
-                    // discarded walk's result is never read.
+                    // A batch can land one destination twice (two same-named sources through
+                    // Replace, as "F.txt" then "f.txt" on a folding volume). The earlier walk then
+                    // describes an item the batch itself superseded; left stale, the undo would
+                    // refuse that registration as `.changed` and strand its pre-batch backup. The
+                    // duplicate-registration guard needs both to record the final state
+                    // (`copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`), so restart
+                    // the superseded walks; the discarded results are never read.
                     let foldedTarget = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
                     for i in copyWalkIndicesByFoldedDestination[foldedTarget] ?? [] {
                         let earlier = targetItems[i].to
-                        // One on-disk name: exact after precomposing (APFS lookups are
-                        // normalization-insensitive on every volume), or a case variant on
-                        // a volume that folds case — the undo handler's own foldedKey gate.
-                        //
-                        // `…ForNewItem` rather than the plain probe, for its FAILURE
-                        // behaviour rather than for a missing path (`targetURL` was just
-                        // copied, so it is there): the plain probe answers `false` — folds —
-                        // for any path it cannot query, and a false "folds" here restarts an
-                        // unrelated earlier item's walk, moving its recording time to the end
-                        // of THIS copy and reopening the batch-length window
-                        // `startCopyIdentityWalk` exists to eliminate. The walking-up form
-                        // asks the nearest ancestor that can answer, which is the same volume,
-                        // and only falls back to `false` when nothing up to "/" answers at
-                        // all. For a path that resolves first time the two are one probe each.
+                        // One on-disk name: exact after precomposing (APFS lookups ignore
+                        // normalization), or a case variant on a volume that folds case, the undo
+                        // handler's own foldedKey gate. `…ForNewItem` for its failure behaviour: the
+                        // plain probe answers "folds" for any path it can't query, which would
+                        // restart an unrelated item's walk and move its recording to the end of
+                        // this copy. The walking-up form asks the nearest ancestor that answers.
                         let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
                             == targetURL.path.precomposedStringWithCanonicalMapping
                             || !Self.volumeSupportsCaseSensitiveNamesForNewItem(at: targetURL)
@@ -531,8 +478,8 @@ extension FileSyncManager {
                             identityWalks[i] = Self.startCopyIdentityWalk(at: earlier, fileManager: fm)
                         }
                     }
-                    // `identityWalks` runs parallel to `targetItems` for copies (each append
-                    // above pairs this one), so the new walk's index is the count now.
+                    // `identityWalks` runs parallel to `targetItems` for copies, so the new walk's
+                    // index is the count now.
                     copyWalkIndicesByFoldedDestination[foldedTarget, default: []].append(identityWalks.count)
                     identityWalks.append(Self.startCopyIdentityWalk(at: targetURL, fileManager: fm))
                 }
@@ -545,19 +492,18 @@ extension FileSyncManager {
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
                     try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm, mirroring: sourceURL)
-                    // RD24: the item's own copy watches the Cancel button too, so one very large
-                    // file or folder no longer runs to the end once it starts. An abandoned copy
-                    // throws `userCancelled` from inside its `.tmp_` staging, exactly as a cancel
-                    // between items has always ended the batch: without an alert.
+                    // The item's copy watches Cancel too, so a very large item stops part-way. An
+                    // abandoned copy throws `userCancelled` from its `.tmp_` staging and ends the
+                    // batch without an alert, as a cancel between items does.
                     let observer = progress.map { Self.transferCopyObserver(progress: $0, itemName: itemName, sourceURL: sourceURL, fileManager: fm) }
                     let trashed = isMove
                         ? try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm, observer: observer)
                         : try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm, observer: observer)
                     recordLanded(from: sourceURL, to: targetURL, overwritten: trashed)
                 } catch where CopyObserver.isCancellation(error) && progress?.isCancelled == true {
-                    // Only a cancel of THIS operation's Progress ends the batch. A `userCancelled`
-                    // from anywhere else — a provider refusing a read, say — is a failure like any
-                    // other, and swallowing it would silently drop every item after it.
+                    // Only a cancel of this operation's Progress ends the batch. A `userCancelled`
+                    // from elsewhere (a provider refusing a read) is an ordinary failure;
+                    // swallowing it would silently drop every item after it.
                     let abandonedTarget = targetURL.path
                     _ = await MainActor.run {
                         Logger.shared.info("\(isMove ? "Move" : "Copy") of \"\(itemName)\" abandoned mid-copy at Cancel — nothing reached \(abandonedTarget)")
@@ -570,15 +516,14 @@ extension FileSyncManager {
                 return true
             }
 
-            /// RD23: merges `source` into the existing folder `destination`, child by child. What is
-            /// missing lands whole; a folder in both is merged in turn, silently, as Finder does; any
-            /// other child in both is a collision of its own, answered through the bulk seam — so the
-            /// Settings policy still speaks, and "apply to all" covers the rest of THIS merge only.
-            /// A child folder's collision never seeds or reads that answer, the same rule every other
-            /// path keeps for folders. `.DS_Store` in both is left as the destination has it.
+            /// Merges `source` into the existing folder `destination`, child by child. What is
+            /// missing lands whole; a folder in both is merged in turn, silently, as Finder does;
+            /// any other child in both is a collision of its own, through the bulk resolver, so the
+            /// Settings policy still applies and "apply to all" covers only this merge. A child
+            /// folder's collision never seeds or reads that answer. `.DS_Store` in both stays.
             ///
-            /// For a move, the source folder goes to the Trash once nothing but a `.DS_Store` is left
-            /// in it; whatever was skipped keeps it where it was.
+            /// For a move, the source folder goes to the Trash once only a `.DS_Store` is left in
+            /// it; anything skipped keeps it where it was.
             func merge(_ source: URL, into destination: URL, applyToAll: inout CollisionResolution?) async {
                 let firstChildIndex = targetItems.count
                 let children: [URL]
@@ -634,14 +579,11 @@ extension FileSyncManager {
                         do {
                             var trashedURL: NSURL?
                             try fm.trashItem(at: source, resultingItemURL: &trashedURL)
-                            // **Recorded, so ⌘Z puts THIS folder back** (FR35). The trash used to
-                            // sit outside the undo record, so the move-undo's `createDirectory`
-                            // made a brand-new empty folder for the children to move back into:
-                            // the original's tags, icon and dates were lost, and its empty shell
-                            // stayed in the Trash. As a move to its Trash location it reverses
-                            // through the move-undo's own guards — the identity recorded at
-                            // registration refuses a different folder that has taken its name in
-                            // the Trash, and a Trash emptied since leaves the old fallback.
+                            // Recorded, so ⌘Z puts this folder back with its tags, icon and
+                            // dates, rather than `createDirectory` making a new empty one. As a
+                            // move to its Trash location it goes through the move-undo's guards: the
+                            // recorded identity refuses another folder that took its name in the
+                            // Trash, and an emptied Trash falls back to a new folder.
                             if let trashedURL = trashedURL as URL? {
                                 trashedMergeSources.append((node: currentNode, before: firstChildIndex,
                                                             item: (from: source, to: trashedURL, overwritten: nil)))
@@ -649,7 +591,7 @@ extension FileSyncManager {
                             _ = await MainActor.run { Logger.shared.info("Merge moved everything out of \(emptied) — the emptied folder went to the Trash") }
                         } catch {
                             // A volume with no Trash: the folder stays, empty. Never a permanent
-                            // delete — it may still hold a `.DS_Store`, and it costs nothing to keep.
+                            // delete; it may still hold a `.DS_Store`, and keeping it costs nothing.
                             let reason = error.localizedDescription
                             _ = await MainActor.run { Logger.shared.warning("Merge moved everything out of \(emptied), but the emptied folder could not go to the Trash and was left in place: \(reason)") }
                         }
@@ -692,8 +634,8 @@ extension FileSyncManager {
 
                 if sourceURL == targetURL {
                     if isMove {
-                        // A skipped item still counts as completed (like syncAll's skip
-                        // accounting): a trailing skip must not strand the bar below 100%.
+                        // A skipped item counts as completed, so a trailing skip can't strand the
+                        // bar below 100%.
                         alreadyThere += 1
                         _ = await MainActor.run {
                             Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
@@ -703,18 +645,18 @@ extension FileSyncManager {
                     }
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else {
-                    // Stat with isDirectory so the collision prompt can warn that replacing a
-                    // folder replaces its whole contents (Finder-style), not just a same-named file.
+                    // Stat with isDirectory so the prompt can warn that replacing a folder replaces
+                    // its whole contents, as Finder does.
                     var targetIsDir: ObjCBool = false
                     if fm.fileExists(atPath: targetURL.path, isDirectory: &targetIsDir) {
-                        // Merge needs two REAL folders: `fileExists` follows a symlink, and merging
-                        // through one would write into whatever tree it points at; and a package is
-                        // a document, not a folder to merge (see `isMergeableFolder`).
+                        // Merge needs two real folders: `fileExists` follows a symlink, and merging
+                        // through one would write into the tree it points at. A package is a
+                        // document (`isMergeableFolder`).
                         let offersMerge = targetIsDir.boolValue
                             && Self.isMergeableFolder(targetURL, fileManager: fm)
                             && Self.isMergeableFolder(sourceURL, fileManager: fm)
-                        // The folder this side opens at, onto the folder the other side opens at (B5):
-                        // Merge only. Where it cannot merge, it is refused without asking.
+                        // The folder this side opens at, onto the folder the other side opens at:
+                        // Merge only. Where it can't merge, it is refused without asking.
                         let mergeOnly = isLandingFolderRow(node)
                         if mergeOnly && !offersMerge {
                             taskErrors.append(FileOperationError.landingFolderMergesOnly(name: node.name))
@@ -741,7 +683,7 @@ extension FileSyncManager {
                         case .merge where offersMerge:
                             do {
                                 // The nesting guard a Replace gets from `land`: merging a folder into
-                                // its own descendant would walk what it is writing.
+                                // its own descendant would walk what it writes.
                                 try Self.validateFileOperation(source: sourceURL, destination: targetURL, merging: true)
                                 let landedBefore = targetItems.count
                                 let failedBefore = taskErrors.count
@@ -761,8 +703,8 @@ extension FileSyncManager {
                             await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
                             continue
                         case .skip, .merge:
-                            // Same accounting as the move-onto-itself skip above. A `.merge` that was
-                            // not offered is a stray answer and gets the safe reading.
+                            // Counted as completed, like the skip above. A `.merge` that wasn't
+                            // offered is a stray answer, read as skip.
                             await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
                             continue
                         }
@@ -778,14 +720,11 @@ extension FileSyncManager {
         }
 
         let transferred = result.transferred
-        /// Durable Sync History (X2): one record per transferred item, all sharing this batch's
-        /// run id. The result tuples don't carry size, so best-effort stat the landed file — a
-        /// local metadata read of a file that was just written, so it's cheap. Checksum is left
-        /// nil at op time (see the bulk path's note).
+        /// Sync History: one record per transferred item, sharing this batch's run id. Size comes
+        /// from a cheap stat of the landed file; checksum is nil, as in the bulk path.
         ///
-        /// Called in the registration's own turn, right after it and BEFORE the copy's await
-        /// (FR26): the pairing reads the name on top of the undo stack, and after the identity
-        /// tail that may be a rename or a ⌘Z made during it, not this transfer's group.
+        /// **Call it in the registration's own turn, before the copy's await:** the pairing reads
+        /// the name on top of the undo stack, which after the await may be a rename or a ⌘Z.
         func recordTransferHistory() {
             let runId = UUID()
             let recordAction: SyncAction = isMove ? .move : .copy
@@ -795,8 +734,8 @@ extension FileSyncManager {
                     runId: runId,
                     action: recordAction,
                     sourcePath: item.from.path,
-                    // Where the user moved it, for a record FR23 redirected into the Trash (U8):
-                    // Undo Last Run listed it as "Move “f.txt” → .Trash".
+                    // Where the user moved it, for a record redirected into the Trash, so Undo Last
+                    // Run doesn't list it as moved to `.Trash`.
                     destPath: (result.redirectedIntoTrash[item.to] ?? item.to).path,
                     sizeBytes: size,
                     checksum: nil,
@@ -806,21 +745,19 @@ extension FileSyncManager {
             }
             recordSyncHistory(records)
         }
-        // What landed stays visible through a type filter until the pane moves (TE277).
+        // What landed stays visible through a type filter until the pane moves.
         for item in transferred { noteOwnWrite(atPath: item.to.path) }
-        // **A merge that moved nothing out still put its emptied source in the Trash (U4)** — an
-        // empty folder, or one holding only a `.DS_Store` — so that alone is a move ⌘Z must reverse.
+        // A merge that moved nothing out may still have trashed its emptied source (an empty
+        // folder, or one holding only a `.DS_Store`), and ⌘Z must reverse that alone.
         if !transferred.isEmpty || (isMove && !result.trashedMergeSources.isEmpty) {
             progress?.markFinishing(isMove ? "the move" : "the copy")
             if isMove {
-                // Awaited for the copy's reason below: the Trash items' identities are read off the
-                // main actor after registration, and until they are, whatever sits at a Trash path
-                // is what the undo records. Returning first let a stranger put there in that gap —
-                // an empty `Reports` in place of the merge's emptied source — be recorded as the
-                // source folder itself, and ⌘Z then restored it (FR35).
+                // Awaited, as for the copy below: the Trash items' identities are read off the main
+                // actor after registration, and returning first would let a stranger put at a
+                // Trash path in that gap be recorded, and later restored, as the source folder.
                 //
-                // The items the user moved, not every folder trashed: a nested merge's emptied
-                // folder sits inside its parent's, which is the one item (L4).
+                // Counts the items the user moved, not every folder trashed: a nested merge's
+                // emptied folder sits inside its parent's, which is the one item.
                 let trashedSources = result.trashedMergeSources.map { $0.item.from.path }
                 let moved = transferred.isEmpty
                     ? trashedSources.filter { path in !trashedSources.contains { path.hasPrefix($0 + "/") } }.count
@@ -831,24 +768,17 @@ extension FileSyncManager {
                                                   redirectedIntoTrash: Set(result.redirectedIntoTrash.keys),
                                                   landedIdentities: result.landedIdentities,
                                                   actionName: "Move \(CountedNoun.phrase(moved, "Item"))", fileManager: fm)
-                // A group with no history records must not leave an earlier run's pairing live
-                // (M1): an earlier "Move 1 Item" run would pass the name gate over this group, and
-                // Undo Last Run would describe that run while reversing this merge.
+                // A group with no history records must not leave an earlier run's pairing live: an
+                // earlier "Move 1 Item" run would pass the name gate, and Undo Last Run would
+                // describe that run while reversing this merge.
                 if !transferred.isEmpty { recordTransferHistory() } else { invalidateRunUndoPairing() }
                 await armed.value
             } else {
-                // Each item's identity walk was started the moment ITS copy landed, inside the
-                // loop above; the registration here is synchronous and what is awaited is the
-                // collection task wrapping those walks, so this operation does not return until
-                // its undo is fully armed — the drift tests tamper the moment it does. The await
-                // suspends the main actor rather than blocking it: the walks never run there.
-                //
-                // Deliberate: the await also holds `activeProgress` (cleared just below) through
-                // this identity tail — the operation does not report complete until every undo
-                // it registered is armed. `activeFileOperationsCount` already reads 0 during the
-                // tail (the op decremented on return), so the quit guard would not hold the app
-                // for it; that is harmless — the walks are read-only, and an unarmed undo dies
-                // with the process anyway.
+                // Each walk started as its copy landed; registration is synchronous, and awaiting
+                // the task wrapping the walks means this returns only once its undo is armed (the
+                // drift tests tamper the moment it does). The await suspends the main actor, not
+                // blocks it. It also holds `activeProgress` until then. `activeFileOperationsCount`
+                // already reads 0, so quit won't wait for it; harmless, as the walks only read.
                 let pending: [PendingCopyItemState] = zip(transferred, result.identityWalks).map {
                     (source: $0.0.from, destination: $0.0.to, overwritten: $0.0.overwritten, identity: $0.1)
                 }
@@ -863,13 +793,12 @@ extension FileSyncManager {
             self.activeProgress = nil
         }
 
-        // Keyed lookup instead of a linear scan per transferred item; first-wins matches what
-        // `first(where:)` returned should an id ever repeat in the selection.
+        // Keyed lookup rather than a scan per item; first wins should an id repeat in the selection.
         let nodesByID = Dictionary(prunedNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var transferredNodes = transferred.compactMap { nodesByID[$0.from.path] }
-        // A merged folder's transfers are its children's, so none of them matches the node's own
-        // path; it counts as transferred when anything in it landed. Only then is the list rebuilt,
-        // in processing order, so a batch with no merge returns exactly what it always did.
+        // A merged folder's transfers are its children's, so none matches the node's own path; it
+        // counts as transferred when anything in it landed. The list is rebuilt in processing order
+        // only then, so a batch with no merge is unaffected.
         if !result.mergedNodeIDs.isEmpty {
             let landedIDs = Set(transferredNodes.map(\.id)).union(result.mergedNodeIDs)
             var seen = Set<String>()
@@ -878,23 +807,19 @@ extension FileSyncManager {
 
         if let firstError = result.errors.first {
             let reason = firstError.localizedDescription
-            // The errors here carry no item pairing, so the alert can't name the first item the
-            // way the bulk-sync aggregate does — but the wording still reflects the whole run
-            // (count in the message, remaining reasons logged) instead of pretending the first
-            // error was the only one.
+            // The errors carry no item, so the alert can't name one, but it still speaks for the
+            // whole run: the count in the message, the other reasons in the log.
             let items = result.errors.count == 1 ? "the selected items" : "\(result.errors.count) items"
-            // `present` below logs the first error (its logDescription); log only the rest here so
-            // the persistent record covers every failure without double-logging the first one.
+            // `present` logs the first error; log the rest here so every failure is recorded once.
             for error in result.errors.dropFirst() {
                 Logger.shared.error("\(isMove ? "Move" : "Copy") Failed: \(error.localizedDescription)")
             }
             let failure: SyncError = isMove
                 ? .moveFailed(items: items, reason: reason)
                 : .copyFailed(items: items, reason: reason)
-            // **The leftover alert this operation just raised is not replaced (U7).** FR36's
-            // "original left behind" is presented as the operation ends, which is before this —
-            // and `present` replaces, so a batch where one item stranded its original and another
-            // failed said only that something failed, over a hidden full-size duplicate.
+            // **Don't replace the leftover alert this operation just raised.** "Original left
+            // behind" is presented as the operation ends, before this, and `present` replaces; the
+            // failure would hide the news of a hidden full-size duplicate. So it mentions it.
             if let leftover = currentError, leftover.isParkedOriginalLeftover {
                 present(failure.mentioning(leftover))
             } else {
@@ -902,27 +827,18 @@ extension FileSyncManager {
             }
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
-            // .info, not .debug: a copy/move is a data mutation that belongs in a normal-level
-            // audit trail, not just a diagnostic one.
+            // .info, not .debug: a copy or move changes data and belongs in the normal audit trail.
             if transferredNodes.count == prunedNodes.count {
                 Logger.shared.info("\(verb) \(transferredNodes.count) item(s) \(destinationDescription)")
             } else {
                 Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) item(s) \(destinationDescription)")
             }
-            // Nothing moved, nothing failed, and every item was skipped for already sitting at
-            // its target. The operation genuinely did nothing and said so NOWHERE — no banner,
-            // no alert, one debug line — so confirming the prompt and watching the window not
-            // change was indistinguishable from a dropped click. That is the exact shape of the
-            // report that started this: both panes on one provider at the same relative path, so
-            // every derived target equalled its source.
-            //
-            // Deliberately scoped to this one cause. A collision Skip or a cancelled progress bar
-            // also transfers nothing, but both are choices the user made a moment ago and neither
-            // needs restating.
+            // Every item was skipped for already being at its target (both panes on one provider
+            // at the same path, say). Say so, or it looks like a dropped click. Only for this
+            // cause: a collision Skip or a Cancel was the user's own choice a moment ago.
             if transferred.isEmpty, result.alreadyThere == prunedNodes.count, let first = prunedNodes.first {
-                // The parent's own name, falling back to its full path: `lastPathComponent` of
-                // "/" is "/", and of "" is "" — either would leave the sentence dangling for an
-                // item sitting directly on a root-mounted provider.
+                // The parent's name, or its full path when that is "/" or "", so the sentence
+                // doesn't dangle for an item at a root-mounted provider.
                 let parent = (first.id as NSString).deletingLastPathComponent
                 let leaf = (parent as NSString).lastPathComponent
                 let folder = (leaf.isEmpty || leaf == "/") ? parent : leaf
@@ -947,8 +863,8 @@ extension FileSyncManager {
 
     /// Testable core; production resolves `caseSensitiveVolume` from the item's volume.
     func renameItem(at path: String, to newName: String, fileManager fm: FileManaging, caseSensitiveVolume: Bool) async {
-        // Verify All's exclusion guard, as every other write has it: a rename mid-verify moves a
-        // file out from under its hash.
+        // Verify All's exclusion, as every write has: a rename mid-verify moves a file out from
+        // under its hash.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before renaming")
             return
@@ -958,20 +874,19 @@ extension FileSyncManager {
             return
         }
         if let reason = Self.validateItemName(newName) {
-            // Deterministic — the same name would be rejected again, so not retryable.
+            // Not retryable: the same name would be rejected again.
             present(SyncError(title: "Rename Failed", message: reason, path: path))
             return
         }
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
 
-        // A case-only rename skips the collision check only where the destination stat would
-        // hit the source itself (case-insensitive volumes). On a case-sensitive volume the
-        // case variant is a distinct item and must trigger the collision alert like any other.
+        // A case-only rename skips the collision check only where the stat would hit the source
+        // itself (case-insensitive volumes). On a case-sensitive volume the variant is a distinct
+        // item and collides like any other.
         let isCaseOnly = !caseSensitiveVolume && url.lastPathComponent.lowercased() == newName.lowercased()
         if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
-            // Deterministic collision — renaming to the same existing name would just fail again,
-            // so it is not retryable. Reveal points at the item that is in the way.
+            // Not retryable: it would collide again. Reveal points at the item in the way.
             present(SyncError(
                 title: "Rename Failed",
                 message: "An item named “\(newName)” already exists.",
@@ -981,10 +896,9 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, collision: Bool) in
-            // Re-check the collision at EXECUTION time, not just at enqueue. The check above runs on
-            // the MainActor before this op joins the serial queue; a queued copy/sync ahead of it
-            // could create `newName` in the interval, and safeMoveItem would then silently
-            // replace-with-backup. A rename onto a now-occupied name must fail, not overwrite.
+            // Re-check the collision when the operation runs: a copy queued ahead could create
+            // `newName` meanwhile, and safeMoveItem would silently replace it. A rename onto an
+            // occupied name must fail, not overwrite.
             if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
                 return (nil, nil, true)
             }
@@ -1008,7 +922,7 @@ extension FileSyncManager {
             Logger.shared.info("Renamed item to \(newName)")
             noteOwnWrite(atPath: newURL.path)
             self.registerMoveUndo(items: [(from: url, to: newURL, overwritten: result.trashed)], actionName: "Rename Item", fileManager: fm)
-            // In History as the move it is, in the registration's own turn (FR26).
+            // In History as the move it is, in the registration's own turn.
             recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .move, sourcePath: url.path, destPath: newURL.path,
                                                  backupPath: result.trashed?.path)])
         }
@@ -1024,9 +938,8 @@ extension FileSyncManager {
             present(SyncError(title: "Couldn’t Create Folder", message: reason, path: path))
             return
         }
-        // Same guard as transferItems: an empty parent path (a provider that vanished from
-        // settings while its stale tree was showing) must stay empty — URL(fileURLWithPath: "")
-        // would resolve against the process CWD and create the folder there.
+        // As in transferItems, an empty parent path (a provider gone from settings) stays empty:
+        // URL(fileURLWithPath: "") would resolve against the process CWD.
         let parentPath = path.isEmpty
             ? ""
             : URL(fileURLWithPath: (path as NSString).expandingTildeInPath).path
@@ -1038,9 +951,8 @@ extension FileSyncManager {
 
         let error = await enqueueFileOperation { () -> Error? in
             do {
-                // One stat, before any I/O (matching transferItems): a parent that no longer
-                // exists on disk (provider unmounted or removed) fails the operation rather
-                // than surfacing a raw file-system error.
+                // One stat before any I/O, as in transferItems: a vanished parent (provider
+                // unmounted) fails cleanly rather than with a raw file-system error.
                 guard fm.fileExists(atPath: parentPath) else {
                     throw FileOperationError.destinationRootUnavailable
                 }
@@ -1060,26 +972,17 @@ extension FileSyncManager {
             Logger.shared.info("Created folder \(name) at \(path)")
             noteOwnWrite(atPath: createdURL.path)
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
-            // In History, in the registration's own turn (FR26).
+            // In History, in the registration's own turn.
             recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .newFolder, sourcePath: createdURL.path)])
         }
     }
 
-    /// Permanently deletes files or directories from disk.
-    /// Whether a `trashItem` failure is transient (the item is busy/locked or momentarily
-    /// permission-blocked) rather than the volume genuinely lacking a Trash. Only the latter should
-    /// be offered an unrecoverable permanent delete; a transient failure must stay retryable, since
-    /// silently upgrading it to a permanent delete could destroy a file a retry would have trashed.
-    /// Unknown/unsupported errors are treated as non-transient so a real Trash-less volume still
-    /// escalates (the pre-existing behavior).
     /// Whether a trash failure is macOS refusing this app permission, as opposed to the item
     /// being momentarily busy.
     ///
-    /// **A subset of ``isTransientTrashFailure``, deliberately, and it does not change what that
-    /// decides.** Both stay out of the permanent-delete escalation — offering to destroy a file
-    /// outright because the app was denied the Trash would be answering a permission problem with
-    /// an unrecoverable act. What this changes is only what the user is TOLD: a busy file is worth
-    /// retrying, a denied one is not, and the two used to arrive as the same sentence.
+    /// A subset of ``isTransientTrashFailure``, and it doesn't change what that decides: both stay
+    /// out of the permanent-delete escalation, since a denied Trash is no reason to destroy a file.
+    /// It changes only what the user is told: a busy file is worth retrying, a denied one is not.
     nonisolated static func isPermissionRefusal(_ error: Error) -> Bool {
         var current = error as NSError
         for _ in 0...4 {
@@ -1101,10 +1004,9 @@ extension FileSyncManager {
 
     /// Whether a provider is moving this item's bytes right now.
     ///
-    /// iCloud's own signals, which is all that is available without a file-provider entitlement —
-    /// the same two keys `FilingSurvey` reads, and the same limitation: a Dropbox or Drive item
-    /// mid-sync answers false here and is not covered. Nothing is claimed beyond what is
-    /// measurable, and a false answer only restores the previous behaviour for that item.
+    /// iCloud's own signals, all that is available without a file-provider entitlement (the two
+    /// keys `FilingSurvey` reads). A Dropbox or Drive item mid-sync answers false and isn't
+    /// covered; a false answer just leaves that item's handling unchanged.
     nonisolated static func midCloudTransfer(_ url: URL) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey,
                                                              .ubiquitousItemIsUploadingKey,
@@ -1114,21 +1016,17 @@ extension FileSyncManager {
             || values.ubiquitousItemIsDownloading == true
     }
 
-    /// Where the system Trash service put `url`, read out of the dictionary it answers with —
-    /// **not by asking that dictionary for the URL we passed it.**
+    /// Where the system Trash service put `url`, read out of the dictionary it answers with, not
+    /// by looking up the URL we passed.
     ///
-    /// `NSWorkspace.recycle` documents its keys as the URLs it was given, and in practice hands
-    /// back its own spelling of them: a standardised path, a `/private` prefix on a symlinked
-    /// root, a trailing slash on a directory. `URL` hashes and compares on the absolute string, so
-    /// any of those makes `moved[url]` nil over a file the service had just trashed — and the
-    /// caller then reads "the service refused too", parks the item to re-register it (a move that
-    /// now fails, because the item is in the Trash), and finally offers to PERMANENTLY DELETE a
-    /// file that is already recoverable in the Trash and no longer at the path being deleted.
+    /// `NSWorkspace.recycle` hands back its own spelling of its keys (standardised, a `/private`
+    /// prefix, a trailing slash on a folder), and `URL` compares on the absolute string. A missed
+    /// lookup would read as "the service refused too", and the caller would end up offering to
+    /// permanently delete a file already safe in the Trash.
     ///
-    /// Two readings, both sound for an answer about any number of items: the exact key, and a key
-    /// naming the same file once both sides are standardised and symlink-resolved. A third and
-    /// wider reading exists, and it lives in ``recycledSingle(_:using:)`` rather than here,
-    /// because it is sound only for a request of exactly one item.
+    /// Two readings, sound for any number of items: the exact key, and a key naming the same file
+    /// once both sides are standardised and symlink-resolved. A wider third reading, sound only for
+    /// a single item, is in ``recycledSingle(_:using:)``.
     nonisolated static func recycled(_ url: URL, in moved: [URL: URL]) -> URL? {
         if let exact = moved[url] { return exact }
         let wanted = url.standardizedFileURL.resolvingSymlinksInPath().path
@@ -1137,18 +1035,12 @@ extension FileSyncManager {
         }?.value
     }
 
-    /// Asks the system Trash service about ONE item and reads its answer.
+    /// Asks the system Trash service about one item and reads its answer.
     ///
-    /// **The request and the read are one call, and that is what makes the last reading sound.**
-    /// When exactly one item was asked about, a one-entry answer IS that item — the service
-    /// reports only what it moved — whatever spelling its key came back in. Written as a rule over
-    /// a dictionary alone that would be false: a caller asking about five items and getting one
-    /// entry back would have that one entry attributed to whichever URL it happened to ask about.
-    /// Keeping the two together means the precondition cannot drift away from the rule.
-    ///
-    /// The wide reading logs, because it is the one that cannot be proven from the key: a reader
-    /// auditing `~/sync-cloud.log` should be able to see that the service answered under a name
-    /// this app did not choose, rather than have it silently absorbed.
+    /// The request and the read are one call, which is what makes the last reading sound:
+    /// asked about exactly one item, a one-entry answer is that item, whatever spelling its key
+    /// has. Over a dictionary alone that would be false for a multi-item request. The wide reading
+    /// logs, since it can't be proven from the key.
     nonisolated static func recycledSingle(
         _ url: URL, using recycle: @Sendable ([URL]) async -> [URL: URL]) async -> URL? {
         let moved = await recycle([url])
@@ -1160,37 +1052,34 @@ extension FileSyncManager {
         return destination
     }
 
-    /// What `trashAfterReregistering` did. Three cases, because two of them are not "it failed"
-    /// and the caller has to tell them apart — one of them means the item is no longer at the path
-    /// the user knows it by, which no "nothing was touched" message may be shown over.
+    /// What `trashAfterReregistering` did. Three cases, because two aren't "it failed" and the
+    /// caller must tell them apart: one means the item is no longer at the path the user knows,
+    /// so no "nothing was touched" message may be shown over it.
     enum ReregisteredTrash {
         /// Reached the Trash. The URL is where it landed, when the platform reported one.
         case trashed(URL?)
         /// Nothing changed: the item is still at its original path, under its own name.
         case untouched
-        /// Parked to re-register it, and could NOT be put back. Intact at this path — a hidden
-        /// sibling of where it was — and nothing was deleted.
+        /// Parked to re-register it, and couldn't be put back. Intact at this path, a hidden
+        /// sibling of where it was; nothing was deleted.
         case parkedAndNotRestored(URL)
     }
 
-    /// The originals a move's source cleanup parked and could not put back, collected for the file
-    /// operation that ran the move (FR36).
+    /// The originals a move's source cleanup parked and couldn't put back, collected for the file
+    /// operation that ran the move.
     ///
-    /// **Why a task-local, and not a return value.** The strand happens inside `safeMoveItem`, in
-    /// the cleanup AFTER the item has landed, and the move is then a success the caller must record
-    /// and make undoable — so it cannot throw, and its return value is already the replaced item's
-    /// backup, read by every one of its many callers. Before this the only trace was a log line:
-    /// the Moved banner showed while a hidden `.synccloud-trash-retry-<UUID>` full-size duplicate
-    /// sat in the source folder. `enqueueFileOperation` binds one of these around every operation
-    /// and, when it comes back non-empty, presents ``SyncError/movedButOriginalParked(originalPath:parkedPath:additional:)``,
-    /// as the delete path presents its own strand.
+    /// A task-local, not a return value: the strand happens after the item landed, so the move is
+    /// a success that can't throw, and its return value is already the replaced item's backup.
+    /// `enqueueFileOperation` binds one around every operation and, if anything was recorded,
+    /// presents ``SyncError/movedButOriginalParked(originalPath:parkedPath:additional:)``, so a
+    /// hidden `.synccloud-trash-retry-<UUID>` duplicate never sits silently behind a Moved banner.
     ///
     /// Reaches the operation's own task and its child tasks (bulk sync's task group), not a
-    /// `Task.detached` started inside it; a strand there keeps only its log line, as before.
+    /// `Task.detached` started inside it; a strand there is only logged.
     final class ParkedSourceLeftovers: @unchecked Sendable {
         @TaskLocal static var current: ParkedSourceLeftovers?
-        /// Set by a move-UNDO around its own body (U7): what its cleanup parks is the item it
-        /// moved back from, and the alert must not say a move "reached its destination".
+        /// Set by a move-undo around its own body: what its cleanup parks is the item it moved
+        /// back from, and the alert must not say a move "reached its destination".
         @TaskLocal static var undoing = false
         private let lock = NSLock()
         private var entries: [(original: URL, parked: URL, undoing: Bool)] = []
@@ -1210,54 +1099,31 @@ extension FileSyncManager {
     /// Trashes an item that a permission refusal blocked, by first moving it inside its own
     /// directory and putting it straight back.
     ///
-    /// **Measured 2026-08-30, and the second measurement is the important one.** At 18:11–19:26,
-    /// twelve of twelve long-standing files under `~/Documents` — a tree iCloud syncs, so the Trash
-    /// they belong in is `~/Library/Mobile Documents/.Trash` — refused BOTH ways to trash:
-    /// `trashItem` from this process and `NSWorkspace.recycle` from the system service, each
-    /// `NSCocoaErrorDomain 513`, while newly created files in the same folders trashed fine.
-    /// Nothing about the items explained it: user-owned, mode `700`, no `chflags`, no deny ACL,
-    /// writable parent, fully materialised rather than evicted placeholders, `access(2)` granting
-    /// every permission the move needs — and a plain `rename(2)` of the very same item into that
-    /// very same Trash directory succeeding. An ad-hoc-signed app bundle holding no privacy grants
-    /// at all trashed files in the folder that refused them, so it was never TCC either.
+    /// The file-provider layer both Trash APIs share can enter a transient state in which existing
+    /// files under an iCloud-synced tree refuse both `trashItem` and `NSWorkspace.recycle`
+    /// (`NSCocoaErrorDomain 513`), though nothing about the item explains it and new files trash
+    /// fine. It clears on its own. While it lasts, moving the item re-registers it, and the
+    /// ordinary `trashItem` then succeeds.
     ///
-    /// **Then at 20:30 the same probe found 24 of 24 trashable, across three subtrees, two of
-    /// which had never been touched.** So this is a TRANSIENT state in the file-provider layer the
-    /// two Trash APIs share — it clears on its own — and not, as the first version of this comment
-    /// claimed, a permanent property of items registered long ago. What cleared it was not
-    /// established; the app was quit and reinstalled at 19:32, which is a candidate and unverified.
-    /// Age is what the refusal *correlated* with in one window, not what causes it.
+    /// This parks the item under a hidden sibling name and moves it straight back, so it ends where
+    /// it began (same name, same inode; `rename(2)` keeps mtime), and it reaches the real Trash with
+    /// real put-back metadata and the `(original, trashed)` pair ⌘Z relies on. A hand-rolled move
+    /// into `.Trash` would give neither. Tried last, as the only attempt that touches the item.
     ///
-    /// While it is in force, moving the item re-registers it and the ordinary `trashItem` then
-    /// succeeds (5 of 5 on the reported tree). This parks it under a hidden sibling name and moves
-    /// it right back, so the item ends where it began — same name, same inode, `rename(2)` leaves
-    /// mtime alone — and the Trash it reaches is the real one, with real put-back metadata and the
-    /// `(original, trashed)` pair ⌘Z already relies on. A hand-rolled move into `.Trash` would
-    /// reach neither.
-    ///
-    /// **Last, because it is the only one of the three attempts that touches the item.**
-    /// `trashItem` and the system service are both tried first and leave it alone.
-    ///
-    /// **Whether it should be attempted at all is the CALLER's question, not this function's** —
-    /// see ``FileSyncManager/isMidCloudTransfer``. The delete path declines it for an item a
-    /// provider is mid-transfer on; the move path must not, because there `.untouched` means
-    /// `removeItem`. Deciding here would have applied one answer to two callers whose alternatives
-    /// are a retryable refusal and a permanent deletion.
+    /// Whether to attempt it is the caller's question (``FileSyncManager/isMidCloudTransfer``).
+    /// The delete path declines it for an item mid-transfer; the move path must not, because there
+    /// `.untouched` means `removeItem`.
     nonisolated static func trashAfterReregistering(
         _ url: URL, fileManager fm: FileManaging) -> ReregisteredTrash {
-        // Deliberately NOT `.tmp_<UUID>`. That is `OrphanSweeper`'s reap pattern, and for the
-        // width of this function the name belongs to one of the user's own documents — a sweep
-        // that mistook it for build debris would trash a real file under a name nobody chose.
-        // The cost of a private prefix is that nothing reaps it, which is why the one path that
-        // can leave it behind reports itself rather than returning a bare failure.
+        // **Not `.tmp_<UUID>`**, `OrphanSweeper`'s reap pattern: here the name belongs to a user's
+        // document, and a sweep would trash it under a name nobody chose. Nothing reaps this
+        // prefix, so the one path that can leave it behind reports itself.
         let parked = url.deletingLastPathComponent()
             .appendingPathComponent(".synccloud-trash-retry-\(UUID().uuidString)")
         do {
             try fm.moveItem(at: url, to: parked)
         } catch {
-            // Not silent: without this line the log shows the first refusal and nothing about the
-            // retry, so a reader cannot tell whether it ran. Same reason the refusal above is
-            // logged with its codes rather than Foundation's sentence.
+            // Logged, so the log shows the retry ran, with codes rather than Foundation's sentence.
             Logger.shared.warning(
                 "Delete: \(url.path) could not be moved inside its own folder to re-register it "
                 + "for the Trash, so the refusal stands — \(Self.trashFailureDiagnosis(error))")
@@ -1266,10 +1132,9 @@ extension FileSyncManager {
         do {
             try fm.moveItem(at: parked, to: url)
         } catch {
-            // The one step that can leave the item under a name the user never chose. It is a
-            // same-directory rename back to the name it held a moment ago, so a failure here is
-            // close to impossible — and precisely because of that, it must be loud AND must reach
-            // the user, who otherwise goes looking for a file that is sitting right there hidden.
+            // The one step that can leave the item under a name the user never chose. Nearly
+            // impossible (a same-folder rename back), so it must be loud and reach the user, who
+            // would otherwise hunt for a file sitting there hidden.
             Logger.shared.error(
                 "Delete: \(url.path) was parked as \(parked.lastPathComponent) to re-register it "
                 + "with the Trash and could NOT be moved back — the file is intact under that "
@@ -1291,27 +1156,22 @@ extension FileSyncManager {
 
     /// The re-registration retry, wrapped for the move primitives' source cleanup.
     ///
-    /// **Those two call sites fall back to `removeItem` — the one unrecoverable branch of a move.**
-    /// The refusal above blocks them exactly as it blocks a delete, so under it a move would
-    /// silently destroy the original instead of trashing it. Spending the retry there first is the
-    /// difference between a recoverable move and an unrecoverable one.
+    /// Both call sites fall back to `removeItem`, a move's one unrecoverable branch. The
+    /// refusal above blocks them as it blocks a delete, so without the retry a move would destroy
+    /// the original instead of trashing it.
     ///
-    /// Returns `true` when the caller must NOT fall through to that fallback: either the source
-    /// reached the Trash, or it is parked, in which case `removeItem` would be aimed at a path
-    /// that no longer holds it. Only for a permission refusal — a busy item is better served by
-    /// the retry the caller already gets, the same discipline `deleteItems` applies.
+    /// Returns `true` when the caller must not fall back: the source reached the Trash, or it is
+    /// parked and `removeItem` would hit an empty path. Only for a permission refusal; a busy item
+    /// gets the caller's own retry, as in `deleteItems`.
     nonisolated static func retriedSourceCleanupTrash(_ sourceURL: URL,
                                                       after refusal: Error,
                                                       fileManager fm: FileManaging,
                                                       context: String) -> Bool {
         guard isPermissionRefusal(refusal) else { return false }
-        // **The delete path's mid-transfer refusal deliberately does NOT reach here**, and this is
-        // the one place that has to be said. There, declining to park costs a retryable refusal
-        // and the file stays where it is. Here, not parking returns `false` and sends the caller
-        // to `removeItem` — the unrecoverable branch named above — so declining would trade a file
-        // that reaches the Trash for one destroyed outright, which is strictly worse for exactly
-        // the item that refusal exists to protect. `isMidCloudTransfer` lives on the manager and
-        // is read by `deleteItems`; nothing static can pick it up by accident.
+        // **The delete path's mid-transfer refusal must not reach here.** There, declining to park
+        // leaves a retryable refusal. Here it returns `false` and sends the caller to
+        // `removeItem`, destroying the very item that refusal protects. `isMidCloudTransfer`
+        // lives on the manager and is read by `deleteItems`, so nothing static picks it up.
         switch trashAfterReregistering(sourceURL, fileManager: fm) {
         case .trashed:
             Logger.shared.info(
@@ -1323,8 +1183,8 @@ extension FileSyncManager {
                 "\(context): the original at \(sourceURL.path) could not be moved to the "
                 + "Trash, was parked as \(parked.lastPathComponent) to retry that, and could "
                 + "not be moved back — it is intact under that name and was NOT deleted")
-            // And told to the user, not only the log (FR36): the move has landed, so it returns
-            // as a success, and the operation that ran it reports the leftover once it ends.
+            // Told to the user too: the move landed and returns a success, and the operation that
+            // ran it reports the leftover when it ends.
             ParkedSourceLeftovers.current?.record(original: sourceURL, parked: parked)
             return true
         case .untouched:
@@ -1334,10 +1194,9 @@ extension FileSyncManager {
 
     /// The domain and code of an error and everything under it, for the log.
     ///
-    /// **The codes, not the sentence.** "you don't have permission to access it" is the same
-    /// string for a TCC denial, a deny-delete ACL and a read-only mount; `NSCocoaErrorDomain 513`
-    /// wrapping `NSPOSIXErrorDomain 1` tells the next reader which. Bounded, like the walks above,
-    /// so a cyclic chain cannot spin.
+    /// The codes, not the sentence: "you don't have permission" is the same for a TCC denial, a
+    /// deny-delete ACL and a read-only mount, and the codes tell them apart. Bounded, so a cyclic
+    /// chain can't spin.
     nonisolated static func trashFailureDiagnosis(_ error: Error) -> String {
         var parts: [String] = []
         var current = error as NSError
@@ -1349,12 +1208,14 @@ extension FileSyncManager {
         return parts.joined(separator: " ← ") + ": \(error.localizedDescription)"
     }
 
+    /// Whether a `trashItem` failure is transient (busy, locked or briefly permission-blocked)
+    /// rather than a volume with no Trash. Only the latter may be offered a permanent delete; a
+    /// transient failure must stay retryable, or a file a retry would have trashed could be
+    /// destroyed. Unknown errors count as not transient, so a Trash-less volume still escalates.
     nonisolated static func isTransientTrashFailure(_ error: Error) -> Bool {
-        // Walk the NSUnderlyingError chain, not just the outermost error: FileManager routinely
-        // reports a Cocoa-domain error that WRAPS the POSIX cause, so a merely-busy item could
-        // arrive here as a generic Cocoa code with EBUSY underneath. Reading only the top level
-        // classified that as non-transient and escalated it to the permanent-delete prompt — the
-        // exact upgrade this function exists to prevent. Bounded so a cyclic chain can't spin.
+        // Walk the underlying-error chain: FileManager wraps the POSIX cause in a Cocoa error, so
+        // a busy item can arrive as a generic code with EBUSY beneath, and reading only the top
+        // would escalate it to the permanent-delete prompt. Bounded so a cycle can't spin.
         var current = error as NSError
         for _ in 0...4 {
             if current.domain == NSPOSIXErrorDomain,
@@ -1372,101 +1233,56 @@ extension FileSyncManager {
     }
 
     /// The one spelling in which a removal gate's answer is compared with the paths it was asked
-    /// about — on BOTH sides of that exchange, and inside the gate bodies themselves.
+    /// about, on both sides and inside the gate bodies.
     ///
-    /// `URL(fileURLWithPath:).path` deliberately, because it is exactly the transform the removal
-    /// itself applies on the way to `trashItem`/`removeItem`: whatever this folds together, the
-    /// syscall folds together too. Measured: it strips a trailing slash (`"/a/Folder/"` →
-    /// `"/a/Folder"`), expands `~`, and makes a relative path absolute against the process's
-    /// working directory; it leaves `//` and `/./` alone, and so does the removal.
+    /// `URL(fileURLWithPath:).path`, because it is the transform the removal itself applies on the
+    /// way to `trashItem`/`removeItem`: it strips a trailing slash, expands `~` and makes a
+    /// relative path absolute, and leaves `//` and `/./` alone, as the removal does.
     ///
-    /// It exists because the two sides did NOT always hold one spelling and matched by exact
-    /// string equality anyway. `deleteItems` asks the gate about the caller's own path strings the
-    /// first time and about `trashFailures.map { $0.path }` — already round-tripped through `URL` —
-    /// the second, immediately before the unrecoverable branch. A mismatch there failed OPEN: the
-    /// refusal missed the `contains` and the item was destroyed under a banner saying it had been
-    /// kept. Nothing in the shipped scan-walk paths produces such a spelling today; that is what
-    /// made it an unstated invariant rather than a guard, and this is the guard.
+    /// **A spelling mismatch fails open:** `deleteItems` asks the gate about the caller's strings
+    /// first and about URL-round-tripped paths just before the unrecoverable branch, and a refusal
+    /// that missed the match would let the item be destroyed under a banner saying it was kept.
     nonisolated static func canonicalRemovalPath(_ path: String) -> String {
         URL(fileURLWithPath: path).path
     }
 
-    /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
-    /// Trash-less volumes). Returns the number of items actually removed — 0 when everything
-    /// failed or a permanent delete was declined, and short of the batch after a mid-batch
-    /// cancel — so callers can tell partial success from full and never report a false success.
-    /// Nested paths pruned in favor of an ancestor count as removed via that ancestor (once).
+    /// Moves the given paths to the Trash, falling back to a confirmed permanent delete only on
+    /// Trash-less volumes. Returns the number of items removed (0 when everything failed or a
+    /// permanent delete was declined, short of the batch after a cancel), so callers never report
+    /// a false success. Nested paths pruned in favour of an ancestor count once, via it.
     @discardableResult
-    /// - Parameter reportsNothingToDo: Whether to raise a banner when NONE of the paths were still
-    ///   on disk. True for the user's direct delete gesture, where silence is indistinguishable
-    ///   from the click being ignored. False for the internal callers (duplicate resolve/merge,
-    ///   the review's trash), which interpret a zero return themselves and post their own,
-    ///   better-scoped message — a low-level "already gone" would talk over them.
-    /// - Parameter removalGate: A last-moment re-verification hook for callers whose delete rests
-    ///   on a claim about the paths' CONTENT (the duplicates flows: "this copy is still the copy
-    ///   the scan grouped"). Called with the paths about to be removed and returns the subset to
-    ///   REFUSE — those are left on disk and counted in `DeleteOutcome.refusedByGate`. Invoked at
-    ///   the two points where user-paced time can invalidate a verdict formed before this call:
-    ///   once when the serialized operation actually STARTS (the op queue can hold this delete
-    ///   behind a minutes-long operation), and again after a confirmed permanent delete, before
-    ///   anything is destroyed unrecoverably (the confirmation dialog is open for as long as the
-    ///   user leaves it). The gate is the caller's own verifier, so it also owns saying which
-    ///   paths it refused and why; nil (every non-duplicates caller) changes nothing.
+    /// - Parameter reportsNothingToDo: Whether to raise a banner when none of the paths were still
+    ///   on disk. True for the user's own delete, where silence looks like an ignored click. False
+    ///   for internal callers (duplicates, the review's trash), which post their own message.
+    /// - Parameter removalGate: A last-moment re-check for callers whose delete rests on a claim
+    ///   about the paths' content (the duplicates flows: "this is still the copy the scan
+    ///   grouped"). Given the paths about to go, it returns those to refuse, which stay on disk and
+    ///   count in `DeleteOutcome.refusedByGate`. Called where user-paced time can stale a verdict:
+    ///   when the queued operation starts, and after a confirmed permanent delete, before anything
+    ///   is destroyed. The gate says which paths it refused and why; `deleteItems` logs the count.
+    ///   Nil changes nothing.
     ///
-    ///   **Per-path detail is the gate's to give, and it is not obliged to.** Both shipped gates
-    ///   log every path they refuse, but nothing here requires a caller-supplied one to, so
-    ///   `deleteItems` logs the COUNT itself — otherwise a wholly refused batch leaves no record
-    ///   at this level at all and the user's delete gesture reads, in the log, as ignored.
-    ///
-    ///   **Once per invocation, over the WHOLE list — not once per path immediately before its own
-    ///   removal.** Stated because it is the difference between what this guarantees and what it
-    ///   could be read as guaranteeing: a path late in a large batch is removed some way after the
-    ///   verdict that cleared it, and for the duplicates gate that verdict costs a folder re-walk
-    ///   (~0.7 s per 40k-node folder), so a big batch's first group can be seconds old by the time
-    ///   its own `trashItem` runs.
-    ///
-    ///   That residual is ACCEPTED, and the line is drawn where it is for a reason: everything
-    ///   between the gate call and the removals is machine-paced — one `fileExists` and one
-    ///   `trashItem` per path, inside a single serialized operation, with no user interaction and
-    ///   nothing else able to run on the queue. The two windows this hook exists for are
-    ///   user-UNBOUNDED (a queued operation of arbitrary length, a modal sheet left open over
-    ///   lunch), which is a different order of exposure, not a longer one of the same kind.
-    ///   Re-verifying per path would close the machine-paced remainder at the cost of running each
-    ///   group's whole verification once per removal path in it — and the verification is itself
-    ///   the slow thing, so a batch would spend more elapsed time inside the gate than the ageing
-    ///   it removes. `theRemovalGateRunsAtOperationStartAndRefusedPathsStay` pins this shape so a
-    ///   change to it is a deliberate one.
-    ///
-    ///   The merge is the exception worth knowing: its folds are one group's redundant copies, so
-    ///   its list is short and its per-fold verification is one walk of that copy.
-    /// - Parameter restoreUndoHandback: Takes the restore-undo registration away from this method
-    ///   and hands the caller the `(original, Trash backup)` pairs instead — the exact arguments
-    ///   `registerRestoreItems` would have been given, already filtered to the items that really
-    ///   reached the Trash. For ONE caller and one reason: a merge must reverse as a single ⌘Z,
-    ///   which means its copy-undo and its restore-undo have to be registered inside one
-    ///   `beginUndoGrouping`/`endUndoGrouping` pair — and that pair may not be held open across an
-    ///   await (NSUndoManager grouping is manager-global, so anything else registering in the
-    ///   window nests into the merge's step). The only way to have both is for this method to stop
-    ///   registering mid-await and let the caller register both, synchronously, once it is done
-    ///   awaiting. `nil` — every other caller — keeps registering here exactly as before.
-    ///
-    ///   The pairs are inert data: `registerRestoreItems` records no snapshot at registration
-    ///   time, so deferring it changes nothing about what the undo will do. What the caller owes
-    ///   in exchange is that it register them, in the same main-actor turn this returns in, or the
-    ///   trash it just did has no undo at all.
+    ///   Called once over the whole list, not per path before its removal. Between the gate and the
+    ///   removals is machine-paced time (a stat and a trash per path, no user interaction); the
+    ///   hook exists for the user-unbounded windows. Re-checking per path would cost more than the
+    ///   ageing it removes. `theRemovalGateRunsAtOperationStartAndRefusedPathsStay` pins this.
+    /// - Parameter restoreUndoHandback: Hands the caller the `(original, Trash backup)` pairs
+    ///   (filtered to items that reached the Trash) instead of registering the restore-undo here.
+    ///   For the merge, which must reverse as one ⌘Z: its copy-undo and restore-undo must share
+    ///   one undo group, and a group can't stay open across an await (grouping is manager-global).
+    ///   **The caller must register them in the same main-actor turn this returns in**, or the
+    ///   trash has no undo. `registerRestoreItems` records no snapshot, so deferring is safe.
     /// - Parameter resumingProgress: The caller's own run, put back on `activeProgress` when this
-    ///   delete takes its progress down. For a caller whose run CONTAINS the delete (the merge):
-    ///   `activeProgress` is the write lock, the capsule and the ⌘Z gate at once, and clearing it
-    ///   here left the rest of that run — its undo registration and identity walk — unlocked.
-    ///   Named rather than remembered: putting back whatever this delete replaced could revive a
-    ///   finished run's progress, and with it a lock nothing would ever clear.
+    ///   delete takes its progress down, for a run that contains the delete (the merge).
+    ///   `activeProgress` is the write lock, the capsule and the ⌘Z gate at once. Named, not
+    ///   remembered: restoring whatever was replaced could revive a finished run's lock forever.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
                             reportsNothingToDo: Bool = false,
                             removalGate: (@Sendable ([String]) async -> Set<String>)? = nil,
                             restoreUndoHandback: (([URL], [URL?]) -> Void)? = nil,
                             resumingProgress: Progress? = nil) async -> DeleteOutcome {
-        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
-        // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
+        // Verify All's exclusion, as in syncFile: a delete mid-verify could remove a file as it's
+        // hashed.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before deleting items")
             return DeleteOutcome()
@@ -1479,18 +1295,12 @@ extension FileSyncManager {
         let recycle = trashViaWorkspace
         let midTransfer = isMidCloudTransfer
 
-        // Prune nested paths to avoid redundant operations on children if parent is trashed.
+        // Prune nested paths: a trashed parent takes its children with it.
         //
-        // A pruned path is not spared — it is destroyed WITH the ancestor that swallowed it — so
-        // it must still be verified, and its ancestor must answer for it. Dropping it from the
-        // gate's input silently removed it from the verification: the duplicates gate's
-        // `guard !groupPaths.isEmpty else { continue }` skipped the whole group, and its
-        // fail-closed `unattributed` block is computed from the already-pruned list, so it could
-        // not see the omission either. `swallowed` keeps the (child, ancestor) pairs so both
-        // halves can be repaired below. Not reachable from the shipped duplicate finder
-        // (`coveredRoots` prevents nesting between the groups it emits), but
-        // `applyRecommendedDuplicates` is `public` and takes caller-supplied groups — the same
-        // reachability standard the two gate bodies' fail-closed blocks were written to.
+        // A pruned path isn't spared but destroyed with its ancestor, so it must still go to the
+        // gate, and a refusal of it must refuse the ancestor. `swallowed` keeps the (child,
+        // ancestor) pairs for that. The shipped duplicate finder never nests groups, but
+        // `applyRecommendedDuplicates` is `public` and takes caller-supplied groups.
         let sortedPaths = paths.sorted { $0.count < $1.count }
         var prunedPaths: [String] = []
         var acceptedPaths = Set<String>()
@@ -1512,8 +1322,7 @@ extension FileSyncManager {
         let total = Int64(prunedPaths.count)
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            // What happens: a no-Trash volume asks first, in its own alert, before anything is
-            // deleted outright.
+            // Accurate: a no-Trash volume asks first, in its own alert, before deleting outright.
             progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "item")) to the Trash"
             progress.isCancellable = true
             progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
@@ -1521,7 +1330,7 @@ extension FileSyncManager {
 
         let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int, stoppedShort: Bool) in
             guard self != nil else { return ([], [], 0, 0, false) }
-            // Publish progress only once this operation actually starts (see copyItems above).
+            // Publish progress only once this operation starts (see transferItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
@@ -1529,22 +1338,16 @@ extension FileSyncManager {
             var trashedItems: [(original: URL, trashed: URL?, reachedTrash: Bool)] = []
             var trashFailures: [URL] = []
             var refused = 0
-            // Set only when the loop leaves items unvisited at a Stop — a Stop pressed during the
-            // last item, or after it, stopped nothing.
+            // Set only when a Stop leaves items unvisited; a Stop during or after the last item
+            // stopped nothing.
             var stoppedShort = false
 
-            // The queue wait is over and the removals are about to run: let the caller's gate
-            // re-verify its claim NOW, not when it formed it — a long operation queued ahead of
-            // this one puts its whole duration between the caller's checks and this point.
+            // The queue wait is over: let the caller's gate re-verify its claim now, since a long
+            // operation queued ahead put its whole duration between the caller's check and here.
+            // Matched on `canonicalRemovalPath`, as an unmatched refusal fails open.
             //
-            // Matched on `canonicalRemovalPath`, not on the raw strings: the gate answers in
-            // whatever spelling it holds, and an unmatched refusal here fails OPEN — the item is
-            // removed under a banner saying it was kept. See that function for the measured
-            // spellings that differ.
-            // Asks the gate about `targets` AND about every nested path pruned in their favour,
-            // then condemns any target whose swallowed child the gate refused: removing the
-            // ancestor destroys the child, so a refusal that stopped only at the child would be a
-            // refusal in name and a removal in fact.
+            // Asks about `targets` and every nested path pruned in their favour, then refuses any
+            // target whose swallowed child was refused: removing the ancestor destroys the child.
             func gateRefusals(removing targets: [String]) async -> Set<String> {
                 guard let removalGate else { return [] }
                 var ask = targets
@@ -1577,23 +1380,17 @@ extension FileSyncManager {
                     progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
                 }
                 if gateRefusedKeys.contains(FileSyncManager.canonicalRemovalPath(path)) {
-                    // Refused by the gate — leave it on disk. Progress still advances below so
-                    // the bar completes; the gate has already surfaced the refusal.
+                    // Refused by the gate: leave it on disk. Progress still advances so the bar
+                    // completes; the gate has reported the refusal.
                     await MainActor.run {
                         progress?.completedUnitCount = Int64(index + 1)
                     }
                     continue
                 }
-                // **`fileExists` follows the link, and a dangling one is still a directory
-                // entry.** Asked alone, it answers `false` for a symlink whose target has been
-                // deleted or lives on an unmounted volume — so the item the user selected and
-                // pressed Delete on was skipped here, with no error, no banner and no place in the
-                // removed count. It stayed on disk and the operation reported success without it.
-                //
-                // `attributesOfItem` reports on the LINK, so it succeeds where the follow fails —
-                // the same probe, for the same reason, as `setAsideUnreadable`, whose own comment
-                // says it "keeps the dangling-symlink case refusing — the link is still a
-                // directory entry". Asked second, so the ordinary path costs nothing extra.
+                // `fileExists` follows the link, and a dangling one is still an entry. Alone it
+                // would skip a dangling symlink the user chose to delete, silently.
+                // `attributesOfItem` reports on the link itself, as in `setAsideUnreadable`. Asked
+                // second, so the ordinary path costs nothing extra.
                 if fm.fileExists(atPath: path) || (try? fm.attributesOfItem(atPath: path)) != nil {
                     let url = URL(fileURLWithPath: path)
                     var trashedURL: NSURL? = nil
@@ -1601,18 +1398,13 @@ extension FileSyncManager {
                         try fm.trashItem(at: url, resultingItemURL: &trashedURL)
                         trashedItems.append((original: url, trashed: trashedURL as? URL, reachedTrash: true))
                     } catch {
-                        // **The refusal gets a second, out-of-process attempt before it becomes a
-                        // failure.** `trashItem` moves the item from THIS process, so it needs this
-                        // process to be allowed to write wherever that item's Trash is — for a file
-                        // kept in iCloud Drive, `~/Library/Mobile Documents/.Trash`. Measured on the
-                        // reported file: the item and its attributes are fine, and Full Disk Access
-                        // did not change the answer, so asking the system to perform the move is
-                        // the remaining difference. Only on a PERMISSION refusal: a busy item is
-                        // better served by the retry the caller already gets, and the Trash-less
-                        // volume keeps its permanent-delete confirmation untouched below.
-                        // Three attempts, in increasing order of how much they disturb the
-                        // item, and a flag rather than a longer `else if` chain because the last
-                        // one has three outcomes of its own — two of which are resolutions.
+                        // A permission refusal gets an out-of-process attempt before it fails.
+                        // `trashItem` needs this process to write to the item's Trash (for iCloud
+                        // Drive, `~/Library/Mobile Documents/.Trash`); the system service may be
+                        // allowed where it isn't. Only for a permission refusal: a busy item gets
+                        // the caller's retry, and a Trash-less volume keeps its permanent-delete
+                        // confirmation below. Attempts go in increasing order of disturbance; a
+                        // flag, because the last has three outcomes, two of them resolutions.
                         var resolved = false
                         if Self.isPermissionRefusal(error) {
                             if let moved = await Self.recycledSingle(url, using: recycle) {
@@ -1622,15 +1414,12 @@ extension FileSyncManager {
                                 trashedItems.append((original: url, trashed: moved, reachedTrash: true))
                                 resolved = true
                             } else if midTransfer(url) {
-                                // **The third attempt is declined while the provider is still
-                                // moving this item's bytes.** The refusal it answers is the same
-                                // `NSFileWriteNoPermissionError` an item its daemon is mid-write on
-                                // throws, so the error cannot tell the two apart and the item's
-                                // transfer state has to. Renaming a file out from under a sync
-                                // that is halfway through it invites the provider to record a
-                                // delete-and-create where there was neither — and here, unlike the
-                                // move path, the cost of not trying is only the retryable refusal
-                                // below, which leaves the file exactly where it is.
+                                // No third attempt while the provider is moving this item's
+                                // bytes. A mid-write item throws the same
+                                // `NSFileWriteNoPermissionError`, so only its transfer state tells
+                                // them apart. Renaming it mid-sync invites the provider to record a
+                                // delete-and-create; here, unlike the move path, not trying costs
+                                // only a retryable refusal with the file left where it is.
                                 Logger.shared.warning(
                                     "Delete: \(path) was refused the Trash while its provider is "
                                     + "still transferring it, so it was left where it is rather "
@@ -1646,9 +1435,8 @@ extension FileSyncManager {
                                     trashedItems.append((original: url, trashed: destination, reachedTrash: true))
                                     resolved = true
                                 case .parkedAndNotRestored(let parkedURL):
-                                    // Nothing was deleted, but the item is no longer at the path
-                                    // the user knows it by — so the ordinary refusal below, which
-                                    // says the file is untouched at that path, would be a lie.
+                                    // Nothing was deleted, but the item is no longer at its path,
+                                    // so the ordinary "untouched" refusal below would be false.
                                     taskErrors.append(SyncError.trashParkedAndNotRestored(
                                         originalPath: path, parkedPath: parkedURL.path))
                                     resolved = true
@@ -1658,17 +1446,11 @@ extension FileSyncManager {
                             }
                         }
                         if !resolved, Self.isTransientTrashFailure(error) {
-                            // Busy / locked / permission-blocked right now — common for a cloud file
-                            // a provider daemon is mid-write, or an evicted placeholder. Report it as
-                            // a retryable failure rather than escalating to the permanent-delete
-                            // prompt: a retry may well move it to the Trash recoverably. A genuinely
-                            // Trash-less volume throws an unsupported/unknown error, which still falls
-                            // through to `trashFailures` and the confirmation prompt below.
-                            //
-                            // **Logged with the path AND the underlying code**, which it was not.
-                            // A refusal reached the user as Foundation's sentence and left nothing
-                            // in the log he audits — so diagnosing one meant reproducing it. The
-                            // chain is walked because Foundation wraps the POSIX cause.
+                            // Busy, locked or permission-blocked right now (a cloud file
+                            // mid-write, an evicted placeholder): a retryable failure, never the
+                            // permanent-delete prompt, since a retry may trash it recoverably. A
+                            // Trash-less volume throws an unknown error and still reaches
+                            // `trashFailures` below. Logged with the path and underlying codes.
                             Logger.shared.warning(
                                 "Delete: the system refused to move \(path) to the Trash — "
                                 + "\(Self.trashFailureDiagnosis(error))")
@@ -1694,15 +1476,10 @@ extension FileSyncManager {
                 }
 
                 if confirmed {
-                    // The dialog was user-paced: minutes can sit between the trash attempts above
-                    // and this confirmation, and what follows is the UNRECOVERABLE branch. Re-run
-                    // the caller's gate over exactly the paths about to be destroyed, and refuse
-                    // the ones whose claim no longer holds — a stale verdict must never feed a
-                    // permanent delete.
-                    //
-                    // The paths handed over here are URL round-tripped, which the caller's own
-                    // spelling need not be — the mismatch this canonical match exists for, and the
-                    // place it mattered most: an unmatched refusal let `removeItem` run.
+                    // The dialog is user-paced, and what follows is unrecoverable. Re-run the
+                    // caller's gate over exactly the paths about to be destroyed: **a stale verdict
+                    // must never feed a permanent delete.** These paths are URL round-tripped, so
+                    // the canonical match matters most here.
                     var toRemove = trashFailures
                     if removalGate != nil {
                         let refusedNow = await gateRefusals(removing: toRemove.map { $0.path })
@@ -1720,10 +1497,8 @@ extension FileSyncManager {
                         }
                     }
                 } else {
-                    // Declining appended to NEITHER list, so the run ended indistinguishable from
-                    // one with nothing to do — silently, or under the "already gone" banner below
-                    // when other selected paths had genuinely vanished. Both are false: these
-                    // items are on disk and untouched, by the user's own choice.
+                    // Counted, so the run isn't reported as having nothing to do or as "already
+                    // gone": these items are on disk, untouched, by the user's choice.
                     declined = trashFailures.count
                 }
             }
@@ -1742,19 +1517,15 @@ extension FileSyncManager {
             }
         }
         
-        // Show the success banner for whatever was removed, INDEPENDENTLY of any failure below: a
-        // transiently-busy item in a larger batch must not hide the "Moved N items to the Trash"
-        // banner, with its ⌘Z, for the items that did trash (already registered for undo above).
+        // The success banner for whatever was removed, independent of any failure below, so one
+        // busy item doesn't hide the banner and its ⌘Z for the items that did trash.
         if !items.isEmpty {
-            // Distinguish recoverable (Trash) from irreversible (permanent) deletes: a permanent
-            // delete happens only on Trash-less volumes after the user confirmed, and cannot be
-            // undone — it deserves a named, warning-level record, not a lumped debug line.
+            // Tell recoverable from permanent: a permanent delete (Trash-less volume, confirmed)
+            // can't be undone and gets a named warning line.
             //
-            // **Told apart by whether the item reached the Trash, not by whether a location came
-            // back** (RD2): the Trash can take an item and report no location for it
-            // (`trashAfterReregistering`'s `.trashed(nil)`, or `trashItem` leaving its result
-            // nil). Such an item is recoverable from the Trash by hand; only the location is
-            // missing, so ⌘Z cannot restore it, and calling it permanently deleted was false.
+            // Decided by whether the item reached the Trash, not whether a location came back.
+            // The Trash can take an item without reporting where (`.trashed(nil)`); it is
+            // recoverable by hand, though ⌘Z can't restore it, so it isn't "permanently deleted".
             let permanentlyDeleted = items.filter { !$0.reachedTrash }
             let trashedWithoutLocation = items.filter { $0.reachedTrash && $0.trashed == nil }
             if !trashedWithoutLocation.isEmpty {
@@ -1772,70 +1543,49 @@ extension FileSyncManager {
                 }
             }
             let name = items.first?.original.lastPathComponent ?? "item"
-            // Undoable only when EVERY removed item went to the Trash — the restore undo can bring
-            // back only the trashed subset, so a mixed batch (some permanently deleted on a
-            // Trash-less volume) must not offer an Undo that would silently leave the permanent
-            // deletions in place.
+            // Undoable only when every removed item went to the Trash: the restore brings back only
+            // the trashed ones, and an Undo must not silently leave permanent deletions in place.
             let deleted = Self.removalBannerText(count: items.count, firstName: name,
                                                  anyPermanent: !permanentlyDeleted.isEmpty)
-            // A batch can both remove some items and keep others the user declined to destroy.
-            // Reporting only the removals would leave them believing the kept ones went too.
+            // Name the items the user declined to destroy, or they'd think those went too.
             let kept = result.declined == 0 ? "" :
                 " — kept \(result.declined.formatted()) that can’t be moved to the Trash"
-            // Not with a handback: the caller registers the undo after this returns, so an offer
-            // made now points at whatever step tops the stack before it — Activity pins its Undo
-            // to that step, and after a ⌘Z of the caller's run that is an older operation.
+            // Not with a handback: the caller registers the undo after this returns, so an Undo
+            // offered now would pin to whatever step tops the stack before it.
             self.banner = .success(deleted + kept,
                                    undoable: restoreUndoHandback == nil && successfullyTrashed.count == items.count)
         }
-        // **One line at THIS level for anything the gate kept.** The two shipped gates log per
-        // refused path themselves, but `removalGate` is a public caller-supplied closure with no
-        // contract requiring that — and a WHOLLY refused batch otherwise produces no
-        // `deleteItems`-level record at all: the per-path `continue` is silent by design, the
-        // block above is skipped because `items` is empty, and the "already gone" branch below
-        // deliberately excludes this case. A delete gesture that removed nothing, for a reason,
-        // has to be visible in the log whatever the gate did or did not say. Covers the partial
-        // case too, where the removals were logged but the refusals were not.
+        // One line here for anything the gate kept. A caller-supplied gate needn't log, and a
+        // wholly refused batch would otherwise leave no record at all, so a delete that removed
+        // nothing, for a reason, is always in the log. Covers partial refusals too.
         if result.refused > 0 {
             Logger.shared.info("Delete: the caller's removal gate kept \(result.refused) of \(prunedPaths.count) selected item(s); \(items.count) removed")
         }
-        // Surface any failure (e.g. a transiently-busy item), after the success banner so a mixed
-        // batch reports both what worked and what didn't.
+        // Any failure (a busy item, say), after the success banner, so a mixed batch reports both.
         if let firstError = result.errors.first {
-            // A `SyncError` built above already carries its own title, path and remedy — flattening
-            // it back through `.deleteFailed(reason:)` would throw all three away and re-present it
-            // as the generic sentence it exists to replace.
+            // A `SyncError` already carries its title, path and remedy; `.deleteFailed(reason:)`
+            // would flatten them into the generic sentence.
             present(firstError as? SyncError ?? .deleteFailed(reason: firstError.localizedDescription))
         } else if items.isEmpty, result.declined > 0 {
-            // Checked BEFORE the "already gone" branch: these items are the opposite of gone, and
-            // that branch would otherwise claim they were.
+            // Before the "already gone" branch: these items are the opposite of gone.
             Logger.shared.info("Delete: kept \(result.declined) item(s) that could not be moved to the Trash — the permanent delete was declined")
             banner = .warning(result.declined == 1
                 ? "Kept that item — it can’t be moved to the Trash, and you chose not to delete it permanently"
                 : "Kept those \(result.declined) items — they can’t be moved to the Trash, and you chose not to delete them permanently")
         } else if reportsNothingToDo, items.isEmpty, result.refused == 0, !prunedPaths.isEmpty, progress?.isCancelled != true {
-            // `result.refused == 0` because a batch the gate refused wholesale is the OPPOSITE of
-            // "already gone" — the items are on disk, deliberately kept, and the gate has posted
-            // its own explanation.
-            // Everything selected had already left the disk (deleted in Finder, or by a sync,
-            // since the tree was walked), so the per-item `fileExists` pre-check skipped it all.
-            // Both the banner and the error above are gated on non-empty results, so the user's
-            // delete gesture produced no feedback whatsoever — indistinguishable from the app
-            // ignoring the click. The rows disappear on the next refresh either way; this just
-            // says why.
+            // Everything selected had already left the disk since the tree was walked. Say so, or
+            // the delete looks ignored. Not when the gate refused (`result.refused == 0`): those
+            // items are on disk, kept on purpose.
             Logger.shared.info("Delete: none of the \(prunedPaths.count) selected item(s) were still on disk")
-            // `.warning` is this type's "completed only partially / items were skipped" rung —
-            // nothing failed here, but nothing happened either.
+            // `.warning`: nothing failed, but nothing happened either.
             banner = .warning(prunedPaths.count == 1
                 ? "That item was already gone"
                 : "Those \(prunedPaths.count) items were already gone")
         }
 
-        // Durable Sync History (X2): one `.delete` record per removed item, sharing this run id.
-        // Size is best-effort from the Trash backup (the original is gone); a permanent delete
-        // has no backup, so its size stays nil. Built SYNCHRONOUSLY (no await) so this method's
-        // return timing — after `activeFileOperationsCount` was decremented — is unchanged; a
-        // stat of the local Trash backup is a cheap metadata read.
+        // Sync History: one `.delete` record per removed item, sharing this run id. Size comes
+        // from the Trash backup (nil for a permanent delete). Built synchronously, so this returns
+        // at the same point relative to `activeFileOperationsCount`.
         if !items.isEmpty {
             let runId = UUID()
             let records = items.map { item in
@@ -1854,25 +1604,15 @@ extension FileSyncManager {
                     reachedTrash: item.reachedTrash
                 )
             }
-            // Pair with the undo stack only when EVERY removed item reached the Trash at a known
-            // location — that's when the restore-undo registered above covers exactly these
-            // records. One the Trash took without a location is outside that undo, so it unpairs
-            // the run as a permanent delete does. A permanent
-            // delete registers nothing for its items (mirrors the banner's undoable flag), so
-            // pairing would attach these records to whatever action sits on top of the stack.
+            // Pair with the undo stack only when every removed item reached the Trash at a known
+            // location, so the restore-undo covers exactly these records. Otherwise pairing would
+            // attach them to whatever action tops the stack.
             //
-            // A MIXED batch (some trashed, some permanent) did register a partial group above,
-            // named by its TRASHED count — which can collide with an earlier armed delete's
-            // name ("Move to Trash" after "Move to Trash"). That group now tops the stack,
-            // so any surviving pairing is stale and must die: the name gate cannot tell the
-            // two groups apart. All-permanent registers nothing, so the previous pairing's
-            // group is still the top and stays valid.
-            //
-            // A HANDBACK is the same situation for a different reason: the group that will top the
-            // stack has not been registered yet (that is the caller's next synchronous step), so
-            // `undoActionName` here still names the PREVIOUS action — arming the pairing would
-            // attach these records to it. Unpair, and kill any pairing the caller's imminent group
-            // would otherwise shadow.
+            // A mixed batch registered a partial group named by its trashed count, which can match
+            // an earlier armed delete's name, so any surviving pairing is stale and is killed.
+            // All-permanent registers nothing, and the previous pairing stays valid. A handback is
+            // the same: the caller's group isn't registered yet, so unpair and kill any pairing it
+            // would shadow.
             let handedBack = restoreUndoHandback != nil && !successfullyTrashed.isEmpty
             if handedBack || (!successfullyTrashed.isEmpty && successfullyTrashed.count != items.count) {
                 invalidateRunUndoPairing()
@@ -1881,16 +1621,15 @@ extension FileSyncManager {
         }
 
         if let progress, self.activeProgress === progress {
-            // A Stop that left items unremoved was the reader stopping the caller's run — the
-            // capsule showed only the trash's progress — so the run handed back carries it, and
-            // ends as a stop rather than as a problem (`lastFinishedRun.cancelled`, TE221). Not a
-            // Stop that came too late to stop anything: that run finished, and is not a stop.
+            // A Stop that left items unremoved was meant for the caller's run (the capsule showed
+            // only the trash's progress), so the run handed back is cancelled and ends as a stop
+            // (`lastFinishedRun.cancelled`). A Stop too late to stop anything isn't passed on.
             if result.stoppedShort { resumingProgress?.cancel() }
             self.activeProgress = resumingProgress
         } else if let resumingProgress, self.activeProgress !== resumingProgress {
-            // Not reachable from the window — every write is refused while a run holds the lock —
-            // but a direct caller could queue a run that publishes before this resumes. Its lock
-            // stands; the caller's tail then runs under that run's, not its own. Said, not fixed.
+            // Unreachable from the window (writes are refused while a run holds the lock), but a
+            // direct caller could queue a run that publishes first. Its lock stands, and the
+            // caller's tail runs under it. Logged, not fixed.
             Logger.shared.warning("Delete: could not hand the run lock back to “\(resumingProgress.runTitle ?? "the run")” — “\(self.activeProgress?.runTitle ?? "nothing")” holds it")
         }
         let reachedTrash = items.filter(\.reachedTrash).count
@@ -1904,17 +1643,16 @@ extension FileSyncManager {
 }
 
 extension FileSyncManager {
-    /// The undo action name for a batch moved to the Trash — what Edit ▸ Undo reads after
-    /// "Undo": "Move to Trash", "Move 3 Items to Trash". The row menu's own words, so the undo
-    /// names the act you chose rather than calling a recoverable move a delete.
+    /// The undo action name for a batch moved to the Trash, as Edit ▸ Undo shows it: "Move to
+    /// Trash", "Move 3 Items to Trash". The row menu's own words, so a recoverable move isn't
+    /// called a delete.
     nonisolated static func trashUndoActionName(count: Int) -> String {
         count == 1 ? "Move to Trash" : "Move \(CountedNoun.phrase(count, "Item")) to Trash"
     }
 
     /// The banner after a delete gesture: “Moved “a.txt” to the Trash” or “Moved 3 items to the
-    /// Trash”. **"Deleted" only when something was deleted** — on a volume with no Trash, after
-    /// the permanent-delete question was answered yes, part of the batch is gone for good, and
-    /// "moved to the Trash" would then promise a way back that is not there.
+    /// Trash”. "Deleted" only when something was permanently deleted (a confirmed delete on a
+    /// Trash-less volume), since "moved to the Trash" would promise a way back that isn't there.
     nonisolated static func removalBannerText(count: Int, firstName: String, anyPermanent: Bool) -> String {
         if anyPermanent {
             return count == 1 ? "Deleted “\(firstName)”" : "Deleted \(count.formatted()) items"

@@ -5,10 +5,9 @@ import Testing
 /// The survey's state machine, driven entirely from injected closures — no `FileSyncManager`, no
 /// display, no thermal sensor, no PDF.
 ///
-/// **Nothing here races a clock.** `now` is injected and `whilePaused` is the seam a test uses to
-/// change the world between polls, so a pause that clears "after two ticks" is two calls rather
-/// than two sleeps. `docs/flaky-tests.md` mechanism 5 is what that avoids, and a suite about
-/// pausing is exactly where a real timer would have been reached for.
+/// Nothing here races a clock. `now` is injected and `whilePaused` is the seam a test uses to
+/// change the world between polls, so a pause that clears "after two ticks" is two calls, not two
+/// sleeps (`docs/flaky-tests.md`, "Tests racing a real-time window").
 @Suite struct DocumentSurveyRunTests {
 
     // MARK: Fixtures
@@ -35,8 +34,8 @@ import Testing
         return out
     }
 
-    /// Text that survives `FilingSurvey.isDecodable` — enough ordinary words that it is not read as
-    /// glyph soup, which is what a lazy "abc" fixture would be.
+    /// Text that survives `FilingSurvey.isDecodable`: enough ordinary words not to read as glyph
+    /// soup, as a short "abc" fixture would.
     private let readableText = "chase bank statement account summary for the period ending march"
 
     /// A mutable clock and counter the closures can share. `@unchecked Sendable` with a lock, since
@@ -62,8 +61,8 @@ import Testing
         }
     }
 
-    /// Lets a closure reach the run that was built *with* that closure — the ordinary way to make
-    /// "pause, then unpause from inside the pause loop" deterministic instead of racing a task.
+    /// Lets a closure reach the run built with it, so "pause, then unpause from inside the pause
+    /// loop" is deterministic instead of racing a task.
     private final class Holder: @unchecked Sendable {
         private let lock = NSLock()
         private var _run: DocumentSurveyRun?
@@ -126,11 +125,10 @@ import Testing
         #expect(recorder.reads == paths.map { root.appendingPathComponent($0).path })
     }
 
-    /// **The fixture has to survive `FilingSurvey.isDecodable`, which is the point of it being
-    /// this long.** That guard needs eight words of three-plus letters before it will believe text
-    /// is words rather than glyph codes — a PDF whose fonts carry no `ToUnicode` map extracts
-    /// successfully and returns nonsense, and letting that nonsense become a folder's anchors is
-    /// what it exists to stop. A four-word fixture is rejected, and the rejection is correct.
+    /// The page is this long to survive `FilingSurvey.isDecodable`, which wants eight words of
+    /// three-plus letters before it believes text is words: a PDF whose fonts lack a `ToUnicode`
+    /// map extracts nonsense, which must not become a folder's anchors. A four-word fixture is
+    /// rightly rejected.
     @Test func tokensAreDerivedAndSalted() async {
         let recorder = Recorder()
         let paths = plan(1)
@@ -148,9 +146,8 @@ import Testing
         #expect(doc?.isBlank == false)
     }
 
-    /// Two runs over the same page under DIFFERENT salts produce different hashes — which is the
-    /// mechanism `resumes(profileId:rootPath:salt:)` refuses a cross-salt resume to protect. Pinned
-    /// here because it is the reason that refusal is not merely tidy.
+    /// Two runs over the same page under different salts produce different hashes. That is why
+    /// `resumes(profileId:rootPath:salt:)` refuses a cross-salt resume.
     @Test func aDifferentSaltProducesDifferentHashes() async {
         let page = "chase bank statement for the account ending march with invoice ACCT99182 total due"
         func hashes(salt: String) async -> [String] {
@@ -191,10 +188,10 @@ import Testing
         #expect(report.isComplete, "unavailable documents still count as decided")
     }
 
-    /// **The mid-read eviction.** Availability is asked before the read; a provider can withdraw the
-    /// file while it runs, and the read then yields "". Stamping that blank would be permanent —
-    /// the stamp is keyed on size and mtime, neither of which moves when the content comes back —
-    /// so a re-ask decides between "read and empty" and "no longer there".
+    /// Availability is asked before the read, but a provider can evict the file mid-read, which
+    /// then yields "". Stamping that blank would be permanent (the stamp is keyed on size and
+    /// mtime, which don't move when the content returns), so a re-ask decides between "read and
+    /// empty" and "no longer there".
     @Test func aDocumentEvictedMidReadIsNotStampedBlank() async {
         let recorder = Recorder()
         let paths = plan(4)
@@ -216,8 +213,8 @@ import Testing
 
         #expect(report.read[paths[1]] == nil, "an evicted document was stamped blank, permanently")
         #expect(report.documentsUnavailable == 1)
-        // The other three read as genuinely empty and ARE stamped blank — that is the whole point
-        // of a blank stamp, and the distinction this test is about.
+        // The other three really are empty and are stamped blank: the distinction this test is
+        // about.
         #expect(report.read[paths[0]]?.isBlank == true)
         #expect(report.documentsBlank == 3)
     }
@@ -242,8 +239,8 @@ import Testing
         let recorder = Recorder()
         let paths = plan(6)
         let holder = Holder()
-        // Unpauses from INSIDE the pause loop, on the third poll — so the assertion below is that
-        // the loop really suspended, not that a flag was read once.
+        // Unpauses from inside the pause loop, on the third poll, so the assertion below shows the
+        // loop really suspended rather than reading a flag once.
         final class Ticks: @unchecked Sendable {
             let lock = NSLock(); var n = 0
             func bump() -> Int { lock.withLock { n += 1; return n } }
@@ -297,7 +294,7 @@ import Testing
         #expect(paused.allSatisfy { $0.pause == .displayAsleep })
     }
 
-    /// The user's own Pause wins over an environmental reason — a card explaining away a button the
+    /// The user's own Pause wins over an environmental reason: a card explaining away a button the
     /// person just pressed reads as the app arguing with them.
     @Test func theUsersPauseOutranksAnEnvironmentalOne() async {
         let recorder = Recorder()
@@ -361,22 +358,21 @@ import Testing
             return
         }
         #expect(checkpoint.progress == (20, 20))
-        // The invariant, restated where a run can break it: reading documents must never make the
-        // corpus reader see anything.
+        // The checkpoint invariant, where a run could break it: reading documents must never make
+        // the corpus reader see anything.
         #expect(FilingSurveyStore.corpus(id: "p", in: dir) == nil)
     }
 
-    /// **The resume, end to end.** A run that stops half way, then a fresh run over the same plan
-    /// that adopts the checkpoint: the second reads only what the first did not, and between them
-    /// every document is read exactly once.
+    /// The resume, end to end: a run stops half way, then a fresh run over the same plan adopts the
+    /// checkpoint and reads only what the first didn't, so every document is read exactly once.
     @Test func aResumedRunReadsOnlyWhatIsLeft() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let paths = plan(20)
         let stampMap = stamps(for: paths)
 
-        // Stop after exactly 7 documents, from inside the read closure — deterministic, where a
-        // task that stops "after a while" is a race that fails on a busy machine.
+        // Stop after exactly 7 documents, from inside the read closure: deterministic, where a task
+        // that stops "after a while" races and fails on a busy machine.
         let firstRecorder = Recorder()
         let holder = Holder()
         let first = DocumentSurveyRun(
@@ -406,7 +402,7 @@ import Testing
 
         #expect(secondReport.isComplete)
         #expect(secondReport.read.count == 20, "the resumed run lost what the first had read")
-        // The point of the whole exercise: no document was opened twice across the two runs.
+        // No document was opened twice across the two runs.
         let opened = firstRecorder.reads + secondRecorder.reads
         #expect(opened.count == 20, "\(opened.count) reads for 20 documents — work was repeated")
         #expect(Set(opened).count == 20)
@@ -431,8 +427,8 @@ import Testing
         #expect(await run.resumableProgress == (0, 5))
     }
 
-    /// A salt disagreement is the one that would fail silently — hashes from two salts never match,
-    /// so a merged resume contributes ids nothing can ever look up.
+    /// A salt mismatch would fail silently: hashes from two salts never match, so a merged resume
+    /// adds ids nothing can ever look up.
     @Test func aCheckpointUnderAnotherSaltIsRefused() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -470,8 +466,8 @@ import Testing
         #expect(await run.adoptCheckpoint() == nil)
     }
 
-    /// A run with nowhere to keep progress still runs — it simply has no resume. The honest
-    /// behaviour for a preview or a test host, rather than a refusal.
+    /// A run with nowhere to keep progress still runs, with no resume, rather than refusing: right
+    /// for a preview or a test host.
     @Test func aRunWithNoDirectoryStillRuns() async {
         let recorder = Recorder()
         let paths = plan(4)
@@ -484,8 +480,8 @@ import Testing
 
     // MARK: - Publishing
 
-    /// **The gate is why progress is typed at all.** A per-document publish re-evaluates the
-    /// window's root view; over 7,558 documents that is 7,558 full re-renders.
+    /// Progress publication is gated: each publish re-evaluates the window's root view, so
+    /// publishing per document re-renders it once per document.
     @Test func progressPublicationIsBounded() async {
         let recorder = Recorder()
         let paths = plan(1000)
@@ -509,7 +505,7 @@ import Testing
                 "a card reporting 5 of 5 and then sitting there looks hung")
     }
 
-    /// A stopped run does **not** claim to be finishing — there is nothing to merge.
+    /// A stopped run does not claim to be finishing: there is nothing to merge.
     @Test func aStoppedRunDoesNotClaimToBeFinishing() async {
         let recorder = Recorder()
         let paths = plan(5)

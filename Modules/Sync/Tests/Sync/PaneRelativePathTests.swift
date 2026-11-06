@@ -5,12 +5,11 @@ import Testing
 /// Pins `paneRelativePath(of:isLeft:root:)` — where a folder a pane lists sits below its source's
 /// root, which is the path "Compare only this folder" and the rail's Open focus on.
 ///
-/// Every case walks a real folder and asks about a node the walk produced, because the defect is
-/// in how the walk spells ids: two levels below a folder symlink, under a root spelled through a
-/// link, and for iCloud Drive's `Documents` under a root above its container, a node's id is not
-/// its parent's id plus its name, and stripping the root off it found nothing. Each of those cases
-/// requires that premise first, so a walk that one day keeps the link's spelling turns them red
-/// rather than leaving them proving nothing.
+/// Every case walks a real folder and asks about a node the walk produced. Two levels below a
+/// folder symlink, under a root spelled through a link, and for iCloud Drive's `Documents` under a
+/// root above its container, a node's id is not its parent's id plus its name, so stripping the
+/// root off it finds nothing. Each case requires that premise first, so a walk that one day keeps
+/// the link's spelling turns it red instead of leaving it proving nothing.
 @Suite struct PaneRelativePathTests {
 
     /// `R/link → T`, with `T` outside `R`: the link, its child, and two levels below that, plus a
@@ -64,9 +63,9 @@ import Testing
 
     // MARK: - Ids the root cannot be stripped off
 
-    /// **P4: a pane transfer places a row the way the pane does.** Copying the folder two levels
-    /// below a folder link was refused — "is not inside the source pane’s folder" — because the
-    /// transfer stripped the root off the id alone. It lands at the same place in the other pane.
+    /// A pane transfer places a row the way the pane does. A folder two levels below a folder link
+    /// can't be placed by stripping the root off its id, yet it must copy to the same place in the
+    /// other pane rather than be refused as "not inside the source pane’s folder".
     @MainActor
     @Test func aPaneTransferCarriesARowBelowAFolderLink() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-transfer-link")
@@ -87,9 +86,9 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: other.appendingPathComponent("link/sub/deeper/deepest/f.txt").path))
     }
 
-    /// **B4: a selection is placed in one walk.** `paneRelativePaths` answers every row exactly as
-    /// `paneRelativePath` does one at a time — rows spelled under the root and rows below the link
-    /// alike — and `TreeShape.names(downTo:)` for a set finds each id in a single pass.
+    /// A selection is placed in one walk. `paneRelativePaths` answers every row exactly as
+    /// `paneRelativePath` does one at a time, for rows under the root and below the link alike,
+    /// and `TreeShape.names(downTo:)` for a set finds each id in a single pass.
     @MainActor
     @Test func aSelectionIsPlacedInOneWalkAsEachRowIsPlacedAlone() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-batch")
@@ -113,9 +112,9 @@ import Testing
         #expect(TreeShape.names(downTo: Set(["/nowhere"]), in: m.rawLeftTree).isEmpty)
     }
 
-    /// **Below a folder symlink.** The link and its child keep the link's spelling, and from there
-    /// the listing comes back where the link leads: `T/sub/deeper`. Each level answers with the
-    /// names down to it, and each answer, joined back the way a focus is, is the folder listed.
+    /// Below a folder symlink, the link and its child keep the link's spelling, and from there the
+    /// listing comes back where the link leads (`T/sub/deeper`). Each level answers with the names
+    /// down to it, and each answer, joined back the way a focus is, is the folder listed.
     @MainActor
     @Test func aFolderTwoLevelsBelowAFolderLinkIsPlacedByItsNames() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-link")
@@ -136,9 +135,9 @@ import Testing
         }
     }
 
-    /// **Under a root spelled through a link**, where nothing is spelled under the root: a `/var/…`
-    /// root lists `/private/var/…` from its first level down, so even a plain child was refused.
-    /// `makeCanonicalTempRoot` exists to hide exactly this spelling, so the fixture does not use it.
+    /// Under a root spelled through a link, nothing is spelled under the root: a `/var/…` root lists
+    /// `/private/var/…` from its first level down, so even a plain child needs placing by names.
+    /// `makeCanonicalTempRoot` hides this spelling, so the fixture doesn't use it.
     @MainActor
     @Test func everyFolderUnderARootSpelledThroughALinkIsPlaced() async throws {
         let base = FileManager.default.temporaryDirectory
@@ -160,11 +159,11 @@ import Testing
         }
     }
 
-    /// **iCloud Drive's `Documents` under a root above its container.** The walk lists the link as
-    /// the real folder wherever it lists the container, so below `~/Library/Mobile Documents` the
-    /// node is `~/Documents/Finance`. Placed by its names it is `com~apple~CloudDocs/Documents/
-    /// Finance`, and joined back that is the same folder — through the link, because `join` reads
-    /// the table at the root only. At the container itself the table answers, as it did before.
+    /// iCloud Drive's `Documents` under a root above its container. The walk lists the link as the
+    /// real folder wherever it lists the container, so below `~/Library/Mobile Documents` the node
+    /// is `~/Documents/Finance`. Placed by its names it is `com~apple~CloudDocs/Documents/Finance`,
+    /// and joined back (through the link, since `join` reads the table at the root only) it is the
+    /// same folder. At the container itself the table answers.
     @MainActor
     @Test func aFolderAboveTheContainerIsPlacedThroughTheContainersName() async throws {
         let fm = FileManager.default
@@ -192,17 +191,17 @@ import Testing
         let atContainer = try await Self.loaded(root: container.path, links: links, in: base)
         let same = try #require(Self.node(["Documents", "Finance"], in: atContainer.leftTree))
         #expect(atContainer.paneRelativePath(of: same, isLeft: true, root: container.path) == "Documents/Finance")
-        // …and it is the manager's table, the one its walks were made with: a pane that holds no
-        // tree has only the table to answer from.
+        // …and it is the manager's table, the one its walks used: a pane with no tree has only the
+        // table to answer from.
         let unloaded = FileSyncManager()
         unloaded.linkedFolders = links
         #expect(unloaded.paneRelativePath(of: finance, isLeft: true, root: container.path) == "Documents/Finance")
     }
 
-    /// **A folder symlink inside iCloud Drive's `Documents`**, with the pane at the container and
-    /// focused on `Documents`: that focus is walked at the real `~/Documents` (`join` reads the
-    /// table), so the folder's own relative path comes back through the manager's table too, and
-    /// the names below the link go onto it.
+    /// A folder symlink inside iCloud Drive's `Documents`, with the pane at the container and
+    /// focused on `Documents`. That focus is walked at the real `~/Documents` (`join` reads the
+    /// table), so the folder's relative path comes back through the table too, and the names below
+    /// the link go onto it.
     @MainActor
     @Test func aFolderBelowALinkInsideTheLinkedDocumentsIsPlaced() async throws {
         let fm = FileManager.default
@@ -225,8 +224,8 @@ import Testing
         #expect(m.paneRelativePath(of: src, isLeft: true, root: container.path) == "Documents/Code/app/src")
     }
 
-    /// **A pane focused below the link** lists resolved ids from its first level down, so the names
-    /// go onto the focus, not onto the root.
+    /// A pane focused below the link lists resolved ids from its first level down, so the names go
+    /// onto the focus, not onto the root.
     @MainActor
     @Test func aFolderInAPaneFocusedBelowTheLinkIsPlacedBelowTheFocus() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-focused")
@@ -240,9 +239,9 @@ import Testing
 
     // MARK: - Which tree, and which folder
 
-    /// **The names go onto the folder the tree was walked at, not onto where the pane now claims to
-    /// be.** `focusOn` moves the relative path at once and the walk lands later, so in between the
-    /// tree on screen is the old folder's and a row in it can still be acted on.
+    /// The names go onto the folder the tree was walked at, not where the pane now claims to be.
+    /// `focusOn` moves the relative path at once and the walk lands later, so in between the tree
+    /// on screen is the old folder's and a row in it can still be acted on.
     @MainActor
     @Test func aStaleTreeIsPlacedFromTheFolderItWasWalkedAt() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-stale")
@@ -255,10 +254,10 @@ import Testing
         #expect(m.paneRelativePath(of: deeper, isLeft: true, root: root.path) == "link/sub/deeper")
     }
 
-    /// **Names come from the tree that belongs to `paneTreeFolder`.** `adoptRawTree` writes the raw
-    /// tree and that folder together, and the published tree follows a filter pass later — so for
-    /// that pass the rows on screen are the previous walk's. Read off them, a row's names would be
-    /// composed onto the new walk's folder and name somewhere that is not the row.
+    /// Names come from the tree that belongs to `paneTreeFolder`. `adoptRawTree` writes the raw
+    /// tree and that folder together, and the published tree follows a filter pass later. Names
+    /// read off the published rows in between would be joined onto the new walk's folder and name
+    /// somewhere that is not the row.
     @MainActor
     @Test func namesAreNotReadFromAPublishedTreeTheWalkHasReplaced() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-replaced")
@@ -276,10 +275,10 @@ import Testing
         #expect(relative == nil, "placed at \(relative ?? "nil") from a tree that no longer belongs to the pane's folder")
     }
 
-    /// **The id's own spelling wins where it is under the root.** A folder can be in the tree twice
-    /// — here the link leads inside the root, as Home's `~/Dropbox` does — and the node does not say
-    /// which row was clicked. The id is spelled along the real route, the one that keeps its walk's
-    /// ids in their own spelling; the names would pick whichever route sorts first (`link`).
+    /// The id's own spelling wins where it is under the root. A folder can be in the tree twice
+    /// (here the link leads inside the root, as Home's `~/Dropbox` does), and the node doesn't say
+    /// which row was clicked. The id follows the real route; the names would pick whichever route
+    /// sorts first (`link`).
     @MainActor
     @Test func theIdsOwnRouteWinsWhereItIsUnderTheRoot() async throws {
         let fm = FileManager.default
@@ -297,8 +296,8 @@ import Testing
         #expect(m.paneRelativePath(of: viaLink, isLeft: true, root: root.path) == "real/sub/deeper")
     }
 
-    /// **A folder the pane does not hold is still refused** — the names come from the pane's own
-    /// tree, so they cannot place a node the walk never listed, however its id is spelled.
+    /// A folder the pane does not hold is refused: the names come from the pane's own tree, so they
+    /// can't place a node the walk never listed, however its id is spelled.
     @MainActor
     @Test func aFolderThePaneDoesNotHoldIsRefused() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-outside")
@@ -313,8 +312,8 @@ import Testing
         #expect(m.paneRelativePath(of: unlisted, isLeft: true, root: root.path) == nil)
     }
 
-    /// **Each pane's names come from its own tree.** Both panes on one root, the left focused on a
-    /// branch that does not hold the folder: the right pane places it, the left refuses it.
+    /// Each pane's names come from its own tree. Both panes on one root, the left focused on a
+    /// branch that doesn't hold the folder: the right pane places it, the left refuses it.
     @MainActor
     @Test func aFolderIsPlacedFromItsOwnPanesTree() async throws {
         let base = try makeCanonicalTempRoot(prefix: "pane-relative-sides")

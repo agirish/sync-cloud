@@ -3,9 +3,9 @@ import Foundation
 /// A name form the tree keeps using for someone whose record does not have it.
 public struct PersonNameSuggestion: Sendable, Equatable, Identifiable {
     public let personId: String
-    /// The form spelled as the documents spell it — "Granny Elder", not `granny elder`.
+    /// The form spelled as the documents spell it: "Granny Elder", not `granny elder`.
     public let form: String
-    /// How many filed documents use it. Recurrence is the whole claim: one file is an anecdote.
+    /// How many filed documents use it. Recurrence is the claim: one file is an anecdote.
     public let occurrences: Int
     /// One filename that uses it, so the offer can show its evidence rather than assert a count.
     public let exampleFile: String
@@ -20,36 +20,30 @@ public struct PersonNameSuggestion: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Learns name forms from documents already filed — the roster growing from the tree rather than
+/// Learns name forms from documents already filed, so the roster grows from the tree rather than
 /// from typing.
 ///
-/// **The rule is deliberately narrow, and the measurement is why.** The obvious version — recurring
-/// word runs in the filenames inside a person's folders — is almost all noise on a real tree:
-/// `Credit Report Mother` (9 files), `Bio Pages GRANNY`, `Wedding Gifts Uncle`. The obvious fix,
-/// vetoing words that many folders carry, is **backwards here**: a family surname is *broad*
-/// precisely because the family is everywhere (`elder` is carried by 161 folders, `maiden` by 73),
-/// while document words like `oci` are narrow. Filtering on breadth keeps "Daughter OCI" and throws
-/// away "Granny Elder", which is the opposite of what is wanted.
+/// Deliberately narrow. Any recurring word run in a person's filenames is mostly noise
+/// (`Credit Report Mother`, `Wedding Gifts Uncle`), and vetoing words many folders carry is
+/// backwards: a family surname is broad because the family is everywhere, while document words
+/// like `oci` are narrow.
 ///
-/// So this suggests only what it can be *sure* is name-shaped: a run in which **every word is
-/// already a name word of somebody on the roster**, starting with a word of the person whose folder
-/// it is. That cannot invent "Pratiksha" out of nothing — discovering an entirely new word still
-/// takes a human, and the section says so — but it has no false positives to apologise for.
-/// Measured on the real tree: **0 suggestions** with the roster complete, and "Granny Elder"
-/// (7 occurrences) the moment her record lacks it.
+/// So this suggests only runs in which every word is already a name word of someone on the roster,
+/// starting with a word of the person whose folder it is. It can't discover a brand-new word (that
+/// still takes a human, and the section says so), but it gives no false positives: on a complete
+/// roster it suggests nothing.
 public enum PersonNameLearning {
 
     /// The minimum number of documents that must use a form. One file is a typo; two is a habit.
     static let minimumOccurrences = 2
-    /// Longest run considered — "Mother Inlaw Maiden" is three, and nothing in a real roster is
-    /// longer without picking up document words.
+    /// Longest run considered: "Mother Inlaw Maiden" is three, and longer runs pick up document
+    /// words.
     static let maximumWords = 3
 
     /// Suggestions for every person, from the filenames inside their folders.
     ///
-    /// `fileNames` maps a folder's relative path to the names of the files directly inside it —
-    /// passed in rather than read here, so the rule is testable without a disk and the I/O stays
-    /// where the caller can schedule it.
+    /// `fileNames` maps a folder's relative path to the names of the files directly inside it,
+    /// passed in so the rule tests without a disk and the caller schedules the I/O.
     public static func suggestions(registry: PersonRegistry, profile: FolderProfile,
                                    fileNames: [String: [String]],
                                    dismissed: Set<String> = []) -> [PersonNameSuggestion] {
@@ -57,17 +51,13 @@ public enum PersonNameLearning {
         // Every word anybody in the household answers to. A run made only of these is a name;
         // a run containing anything else is a filename.
         var nameWords: Set<String> = []
-        // The words a run may START with, per person: their DISPLAY name and their aliases — what
-        // the household calls them — not every word they answer to.
-        //
-        // **Their full names are deliberately excluded, and a test caught why.** Daughter's record
-        // holds "Daughter Father", so `father` is one of her words; a file called
-        // `Report for Father Elder.pdf` sitting in her folder then offered her *father's* name
-        // as another name for her. A form leads with the given name in this household, and that is
-        // the only word that identifies whose form it is.
+        // The words a run may start with, per person: their display name and aliases (what the
+        // household calls them), not every word they answer to. Full names are excluded: a
+        // daughter whose full name carries her father's name would otherwise be offered "Father
+        // Elder", from a file about him in her folder, as a name of hers.
         var leadWordsByPerson: [String: Set<String>] = [:]
         var formsByPerson: [String: Set<String>] = [:]
-        // Every known form, whoever owns it — a run that is already somebody's name is never a
+        // Every known form, whoever owns it: a run that is already somebody's name is never a
         // discovery about somebody else.
         var claimedForms: Set<String> = []
         for person in registry.people {
@@ -100,27 +90,24 @@ public enum PersonNameLearning {
                 let written = spelledWords((fileName as NSString).deletingPathExtension)
                 let lowered = written.map { $0.lowercased() }
                 guard lowered.count >= 2 else { continue }
-                // Longest first, and a match consumes nothing — a three-word form and the two-word
-                // form inside it are both worth offering, and the user picks.
+                // Longest first, and a match consumes nothing: a three-word form and the two-word
+                // form inside it are both offered, and the user picks.
                 for length in stride(from: min(maximumWords, lowered.count), through: 2, by: -1) {
                     for start in 0...(lowered.count - length) {
                         let run = Array(lowered[start..<(start + length)])
-                        // Leads with what the household CALLS them — see `leadWordsByPerson`.
-                        // Without this, every `<document type> <person>` filename in the tree is a
-                        // candidate, and a shared surname hands one person another's name.
+                        // Leads with what the household calls them (`leadWordsByPerson`).
+                        // Otherwise every `<document type> <person>` filename is a candidate, and a
+                        // shared surname hands one person another's name.
                         guard leads.contains(run[0]) else { continue }
                         guard run.allSatisfy({ nameWords.contains($0) }) else { continue }
                         let key = run.joined(separator: " ")
                         guard formsByPerson[personId]?.contains(key) != true else { continue }
-                        // Already somebody's name — a document in Daughter's folder that says
-                        // "Father Elder" is naming her father, not teaching a form for her.
+                        // Already somebody's name: "Father Elder" in Daughter's folder names her
+                        // father, not a form for her.
                         guard !claimedForms.contains(key) else { continue }
                         counts[personId, default: [:]][key, default: 0] += 1
-                        // **Deterministic, not first-seen.** `fileNames` is a dictionary, so
-                        // "the first one encountered" is whatever order the hash table happened to
-                        // yield — the evidence shown for the same tree would change between two
-                        // runs. Alphabetically first is arbitrary but stable, and stable is what
-                        // makes the offer trustworthy.
+                        // Alphabetically first, not first-seen: `fileNames` is a dictionary, so
+                        // first-seen would change the evidence shown between runs on the same tree.
                         let asWritten = written[start..<(start + length)].joined(separator: " ")
                         if let existing = example[personId]?[key] {
                             if fileName.localizedStandardCompare(existing) == .orderedAscending {
@@ -147,7 +134,7 @@ public enum PersonNameLearning {
                 out.append(suggestion)
             }
         }
-        // Most-used first, then longest — a three-word form is the more specific teaching.
+        // Most-used first, then longest: a three-word form is the more specific teaching.
         out.sort { a, b in
             if a.occurrences != b.occurrences { return a.occurrences > b.occurrences }
             let wa = PersonRegistry.words(a.form).count, wb = PersonRegistry.words(b.form).count
@@ -160,16 +147,13 @@ public enum PersonNameLearning {
     /// Words as the filename writes them, so a suggestion can be offered in the tree's own spelling
     /// rather than lowercased by the matcher's tokenizer.
     ///
-    /// **The matcher's own boundaries**, via ``PersonRegistry/spelledWords(_:)``. This used to be a
-    /// second hand-rolled split — Unicode letters and numbers, against the matcher's ASCII-only —
-    /// so every key built here was compared against keys built by a different rule. The two agreed
-    /// on plain ASCII names and on nothing else; see that member for what it cost.
+    /// Uses the matcher's own word boundaries, via ``PersonRegistry/spelledWords(_:)``: keys built
+    /// here are compared with the matcher's, so a second split rule would disagree on non-ASCII names.
     static func spelledWords(_ s: String) -> [String] {
         PersonRegistry.spelledWords(s)
     }
 
-    /// The folders to read, for a caller that has to do the reading — every folder the profile
-    /// records as somebody's.
+    /// The folders a caller must read: every folder the profile records as somebody's.
     public static func personFolders(registry: PersonRegistry,
                                      profile: FolderProfile) -> [String] {
         profile.folders.compactMap { path, entry in

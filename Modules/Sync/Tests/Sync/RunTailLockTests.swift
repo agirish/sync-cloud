@@ -5,20 +5,17 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// **A run's last stretch — arming its undo — is still the run** (M3, L7).
+/// A run's last stretch, arming its undo, is still the run. `activeProgress` is the window's write
+/// lock, the capsule and the ⌘Z gate at once, so it must stay up through the undo registration and
+/// identity walk, even after a merge's trash clears its own progress; otherwise writes go live and
+/// ⌘Z can reach a step whose identities don't exist yet. In that stretch nothing is left to stop,
+/// so Stop and ⌘. go.
 ///
-/// `activeProgress` is the window's write lock, the capsule and the ⌘Z gate at once. A merge
-/// published its own, then handed the trash to `deleteItems`, which put up the trash's progress
-/// and cleared it when the trash was done — so the merge's undo registration and identity walk ran
-/// with no lock at all: writes live, the capsule gone, ⌘Z free to reach a step whose identities
-/// did not exist yet. And a copy, move or merge in that stretch showed a Stop and took ⌘. that
-/// stopped nothing, since there is nothing left to stop.
-///
-/// Both are observed where they live: from the main actor, while the identity walk is held
-/// suspended. The walk reads the lock of each folded or copied file off the main actor after the
-/// undo is registered; the double below catches that read, puts one main-actor observation on
-/// the main queue, and waits for it — the rendezvous `MergeUndoGroupingAndGateTests` uses for the
-/// trash, for the reasons it gives there. Bounded, and the expiry records itself.
+/// Both are observed from the main actor while the identity walk is held. The walk reads the lock
+/// of each folded or copied file off the main actor after the undo is registered; the double below
+/// catches that read, puts one main-actor observation on the main queue, and waits for it (the
+/// rendezvous `MergeUndoGroupingAndGateTests` uses for the trash). Bounded, and the expiry records
+/// itself.
 @Suite struct RunTailLockTests {
 
     /// What the main actor saw of `activeProgress` at one moment.
@@ -120,8 +117,8 @@ import EventsTestSupport
                                                   isDirectory: true, copies: [k, r], reclaimableBytes: 4000))
     }
 
-    /// **M3.** Sampled inside the merge's identity walk, after its trash: the merge's own lock is
-    /// still up, and only cleared once the merge returns.
+    /// Sampled inside the merge's identity walk, after its trash: the merge's own lock is still up,
+    /// and only cleared once the merge returns.
     @MainActor
     @Test(.parksAThread) func aMergeKeepsTheRunLockUntilItReturns() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeTailLock")
@@ -153,7 +150,7 @@ import EventsTestSupport
         for sample in samples {
             #expect(sample?.lockReason == Progress.runLockReason(waitingFor: "the merge"),
                     "the merge's undo was being armed with the run lock down: \(String(describing: sample))")
-            // L7, for the merge: past the trash, nothing is left that a Stop could stop. No
+            // For the merge: past the trash, nothing is left that a Stop could stop. No
             // reading falls between the trash handing the lock back and this being set: both are
             // one main-actor stretch.
             #expect(sample?.isCancellable == false, "the merge's tail still offers Stop: \(String(describing: sample))")
@@ -179,8 +176,7 @@ import EventsTestSupport
                 "the merge's own banner lost its offer: \(String(describing: banners.last))")
     }
 
-    /// **L7.** A copy whose files have all landed is only arming its undo: Stop and ⌘. go, the
-    /// lock stays.
+    /// A copy whose files have all landed is only arming its undo: Stop and ⌘. go, the lock stays.
     @MainActor
     @Test(.parksAThread) func aCopyArmingItsUndoOffersNoStop() async throws {
         let base = try makeCanonicalTempRoot(prefix: "CopyTailStop")
@@ -216,9 +212,9 @@ import EventsTestSupport
                 "the ended copy is named for its tail: \(String(describing: manager.lastFinishedRun?.title))")
     }
 
-    /// **L3, the merge's log.** A copy the Trash took without saying where is in the Trash; the
-    /// log called it "deleted permanently". The fold's undo is still withheld — no restore can be
-    /// registered for that copy — and the line now says why in true words.
+    /// The merge's log: a copy the Trash took without saying where is in the Trash, not "deleted
+    /// permanently". The fold's undo is still withheld (no restore can be registered for that
+    /// copy), and the line says why.
     @MainActor
     @Test func aCopyTrashedWithoutALocationIsNotLoggedAsDeleted() async throws {
         let log = LogCapture()
@@ -247,8 +243,8 @@ import EventsTestSupport
                 "\(lines)")
     }
 
-    /// **L7, for Sync All.** The bulk run arms its undo too, with its Stop live: the capsule's and
-    /// the Differences list's, which reads the flag only when it redraws.
+    /// The same for Sync All: the bulk run arms its undo too, and its Stops must go, the capsule's
+    /// and the Differences list's, which reads the flag only when it redraws.
     @MainActor
     @Test(.parksAThread) func aBulkSyncArmingItsUndoOffersNoStop() async throws {
         let base = try makeCanonicalTempRoot(prefix: "BulkTailStop")
@@ -325,9 +321,9 @@ import EventsTestSupport
         return stoppedTitle
     }
 
-    /// **A Stop the trash could still act on stops the merge.** With the second copy not yet
-    /// reached, the trash leaves it; the merge ends as a stop the reader asked for, says so, and
-    /// keeps the ⌘Z its folds have (TE221).
+    /// A Stop the trash could still act on stops the merge. With the second copy not yet reached,
+    /// the trash leaves it; the merge ends as a stop the reader asked for, says so, and keeps the
+    /// ⌘Z its folds have.
     @MainActor
     @Test func aStopThatLeavesACopyUntrashedEndsTheMergeAsAStop() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeTrashStop")
@@ -355,8 +351,8 @@ import EventsTestSupport
         #expect(ended.cancelled, "the merge the reader stopped ended as if it had run to the end")
     }
 
-    /// **A Stop too late to stop anything is not a stop.** Pressed while the trash moves the only
-    /// copy, it changes nothing — the copy goes, the merge completes — and the merge must end as a
+    /// A Stop too late to stop anything is not a stop. Pressed while the trash moves the only copy,
+    /// it changes nothing (the copy goes, the merge completes), and the merge must end as a
     /// completed one, not filed in Activity as a run the reader stopped.
     @MainActor
     @Test func aStopDuringTheLastCopysTrashLeavesTheMergeCompleted() async throws {

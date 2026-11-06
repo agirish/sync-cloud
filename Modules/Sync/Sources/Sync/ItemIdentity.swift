@@ -7,109 +7,76 @@ import CryptoKit
 import Foundation
 
 /// Enough of an item's on-disk state to tell later whether it is still the item an operation
-/// produced — for folders as well as files.
-///
-/// The existing snapshot for this job, `FileSyncManager.fileSizeSnapshot`, is an `Int?` whose nil
-/// means four different things: it is a directory, it is missing, it could not be statted, or the
-/// size is unreadable. Its call sites then guard with `if let expected = …`, so **nil skips the
-/// check rather than falling back to a different one** — which is how undo of a copied FOLDER
-/// came to have no drift guard at all. The type below has no value that can be silently skipped:
-/// "I could not tell" is a case you have to handle, not an absence.
+/// produced, for folders as well as files. Unlike an optional size, it has no value a guard can
+/// silently skip with `if let`: "absent" and "couldn't tell" are cases the caller must handle.
 public enum ItemIdentity: Equatable, Sendable {
     /// A regular file. `modified` is nil only when the filesystem did not report one.
     case file(size: Int, modified: Date?)
-    /// A directory, SHALLOWLY: `childNames` is a digest of the names of its immediate children,
-    /// OS noise (`deepIdentityIgnoredNames`) left out, and `fileNumber` its own `st_ino` (nil on a
-    /// file system that reports none) — see `compare` for exactly what this can and cannot notice.
-    /// A caller whose wrong answer destroys data records `.directoryTree` instead, via `deepSnapshot`.
-    ///
-    /// **Not the folder's date or its raw child count (M4).** Both move when Finder writes a
-    /// `.DS_Store` into a folder the user merely opens, so a move-undo and a delete-redo refused an
-    /// untouched folder as "changed since". The names say what the folder holds, the number which
-    /// folder it is.
+    /// A directory, shallowly: `childNames` digests its immediate children's names, OS noise
+    /// (`deepIdentityIgnoredNames`) left out, and `fileNumber` is its own `st_ino` (nil where the
+    /// file system reports none). `compare` says what this can't notice; a caller whose wrong answer
+    /// destroys data records `.directoryTree` instead. Not the folder's date or raw child count:
+    /// Finder's `.DS_Store` moves both when the user merely opens it.
     case directory(childNames: String, fileNumber: UInt64?)
-    /// A directory described by its RECURSIVE content: `contentDigest` is a SHA-256 over every
-    /// descendant's (relative path, kind, size, modification date), so an edit at ANY depth —
-    /// including a same-count, same-parent-date rewrite three levels down — changes the identity.
-    /// `.directory` cannot see that case, and for the copy-undo "cannot see" meant "trashes the
-    /// only instance of the edit"; this case is what that guard records. Produced only by
-    /// `deepSnapshot`, and `drift` re-reads at the same depth it was recorded at.
+    /// A directory by its recursive content: `contentDigest` is a SHA-256 over every descendant's
+    /// relative path, kind, size and modification date, so an edit at any depth changes it, which
+    /// `.directory` misses and the copy-undo must not. Produced only by `deepSnapshot`; `drift`
+    /// re-reads at the same depth.
     case directoryTree(contentDigest: String)
-    /// `.directoryTree` plus the folder's OWN file number (`st_ino`), for a folder whose content
-    /// cannot tell it apart: a merge trashes its emptied source folder only once nothing but a
-    /// `.DS_Store` is left in it, so every such folder has one digest, and a stranger empty folder
-    /// trashed under its freed name matched it (FR35). A move into the Trash keeps the number, and
-    /// so does Finder writing a `.DS_Store` into it. Produced only by `deepSnapshotWithFileNumber`,
-    /// and `drift` re-reads it the same way.
+    /// `.directoryTree` plus the folder's own file number (`st_ino`), for folders content can't
+    /// tell apart: every merge-emptied source folder has the same digest, so a stranger empty folder
+    /// trashed under the freed name would match. The number survives a move into the Trash and a
+    /// `.DS_Store` write. Produced only by `deepSnapshotWithFileNumber`; `drift` re-reads it so.
     case directoryTreeAndFileNumber(contentDigest: String, fileNumber: UInt64)
-    /// A directory whose CONTENTS could not be read — one unreadable descendant, a cloud folder
-    /// that did not answer — known by its own file number alone (FR27, follow-up). Lighter than
-    /// a digest, and enough for the one question it is asked: is the folder in the Trash under
-    /// this name still the one an operation put there? The number survives the move into the
-    /// Trash, and a stranger given the freed name has another. Produced only by
-    /// `deepSnapshotOrFileNumber`, and `drift` re-reads the number alone.
+    /// A directory whose contents couldn't be read (an unreadable descendant, a cloud folder that
+    /// didn't answer), known by its own file number alone. Enough to ask whether the folder in the
+    /// Trash under this name is the one an operation put there: the number survives the move, and a
+    /// stranger has another. Produced only by `deepSnapshotOrFileNumber`; `drift` re-reads the
+    /// number.
     case directoryFileNumber(UInt64)
-    /// A symbolic link, described by its OWN size and date, not its target's.
-    ///
-    /// Spelled out rather than folded into `.file` because `attributesOfItem` does not follow
-    /// links — measured: a symlink pointing at a directory reports type `NSFileTypeSymbolicLink`
-    /// and size 98, the link's own bytes. Folded in, a symlinked folder would arrive as an
-    /// ordinary small file, quietly skipping the child-count check while looking like it had one,
-    /// and a link swapped for a same-size file would read as unchanged.
+    /// A symbolic link, by its own size and date, not its target's (`attributesOfItem` doesn't
+    /// follow links). Its own case, or a link to a folder would read as a small file and a link
+    /// swapped for a same-size file as unchanged.
     case symlink(size: Int, modified: Date?)
     /// Nothing is at the path.
     case absent
-    /// Something is at the path but its state could not be read — an unstatable file, or a
-    /// directory that could not be listed. Never treat this as "unchanged".
+    /// Something is at the path but its state couldn't be read: an unstatable file, or a directory
+    /// that couldn't be listed. **Never treat this as "unchanged".**
     case indeterminate
 }
 
-/// The answer to "is this still the item I recorded?" — with an explicit third value, because the
-/// question genuinely has one and collapsing it into either yes or no is the defect this exists
-/// to prevent.
+/// The answer to "is this still the item I recorded?", with an explicit third value: "couldn't
+/// tell" must never collapse into yes or no.
 public enum DriftVerdict: Equatable, Sendable {
     case unchanged
     case changed
-    /// One side could not be read, so nothing can be concluded. A caller acting destructively must
-    /// treat this as a refusal, not as `unchanged`.
+    /// One side couldn't be read, so nothing can be concluded. **A caller acting destructively must
+    /// treat this as a refusal**, not as `unchanged`.
     case indeterminate
 }
 
 public extension ItemIdentity {
 
-    /// Reads the item at `url`.
+    /// Reads the item at `url`. A file costs one `attributesOfItem`; **a folder costs a listing**,
+    /// about 30× a stat for 2,000 entries and growing with the count, paid per item at undo
+    /// registration. Move registrations list shallowly on the main actor; `registerCopyUndo` walks
+    /// deep in a detached task, since a deep walk on main freezes the UI. Where to pay is the call
+    /// site's decision.
     ///
-    /// **A folder identity is not the same order of cost as the size snapshot it replaces, and a
-    /// caller taking one per item in a batch has to account for that.** Measured on this machine:
-    /// `attributesOfItem` on a directory is ~138 µs, a shallow listing of a 2,000-entry directory
-    /// is ~4.4 ms — about 32× — and it scales with the entry count while the stat does not. For a
-    /// file the cost is unchanged: one `attributesOfItem`, with the modification date riding along
-    /// in the same call as the size.
-    ///
-    /// That lands at registration time rather than undo time — the registration sites snapshot
-    /// every item up front — so a batch of many large folders pays a listing each. The MOVE
-    /// registrations take that shallow listing synchronously on the main actor;
-    /// `registerCopyUndo` pays a RECURSIVE one, via `deepSnapshot`, and pays it in a detached
-    /// walk precisely because recursive-on-main froze the UI for the length of the tree (see its
-    /// own cost note). Taking folder identities lazily, or off the main actor, is a decision for
-    /// the call site; this type does not make it.
-    ///
-    /// **A folder whose contents are not on this Mac costs a question to its cloud app**, because
-    /// listing it asks — and a move's registration asks on the main actor. Through `listing(of:)`
-    /// it waits at most the dataless reads' deadline, once, and a folder that did not answer is
-    /// `.indeterminate`: the undo then refuses rather than vouching for a folder nobody read. Before,
-    /// with that app not running, the listing would never have returned — on the main actor.
+    /// **A folder whose contents aren't on this Mac asks its cloud app**, possibly on the main
+    /// actor. `listing(of:)` waits at most the dataless reads' deadline, once, and an unanswered
+    /// folder is `.indeterminate`, so the undo refuses rather than vouching for it.
     static func snapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
-            // attributesOfItem throws for both "not there" and "there but unreadable", and those
-            // must not collapse: absent is a fact, unreadable is an unknown.
+            // attributesOfItem throws both for "not there" and "there but unreadable", which must
+            // stay apart: absent is a fact, unreadable an unknown.
             return fm.fileExists(atPath: url.path) ? .indeterminate : .absent
         }
 
         let type = attrs[.type] as? FileAttributeType
 
-        // Before the directory test, because attributesOfItem does NOT follow links: a symlink to
-        // a directory reports as a link, not as the directory it points at.
+        // Before the directory test, because attributesOfItem doesn't follow links: a symlink to a
+        // directory reports as a link.
         if type == .typeSymbolicLink {
             guard let size = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int) else {
                 return .indeterminate
@@ -123,9 +90,8 @@ public extension ItemIdentity {
             case .unreadable:
                 return .indeterminate
             case .listed, .listedWithUnreadableDescendants:
-                // A shallow listing cannot be partial, so the second case is unreachable here
-                // today; it is spelled out rather than defaulted so that if this ever lists
-                // recursively, the choice has to be made again deliberately.
+                // A shallow listing can't be partial, so the second case is unreachable; spelled
+                // out, not defaulted, so a recursive listing here forces the choice again.
                 return .directory(childNames: childNamesDigest(listing.urls),
                                   fileNumber: fileNumber(in: attrs))
             }
@@ -136,110 +102,60 @@ public extension ItemIdentity {
         return .file(size: size, modified: attrs[.modificationDate] as? Date)
     }
 
-    /// Reads the item at `url`, describing a directory by its RECURSIVE content rather than by its
-    /// own date and immediate child count. For anything that is not a directory this is exactly
-    /// `snapshot`; for a directory it answers `.directoryTree` — or `.indeterminate` the moment
-    /// any part of the tree could not be read, because a partial walk cannot prove a tree is still
-    /// what it was.
+    /// The one spelling `deepSnapshot` digests a descendant's relative path under, whatever form the
+    /// walk reported. APFS lookups ignore normalization but storage preserves it, so one name can sit
+    /// on disk in either form, and the digest must not hash it two ways.
     ///
-    /// **Cost.** One recursive walk, stat-only — no file's bytes are ever read. The duplicates
-    /// path already accepts exactly this trade (`folderDriftedInPlace`: "one recursive walk per
-    /// folder copy, at the moment of a destructive click — the alternative is trashing the last
-    /// copy of 1,200 photos to save it"), and both moments this runs at are the same shape: at
-    /// copy-undo REGISTRATION the copy has just finished, so the tree's metadata is warm, and at
-    /// undo/redo VERIFICATION the user has just clicked something destructive.
-    ///
-    /// **What goes into the digest.** One line per descendant, holding its relative path, its
-    /// kind, and for files and symlinks its size and modification date (millisecond precision —
-    /// APFS keeps more, and a whole millisecond cannot be lost to Double rounding). Directory
-    /// entries carry path and kind only: their membership IS their content here, their dates
-    /// would re-state changes the children's own lines already carry, and a directory date that
-    /// moves with no line moving is exactly the perturbation the move-redo had to design around.
-    ///
-    /// **Symlinks are described as themselves, never followed** — `attributesOfItem` does not
-    /// traverse, and the enumerator does not descend into a linked directory — so a dangling link
-    /// does not fail the walk, and a link swapped for another target changes the identity (its
-    /// own size and date move). Same convention `snapshot` states for the top-level item.
-    ///
-    /// **What the OS scribbles inside the copy is not part of its identity — and nothing else is
-    /// exempt.** The walk skips every entry carrying a `deepIdentityIgnoredNames` component — the
-    /// named entry AND its whole subtree — because digesting Finder's droppings would mean the
-    /// first Finder visit to a copied folder changes its recorded identity and ⌘Z refuses an
-    /// untouched copy for as long as the undo lived. An ignored entry is skipped BEFORE it is
-    /// statted, so an unstatable `.DS_Store` cannot refuse either. That set is deliberately its
-    /// OWN, not the duplicates finder's broader one — see its doc for why `.git`, `.build` and
-    /// `node_modules` ARE digested here. The deliberate residual: the listing's OUTCOME is
-    /// decided before any name is filtered, so a descendant that cannot be descended into still
-    /// answers `.indeterminate` even when it sits inside an ignored subtree — recorded at
-    /// registration, that is a permanent refusal for that item. Refusal is the safe direction,
-    /// and it is stated here rather than silent (and, since the failing descendant is knowable,
-    /// carried out of the walk and reported once per batch at registration — see
-    /// `FileSyncManager.logIndeterminateRegistrations`).
-    ///
-    /// **The digest is a function of the tree, not of the walk.** APFS promises no enumeration
-    /// order, so the lines are sorted by the UTF-8 bytes of the relative path's precomposed form
-    /// before hashing — deterministic across enumeration orders, volumes, and the two moments
-    /// (registration and verification) whose answers must be comparable. Precomposed because APFS
-    /// and HFS+ lookups are normalization-insensitive, so one on-disk name must not hash two ways
-    /// depending on which spelling the enumerator reports — the rule, and why it lives behind a
-    /// named seam, is at `canonicalDigestSpelling(ofRelativePath:)`.
-    /// The one spelling `deepSnapshot` digests a descendant's relative path under, whatever form
-    /// the walk reported it in. APFS and HFS+ lookups are normalization-insensitive but APFS
-    /// storage is normalization-preserving, so one logical name can genuinely sit on disk in
-    /// either Unicode form (a POSIX or SMB writer stores precomposed bytes; Foundation's path
-    /// APIs write decomposed) — and the digest must not hash it two ways.
-    ///
-    /// A named seam rather than an inline call so the rule is PINNABLE: through `listing(of:)`
-    /// every current pipeline happens to hand `deepSnapshot` the DECOMPOSED form regardless of
-    /// what is on disk — `URL(fileURLWithPath:)` and `appendingPathComponent` both convert
-    /// through the file-system representation, which decomposes (measured 2026-08-21, both
-    /// directions probed) — so no fixture reachable through `deepSnapshot`'s public face can
-    /// vary the spelling, and deleting this precomposition passed every end-to-end test. That
-    /// pipeline normalization is incidental and undocumented, which is exactly why the rule
-    /// stays and why `DeepFolderIdentityTests` asserts it here, at the seam, where a fixture can
-    /// reach it.
+    /// A named seam so `DeepFolderIdentityTests` can pin it: today's path APIs happen to hand
+    /// `deepSnapshot` the decomposed form whatever is on disk, so no end-to-end fixture can vary the
+    /// spelling. That is incidental, which is why the rule stays.
     internal static func canonicalDigestSpelling(ofRelativePath rel: String) -> String {
         rel.precomposedStringWithCanonicalMapping
     }
 
-    /// The names `deepSnapshot` leaves out of a tree's identity — genuine OS noise only:
-    /// Finder's `.DS_Store` and `.localized`, Windows' `Thumbs.db`, and `.Trashes`.
+    /// The names `deepSnapshot` leaves out of a tree's identity, OS noise only: `.DS_Store`,
+    /// `.localized`, `Thumbs.db` and `.Trashes`, which the OS writes on its own schedule. Digesting
+    /// them would manufacture drift, and drift here means a refused ⌘Z.
     ///
-    /// **The filter is by COMPONENT NAME at any depth, not by position**, and `.Trashes` is the
-    /// entry where that distinction is visible, so it is stated rather than left to be discovered:
-    /// a user directory called `.Trashes` inside a copied tree is invisible to the digest, and an
-    /// edit inside it would not refuse a ⌘Z. That is accepted, and it is the same trade the other
-    /// three names take. These are all names the OS writes to on its OWN schedule — Finder
-    /// touches `.DS_Store` when a window is merely opened, and the system writes into a volume's
-    /// `.Trashes` whenever anything is deleted on it. Digesting them would not buy safety; it
-    /// would manufacture drift, and drift at this walk means a refused ⌘Z. A `.Trashes` really can
-    /// sit at depth inside a walked item — copy a mounted volume's root folder and it lands at
-    /// depth 1 of the copy — so pinning the skip to the volume root would not be equivalent, and
-    /// nothing distinguishes that one from a user's directory of the same name by name or by
-    /// depth. This doc used to say "the volume-root `.Trashes`", which described a filter the code
-    /// has never had.
+    /// Matched by component name at any depth, so a user's own `.Trashes` folder inside a copy is
+    /// invisible too, an accepted trade: a copied volume root puts the real one at depth 1.
     ///
-    /// Deliberately its OWN set, NOT `DuplicateFinderOptions.defaultIgnoredNames`, which also
-    /// skips `.git`, `.build` and `node_modules`. The two sets answer different questions. The
-    /// duplicates finder is a DISCOVERY filter: a false skip there costs a missed duplicate.
-    /// This walk is a DESTRUCTION guard: a false skip here costs the only copy of an edit —
-    /// with `node_modules` skipped, an edit the user made inside the copy's `node_modules` (or
-    /// an amended commit inside `.git`) was invisible to the digest, ⌘Z read `.unchanged`, and
-    /// the edited copy was trashed. The extra entries cost only walk time, and the walk already
-    /// runs off the main actor, so digesting them buys safety for free at the UI. A matching
-    /// pointer sits at `defaultIgnoredNames`; a name added to either set must be argued into
-    /// the other on its own merits, never copied across.
+    /// **Deliberately not `DuplicateFinderOptions.defaultIgnoredNames`**, which also skips `.git`,
+    /// `.build` and `node_modules`. That is a discovery filter, where a false skip misses a
+    /// duplicate; this guards destruction, where a false skip lets ⌘Z trash the only copy of an
+    /// edit made inside one. Argue any addition to either set on its own merits.
     static let deepIdentityIgnoredNames: Set<String> = [
         ".DS_Store", ".localized", "Thumbs.db", ".Trashes"
     ]
 
+    /// Reads the item at `url`, describing a directory by its recursive content (`.directoryTree`).
+    /// Anything else is exactly `snapshot`. **`.indeterminate` as soon as any part of the tree can't
+    /// be read**: a partial walk can't prove a tree unchanged.
+    ///
+    /// One recursive, stat-only walk, the trade `folderDriftedInPlace` accepts too: it runs at
+    /// copy-undo registration, when the tree is warm, and at undo or redo after a destructive click.
+    ///
+    /// The digest has one line per descendant: relative path and kind, plus size and modification
+    /// date (whole milliseconds, safe from `Double` rounding) for files and symlinks. Folders carry
+    /// path and kind only, since their dates move with no real change. Symlinks are described, never
+    /// followed, so a dangling link doesn't fail the walk.
+    ///
+    /// Entries under a `deepIdentityIgnoredNames` component are skipped before they are statted, so
+    /// an unstatable `.DS_Store` can't refuse either. But the listing's outcome is decided first: an
+    /// unreadable descendant inside an ignored subtree still answers `.indeterminate`, a permanent
+    /// refusal if recorded, reported once per batch
+    /// (`FileSyncManager.logIndeterminateRegistrations`).
+    ///
+    /// Lines are sorted by the bytes of the precomposed path
+    /// (`canonicalDigestSpelling(ofRelativePath:)`), so the digest depends on the tree, not on
+    /// enumeration order or the name's Unicode form.
     static func deepSnapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         deepSnapshotDetailingFailure(at: url, fileManager: fm).identity
     }
 
-    /// `deepSnapshot`, with the folder's own file number when it answers `.directoryTree` — see
-    /// `.directoryTreeAndFileNumber`. A file system that reports no number (a test double) leaves
-    /// the plain `.directoryTree`, recorded and re-read alike.
+    /// `deepSnapshot`, with the folder's own file number when it answers `.directoryTree`
+    /// (`.directoryTreeAndFileNumber`). With no number reported (a test double), the plain
+    /// `.directoryTree`, recorded and re-read alike.
     static func deepSnapshotWithFileNumber(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         let deep = deepSnapshot(at: url, fileManager: fm)
         guard case .directoryTree(let digest) = deep,
@@ -247,10 +163,9 @@ public extension ItemIdentity {
         return .directoryTreeAndFileNumber(contentDigest: digest, fileNumber: fileNumber)
     }
 
-    /// `deepSnapshot`, or — when that is `.indeterminate` because the folder's contents could not
-    /// all be read — the folder's own file number (`.directoryFileNumber`), which needs only a
-    /// stat of the folder itself. Anything else, and a file system that reports no number (a test
-    /// double), is `deepSnapshot`'s answer unchanged.
+    /// `deepSnapshot`, or, when that is `.indeterminate`, the folder's own file number
+    /// (`.directoryFileNumber`), which needs only a stat of the folder. Otherwise, or with no number
+    /// reported (a test double), `deepSnapshot`'s answer unchanged.
     static func deepSnapshotOrFileNumber(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         let deep = deepSnapshot(at: url, fileManager: fm)
         guard deep == .indeterminate,
@@ -258,8 +173,8 @@ public extension ItemIdentity {
         return .directoryFileNumber(fileNumber)
     }
 
-    /// The file number (`st_ino`) of the directory at `url`, from a stat of it alone — nil when it
-    /// is not a directory or the file system reports none.
+    /// The file number (`st_ino`) of the directory at `url`, from a stat of it alone; nil when it
+    /// isn't a directory or the file system reports none.
     static func directoryFileNumber(at url: URL, fileManager fm: FileManaging) -> UInt64? {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path),
               attrs[.type] as? FileAttributeType == .typeDirectory else { return nil }
@@ -267,7 +182,7 @@ public extension ItemIdentity {
     }
 
     /// The shallow identity's names: each immediate child's name, precomposed, OS noise left out,
-    /// sorted by bytes and hashed — so a listing's order and a name's Unicode spelling do not move it.
+    /// sorted by bytes and hashed, so listing order and a name's Unicode spelling don't move it.
     private static func childNamesDigest(_ children: [URL]) -> String {
         let names = children.map(\.lastPathComponent)
             .filter { !deepIdentityIgnoredNames.contains($0) }
@@ -285,26 +200,20 @@ public extension ItemIdentity {
         }
     }
 
-    /// `deepSnapshot` plus, when the answer is `.indeterminate`, the descendant that made it so —
-    /// where one can be named. A partial listing names its first unreadable descendant (the
-    /// `unreadableDescendants` array this walk used to discard); a child that vanished or lost
-    /// its size between list and stat names itself; a root that could not be read at all has no
-    /// child to name (nil). Callers that RECORD the identity carry this detail out with it and
-    /// report it once per batch at registration time
-    /// (`FileSyncManager.logIndeterminateRegistrations`), because a registration-time
-    /// `.indeterminate` is a permanent refusal the user otherwise first hears about from a ⌘Z
-    /// banner hours later that cannot say why.
+    /// `deepSnapshot` plus, when the answer is `.indeterminate`, the descendant that made it so: the
+    /// first unreadable one of a partial listing, or a child that vanished or lost its size between
+    /// list and stat; nil for an unreadable root. Recording callers report it once per batch
+    /// (`FileSyncManager.logIndeterminateRegistrations`), since a registration-time `.indeterminate`
+    /// is a permanent refusal a later ⌘Z banner can't explain.
     static func deepSnapshotDetailingFailure(
         at url: URL, fileManager fm: FileManaging
     ) -> (identity: ItemIdentity, unreadableDescendant: URL?) {
         let shallow = snapshot(at: url, fileManager: fm)
         guard case .directory = shallow else { return (shallow, nil) }
 
-        // `options: []` is the recursive walk. `.listedWithUnreadableDescendants` is a real but
-        // PARTIAL answer, and partial proves nothing about the part that was withheld — the same
-        // refusal `folderDriftedInPlace` makes of it, and the safe direction: `.indeterminate`
-        // REFUSES the undo rather than authorising it. A folder in the tree whose cloud app did
-        // not answer is one such withheld part: `listing` steps around it rather than waiting.
+        // `options: []` is the recursive walk. `.listedWithUnreadableDescendants` is partial and
+        // proves nothing about what was withheld, so `.indeterminate`, which refuses the undo, as
+        // `folderDriftedInPlace` does. A cloud folder that didn't answer is withheld this way.
         let listing = fm.listing(of: url, options: [])
         guard listing.outcome == .listed else {
             return (.indeterminate, listing.unreadableDescendants.first)
@@ -316,15 +225,14 @@ public extension ItemIdentity {
         for child in listing.urls {
             let rel = child.path.hasPrefix(prefix)
                 ? String(child.path.dropFirst(prefix.count)) : child.path
-            // The ignored-names skip, per the doc above: a component match covers both the named
-            // entry itself and everything below it, and it runs before the stat so an ignored
-            // entry can neither shift the digest nor refuse the walk.
+            // The ignored-names skip: a component match covers the entry and everything below it,
+            // before the stat, so an ignored entry can neither shift the digest nor refuse the walk.
             if rel.split(separator: "/").contains(
                 where: { deepIdentityIgnoredNames.contains(String($0)) }) {
                 continue
             }
-            // An entry the walk just listed but cannot stat means the tree is being modified (or
-            // withheld) under our feet — nothing can be concluded, so nothing may be destroyed.
+            // An entry just listed but unstatable means the tree is changing or withheld: nothing
+            // can be concluded, so nothing may be destroyed.
             guard let attrs = try? fm.attributesOfItem(atPath: child.path) else {
                 return (.indeterminate, child)
             }
@@ -342,53 +250,34 @@ public extension ItemIdentity {
                 .map { String(Int64(($0.timeIntervalSince1970 * 1000).rounded())) } ?? "-"
             lines.append("\(canonicalRel)\u{0}\(kind)\u{0}\(size)\u{0}\(millis)")
         }
-        // Byte order of the canonical form, not Swift's `<`: String comparison is defined over
-        // canonical equivalence, which is deterministic but harder to reason about than bytes,
-        // and the property this buys is that two walks of one tree serialize identically.
+        // Byte order of the canonical form, not Swift's `<` (canonical equivalence), so two walks
+        // of one tree plainly serialize identically.
         lines.sort { $0.utf8.lexicographicallyPrecedes($1.utf8) }
-        // The scheme marker means a rule change makes old and new digests DIFFER (a refusal)
-        // rather than collide — same practice as `ContentFingerprint.scheme`. "tree-3": tree-2
-        // skipped everything in the duplicates finder's ignored set; the walk now digests
-        // `.git`, `.build` and `node_modules` (they hold user work a ⌘Z must not destroy) and
-        // skips only `deepIdentityIgnoredNames`.
+        // The scheme marker makes a rule change produce differing digests (a refusal) rather than
+        // collisions, as `ContentFingerprint.scheme` does. Bump it whenever what is digested changes.
         let canonical = "tree-3\n" + lines.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         return (.directoryTree(contentDigest: HexEncoding.string(digest)), nil)
     }
 
-    /// Compares a recorded identity against what is on disk now.
+    /// Compares a recorded identity against what is on disk now. For a file it notices any size or
+    /// modification-date change, so a same-length rewrite isn't trashed as untouched.
     ///
-    /// **What this notices.** For a file: any size change, and any modification-date change —
-    /// including a same-length rewrite, which a size-only comparison misses and which is exactly
-    /// how an edited copy gets trashed by an undo. `attributesOfItem` already returns the date in
-    /// the same call the size comes from, so the stronger check costs nothing.
-    ///
-    /// **What a SHALLOW directory identity does not notice.** `.directory` compares the names of
-    /// the folder's immediate children, OS noise left out, and its own file number. That covers a
-    /// child being added, removed or renamed, and a different folder put at the path — but NOT a
-    /// child replaced by another of the same name, nor an edit made inside any child, so for those
-    /// this answers `.unchanged` for a case it did not really check. `.directoryTree` exists for the
-    /// caller that cannot afford that: its digest covers every descendant, so the deep edit IS
-    /// checked. Which depth a guard gets is decided where the identity is RECORDED — the copy-undo
-    /// records deep because its wrong answer trashes the only instance of an edit, and every Trash
-    /// backup is recorded deep too (`FileSyncManager.backupIdentity`); a move that leaves the folder
-    /// where it landed, and the item a delete-undo restored, record shallow — the item moves, or
-    /// goes to the Trash, rather than being destroyed, so what the shallow read misses travels with
-    /// it — and each says so where it is recorded in `FileSyncManager+Undo.swift`.
-    ///
-    /// A recorded depth is also re-read at that depth (`drift` dispatches on the recorded case),
-    /// so the two sides of this comparison always describe the same question; a deep recording
-    /// compared against a path that is no longer a directory at all is an ordinary `.changed`.
+    /// **A shallow `.directory` misses a child replaced by one of the same name, and any edit inside
+    /// a child**, answering `.unchanged` for what it didn't check. The depth is chosen where the
+    /// identity is recorded: the copy-undo and every Trash backup (`FileSyncManager.backupIdentity`)
+    /// record deep, since a wrong answer destroys an edit; moves and delete-undo restores record
+    /// shallow, since the item travels rather than being destroyed (`FileSyncManager+Undo.swift`).
+    /// `drift` re-reads at the recorded depth; a path no longer a directory is just `.changed`.
     static func compare(recorded: ItemIdentity, current: ItemIdentity) -> DriftVerdict {
         if recorded == .indeterminate || current == .indeterminate { return .indeterminate }
         return recorded == current ? .unchanged : .changed
     }
 
-    /// `compare(recorded: self, current: <re-read>)` — the form a guard reads best in. The
-    /// re-read happens at the depth the recording was taken at: a `.directoryTree` is compared
-    /// against a fresh `deepSnapshot`, everything else against a fresh `snapshot`, so a guard
-    /// cannot accidentally hold a deep recording to a shallow answer (which would read `.changed`
-    /// for every untouched folder — a guard that refuses everything is not a guard).
+    /// `compare(recorded: self, current: <re-read>)`, the form a guard reads best in. Re-read the way
+    /// the recording was taken (each deep case by its own deep read, everything else by `snapshot`),
+    /// so a deep recording is never held to a shallow answer, which would refuse every untouched
+    /// folder.
     func drift(at url: URL, fileManager fm: FileManaging) -> DriftVerdict {
         let current: ItemIdentity
         switch self {
@@ -397,9 +286,8 @@ public extension ItemIdentity {
         case .directoryTreeAndFileNumber:
             current = ItemIdentity.deepSnapshotWithFileNumber(at: url, fileManager: fm)
         case .directoryFileNumber:
-            // The number alone, by a stat: the contents could not be read when it was recorded
-            // and need not be readable now. Not a directory, or gone, is an ordinary `.changed`;
-            // a stat that fails is `snapshot`'s `.indeterminate`.
+            // The number alone, by a stat: the contents weren't readable when recorded and need
+            // not be now. Not a directory, or gone, is `.changed`; a failed stat is `.indeterminate`.
             current = ItemIdentity.directoryFileNumber(at: url, fileManager: fm)
                 .map(ItemIdentity.directoryFileNumber) ?? ItemIdentity.snapshot(at: url, fileManager: fm)
         default:

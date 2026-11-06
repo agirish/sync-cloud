@@ -3,60 +3,47 @@ import Foundation
 import Events
 @testable import Sync
 
-/// **The case-variant half of the duplicate-destination walk restart, on a volume that actually
-/// folds case.**
-///
-/// `transferItems` restarts an earlier item's identity walk when a later copy in the same batch
-/// lands on the destination that item already produced. Two spellings can name one on-disk file —
-/// "F.txt" then "f.txt" through the replace prompt — so the restart's hit test is
+/// The case-variant half of the duplicate-destination walk restart, on a volume that folds case.
+/// `transferItems` restarts an earlier item's identity walk when a later copy in the batch lands
+/// on the destination that item produced. Two spellings ("F.txt", "f.txt") can name one file, so
+/// the restart's hit test is
 ///
 ///     exact-precomposed-match  ||  !volumeSupportsCaseSensitiveNames(for: targetURL)
 ///
-/// and the second clause is the whole case-variant half.
+/// and the second clause is the case-variant half.
 ///
-/// **`MockFileManager` cannot pin it, and the reason is the mock's DISK rather than its volume
-/// answers.** `volumeSupportsCaseSensitiveNames` is `(try? resourceValues(…)) ?? false`, so every
-/// mock path already reports "folds case" and the clause is unconditionally true there — but the
-/// mock's `virtualDisk` is a `[String: FileStub]`, an exactly-cased dictionary, so "/dst/F.txt" and
-/// "/dst/f.txt" are two separate files on it. The second copy never replaces the first, so
-/// restarting the first walk and not restarting it record the identical identity, and mutating the
-/// clause to `|| false` changes nothing any mock test can observe. Injecting the case-sensitivity
-/// answer does not fix that: the answer is already the one this needs. Only a disk that really
-/// folds does, which is what this suite uses.
-///
-/// The exact-path half is pinned separately, on the mock, by
-/// `CopyUndoDriftAndTransientTests.copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`.
+/// `MockFileManager` can't pin it: every mock path already reports "folds case", but its
+/// `virtualDisk` is an exactly-cased dictionary, so the two spellings are two files, the second
+/// copy never replaces the first, and changing the clause to `|| false` changes nothing visible.
+/// Only a disk that really folds can, which this suite uses. The exact-path half is pinned on the
+/// mock by `CopyUndoDriftAndTransientTests.copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`.
 @MainActor
 @Suite struct CopyWalkCaseVariantRestartTests {
 
-    /// Two sources whose NAMES differ only by case, copied into one destination in a single batch,
-    /// then ⌘Z. On a folding volume the second copy replaces the first, so the first item's walk
-    /// describes a file this batch itself superseded — not user drift. Restarted, both
-    /// registrations record the FINAL state, the undo's folded duplicate gate recognizes them as
-    /// one file, removes it once, and the destination is back to empty.
+    /// Two sources whose names differ only by case, copied into one destination in one batch, then
+    /// ⌘Z. On a folding volume the second copy replaces the first, so the first item's walk
+    /// describes a file the batch itself superseded. Restarted, both registrations record the final
+    /// state, the folded duplicate gate sees one file, removes it once, and the folder is empty.
     ///
-    /// Left stale, item 0's registration reads `.changed` and is refused; item 1 then trashes the
-    /// file and RESTORES ITS BACKUP — which is item 0's copy — so ⌘Z leaves the intermediate copy
-    /// sitting in a folder that was empty before the batch, under a banner blaming the user for a
-    /// change they did not make.
+    /// Left stale, item 0 reads `.changed` and is refused; item 1 then trashes the file and
+    /// restores its backup, item 0's copy, so ⌘Z leaves that copy in a folder that was empty, under
+    /// a banner blaming the user for a change they didn't make.
     ///
-    /// The source directories are deliberately different lengths: `pruneNestedNodes` sorts by
-    /// `id.utf8.count` and Swift's sort is not stable, so equal-length paths would leave the batch
-    /// order — which is what "earlier item" means here — to chance.
+    /// The source folders differ in length on purpose: `pruneNestedNodes` sorts by `id.utf8.count`
+    /// and Swift's sort isn't stable, so equal lengths would leave the batch order to chance.
     @Test func aLaterCaseVariantCopyRestartsTheEarlierItemsIdentityWalk() async throws {
         let root = try makeCanonicalTempRoot(prefix: "CaseWalkRestart")
         defer { try? FileManager.default.removeItem(at: root) }
 
         let fm = FileManager.default
-        // The destination's own volume is the one the clause asks about, and the whole test is
-        // about what it answers. On a case-sensitive volume the two names are two files and there
-        // is nothing to restart — say so rather than passing vacuously.
+        // The clause asks about the destination's volume. On a case-sensitive one the two names
+        // are two files and there is nothing to restart, so say so rather than pass vacuously.
         let dst = root.appendingPathComponent("dst")
         try fm.createDirectory(at: dst, withIntermediateDirectories: true)
         try #require(FileSyncManager.volumeSupportsCaseSensitiveNames(for: dst) == false,
                      "this machine's temp volume distinguishes names by case, so the two spellings below are two real files and this test cannot exercise the case-variant restart")
 
-        // Names differing ONLY by case.
+        // Names differing only by case.
         let stem = "CaseWalk-\(UUID().uuidString)"
         let upperName = stem + ".txt"
         let lowerName = stem.lowercased() + ".txt"
@@ -81,8 +68,8 @@ import Events
                     FileNode(id: srcB.appendingPathComponent(lowerName).path, name: lowerName, isDirectory: false)],
             toPath: dst.path, fileManager: trash)
 
-        // Premises: both items copied, in that order, and the folding volume left ONE file holding
-        // the second item's bytes.
+        // Premises: both items copied, in order, and the volume left one file with the second's
+        // bytes.
         try #require(transferred.map(\.name) == [upperName, lowerName],
                      "the batch did not run in the order this test's “earlier item” depends on: \(transferred.map(\.name))")
         let landed = try fm.contentsOfDirectory(atPath: dst.path)

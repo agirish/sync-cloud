@@ -23,10 +23,9 @@ let package = Package(
             dependencies: ["Sync", .product(name: "EventsTestSupport", package: "Events")],
             path: "Tests/Sync",
             resources: [
-                // Folder names and counts lifted from the live profile and the 6 Aug reorg log —
-                // no file names, no content (ROADMAP v5 §5.8). In-repo so CI pins the detector
-                // counts; the machine-pinned ground-truth suite is the wrong place for a release
-                // gate.
+                // Folder names and counts from the live profile and a reorg log, with no file names
+                // or content. In-repo so CI pins the detector counts; the machine-pinned
+                // ground-truth suite is the wrong place for a release gate.
                 .copy("Fixtures")
             ]
         )

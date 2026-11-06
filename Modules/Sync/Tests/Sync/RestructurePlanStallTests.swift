@@ -2,12 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **One unanswered folder costs a plan one wait, not one per folder** (review R8).
-///
-/// The plan view asks a cloud-only folder through the bounded reads, but each dataless folder
-/// waited out the deadline the first time it went unanswered, on the main actor, one after
-/// another — a family of cloud-only folders whose app had stopped held the plan sheet five
-/// seconds per folder. Once one has not answered, the rest list as unknown at once.
+/// One unanswered folder costs a plan one wait, not one per folder. The plan view asks a
+/// cloud-only folder through the bounded reads on the main actor; if each waited out the deadline
+/// in turn, a family whose provider app had stopped would hold the plan sheet for seconds per
+/// folder. Once one has not answered, the rest list as unknown at once.
 @Suite struct RestructurePlanStallTests {
 
     /// A real tree in which every folder in `stalled` is called dataless and its provider never
@@ -85,10 +83,9 @@ import Testing
         #expect(view.files("F/2018") == ["c.pdf"], "a folder on this Mac stopped listing")
     }
 
-    /// The rule is one wait per family's PLAN, not per view (review C7). The plan sheet holds
-    /// one view for its whole presentation, so in a group plan the first family's stalled folder
-    /// listed every later family's cloud-only folders as unknown without asking them — a family
-    /// whose provider would have answered was refused unasked. Each family now asks once.
+    /// The rule is one wait per family's plan, not per view. The plan sheet holds one view for its
+    /// whole presentation, so per view, the first family's stalled folder would list every later
+    /// family's cloud-only folders as unknown unasked, though their provider might answer.
     @Test(.parksThreads(2)) func eachFamilyOfAGroupPlanAsksItsOwnFolders() async throws {
         let root = try makeCanonicalTempRoot(prefix: "restructure-stall-group")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -2,13 +2,13 @@ import Foundation
 
 // MARK: - File facts (the pure input a rule is tested against)
 
-/// Everything the evaluator needs to know about one candidate file, gathered from the scan (never
-/// re-touching disk during evaluation). `snippet` is the on-device text excerpt, lowercased and
-/// filled in only when a rule actually reads content.
+/// Everything the evaluator needs about one candidate file, gathered from the scan so evaluation
+/// never touches disk. `snippet` is the on-device text excerpt, lowercased and filled in only when
+/// a rule reads content.
 public struct AutomationFileFacts: Sendable, Equatable {
     public let path: String
     public let name: String
-    /// The immediate parent folder's name (last path component of the parent).
+    /// The immediate parent folder's name.
     public let parentFolderName: String
     /// The absolute path of the parent folder (used by the manager to spot "already there").
     public let parentPath: String
@@ -17,21 +17,18 @@ public struct AutomationFileFacts: Sendable, Equatable {
     public let isDirectory: Bool
     /// On-device text excerpt (PDFKit / OCR / plain text), already lowercased. nil = not read.
     public var snippet: String?
-    /// Canonical tokens extracted from the file's *contents* (the Organize scan supplies these from
-    /// its content pass; the dry run derives them from `snippet`). Feeds `mentionsAll` alone —
-    /// `contentContains` reads the raw `snippet` only, so "contains" means the same substring on
-    /// every surface. Empty = no content read.
+    /// Canonical tokens from the file's *contents* (from the Organize scan's content pass, or
+    /// derived from `snippet` in the dry run). Feeds `mentionsAll` only: `contentContains` reads
+    /// the raw `snippet`, so "contains" means the same substring on every surface. Empty = no
+    /// content read.
     public var contentTokens: Set<String>
-    /// Which household members this document is about, as ``Person`` ids.
-    ///
-    /// Resolved by the caller rather than here, because attribution needs the roster and this type
-    /// is deliberately a plain description of a file that a pure evaluator can reason over. Empty
-    /// when there is no roster, which makes every `personIs` rule simply not match — the same
-    /// behaviour the app had before people existed.
+    /// Which household members this document is about, as ``Person`` ids. Resolved by the caller,
+    /// since attribution needs the roster and this type stays a plain description of a file. Empty
+    /// with no roster, so no `personIs` rule matches.
     public var personIds: Set<String> = []
     /// The folder name of the one person this document is about, for the `{person}` destination
-    /// token. nil when nobody — or more than one — is named, because a document naming two people
-    /// has no single folder to go to and guessing is worse than reporting it unresolved.
+    /// token. nil when nobody, or more than one, is named: two people have no single folder, and
+    /// guessing is worse than reporting it unresolved.
     public var personFolderName: String?
 
     public init(
@@ -60,11 +57,9 @@ public struct AutomationFileFacts: Sendable, Equatable {
         self.personFolderName = personFolderName
     }
 
-    /// The same facts with the household resolved onto them.
-    ///
-    /// A helper rather than three copies of the same two lines: the dry run, the Organize scan and
-    /// the rule proposer all need this, and the proposer forgetting it would silently filter every
-    /// person variant out of its own offer.
+    /// The same facts with the household resolved onto them. Shared by the dry run, the Organize
+    /// scan and the rule proposer; a proposer that skipped it would silently drop every person
+    /// variant from its offer.
     public func attributing(_ registry: PersonRegistry?,
                             identity: PersonIdentityIndex? = nil) -> AutomationFileFacts {
         guard let registry else { return self }
@@ -78,8 +73,8 @@ public struct AutomationFileFacts: Sendable, Equatable {
 
     public var fileExtension: String { (name as NSString).pathExtension }
 
-    /// The filename's canonical tokens (extension stripped) — the same tokenizer the Organize
-    /// engine matches with, so `mentionsAll` behaves identically on both surfaces.
+    /// The filename's canonical tokens (extension stripped), from the Organize engine's tokenizer,
+    /// so `mentionsAll` behaves the same on both surfaces.
     public var nameTokens: Set<String> { FilingEngine.fileTokens(name) }
 }
 
@@ -114,47 +109,34 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
     public let ruleID: UUID
     public let ruleName: String
     public let verdict: AutomationVerdict
-    /// The absolute folder the file would move into when filed — set for actionable rows (would-file
-    /// and name-collision), nil for the no-op cases (already-there, unresolved token). A nil here is
-    /// the single source of truth for "this row can be filed."
+    /// The absolute folder the file would move into: set for actionable rows (would-file and
+    /// name-collision), nil for the no-op cases (already-there, unresolved token). Non-nil is the
+    /// single source of truth for "this row can be filed."
     public let destinationDir: URL?
     /// The provider-relative destination shown to the user (e.g. "Invoices/2026").
     public let destinationLabel: String?
-    /// The folder that must **already exist** for `destinationDir` to be safe to create — the
-    /// provider root the preview resolved against.
+    /// The folder that must **already exist** for `destinationDir` to be safe to create: the
+    /// provider root the preview resolved against. Everything below it is the rule's to create,
+    /// but the root is the one thing filing may not invent. Without this check,
+    /// `createDirectory(withIntermediateDirectories: true)` would rebuild an unmounted provider as
+    /// a plain local folder and move files into it under a success banner, where nothing syncs.
     ///
-    /// Everything below it is the rule's to create (`Documents/Invoices/{year}` is a template, and
-    /// building the whole path is the feature), so the root itself is the one thing filing may not
-    /// invent. Without it the apply path's `createDirectory(withIntermediateDirectories: true)`
-    /// happily rebuilds an unmounted provider as an ordinary local folder and moves files into it
-    /// under a success banner — out of a live tree into one nothing ever syncs.
-    ///
-    /// **Required, not optional.** A row that cannot say what must already be there cannot be
-    /// filed safely, and a defaulted `nil` would leave the guard silently unarmed at any call site
-    /// that forgot it — the compiler asks instead.
+    /// Required, not optional: a defaulted `nil` would leave the guard unarmed at any call site
+    /// that forgot it.
     public let destinationAnchor: URL
 
     /// What the file was when the preview read it, so applying can tell it is still that file.
+    /// Minutes can pass between preview and apply while the user reads the report, and a path is
+    /// not a file: without this, whatever took `row.id`'s place would be moved instead, into a
+    /// destination chosen for a different document.
     ///
-    /// **A preview is not applied at the moment it is taken.** The report sits on screen while the
-    /// user reads it — and the walkthrough has them step through it row by row — so minutes can
-    /// pass between "this is what would happen" and the move. `applyAutomationFiling` gated on
-    /// `fileExists(atPath:)`, and a path is not a file: anything that took `row.id`'s place in the
-    /// meantime got moved instead, out of the folder the user was looking at and into a
-    /// destination chosen for a document it is not.
+    /// Read with ``ItemIdentity/snapshot(at:fileManager:)``, not built from the walk's `FileNode`:
+    /// the walk's `modificationDate` comes from a different API than `snapshot`'s, and if the two
+    /// ever disagreed about a `Date` the apply would refuse every row.
     ///
-    /// Read with ``ItemIdentity/snapshot(at:fileManager:)`` rather than assembled from the walk's
-    /// `FileNode`, deliberately. The walk populates `modificationDate` from
-    /// `resourceValues(.contentModificationDateKey)` while `snapshot` reads
-    /// `attributesOfItem[.modificationDate]`; an identity built from one and compared against the
-    /// other would rest on two APIs agreeing about a `Date`, and where they did not the apply
-    /// would refuse every row and look like a filesystem problem.
-    ///
-    /// **Optional, and nil means "not recorded" — apply proceeds as it did before.** Every
-    /// production row records one (`FileSyncManager.previewAutomations`, pinned by
-    /// `everyPreviewedRowCarriesTheIdentityItWasReadWith`); nil exists for rows built by hand in
-    /// tests that are about something else entirely, and refusing those would have made this
-    /// change about rewriting fixtures rather than about the guard.
+    /// nil means "not recorded", and apply proceeds without the check. Every production row records
+    /// one (`FileSyncManager.previewAutomations`, pinned by
+    /// `everyPreviewedRowCarriesTheIdentityItWasReadWith`); nil is for hand-built test rows.
     public let sourceIdentity: ItemIdentity?
 
     public init(id: String, fileName: String, ruleID: UUID, ruleName: String,
@@ -204,13 +186,12 @@ public struct AutomationDryRunReport: Sendable, Equatable {
 
 // MARK: - Evaluator
 
-/// Pure, deterministic, offline. Decides whether a rule matches a file, whether the (expensive)
+/// Pure, deterministic, offline. Decides whether a rule matches a file, whether the expensive
 /// content read is worth doing, and how a destination template resolves. It never touches disk or
-/// the network — the manager layers the disk-aware verdicts (collision, already-there) on top.
+/// the network; the manager adds the disk-aware verdicts (collision, already-there).
 public enum AutomationEvaluator {
 
-    /// Bytes per megabyte, decimal — matches how macOS Finder reports sizes, so "100 MB" means what
-    /// the user sees there.
+    /// Bytes per megabyte, decimal, as Finder reports sizes, so "100 MB" means what the user sees.
     static let bytesPerMB = 1_000_000
 
     // MARK: Condition matching
@@ -237,16 +218,11 @@ public enum AutomationEvaluator {
         case .contentContains(let term):
             let needle = term.trimmingCharacters(in: .whitespaces).lowercased()
             guard !needle.isEmpty else { return false }
-            // **Substring of the raw excerpt, and nothing else.** There was a token-subset
-            // fallback here for facts carrying content tokens but no snippet, and it was a second
-            // semantic wearing the first's name: "tax return" matched any file with "tax"
-            // somewhere and "return" somewhere else — order and adjacency gone — and the broad
-            // reading lived on the Organize scan, the path that MOVES files, while the preview
-            // answered with the strict one. Both surfaces gate their snippet fetch identically
-            // (`contentCouldStillDecide`), so any file this condition could act on has its text
-            // here; no snippet now means the text was not read — reads-contents off, or an
-            // extractor-less host — and a condition about text that was never read holds nothing.
-            // Word-of-the-term matching is `mentionsAll`'s job, and it still does it.
+            // A substring of the raw excerpt, and nothing else. **Never** fall back to token
+            // matching: "tax return" would match "tax" and "return" anywhere, and the scan that
+            // moves files would read more broadly than the preview. Both gate their snippet fetch
+            // the same way (`contentCouldStillDecide`), so no snippet means the text wasn't read,
+            // and a condition about unread text holds nothing. Word matching is `mentionsAll`'s job.
             return facts.snippet?.contains(needle) ?? false
         case .mentionsAll(let tokens):
             let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
@@ -264,7 +240,7 @@ public enum AutomationEvaluator {
             // empty and the rule simply never fires, rather than matching everything.
             return facts.personIds.contains(id)
         case .unrecognized:
-            // A condition from a newer build. Never matches — a rule this build cannot fully
+            // A condition from a newer build. Never matches: a rule this build can't fully
             // understand must not file anything on a partial reading of it.
             return false
         }
@@ -272,10 +248,9 @@ public enum AutomationEvaluator {
 
     /// Whether the whole rule matches the file. In ANY-OF mode incomplete conditions are ignored
     /// (dropping a disjunct only narrows); in ALL-OF mode an incomplete condition makes the rule
-    /// match NOTHING — "all" cannot be proven when one condition is unevaluatable, and filtering
-    /// it out silently broadened the rule to whatever the complete conditions match (the trap the
-    /// editor's Save gate blocks going forward, and this closes for already-stored rules). A rule
-    /// with no complete conditions never matches.
+    /// match NOTHING, since ignoring it would silently broaden the rule. The editor's Save gate
+    /// blocks such rules; this covers ones already stored. A rule with no complete conditions never
+    /// matches.
     public static func matches(_ rule: AutomationRule, _ facts: AutomationFileFacts, now: Date) -> Bool {
         if rule.matchMode == .all, rule.conditions.contains(where: { !$0.isComplete }) {
             return false
@@ -288,13 +263,12 @@ public enum AutomationEvaluator {
         }
     }
 
-    /// Whether the rule could still match once its content conditions are known — i.e. treating any
-    /// content condition optimistically as satisfied. Used to decide whether fetching the file's
-    /// (expensive) text is worth it: if this is false, the snippet can be skipped entirely.
+    /// Whether the rule could still match once its content conditions are known, treating each as
+    /// satisfied. Decides whether the expensive text fetch is worth it: false skips the snippet.
     public static func couldMatchPendingContent(_ rule: AutomationRule, _ facts: AutomationFileFacts, now: Date) -> Bool {
-        // Mirrors matches(): an ALL-OF rule with any incomplete condition can never match, so
-        // its content is never worth reading — without this, a permanently inert rule kept
-        // triggering PDFKit/OCR extraction for every loose file on every scan and preview.
+        // Mirrors matches(): an ALL-OF rule with an incomplete condition never matches, so its
+        // content is never worth reading. Without this an inert rule would trigger PDFKit/OCR
+        // extraction for every loose file on every scan and preview.
         if rule.matchMode == .all, rule.conditions.contains(where: { !$0.isComplete }) {
             return false
         }
@@ -318,19 +292,18 @@ public enum AutomationEvaluator {
     /// local metadata; an unfillable token yields ``DestinationResolution/unresolved(token:)`` so
     /// the preview can say what's missing rather than invent a folder.
     ///
-    /// Templates are normally provider-relative. A template starting with `/` is an **absolute**
-    /// destination (a remembered rule migrated from F3 whose folder lay outside every known
-    /// provider root) — it resolves to that absolute path verbatim, and callers must scope it
-    /// (only act when it falls inside the provider being worked on).
+    /// Templates are normally provider-relative. One starting with `/` is an **absolute**
+    /// destination (a migrated remembered rule whose folder lay outside every known provider root):
+    /// it resolves to that path verbatim, and callers must act on it only inside the provider being
+    /// worked on.
     public static func resolveDestination(
         _ template: String,
         for facts: AutomationFileFacts,
         providerName: String?,
         now: Date
     ) -> DestinationResolution {
-        // An absolute destination is a LITERAL folder path (it only ever comes from a migrated or
-        // learned rule that filed into a real folder) — no token expansion, so a legacy folder
-        // whose name happens to contain braces can never be misread as an unresolvable template.
+        // An absolute destination is a literal folder path (only from a migrated or learned rule),
+        // so no token expansion: a folder whose name holds braces is never misread as a template.
         if template.hasPrefix("/") {
             let cleaned = template
                 .split(separator: "/", omittingEmptySubsequences: true)
@@ -343,10 +316,9 @@ public enum AutomationEvaluator {
         var result = template
         let cal = Calendar(identifier: .gregorian)
 
-        // {year} prefers the year the FILENAME names over the modification date, exactly like the
-        // Organize engine (round 4): a 2023 tax form downloaded in 2024 belongs in Taxes/2023 —
-        // mtime is merely when the bytes last changed. Rule matches are batch-eligible, so a
-        // wrong-year {year} would blind-file into the wrong folder.
+        // {year} prefers the year the filename names over the modification date, as the Organize
+        // engine does: a 2023 tax form downloaded in 2024 belongs in Taxes/2023. Rule matches are
+        // batch-eligible, so a wrong {year} would file blind into the wrong folder.
         func year() -> String? {
             if let named = FilingEngine.filenameYear(in: FilingEngine.fileTokens(facts.name), now: now) {
                 return named
@@ -356,22 +328,19 @@ public enum AutomationEvaluator {
         }
         func month() -> String? {
             guard let d = facts.modificationDate else { return nil }
-            // Same contradiction guard as {yyyy-mm}: the month can only come from the mtime,
-            // and when the filename names a DIFFERENT year the document's month is unknowable —
-            // resolving would let a hand-composed "{year}-{month}" template mint the exact
-            // neither-source date the composite token forbids.
+            // Same guard as {yyyy-mm}: the month comes only from the mtime, so when the filename
+            // names a different year the month is unknowable, and "{year}-{month}" would mint a
+            // date from neither source.
             if let named = FilingEngine.filenameYear(in: FilingEngine.fileTokens(facts.name), now: now),
                named != String(cal.component(.year, from: d)) {
                 return nil
             }
             return String(format: "%02d", cal.component(.month, from: d))
         }
-        // {yyyy-mm} takes BOTH components from ONE clock — the mtime. {year} alone may prefer
-        // the filename's year (Taxes/2023 for a 2023 form downloaded in 2024), but the month
-        // can only come from the mtime, and composing filename-2023 with mtime-May-2024 minted
-        // "2023-05" — a date belonging to neither source, blind-filed into by batch-eligible
-        // rules. A filename year that CONTRADICTS the mtime year makes the composite
-        // unknowable: resolve to nil so the leftover-token sweep flags it instead.
+        // {yyyy-mm} takes both parts from one clock, the mtime. Mixing a filename's 2023 with an
+        // mtime of May 2024 would make "2023-05", a date from neither source, and batch-eligible
+        // rules would file into it blind. A filename year that contradicts the mtime year makes
+        // it unknowable: nil, so the template resolves `.unresolved`.
         func yearMonth() -> String? {
             guard let d = facts.modificationDate else { return nil }
             let mtimeYear = String(cal.component(.year, from: d))
@@ -390,8 +359,8 @@ public enum AutomationEvaluator {
             return day
         }
 
-        // Ordered so a failed lookup can report the exact token. Each replacement is skipped (left in
-        // place) when it can't resolve; the leftover-token sweep below then flags it.
+        // Ordered so a failed lookup reports the exact token; an unresolvable token returns
+        // `.unresolved` at once.
         let substitutions: [(token: String, value: String?)] = [
             ("{yyyy-mm}", yearMonth()),
             ("{year}", year()),
@@ -399,12 +368,11 @@ public enum AutomationEvaluator {
             ("{kind}", FileKind.of(fileName: facts.name)?.label),
             ("{ext}", facts.fileExtension.isEmpty ? nil : facts.fileExtension.lowercased()),
             ("{provider}", providerName?.trimmingCharacters(in: .whitespaces).nilIfEmpty),
-            // **The token that turns seven rules into one.** `Immigration/OCI/{person}` files each
-            // person's card into their own folder, and a rule taught on one of them covers the
-            // household. nil — and therefore `.unresolved`, never a guess — when the document
-            // names nobody, or names two people and so has no single folder to go to.
+            // `Immigration/OCI/{person}` files each person's card into their own folder, so one
+            // rule covers the household. nil, so `.unresolved` and never a guess, when the
+            // document names nobody or two people.
             ("{person}", facts.personFolderName?.trimmingCharacters(in: .whitespaces).nilIfEmpty),
-            // The trip's date from page 1 (TE286, decision HI); unresolved when page 1 wasn't read.
+            // The trip's date from page 1; unresolved when page 1 wasn't read.
             (AutomationTravelDate.yearToken, travel().map { String($0.year) }),
             (AutomationTravelDate.monthToken, travel()?.monthName),
         ]
@@ -431,9 +399,9 @@ public enum AutomationEvaluator {
 
     // MARK: Absolute destinations (migrated F3 rules)
 
-    /// Resolves a destination to the absolute folder it names under `providerRoot`, or nil when the
-    /// destination is absolute but points outside that provider (the rule is inert there — the same
-    /// provider scoping remembered rules always had). A relative destination is anchored at the root.
+    /// Resolves a destination to the absolute folder it names under `providerRoot`, or nil when it
+    /// is absolute but outside that provider (the rule is inert there). A relative destination is
+    /// anchored at the root.
     public static func absoluteDestination(_ resolved: String, providerRoot: String) -> String? {
         let dest: String
         if resolved.hasPrefix("/") {

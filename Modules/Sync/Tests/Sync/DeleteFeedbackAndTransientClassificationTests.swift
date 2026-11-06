@@ -3,7 +3,7 @@ import Foundation
 import Events
 @testable import Sync
 
-/// Two small honesty fixes in the delete path.
+/// The delete path's feedback when nothing was there, and how it classifies wrapped trash errors.
 @Suite struct DeleteFeedbackAndTransientClassificationTests {
 
     @MainActor
@@ -14,15 +14,14 @@ import Events
         return manager
     }
 
-    /// A delete gesture whose items all vanished between the scan and the click produced NOTHING:
-    /// the success banner and the error report are both gated on non-empty results, so the user's
-    /// press of ⌫ looked exactly like the app ignoring it.
+    /// A delete whose items all vanished since the scan says so. The success banner and error
+    /// report both need non-empty results, so without this ⌫ looks like the app ignoring it.
     @MainActor
     @Test func aDeleteWhoseItemsAllVanishedSaysSoInsteadOfNothing() async throws {
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        // Nothing at these paths — they left the disk since the tree was walked.
+        // Nothing at these paths: they left the disk since the tree was walked.
         manager.banner = nil
 
         let removed = await manager.deleteItems(at: ["/dst/a.txt", "/dst/b.txt"],
@@ -44,9 +43,8 @@ import Events
         #expect(manager.banner?.message == "That item was already gone")
     }
 
-    /// The internal callers (duplicate resolve/merge, the review's trash) interpret a zero return
-    /// themselves and post their own, better-scoped message, so the low-level banner must stay off
-    /// by default or it talks over them.
+    /// Internal callers (duplicate resolve and merge, the review's trash) read a zero return and
+    /// post their own message, so the low-level banner stays off by default or it talks over them.
     @MainActor
     @Test func theInternalCallersStayQuiet() async throws {
         let manager = makeManager()
@@ -58,10 +56,10 @@ import Events
         #expect(manager.banner == nil)
     }
 
-    /// `isTransientTrashFailure` read only the OUTERMOST error, but FileManager routinely reports a
-    /// Cocoa-domain error that WRAPS the POSIX cause. A merely-busy item arriving in that shape was
-    /// classified as a genuinely Trash-less volume and escalated to the permanent-delete prompt —
-    /// the unrecoverable upgrade the classifier exists to prevent.
+    /// `isTransientTrashFailure` looks through wrapping: FileManager often reports a Cocoa-domain
+    /// error that wraps the POSIX cause. Reading only the outer error would call a busy item a
+    /// Trash-less volume and escalate to the permanent-delete prompt, the unrecoverable step the
+    /// classifier exists to prevent.
     @Test func aCocoaErrorWrappingEBUSYIsStillTransient() {
         let underlying = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
         let wrapped = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
@@ -78,8 +76,8 @@ import Events
         #expect(FileSyncManager.isTransientTrashFailure(outer))
     }
 
-    /// The other direction, which must not regress: a real Trash-less volume still escalates, so
-    /// the permanent-delete fallback that makes those volumes usable at all keeps working.
+    /// The other direction: a real Trash-less volume still escalates, so the permanent-delete
+    /// fallback that makes those volumes usable keeps working.
     @Test func anUnsupportedVolumeErrorIsStillNonTransient() {
         let unsupported = NSError(domain: NSPOSIXErrorDomain, code: Int(ENOTSUP))
         #expect(!FileSyncManager.isTransientTrashFailure(unsupported))

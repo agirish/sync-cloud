@@ -2,14 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Proves the duplicate finder's two hashing entry points actually CONSULT the session hash cache.
-///
-/// Verify has used `ContentHashCache` since it was written; the duplicate scan and merge planner
-/// called the same hasher with no cache at all, so a scan after a Verify — or a second scan, or the
-/// keeper tree re-walked once per redundant copy during a merge — re-read and re-hashed everything.
-/// Wiring it up is a one-argument change, which is exactly the kind that can be made and then
-/// quietly not take effect; these tests plant a digest the file does not really have and show the
-/// grouping decision follows the PLANTED value, which is only possible if the cache was read.
+/// Proves the duplicate scan and merge planner consult the session hash cache that Verify uses, so
+/// a scan after a Verify, a second scan, or a merge's per-copy keeper re-walk doesn't re-hash
+/// everything. The wiring is one argument and could silently not take effect, so these plant a
+/// digest the file doesn't have and show the decision follows the planted value.
 @Suite struct DuplicateHashCacheWiringTests {
 
     private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
@@ -18,8 +14,8 @@ import Foundation
         try Data(repeating: fill, count: bytes).write(to: url)
     }
 
-    /// The key `FileContentVerifier` builds for a real file — through its own spelling of it, which
-    /// since FR59 also carries the file number and status-change time.
+    /// The key `FileContentVerifier` builds for a real file, through its own spelling of it, which
+    /// carries the file number and status-change time.
     private func key(for url: URL) throws -> ContentHashKey {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
         let size = try #require((attrs[.size] as? NSNumber)?.intValue)
@@ -37,8 +33,8 @@ import Foundation
         try write(a, bytes: 4096, fill: 0x41)
         try write(b, bytes: 4096, fill: 0x41)   // identical bytes
 
-        // Mutation guard FIRST: with no cache these genuinely group, so the assertion below is
-        // about the cache and not about the fixture failing to be a duplicate pair.
+        // The control first: with no cache these genuinely group, so the assertion below is about
+        // the cache, not a fixture that was never a duplicate pair.
         let uncached = FileSyncManager()
         await uncached.findDuplicates(root: root, cache: nil)
         #expect(uncached.duplicateGroups.count == 1, "the fixture must be a real duplicate pair")
@@ -130,9 +126,8 @@ import Foundation
         #expect(await cache.hash(for: try key(for: middleB)) != nil)
     }
 
-    /// The headline claim: Verify and the duplicate finder stop paying for each other's work. Verify hashes through
-    /// the shared cache; a duplicates scan of the same files must then find those digests already there.
-    /// Proved the same way — by what Verify leaves behind being the thing the duplicates scan answers from.
+    /// Verify and the duplicate finder share work: Verify hashes through the shared cache, and a
+    /// duplicates scan of the same files answers from the digests Verify left behind.
     @MainActor
     @Test func aVerifyPopulatesTheCacheThatADuplicatesScanThenReadsFrom() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheCrossFeature")
@@ -157,9 +152,8 @@ import Foundation
         await manager.findDuplicates(root: root, cache: shared)
         #expect(manager.duplicateGroups.count == 1)
 
-        // Mutation guard for the direction of the claim: overwrite ONE of the digests Verify left
-        // behind, and the scan's answer changes — so the scan really did read Verify's entries and
-        // not just re-hash the files itself.
+        // The direction of the claim: overwrite one of the digests Verify left behind and the
+        // scan's answer changes, so the scan read Verify's entries rather than re-hashing.
         await shared.store(String(repeating: "c", count: 64), for: try key(for: b))
         let after = FileSyncManager()
         await after.findDuplicates(root: root, cache: shared)
@@ -268,12 +262,11 @@ import Foundation
         #expect(await cache.count == 0)
     }
 
-    /// **A document copied over under its old dates is fingerprinted again (FR59).** The
-    /// fingerprint index keeps an entry while it is used, and a copy takes the source's dates (FR32): replace
-    /// a document with a same-size one carrying the old modification date and its path, mtime and
-    /// size are all unchanged, so a key of those three served the replaced document's fingerprint,
-    /// and Duplicates could call a different file "same text" and offer to trash a copy. The key
-    /// now carries the file number and status-change time, as the byte-hash key does.
+    /// A document copied over under its old dates is fingerprinted again. A copy takes the source's
+    /// dates, so a same-size replacement leaves path, mtime and size unchanged; a key of those three
+    /// would serve the old fingerprint, and Duplicates could call a different file "same text" and
+    /// offer to trash a copy. The key carries the file number and status-change time, as the
+    /// byte-hash key does.
     @Test func aDocumentReplacedUnderItsOldDatesIsFingerprintedAgain() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FingerprintKey")
         defer { try? FileManager.default.removeItem(at: root) }

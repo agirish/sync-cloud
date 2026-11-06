@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Characterization pins for the confidence-cap / provenance / rule-eligibility refactor.
-///
-/// Written against the PRE-refactor engine and kept green through it: each test names one of the
-/// construction sites that used to spell the content-derived cap (or the eligibility filter) for
-/// itself, and pins the OUTPUT the shared spelling must keep producing. `isBatchEligible` is the
-/// consumer that makes these pins matter — it gates files moving without the user looking.
+/// Pins the content-derived confidence cap, provenance and rule eligibility at each construction
+/// site that applies them, by output. `isBatchEligible` is why they matter: it gates files moving
+/// without the user looking.
 @Suite struct FilingProvenancePinTests {
 
     // Mid-2024 so the year is 2024 in every timezone.
@@ -23,15 +20,12 @@ import Testing
 
     // MARK: - The cap, per construction site
 
-    /// Taxonomy site. A CONTENT token matching a folder's NAME earns base `.high` (a real
-    /// folder-name hit) — the cap is the only thing that brings it to `.medium`, so this fixture
-    /// discriminates "capped" from "not capped" rather than agreeing with both.
-    ///
-    /// Two words, since GS: one shared word is born `.medium` and could not tell the two apart.
+    /// Taxonomy site. Content tokens matching a folder's name earn base `.high`, so only the cap
+    /// brings it to `.medium` and the fixture tells capped from not capped. Two words, because one
+    /// shared word is born `.medium`.
     @Test func aContentTokenMatchingAFolderNameIsCappedToMedium() throws {
         let taxonomy = [dir("/root/Medical Receipts", [])]
-        // "scan" is a stopword and "0071" a bare number, so the filename contributes no tokens:
-        // the deciding signal can only be the content tokens.
+        // "scan" is a stopword and "0071" a bare number, so only the content tokens can decide.
         let loose = [file("/root/inbox/scan0071.pdf", modified: y2024)]
         let s = try #require(FilingEngine.suggest(
             looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
@@ -43,8 +37,8 @@ import Testing
         #expect(!s.isBatchEligible)
     }
 
-    /// Same site, name-derived control: the identical hit from the FILENAME keeps `.high` and the
-    /// blind-batch door open — proving the fixture above was capped, not merely born `.medium`.
+    /// Control: the same hit from the filename keeps `.high` and stays batch-eligible, so the test
+    /// above was capped, not born `.medium`.
     @Test func theSameFolderNameHitFromTheFilenameStaysHigh() throws {
         let taxonomy = [dir("/root/Medical Receipts", [])]
         let s = try #require(FilingEngine.suggest(
@@ -57,8 +51,8 @@ import Testing
         #expect(s.isBatchEligible)
     }
 
-    /// Remembered-rule site (the site that used to OVERWRITE `.medium`/`.high` rather than cap —
-    /// same output while base is `.high`, which this pins).
+    /// Remembered-rule site: a rule matched only in content is capped to `.medium` and kept off the
+    /// batch.
     @Test func aRememberedRuleMatchedOnlyInContentIsMediumRememberedAndOffTheBatch() throws {
         let rule = FilingRule(tokens: ["kaiser"], destinationPath: "/root/Medical")
         let taxonomy = [dir("/root/Medical", [])]
@@ -88,7 +82,7 @@ import Testing
         #expect(s.isBatchEligible)
     }
 
-    /// Automation site (the other overwrite spelling).
+    /// Automation site: matched only through content, capped and off the batch.
     @Test func anAutomationMatchedOnlyThroughContentIsMediumAndOffTheBatch() throws {
         let rule = AutomationRule(name: "Kaiser papers", matchMode: .all,
                                   conditions: [.mentionsAll(["kaiser"])],
@@ -139,7 +133,7 @@ import Testing
         #expect(!s.isBatchEligible)
     }
 
-    /// Where Receipts already files by year — the tree makes the rule's claim (GS).
+    /// Where Receipts already files by year, the tree backs the rule's `.high`.
     @Test func aReceiptWordInTheFilenameKeepsTheHighReceiptRule() throws {
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file("/root/inbox/invoice march.pdf", modified: y2024)],
@@ -151,8 +145,8 @@ import Testing
         #expect(s.isBatchEligible)
     }
 
-    /// …and where it does not, a new year folder is a proposal, at Medium: `Mint Order - 2026.pdf`
-    /// led High with a NEW `Purchases/2026` in a `Purchases` that sorts by country and vendor.
+    /// Where it doesn't, a new year folder is only a proposal, at Medium: a `Purchases` sorted by
+    /// country and vendor shouldn't get a confident new `Purchases/2026`.
     @Test func aByYearRuleIsMediumWhereTheFolderKeepsNoYears() throws {
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file("/root/inbox/Mint Order - 2026.pdf", modified: y2024)],
@@ -163,8 +157,8 @@ import Testing
         #expect(year.isNew)
     }
 
-    /// The AI construction site deliberately BYPASSES the cap: a verdict's confidence is the
-    /// backend's own, and the `fromAI` flag (not a demotion) is what keeps it out of the batch.
+    /// The AI site bypasses the cap: a verdict's confidence is the backend's own, and `fromAI`, not
+    /// a demotion, keeps it out of the batch.
     @Test func anAIVerdictKeepsItsHighConfidenceAndStaysOffTheBatchViaFromAI() throws {
         let dest = try #require(FilingEngine.destination(
             from: FilingVerdict(relativePath: "Medical", confidence: .high, reason: "model"),
@@ -178,10 +172,9 @@ import Testing
         #expect(!s.isBatchEligible)
     }
 
-    /// The route construction site: the router's confidence is a MEASURED margin, and is not
-    /// capped even when the evidence is content-derived — `fromContent` alone handles the batch.
-    /// (A lone scoring candidate has margin 1.0 ⇒ `.high`; the guard message keeps the fixture
-    /// honest about that.)
+    /// Route site: the router's confidence is a measured margin, not capped even for content
+    /// evidence; `fromContent` alone keeps it off the batch. A lone scoring candidate has margin
+    /// 1.0, so `.high`.
     @Test func aRouterHomeKeepsItsMeasuredConfidenceEvenWhenContentDerived() throws {
         let root = "/prov"
         let index = FilingRouterTests.index(memoryDocs: [
@@ -202,14 +195,10 @@ import Testing
         #expect(!out[0].isBatchEligible)
     }
 
-    /// The route site's OTHER branch, and the only one that can mint a blind-batch-eligible home:
-    /// with no snippet there is no evidence token, so the destination is built `.name`, and a
-    /// measured `.high` margin then leaves `isBatchEligible` true — a file moved without the user
-    /// looking, on a ranking made from its filename. That is the intended trade (a filename is the
-    /// checkable signal), but it is the consequential one, so it is pinned rather than assumed.
-    ///
-    /// The sibling test above covers the content branch; between them the `evidence:` ternary at
-    /// the construction site has both of its arms pinned.
+    /// The route site's name branch, the only router home the blind batch may move: with no
+    /// snippet the destination is built `.name`, and a `.high` margin leaves it batch-eligible. The
+    /// filename is a checkable signal, so this is intended, and pinned because it moves files
+    /// unseen. With the test above, both arms of the `evidence:` ternary are pinned.
     @Test func aRouterHomeRankedFromTheFilenameAloneStaysInTheBlindBatch() throws {
         let root = "/prov"
         let index = FilingRouterTests.index()
@@ -234,17 +223,16 @@ import Testing
 
     // MARK: - Merge discipline when two candidates name the same folder
 
-    /// The SAME folder named by a remembered rule (filename evidence, `.high`) and by a taxonomy
-    /// content match (`.medium`, `fromContent`). The winner's provenance stands: the merged
-    /// candidate is NOT `fromContent`, so it keeps `.high` coherently and STAYS in the blind
-    /// batch. This is exactly the case where an OR-merge of `fromContent` would flip
-    /// `isBatchEligible` — the pin that makes that a decision, not an accident.
+    /// One folder named by a remembered rule (filename, `.high`) and a taxonomy content match
+    /// (`.medium`, `fromContent`). The winner's provenance stands, so the merge isn't `fromContent`,
+    /// keeps `.high` and stays in the blind batch. OR-merging `fromContent` would flip
+    /// `isBatchEligible`.
     @Test func sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance() throws {
         let rule = FilingRule(tokens: ["invoice"], destinationPath: "/root/Receipts")
         let taxonomy = [dir("/root/Receipts", [])]
         let path = "/root/inbox/invoice march.pdf"
-        // "invoice" is in the NAME (rule match, not content); "receipts" only in the CONTENT
-        // (taxonomy folder-name match, content-derived). Both name /root/Receipts.
+        // "invoice" is in the name (rule match); "receipts" only in the content (taxonomy match).
+        // Both name /root/Receipts.
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file(path, modified: y2024)], taxonomy: taxonomy, providerRoot: "/root",
             contentTokens: [path: ["receipts"]], rules: [rule]).first)
@@ -281,8 +269,8 @@ import Testing
 
     // MARK: - Automation eligibility at the engine site
 
-    /// The engine acts only on enabled AND runnable automations — a disabled rule and a
-    /// half-built one (no name ⇒ not runnable) steer nothing even when their conditions match.
+    /// The engine acts only on enabled, runnable automations: a disabled rule and a half-built one
+    /// (no name, so not runnable) steer nothing even when their conditions match.
     @Test func disabledOrUnrunnableAutomationsNeverSteerASuggestion() throws {
         let disabled = AutomationRule(name: "Off", enabled: false, matchMode: .all,
                                       conditions: [.mentionsAll(["kaiser"])],
@@ -299,9 +287,8 @@ import Testing
     }
 }
 
-/// Unit tests of the seams the refactor introduced — the capped construction path, the merge
-/// discipline, and `AutomationRuleSet`. These probe the cases the engine's public surface cannot
-/// reach (which is exactly why they exist: a rule extracted for testability needs its own proof).
+/// Unit tests of the shared seams: the capped construction path, the merge discipline, and
+/// `AutomationRuleSet`. They reach cases the engine's public surface can't.
 @Suite struct FilingProvenanceSeamTests {
 
     private func d(_ c: FilingConfidence, fromContent: Bool = false, remembered: Bool = false,
@@ -314,8 +301,8 @@ import Testing
 
     // MARK: The capped construction path
 
-    /// The case where "cap" and the old per-site "overwrite to .medium" answer DIFFERENTLY:
-    /// a `.low` base with content evidence must stay `.low` — capping never promotes.
+    /// Capping never promotes: a `.low` base with content evidence stays `.low`, where overwriting
+    /// to `.medium` would raise it.
     @Test func theCapNeverPromotesALowBase() {
         let dest = FilingDestination(path: "/p", base: .low, evidence: .content,
                                      reasons: [], newSegments: [])
@@ -328,7 +315,7 @@ import Testing
                                   reasons: [], newSegments: []).confidence == .medium)
         #expect(FilingDestination(path: "/p", base: .high, evidence: .name,
                                   reasons: [], newSegments: []).confidence == .high)
-        // Measured (router-margin) content evidence is trusted as-is — but still marked.
+        // Measured (router-margin) content evidence is trusted as is, but still marked.
         let measured = FilingDestination(path: "/p", base: .high, evidence: .measuredContent,
                                          reasons: [], newSegments: [])
         #expect(measured.confidence == .high)
@@ -359,8 +346,8 @@ import Testing
     }
 
     @Test func mergeTieKeepsTheEarlierCandidatesClaim() {
-        // Equal confidence: `self` (the earlier-constructed candidate) is the winner — the order
-        // the engine's candidate builders run in is part of the pinned behavior.
+        // Equal confidence: `self`, the earlier candidate, wins, so the order the engine's
+        // candidate builders run in is part of the pinned behavior.
         let first = d(.medium, fromContent: false, reasons: ["first"])
         let second = d(.medium, fromContent: true, token: "Late", reasons: ["second"])
         let merged = first.merging(second)
@@ -415,9 +402,9 @@ import Testing
         #expect(set.readsContent)
         let file = FileNode(id: "/root/inbox/scan0071.pdf", name: "scan0071.pdf",
                             isDirectory: false, fileSize: 10)
-        // No content yet, and the name alone does not match ⇒ worth reading.
+        // No content yet, and the name alone doesn't match, so content is worth reading.
         #expect(set.contentCouldStillDecide(FilingEngine.automationFacts(for: file), now: .now))
-        // The name already matches ⇒ nothing left for content to decide.
+        // The name already matches, so content has nothing left to decide.
         let named = FileNode(id: "/root/inbox/kaiser eob.pdf", name: "kaiser eob.pdf",
                              isDirectory: false, fileSize: 10)
         #expect(!set.contentCouldStillDecide(FilingEngine.automationFacts(for: named), now: .now))

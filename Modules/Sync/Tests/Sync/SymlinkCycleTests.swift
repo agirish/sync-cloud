@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins the symlink-cycle guard in `buildTree`: symlinked directories are still followed
-/// (the panes deliberately display linked content), but a link back into a directory on
-/// the current path must not recurse forever (`A/loop -> A` grew the path unboundedly —
-/// the pane load never finished and could end in a stack overflow).
-///
-/// These tests use the real `FileManager` on a temp directory because mock disks cannot
-/// contain symlinks — the cycle guard's real-filesystem identity path is what's under test.
+/// Pins the symlink-cycle guard in `buildTree`: symlinked directories are still followed (the panes
+/// show linked content on purpose), but a link back into a directory on the current path must not
+/// recurse forever, which would never finish the pane load and could overflow the stack. Uses the
+/// real `FileManager` on a temp directory, since mock disks can't hold symlinks.
 @Suite struct SymlinkCycleTests {
 
     private func occurrences(named target: String, in nodes: [FileNode]) -> Int {
@@ -30,8 +27,8 @@ import Testing
 
         let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
 
-        // The walk terminated (or this test would hang) and each entry appears a bounded
-        // number of times: sub, file.txt, and the loop link itself — shown once, unexplored.
+        // The walk terminated (or this test would hang), and each entry appears a bounded number
+        // of times: sub, file.txt, and the loop link itself, shown once, unexplored.
         #expect(FileSyncManager.countItems(in: tree) == 3)
         #expect(occurrences(named: "file.txt", in: tree) == 1)
         let loop = try #require(tree.first { $0.name == "sub" }?.children?.first { $0.name == "loop" })
@@ -55,9 +52,9 @@ import Testing
         #expect(FileSyncManager.countItems(in: tree) == 2)
     }
 
-    /// A cycle-capped directory has empty children by construction, not by observation — the
-    /// cache must treat it as a miss (forcing a fresh walk from that path), while a genuinely
-    /// empty directory is still served.
+    /// A cycle-capped directory has empty children by construction, not observation: the cache
+    /// must treat it as a miss (forcing a fresh walk from that path), while a genuinely empty
+    /// directory is still served.
     @Test func testSubtreeMissesCycleCappedDirectoryButServesEmptyOnes() async throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
@@ -74,18 +71,17 @@ import Testing
         // The capped node still renders as a folder in the pane…
         let loop = try #require(tree.first { $0.name == "sub" }?.children?.first { $0.name == "loop" })
         #expect(loop.isDirectory)
-        // …but is a cache MISS, never an authoritative empty deep tree.
+        // …but is a cache miss, never an authoritative empty deep tree.
         #expect(FileSyncManager.subtree(atPath: sub.appendingPathComponent("loop").path, under: root.path, in: tree) == nil)
         // Genuinely empty and genuinely walked directories are served as before.
         #expect(FileSyncManager.subtree(atPath: root.appendingPathComponent("empty").path, under: root.path, in: tree) == [])
         #expect(FileSyncManager.subtree(atPath: sub.path, under: root.path, in: tree)?.count == 2)
     }
 
-    /// Regression: drilling into a cycle-capped directory served the capped `[]` from the cached
-    /// root tree as that folder's deep tree, and the in-memory diff then reported the entire
-    /// other side as "Missing" — phantom rows inviting a destructive bulk copy. The drill-down
-    /// must fall back to a fresh disk walk (correct from that root: fresh visited set and depth
-    /// budget), and the diff must see the real contents.
+    /// Drilling into a cycle-capped directory must not serve the capped `[]` from the cached root
+    /// tree as its deep tree, or the diff reports the whole other side as Missing, phantom rows
+    /// inviting a destructive bulk copy. The drill-down falls back to a fresh walk (fresh visited
+    /// set and depth budget from that root), and the diff sees the real contents.
     @MainActor
     @Test func testDrillIntoCycleCappedDirectoryShowsRealContentsAndNoPhantomRows() async throws {
         let fm = FileManager.default
@@ -138,7 +134,7 @@ import Testing
         let data = root.appendingPathComponent("data")
         try fm.createDirectory(at: data, withIntermediateDirectories: true)
         try "x".write(to: data.appendingPathComponent("inner.txt"), atomically: true, encoding: .utf8)
-        // A sibling link into `data` is not a cycle — its contents must still display.
+        // A sibling link into `data` is not a cycle, so its contents must still display.
         try fm.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: data)
 
         let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)

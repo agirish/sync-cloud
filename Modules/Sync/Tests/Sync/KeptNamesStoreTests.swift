@@ -3,11 +3,9 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// The durable "I meant that name" state the row badge needs.
-///
-/// The badge is rendered every time a file is on screen, so without somewhere to record a deliberate
-/// choice a name the user meant becomes a permanent mark they cannot answer. Organize's existing
-/// dismissal cannot serve: it lasts only as long as the scan results do.
+/// The durable "I meant that name" state the row badge needs. The badge shows whenever the file is
+/// on screen, so without a record of the choice a name the user meant would carry a mark they can
+/// never answer. Organize's dismissal can't serve: it lasts only as long as the scan results.
 @Suite struct KeptNamesStoreTests {
 
     private func scratch(_ name: String) -> ScratchDefaults {
@@ -23,8 +21,8 @@ import Combine
         store.keep("Q3: final.pdf")
         #expect(store.isKept("Q3: final.pdf"))
 
-        // A fresh store over the same defaults IS the relaunch: the whole point of the type is that
-        // the decision outlives the session that made it.
+        // A fresh store over the same defaults is the relaunch: the decision must outlive the
+        // session that made it.
         let reopened = KeptNamesStore(userDefaults: defaults)
         #expect(reopened.isKept("Q3: final.pdf"))
         #expect(reopened.isKept("something else.pdf") == false)
@@ -51,16 +49,15 @@ import Combine
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("only one")
         store.stopKeeping("only one")
-        // Removed rather than written as an empty array — an empty array read back is the same
-        // empty set, but leaving the key behind means every provider pair the user ever kept a
-        // name under accumulates a dead entry in the defaults plist.
+        // Removed rather than written as an empty array, which reads back the same but leaves a
+        // dead entry in the defaults plist.
         #expect(defaults.object(forKey: KeptNamesStore.defaultsKey) == nil)
         #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
     }
 
-    /// Settings' "Clear All". Durable like every other withdrawal, and it leaves the defaults key
-    /// removed rather than holding an empty array — the same reason
-    /// `theLastKeepWithdrawnLeavesNothingBehind` checks it for the one-at-a-time path.
+    /// Settings' "Clear All": durable like every other withdrawal, and it removes the defaults key
+    /// rather than leaving an empty array, as `theLastKeepWithdrawnLeavesNothingBehind` checks for
+    /// the one-at-a-time path.
     @MainActor
     @Test func clearingEveryKeepIsDurableAndLeavesNothingBehind() {
         let defaults = scratch("clearall")
@@ -76,9 +73,8 @@ import Combine
     }
 
     /// Clearing an already-empty set publishes nothing. `names` is `@Published` and
-    /// `FileSyncManager` reconciles `riskyNames` on every publish, so an unconditional
-    /// `removeAll()` would re-filter the whole finding for a button press that changed nothing —
-    /// the same spurious-publish trap the manager's keep subscription documents.
+    /// `FileSyncManager` reconciles `riskyNames` on every publish, so an unconditional `removeAll()`
+    /// would re-filter every finding for a press that changed nothing.
     @MainActor
     @Test func clearingWhenNothingIsKeptPublishesNothing() async {
         let defaults = scratch("clearall-empty")
@@ -94,17 +90,15 @@ import Combine
         #expect(publishes == 0)
     }
 
-    /// The keep is about the NAME, so the same name in a different folder is the same decision.
-    /// This is the deliberate cost of name-keying: it is what stops a move or a copy from re-asking
-    /// a question the user already answered.
+    /// The keep is about the name, so the same name in another folder is the same decision. That
+    /// is deliberate: it stops a move or copy from re-asking a question the user already answered.
     @MainActor
     @Test func keepingANameCoversEveryFileWithThatName() {
         let defaults = scratch("byname")
 
         let store = KeptNamesStore(userDefaults: defaults)
         store.keep("scan 001 .pdf")
-        // Same string, wherever it lives — the store never sees a path, which is precisely the
-        // property that makes it survive the file moving.
+        // The store never sees a path, which is what lets the keep survive the file moving.
         #expect(store.isKept("scan 001 .pdf"))
         #expect(store.isKept("scan 002 .pdf") == false)
     }
@@ -137,12 +131,12 @@ import Combine
     @Test func withNoStoreEveryFindingIsReported() {
         let manager = FileSyncManager()
         let found = [risky("a "), risky("b:")]
-        // The pre-store behaviour, preserved exactly for tests and the CLI, which attach no store.
+        // Tests and the CLI attach no store, and must see every finding.
         #expect(manager.reportable(found).count == 2)
     }
 
-    /// Keeping a name AFTER a scan has published has to drop the row that is already on screen —
-    /// otherwise the user keeps a name from a pane row and Organize goes on offering to rename it.
+    /// Keeping a name after a scan has published drops the row already on screen, or Organize
+    /// would go on offering to rename a name the user kept from a pane row.
     @MainActor
     @Test func keepingANameDropsItFromAlreadyPublishedResults() async throws {
         let defaults = ScratchDefaults("KeptLive")
@@ -158,17 +152,12 @@ import Combine
         #expect(manager.riskyNames.map(\.currentName) == ["fix me "])
     }
 
-    /// **A keep must announce itself on the MANAGER**, not only on the store.
-    ///
-    /// The store is a separate `ObservableObject` behind a plain `var`, so a view that renders the
-    /// kept set while observing only the manager — `DifferencesView`, whose name cells silence a
-    /// badge on a kept name — sees nothing otherwise, and the badge lingers in the table after the
-    /// user keeps the name from a pane row.
-    ///
-    /// Asserted with NO risky names published, deliberately. With results present the `removeAll`
-    /// in the sink is a mutating access to a `@Published` array and announces one incidentally, so
-    /// a test that kept a name it had also scanned would pass whether or not the explicit
-    /// announcement existed — it would be pinning the accident rather than the contract.
+    /// A keep must announce itself on the manager, not only on the store. The store is a separate
+    /// `ObservableObject` behind a plain `var`, so a view observing only the manager
+    /// (`DifferencesView`, whose name cells hide the badge on a kept name) would keep showing it.
+    /// Run with no risky names published: with results present, the sink's `removeAll` mutates a
+    /// `@Published` array and announces anyway, so the test would pass without the explicit
+    /// announcement.
     @MainActor
     @Test func keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove() async throws {
         let defaults = ScratchDefaults("KeptAnnounce")
@@ -188,9 +177,8 @@ import Combine
                 "nothing observing the manager would learn of the keep, so the Differences table's badge would go stale")
     }
 
-    /// Attaching a store to a manager that has already scanned applies it at once, rather than
-    /// waiting for the next change to the set. The app attaches it once per session, before the
-    /// first scan; this pins the other order, which a late attach would take.
+    /// Attaching a store to a manager that has already scanned applies it at once, not at the next
+    /// change to the set. The app attaches it before the first scan; this pins a late attach.
     @MainActor
     @Test func attachingAStoreFiltersWhatIsAlreadyPublished() {
         let defaults = ScratchDefaults("KeptAttach")

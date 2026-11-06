@@ -2,41 +2,37 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The class of answers the cache could never serve.**
+/// The verdict cache serves answers the resolver sanitized.
 ///
-/// The staleness test asks "does this verdict still resolve where it resolved before?" — but it
-/// compared the resolution against the model's **raw** string. Those differ by design for every
-/// answer the resolver sanitizes: a trailing file name is stripped, undeclared new segments are
-/// trimmed to their existing parent, an echoed provider root is dropped. For all of those the
-/// comparison failed on the very first lookup, with nothing changed and nothing wrong, so the
-/// answer could never be served and was paid for again on every refine — in exactly the case the
-/// sanitizer exists for, which `FilingEngine.destination`'s own notes say happens often.
-///
-/// `resolvedRelativePath` is the comparand now. `relativePath` stays the served answer, because
-/// the entry reconstructs the verdict from it.
+/// The staleness check asks whether a verdict still resolves where it did, so it compares against
+/// the recorded resolution (`resolvedRelativePath`), not the model's raw string. Those differ for
+/// every sanitized answer (a trailing file name stripped, new segments trimmed to an existing
+/// parent, an echoed provider root dropped); comparing the raw string would miss every time and pay
+/// for the answer again on each refine. `relativePath` stays the served answer, because the entry
+/// rebuilds the verdict from it.
 @Suite struct FilingVerdictCacheSanitizedPathTests {
 
     static let root = "/root"
     static let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Son"]
     static let now = Date(timeIntervalSince1970: 1_786_000_000)
 
-    /// Force-unwrapped: the initializer is failable only for an unknown mtime or size, and both
-    /// are literals here. A nil would be a broken fixture, which is what a trap should report.
+    /// Force-unwrapped: the initializer fails only for an unknown mtime or size, both literals
+    /// here, so a nil is a broken fixture and should trap.
     static func key(_ name: String) -> FilingVerdictKey {
         FilingVerdictKey(filePath: "\(root)/TODO/\(name)", modificationDate: now, size: 1_000,
                          model: "m", promptVersion: 1, excludedRelativePaths: [], artifacts: "a")!
     }
 
-    /// The headline: a verdict naming the document itself at the end of the path — the shape the
-    /// resolver strips — is recorded and then served.
+    /// A verdict ending in the document's own name, which the resolver strips, is recorded and then
+    /// served.
     @Test func aVerdictWhoseTrailingSegmentIsAFileNameIsServedBack() throws {
         var cache = FilingVerdictCache()
         let k = Self.key("eOCI.pdf")
         let verdict = FilingVerdict(relativePath: "Immigration/OCI/Son/eOCI.pdf", confidence: .high,
                                     reason: "the OCI card", proposesNewFolder: false)
 
-        // The premise: this really is a sanitized answer — the resolution differs from the raw
-        // string. Without this the test could pass on a path that needed no sanitizing at all.
+        // The premise: the resolution differs from the raw string, so this answer really is
+        // sanitized.
         let resolved = try #require(FilingEngine.destination(from: verdict, providerRoot: Self.root,
                                                              existingRelative: Self.existing))
         let resolvedRelative = FilingEngine.relative(resolved.path, under: Self.root)
@@ -51,9 +47,8 @@ import Testing
         #expect(hit?.confidence == .high)
     }
 
-    /// The guard still guards. A verdict recorded when its parent existed, looked up after that
-    /// parent is gone, resolves somewhere else and must miss — this is the case the path check was
-    /// added for, and it has to survive the fix.
+    /// The staleness check still works: a verdict recorded while its parent existed, looked up after
+    /// the parent is gone, resolves somewhere else and must miss.
     @Test func aVerdictThatNowResolvesElsewhereStillMisses() {
         var cache = FilingVerdictCache()
         let k = Self.key("passport.pdf")
@@ -70,7 +65,7 @@ import Testing
                 "a verdict that now resolves to a different folder was served anyway")
     }
 
-    /// An ordinary verbatim answer is unaffected — the common path keeps working.
+    /// An ordinary verbatim answer round-trips.
     @Test func anUnsanitizedVerdictStillRoundTrips() {
         var cache = FilingVerdictCache()
         let k = Self.key("card.pdf")
@@ -81,12 +76,9 @@ import Testing
                 == "Immigration/OCI")
     }
 
-    /// **A resolution that got BETTER is still a hit.** A verdict for `Documents/Family/Son`
-    /// recorded while `Son` did not exist is stored with the trimmed resolution
-    /// `Documents/Family`; when the user then creates `Son`, the resolution becomes the model's
-    /// own answer. Comparing only against the recorded resolution called that stale and re-billed
-    /// it — the exact inverse of what this type promises ("the answer got better, not worse"), and
-    /// a direction the first version of the comparand fix silently reversed.
+    /// A resolution that got better is still a hit. A verdict for `Documents/Family/Son` recorded
+    /// before `Son` existed stores the trimmed `Documents/Family`; once the user creates `Son` the
+    /// resolution becomes the model's own answer, which must be served, not re-billed as stale.
     @Test func aVerdictWhoseFolderHasSinceBeenCreatedIsStillServed() throws {
         var cache = FilingVerdictCache()
         let k = Self.key("card.pdf")
@@ -105,11 +97,10 @@ import Testing
                 "the answer improved toward the verdict's own path and was thrown away")
     }
 
-    /// **Entries written before the field existed still work**, on the comparand they were written
-    /// with. Decoding a legacy record must not discard it, and must not start serving a stale
-    /// answer either — it behaves exactly as it did.
+    /// An entry with no `resolvedRelativePath` still decodes and is checked against its raw answer:
+    /// neither discarded nor serving a stale answer.
     @Test func aLegacyEntryWithNoRecordedResolutionStillDecodesAndBehaves() throws {
-        // Written by hand in the OLD shape — no `resolvedRelativePath` key at all.
+        // Written by hand with no `resolvedRelativePath` key.
         let k = Self.key("card.pdf")
         let keyJSON = try #require(String(data: try JSONEncoder().encode(k), encoding: .utf8))
         let legacy = """

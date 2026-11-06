@@ -1,9 +1,9 @@
 import Testing
 @testable import Sync
 
-/// Pins OperationBanner's per-publish identity: two banners with identical user-visible
-/// content must still compare unequal, so SwiftUI `onChange` observers (and the dismiss
-/// timer behind them) register every publish — including "Deleted \"x\"" twice in a row.
+/// Pins OperationBanner's per-publish identity: two banners with identical visible content must
+/// still compare unequal, so SwiftUI `onChange` observers (and the dismiss timer behind them) see
+/// every publish, including "Deleted \"x\"" twice in a row.
 struct OperationBannerTests {
 
     @Test func identicalContentIsStillADistinctPublish() {

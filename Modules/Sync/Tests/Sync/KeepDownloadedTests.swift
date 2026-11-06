@@ -3,11 +3,9 @@ import Foundation
 @testable import Sync
 
 /// Keep Downloaded's pin and the folder-wide Download All, on a real disk under a stand-in home.
-///
-/// The pin is a plain extended attribute, so a test writes and reads the very attribute the app
-/// does. What no test can make is a cloud-only file (`SF_DATALESS` is set only by a provider), so
-/// Download All's walk is handed a `statFlags` that names which files to treat as cloud-only — the
-/// walk, the listing and the selection all run as they do in the app.
+/// The pin is a plain extended attribute, so tests write and read the same attribute the app does.
+/// No test can make a cloud-only file (only a provider sets `SF_DATALESS`), so Download All's walk
+/// is handed a `statFlags` naming which files to treat as cloud-only; the rest runs as in the app.
 @Suite struct KeepDownloadedTests {
 
     /// A fresh stand-in home, with an iCloud container, removed when the test ends.
@@ -44,7 +42,7 @@ import Foundation
         let home = try Home()
         let file = try home.make("Projects/notes.txt")
         #expect(KeepDownloaded.state(ofPath: file, home: home.path) == .unavailable)
-        // Another provider's folder neither: the pin was measured ignored there.
+        // Nor in another provider's folder, which ignores the pin.
         let drive = try home.make("Library/CloudStorage/GoogleDrive-a/My Drive/b.txt")
         #expect(KeepDownloaded.state(ofPath: drive, home: home.path) == .unavailable)
     }
@@ -58,11 +56,10 @@ import Foundation
     }
 
     /// `~/Desktop` and `~/Documents` are iCloud's only when Desktop & Documents sync made them so,
-    /// which their domain attribute says — and only iCloud's domain counts.
-    ///
-    /// The domain is handed in, never staged: writing `com.apple.file-provider-domain-id` is
-    /// refused on the CI runner (a launchd service) while a Terminal shell may write it, so a test
-    /// that set it went red there and green here. Reading it is the next test's.
+    /// as their domain attribute says, and only iCloud's domain counts. The domain is handed in,
+    /// never staged: the CI runner (a launchd service) may not write
+    /// `com.apple.file-provider-domain-id`, though a Terminal shell may, so staging it would pass
+    /// only locally. The next test covers reading it.
     @Test func desktopAndDocumentsAreOfferedOnlyWhenICloudOwnsThem() throws {
         let home = try Home()
         let doc = try home.make("Documents/Taxes/2026.pdf")
@@ -84,8 +81,8 @@ import Foundation
         #expect(KeepDownloaded.state(ofPath: desk, home: home.path, domainOf: iCloud) == .unavailable)
     }
 
-    /// The real reader reads an attribute's bytes back as text, and answers nil for one that is
-    /// absent — on an unprotected name, which any process may write.
+    /// The real reader reads an attribute's bytes back as text and answers nil for an absent one.
+    /// Uses an unprotected name, which any process may write.
     @Test func theDomainReaderReadsAnAttributesText() throws {
         let home = try Home()
         let folder = try home.make("Documents", directory: true)
@@ -137,7 +134,7 @@ import Foundation
         #expect(KeepDownloaded.state(ofPath: file, home: home.path) == .off)
     }
 
-    /// A link is pinned as the file it points to — the file the provider would fetch.
+    /// A link is pinned as the file it points to, the file the provider would fetch.
     @Test func aLinkIsPinnedAsItsTarget() throws {
         let home = try Home()
         let file = try home.make("Library/Mobile Documents/com~apple~CloudDocs/a.txt")
@@ -204,7 +201,7 @@ import Foundation
         #expect(result.requested == [b])
     }
 
-    /// Nothing outside the folder is fetched through a link — not a linked file, not the contents
+    /// Nothing outside the folder is fetched through a link: not a linked file, nor the contents
     /// of a linked folder.
     @Test func linksAreNotFollowedOutOfTheFolder() throws {
         let home = try Home()
@@ -216,7 +213,7 @@ import Foundation
         try FileManager.default.createSymbolicLink(atPath: top + "/Archive", withDestinationPath: outsideFolder)
         let cloudOnly: Set<String> = [outsideFile, outsideInner, top + "/big.mov",
                                       top + "/Archive/old.mov"]
-        // The link's own path is stat-ed as the link — never cloud-only — exactly as `lstat` does.
+        // The link's own path is stat-ed as the link, never cloud-only, as `lstat` does.
         let flags: MaterializationStatus.StatFlags = { path in
             var info = stat()
             guard lstat(path, &info) == 0 else { return nil }
@@ -271,8 +268,8 @@ import Foundation
         #expect(!asked.contains(here), "a file already here was asked for")
     }
 
-    /// A selected link to a cloud-only file is asked for — as the link, which `download(atPath:)`
-    /// fetches as its target, the way a single file's Download does.
+    /// A selected link to a cloud-only file is asked for as the link, which `download(atPath:)`
+    /// fetches as its target, as a single file's Download does.
     @Test func aSelectedLinkIsAskedForByItsTarget() throws {
         let home = try Home()
         let target = try home.make("Library/CloudStorage/P/big.mov")

@@ -1,10 +1,10 @@
 import Foundation
 
 /// The date a document is *for*, read from its page 1: `{travel-year}` and `{travel-month}` in a
-/// rule's destination (TE286, decision HI). A ticket's page 1 carries several dates — when it was
-/// issued, the flight out, the flight back, perhaps a passenger's birthday — and the trip is filed
-/// under the month it starts. So: the **earliest** date on the page that isn't labelled as an issue,
-/// booking, payment or birth date, and that isn't before the issue date.
+/// rule's destination. A ticket's page 1 carries several dates (issued, out, back, perhaps a
+/// birthday), and the trip is filed under the month it starts. So: the **earliest** date on the
+/// page that isn't labelled as an issue, booking, payment or birth date, and isn't before the issue
+/// date.
 ///
 /// Pure and local: the text is the lowercased page sample the scan already reads.
 public enum AutomationTravelDate {
@@ -24,7 +24,7 @@ public enum AutomationTravelDate {
             (a.year, a.month, a.day) < (b.year, b.month, b.day)
         }
 
-        /// "Sep", the spelling a new month folder gets (decision HI).
+        /// "Sep", the spelling a new month folder gets.
         public var monthName: String { AutomationTravelDate.shortMonths[month - 1].capitalized }
     }
 
@@ -216,7 +216,7 @@ public enum AutomationTravelDate {
     }
 
     /// The resolved destination with its `{travel-month}` segment spelled as the folder already
-    /// there (decision HI): "April" when the template made "Apr" and the year holds "April".
+    /// there: "April" when the template made "Apr" and the year holds "April".
     /// `children` lists a folder's subfolder names, relative path in; the path is unchanged when
     /// none matches, so a new month folder gets the short name.
     public static func adoptingExistingMonth(_ resolved: String, template: String,

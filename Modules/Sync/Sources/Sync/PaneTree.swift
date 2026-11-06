@@ -3,49 +3,35 @@ import Foundation
 /// A published pane tree paired with the stamp of the publish that produced it, plus the
 /// cheap-to-compare row projection the pane's outline renders.
 ///
-/// **The problem.** `FileNode` is `Hashable` with a compiler-derived `==`, and it stores
-/// `children: [FileNode]?`, so comparing two nodes recurses through their entire subtrees,
-/// comparing a `String` id, name and kind at every one. A pane routinely holds ~40,000 nodes.
-/// Anything holding a `FileNode` (or an array of them) in a SwiftUI view therefore pays an
-/// O(subtree) comparison on the main thread every time SwiftUI asks "did this change?":
+/// `FileNode` has a compiler-derived `==` and stores `children: [FileNode]?`, so comparing two
+/// nodes recurses through their whole subtrees, comparing strings at every node. A pane can hold
+/// ~40,000 nodes, so anything holding a `FileNode` graph in a SwiftUI view pays an O(subtree)
+/// compare on the main thread whenever SwiftUI asks "did this change?", and a changed tree (the
+/// refresh after a copy) can freeze the app for seconds in this chain:
 ///
 ///     AGGraphSetOutputValue → AG::LayoutDescriptor::compare → AGDispatchEquatable
 ///       → Array<FileNode>.== → FileNode.__derived_struct_equals → …recursing
 ///
-/// A `sample` of a real post-copy freeze put 12,745 ms of main-thread time in exactly that chain,
-/// with `_stringCompareSlow` as the hottest leaf and the main thread 100% busy for 16.9 s.
+/// (`Array.==` short-circuits on shared copy-on-write storage, so an unchanged tree costs nothing.)
 ///
-/// Note `Array.==` short-circuits when both sides share copy-on-write storage, so an UNCHANGED
-/// tree costs nothing. The full walk lands only when the tree genuinely changed — which is
-/// precisely the post-copy refresh this was hurting.
+/// So nothing that reaches a view stores a raw `FileNode` graph:
+///   - `PaneTree` (this type): the whole tree, compared by stamp alone.
+///   - `PaneRow`: one node plus its children, compared by (stamp, path) alone. This is what
+///     `OutlineGroup` iterates; handing it the raw `[FileNode]` would put the deep compare back.
+///   - `FileRowInfo`: the five scalars a row renders, with no `children` at all.
 ///
-/// **The fix.** Nothing that reaches a view stores a raw `FileNode` graph:
-///   - `PaneTree` (this type) — the whole tree, compared by stamp alone.
-///   - `PaneRow` — one node plus its children, compared by (stamp, path) alone. This is what
-///     `OutlineGroup` iterates; handing it the raw `[FileNode]` put the deep compare straight
-///     back into the view graph even with `PaneTree` in place, which is exactly what happened on
-///     the first attempt and left 2,869 ms behind.
-///   - `FileRowInfo` — the five scalars a row actually renders, with no `children` at all.
+/// Comparing only the stamp is exact: `version` is the pane's `publishedLeftTreeVersion` /
+/// `publishedRightTreeVersion`, which the published property's own `didSet` bumps on every
+/// assignment, so equal `side` and `version` mean the same published array by construction.
+/// Unlike a content hash, it can't collide. The converse (equal contents, new stamp) only
+/// re-renders needlessly, and `applyFilters()` assigns only when the tree changed.
 ///
-/// **Why comparing only the stamp is exact, not an approximation.** `version` is the pane's
-/// `publishedLeftTreeVersion` / `publishedRightTreeVersion`, which the published property's own
-/// `didSet` bumps on *every* assignment. Two values carrying the same `side` and `version` are
-/// therefore the same published array by construction — there is no way to reach a second,
-/// different tree without the counter having moved. Unlike a content hash, this cannot collide.
-///
-/// The converse (equal contents, different stamp) merely re-renders when it need not have, and
-/// `applyFilters()` assigns only when the tree genuinely changed, so it does not arise in practice.
-///
-/// Always build these through `FileSyncManager.leftPaneTree` / `.rightPaneTree`; a hand-picked
-/// `version` would silently defeat the invariant above.
+/// **Always build these through `FileSyncManager.leftPaneTree` / `.rightPaneTree`**: a
+/// hand-picked `version` would silently defeat the invariant above.
 public struct PaneTree: Equatable, Sendable {
-    /// Which pane's counter `version` came from.
-    ///
-    /// This is **not** defensive decoration: the two panes keep genuinely independent counters
-    /// (so an overlapping load of one pane cannot invalidate the other's verdict — see
-    /// `applyFilters`), and `SortConfigRaceTests` pins them as per-pane *counts*. Both panes
-    /// therefore sit at the same integer most of the time, and a bare version is only meaningful
-    /// alongside the side that minted it.
+    /// Which pane's counter `version` came from. The panes keep independent counters (so an
+    /// overlapping load of one can't invalidate the other's verdict; see `applyFilters`), which
+    /// often sit at the same integer, so a bare version means something only with its side.
     public enum Side: Sendable, Equatable {
         case left
         case right
@@ -58,8 +44,8 @@ public struct PaneTree: Equatable, Sendable {
     /// The pane's publish counter at the moment `nodes` was read. See the type's note on why
     /// this must come from the manager rather than being chosen by the caller.
     public let version: Int
-    /// The published tree itself. Prefer the accessors below, and prefer `rows` for anything that
-    /// reaches a view — handing this array to a SwiftUI collection re-creates the original bug.
+    /// The published tree itself. Prefer the accessors below, and `rows` for anything that
+    /// reaches a view: handing this array to a SwiftUI collection brings the deep compare back.
     public let nodes: [FileNode]
     /// `nodes` projected into stamped, cheap-to-compare rows. This is what the pane's
     /// `OutlineGroup` iterates. Built once per publish and cached by the manager.
@@ -74,8 +60,8 @@ public struct PaneTree: Equatable, Sendable {
         self.rows = rows
     }
 
-    /// Convenience for tests and previews: derives the row projection on the spot. Production
-    /// code goes through the manager's cached accessors — this walks the whole tree.
+    /// Convenience for tests and previews: derives the row projection on the spot, walking the
+    /// whole tree. Production code goes through the manager's cached accessors.
     public init(side: Side, version: Int, nodes: [FileNode]) {
         self.init(side: side, version: version, nodes: nodes,
                   rows: PaneRow.project(nodes, side: side, version: version))
@@ -99,8 +85,8 @@ public struct PaneTree: Equatable, Sendable {
 }
 
 /// One node of a published pane tree, tagged with that tree's stamp, carrying its children so a
-/// SwiftUI `OutlineGroup` can walk it — but comparing as `(side, version, path)` so walking it is
-/// never what equality costs.
+/// SwiftUI `OutlineGroup` can walk it, but comparing as `(side, version, path)` so equality never
+/// walks it.
 ///
 /// Equality is exact for the same reason `PaneTree`'s is: within one published tree a path
 /// identifies exactly one node with fixed contents, and changing those contents requires a
@@ -114,13 +100,12 @@ public struct PaneRow: Identifiable, Equatable, Sendable {
     public let node: FileNode
     /// The flat scalars a row renders, so `FileRowView` need not hold a `FileNode` at all.
     public let info: FileRowInfo
-    /// `nil` for a leaf, `[]` for an empty directory — the distinction `OutlineGroup` uses to
-    /// decide whether a row gets a disclosure triangle, so the projection must preserve it
-    /// exactly as `FileNode.children` expressed it.
+    /// `nil` for a leaf, `[]` for an empty directory: `OutlineGroup` decides the disclosure
+    /// triangle from it, so the projection must keep it exactly as `FileNode.children` had it.
     public let children: [PaneRow]?
 
     /// Matches `FileNode.id` (the absolute path), so outline identity is unchanged by the
-    /// projection — rows keep their expansion state across a republish exactly as before.
+    /// projection and rows keep their expansion state across a republish.
     public var id: String { node.id }
 
     public init(side: PaneTree.Side, version: Int, node: FileNode, children: [PaneRow]?) {
@@ -146,8 +131,8 @@ public struct PaneRow: Identifiable, Equatable, Sendable {
 }
 
 /// The scalars one pane row renders. Deliberately flat: a row needs none of `FileNode`'s graph,
-/// and holding the node itself kept a folder's whole subtree reachable from the view — one field
-/// added later, or one relaxed `==`, and the recursive comparison would silently return.
+/// and holding the node would keep a folder's whole subtree reachable from the view, where one
+/// added field or relaxed `==` would silently bring back the recursive comparison.
 public struct FileRowInfo: Equatable, Sendable {
     public let id: String
     public let name: String

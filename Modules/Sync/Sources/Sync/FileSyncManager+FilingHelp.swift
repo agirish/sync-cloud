@@ -1,24 +1,24 @@
 import Events
 import Foundation
 
-/// Filing help for Ask Claude (TE255): "where should this go?" for one file, answered from the
-/// Filing profile with the router Organize's To File uses — free, on this Mac, no model call.
+/// Filing help for Ask Claude: "where should this go?" for one file, answered from the Filing
+/// profile with the router To File uses. Free, on this Mac, no model call.
 ///
-/// **The same evidence To File has**: the profile's folders, its memory and person registry, the
-/// file's name and page 1 (decision EW), then the cross-person rule. Two things differ on purpose:
-/// a folder the caller says is hidden is dropped before ranking, so it can never be named (not even
-/// as a runner-up); and there is no keyword engine behind it, because the answer promises to come
-/// from the person's own conventions (decision EX), so with no profile it says so instead.
+/// The same evidence To File has: the profile's folders, memory and person registry, the file's
+/// name and page 1, then the cross-person rule. Two differences on purpose: a folder the caller
+/// says is hidden is dropped before ranking, so it is never named, not even as a runner-up; and
+/// there is no keyword engine, since the answer promises the person's own conventions, so with no
+/// profile it says so.
 public struct FilingHelpAnswer: Sendable, Equatable {
 
     public enum Outcome: Sendable, Equatable {
-        /// Best first; a runner-up only when the best isn't High (decision EZ).
+        /// Best first; a runner-up only when the best isn't High.
         case suggested([Suggestion])
         /// No Filing profile: Setup's survey never ran.
         case noProfile
         /// The place they named isn't under the folder the profile surveyed, absolute: the caller
-        /// names it by source, as an answer to Claude never carries an absolute path (TE284). Where
-        /// the file itself sits doesn't matter: a file in Downloads is placed like any other.
+        /// names it by source, since an answer to Claude never carries an absolute path. Where the
+        /// file itself sits doesn't matter: a file in Downloads is placed like any other.
         case outsideProfile(surveyed: String)
         /// The profile has no folder that fits this file.
         case noMatch
@@ -35,7 +35,7 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         /// The word read from the file that decided it, when one did.
         public let evidenceToken: String?
         /// They named a place and this folder isn't in it: kept because the file plainly belongs
-        /// here (decision FX).
+        /// here.
         public let outsidePlace: Bool
 
         public init(folder: String, relativePath: String, confidence: FilingConfidence, reason: String,
@@ -75,14 +75,13 @@ public struct FilingHelpAnswer: Sendable, Equatable {
 extension FileSyncManager {
 
     /// Where `path` would go, from the active Filing profile. The file may be anywhere on this
-    /// Mac (TE284): only the destination has to be in the survey. `snippet` is page 1 as read on
-    /// this Mac (nil ranks by name alone); `place`, absolute, is a folder they named ("into
-    /// Travel"), whose folders are preferred (decision FX); `isHidden` is the Never show Claude list.
+    /// Mac; only the destination has to be in the survey. `snippet` is page 1 as read on this Mac
+    /// (nil ranks by name alone); `place`, absolute, is a folder they named ("into Travel"), whose
+    /// folders are preferred; `isHidden` is the Never show Claude list.
     ///
-    /// **The survey follows the source (GM):** a file in a source with its own survey (Google
-    /// Drive) is answered from that survey, and placed in that source; anything else from the
-    /// primary one. A named place decides it first, so "into Finance in iCloud" asked about a Google
-    /// Drive file is answered from iCloud's.
+    /// The survey follows the source: a file in a source with its own survey (Google Drive) is
+    /// answered and placed from that survey, anything else from the primary one. A named place
+    /// decides first, so "into Finance in iCloud" about a Google Drive file is answered from iCloud's.
     public func whereToFile(_ path: String, snippet: String?, preferring place: String? = nil,
                             isHidden: (String) -> Bool) async -> FilingHelpAnswer {
         guard let survey = filingHelpSurvey(for: place ?? path) else {
@@ -98,8 +97,8 @@ extension FileSyncManager {
         } else {
             placeRelative = nil
         }
-        // His saved rules lead, as they do in To File (GT; TE286): a rule taught in this chat
-        // answers the next file like it.
+        // His saved rules lead, as in To File: a rule taught in this chat answers the next file
+        // like it.
         if let ruled = ruleAnswer(path, snippet: snippet, root: root, profile: profile, isHidden: isHidden),
            placeRelative.map({ Self.isAtOrUnder(ruled.relativePath, $0) }) ?? true {
             Logger.shared.info("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
@@ -170,10 +169,10 @@ extension FileSyncManager {
         return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt)
     }
 
-    /// A named place's folders first (decision FX: prefer it, allow others). A High answer outside
-    /// it stands, since that file plainly belongs elsewhere (a W-2 asked into Travel); otherwise the
-    /// place's best folder leads, and the margin is taken against the strongest of the rest, so a
-    /// stronger folder outside it makes the answer unsure rather than vanishing.
+    /// A named place's folders first: prefer it, allow others. A High answer outside it stands,
+    /// since that file plainly belongs elsewhere (a W-2 asked into Travel); otherwise the place's
+    /// best folder leads, with the margin taken against the strongest of the rest, so a stronger
+    /// folder outside makes the answer unsure rather than vanishing.
     nonisolated static func preferring(_ ranking: FilingRouter.Ranking, under place: String?) -> FilingRouter.Ranking {
         guard let place, ranking.confidence != .high else { return ranking }
         let inside = ranking.candidates.filter { isAtOrUnder($0.relativePath, place) }
@@ -292,21 +291,21 @@ final class FilingHelpIndexCache: @unchecked Sendable {
 
 extension FileSyncManager {
 
-    /// Page 1 of a file for filing help, read on this Mac the way To File reads it (decision EW):
-    /// nil when Organize's "read contents" is off or no reader is set.
+    /// Page 1 of a file for filing help, read on this Mac the way To File reads it: nil when
+    /// Organize's "read contents" is off or no reader is set.
     public func filingHelpPage(_ path: String) async -> String? {
         guard filingReadsContents, let extract = filingSnippetExtractor else { return nil }
         return await extract(path)
     }
 
-    /// Whether filing help's card may offer Refine with Claude (decision EY): Organize's own rule
-    /// for showing its Refine button.
+    /// Whether filing help's card may offer Refine with Claude: Organize's own rule for showing its
+    /// Refine button.
     public var filingHelpCanRefine: Bool { filingCloudRefineAvailable && filingUsesAI && filingClassifier != nil }
 
-    /// Refine with Claude for one file, from filing help's card (decision EY), after the Organize
-    /// scan of its folder that the card's button started. It is Organize's own pass on this file
-    /// alone: the price is shown and agreed to before anything is sent, and the answer lands on
-    /// Organize's card. Nil when it didn't run.
+    /// Refine with Claude for one file, from filing help's card, after the Organize scan of its
+    /// folder that the card's button started. Organize's own pass on this file alone: the price is
+    /// shown and agreed to before anything is sent, and the answer lands on Organize's card. Nil
+    /// when it didn't run.
     public func refineAfterScan(filePath: String) async -> FilingRefineSummary? {
         await latestFilingScan()
         guard let suggestion = filingSuggestions.first(where: { $0.filePath == filePath }) else {

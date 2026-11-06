@@ -1,22 +1,20 @@
 import Events
 import Foundation
 
-/// **What a whole-tree pass found out before committing to it.**
-///
-/// Handed to `FileSyncManager.largeWalkConfirmer` when a probe walk hits its budget, so the user
-/// can decide whether the pass is worth its cost instead of discovering the answer as a wedged app.
+/// What a whole-tree pass found out before committing to it. Handed to
+/// `FileSyncManager.largeWalkConfirmer` when a probe walk hits its budget, so the user can decide
+/// whether the pass is worth its cost rather than meet a wedged app.
 public struct LargeWalkPreflight: Sendable, Equatable {
 
-    /// Which pass wants to run. The prompt names it, because "this will take a while" is a
-    /// different proposition for a storage reading than for a duplicate hunt.
+    /// Which pass wants to run. The prompt names it: a long wait means something different for a
+    /// storage reading than for a duplicate hunt.
     public enum Pass: String, Sendable, CaseIterable {
         case storageLens
         case duplicates
         case rename
         case filing
 
-        /// A human name for the prompt. Deliberately the workspace's own vocabulary rather than the
-        /// function's: nothing in the UI says "storage lens".
+        /// A name for the prompt, in the workspace's own words: nothing in the UI says "storage lens".
         public var title: String {
             switch self {
             case .storageLens: return "Storage"
@@ -26,9 +24,9 @@ public struct LargeWalkPreflight: Sendable, Equatable {
             }
         }
 
-        /// Whether this pass reads file CONTENTS past the walk, which is a different order of cost
-        /// and the prompt says so. Duplicates hashes every size-colliding file; Filing reads the
-        /// first page of documents it cannot place by name.
+        /// Whether this pass also reads file contents, a different order of cost the prompt states.
+        /// Duplicates hashes every size-colliding file; Filing reads the first page of documents it
+        /// cannot place by name.
         public var readsFileContents: Bool {
             switch self {
             case .duplicates, .filing: return true
@@ -40,14 +38,8 @@ public struct LargeWalkPreflight: Sendable, Equatable {
     public let pass: Pass
     /// The folder the pass would walk.
     public let rootPath: String
-    /// The probe's limit, and **the only figure the prompt is allowed to quote** — as "more than",
-    /// never as a total, because a probe that stopped cannot know how much it did not see.
-    ///
-    /// There was an `entriesProbed` beside this, counted with a whole-tree `countItems` at all four
-    /// call sites and read by nothing: the prompt is forbidden to print a total, no decision took
-    /// it, and a probe stops at its budget so the number was always this one again to within a
-    /// directory. A field that costs a walk of the tree to carry no information is worse than
-    /// absent, because a reader assumes something consults it.
+    /// The probe's limit, and the only figure the prompt may quote, as "more than" and never as a
+    /// total: a probe that stopped can't know how much it didn't see.
     public let probeLimit: Int
 
     public init(pass: Pass, rootPath: String, probeLimit: Int) {
@@ -56,17 +48,11 @@ public struct LargeWalkPreflight: Sendable, Equatable {
         self.probeLimit = probeLimit
     }
 
-    /// The folder's display name, for a prompt that should not read as a path dump.
-    ///
-    /// **The same rule a source is named by**, not a second one — `FolderSource.defaultDisplayName`
-    /// — because the two answer the same question about the same folders. The two roots this guard
-    /// exists for are exactly the two that rule was written for: the home folder (196,726
-    /// directories) and the startup disk. Its own leaf-component answer called them “father” and
-    /// “/”; the rule calls them “Home folder” and whatever the volume calls itself. A prompt is a
-    /// worse place than a sidebar row to print a path separator and expect it to be recognised.
-    ///
-    /// Reads one cached resource value for a path with no last component, and nothing at all
-    /// otherwise — see `FolderSource.volumeName(of:)`.
+    /// The folder's display name, so the prompt doesn't read as a path. Uses the rule a source is
+    /// named by (`FolderSource.defaultDisplayName`), which calls the home folder and the startup
+    /// disk, the roots this guard mostly meets, “Home folder” and the volume's own name. Reads one
+    /// cached resource value for a path with no last component, nothing otherwise
+    /// (`FolderSource.volumeName(of:)`).
     public var rootName: String {
         FolderSource.defaultDisplayName(forPath: rootPath, volumeName: FolderSource.volumeName(of:))
     }

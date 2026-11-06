@@ -2,22 +2,21 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Prices ONE name check — `NameNormalizer.risky` — against the real names on this machine.
+/// Prices one name check, `NameNormalizer.risky`, against the real names on this machine.
 ///
-/// The row badge renders this per visible row rather than per scan, so the number that decides the
-/// design is not "how long does a 40,000-node scan take" but "what does one name cost, and what
-/// does the same name cost the second time". Inert unless `SYNCCLOUD_NAME_BENCHMARK` names the
-/// roots to walk (colon-separated, tilde allowed), so an ordinary `swift test` — and CI — never
-/// runs it:
+/// The row badge runs it per visible row, not per scan, so the number that matters is what one
+/// name costs, and what the same name costs the second time. Inert unless
+/// `SYNCCLOUD_NAME_BENCHMARK` names the roots to walk (colon-separated, tilde allowed), so an
+/// ordinary `swift test` and CI never run it:
 ///
 /// ```sh
 /// SYNCCLOUD_NAME_BENCHMARK="~/Documents:~/Library/CloudStorage/OneDrive-Personal" \
 ///   arch -arm64 swift test -c release --filter NameCheckBenchmark
 /// ```
 ///
-/// Every figure is per-name nanoseconds over the SAME name list, so the three columns are directly
-/// comparable: the live check, the memoized check on a cold table (every name a miss plus an
-/// insert), and the memoized check on a warm one (what a re-render actually pays).
+/// Every figure is per-name nanoseconds over the same name list, so the three columns compare
+/// directly: the live check, the memoized check on a cold table (every name a miss plus an
+/// insert), and the memoized check on a warm one (what a re-render pays).
 @Suite(.serialized) struct NameCheckBenchmark {
 
     private static var roots: [URL] {
@@ -25,8 +24,8 @@ import Testing
         return raw.split(separator: ":").map { URL(fileURLWithPath: (String($0) as NSString).expandingTildeInPath) }
     }
 
-    /// Every leaf name under `root`, in walk order — duplicates kept, because the repetition is
-    /// exactly what a memo monetizes and averaging it away would flatter the cache.
+    /// Every leaf name under `root`, in walk order. Duplicates are kept: the repetition is what a
+    /// memo exploits, and averaging it away would flatter the cache.
     private static func names(under root: URL) -> [String] {
         var out: [String] = []
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil,
@@ -38,10 +37,10 @@ import Testing
         return out
     }
 
-    /// The same names as guaranteed-native Swift strings. `URL.lastPathComponent` hands back a
-    /// string lazily bridged from `NSString`, and every hash and comparison of one of those takes
-    /// the ObjC slow path — so a benchmark that keeps them measures Foundation's bridge as much as
-    /// the rule work. Round-tripping the UTF-8 forces native storage.
+    /// The same names as native Swift strings. `URL.lastPathComponent` returns a string lazily
+    /// bridged from `NSString`, whose hashes and comparisons take the ObjC slow path, so keeping
+    /// them would measure Foundation's bridge as much as the rules. Round-tripping the UTF-8 forces
+    /// native storage.
     private static func nativized(_ names: [String]) -> [String] {
         names.map { String(decoding: Array($0.utf8), as: UTF8.self) }
     }
@@ -66,7 +65,7 @@ import Testing
             for (storage, names) in [("bridged", bridged), ("native", Self.nativized(bridged))] {
             for provider in providers {
                 // Warm the allocator and the ICU tables so the first provider isn't charged for
-                // both — the comparison here is between strategies, not between iterations.
+                // both: the comparison is between strategies, not iterations.
                 for name in names.prefix(200) {
                     _ = NameNormalizer.risky(name: name, relativePath: name, absolutePath: name,
                                              isDirectory: false, provider: provider)

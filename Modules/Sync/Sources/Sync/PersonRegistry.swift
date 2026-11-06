@@ -2,25 +2,21 @@ import Foundation
 
 /// One member of the household the tree files for.
 ///
-/// The tree already knows these people — every category grows a folder named for each of them —
-/// but until now the engine held them as bare tokens. A record is what lets *Mom* and *Granny*
-/// be the same person, and lets "Mother I Maiden" on a PAN card resolve to the same person as the
-/// folder called `Mother`.
+/// The tree already has a folder for each of them in every category; a record is what lets *Mom*
+/// and *Granny* be one person, and "Mother I Maiden" on a PAN card resolve to the folder called
+/// `Mother`.
 public struct Person: Sendable, Equatable, Identifiable {
-    /// Stable identity, never displayed — survives renames and added variants.
-    ///
-    /// `let`, unlike everything below it: the id is what a folder's `axes.person` and every saved
-    /// rule will resolve through, so renaming *Mother* to *Mother D.* must not orphan them.
+    /// Stable identity, never displayed; survives renames and added variants. A `let`, unlike the
+    /// rest: `axes.person` and saved rules resolve through it, so a rename must not orphan them.
     public let id: String
     /// What the tree calls them: the folder name, usually a first name.
     public var displayName: String
-    /// `me`, `wife`, `daughter`, … — display-only today; recorded because relationship words
-    /// ("my wife") are what a future classifier brief will want to print.
+    /// `me`, `wife`, `daughter`, …: orders the roster (``PeopleOrder``) and is otherwise for display.
     public var relationship: String?
-    /// Every full form a document might print — "Mother Maiden", "Mother Inlaw Maiden",
-    /// "Mother I Maiden", "Mother Father". Matching tries these before any single word.
+    /// Every full form a document might print: "Mother Maiden", "Mother I Maiden", "Mother
+    /// Father". Matching tries these before any single word.
     public var fullNames: [String]
-    /// What the tree calls them when it is not using their name — "Mom", "Mother".
+    /// What the tree calls them when not using their name: "Mom", "Mother".
     public var aliases: [String]
 
     public init(id: String, displayName: String, relationship: String? = nil,
@@ -32,25 +28,22 @@ public struct Person: Sendable, Equatable, Identifiable {
         self.aliases = aliases
     }
 
-    /// Every name form this person answers to — display name, full names, aliases, in that order.
+    /// Every name form this person answers to: display name, full names, aliases, in that order.
     ///
-    /// One definition, because "what does this person go by" is asked in five places and the answer
-    /// has to be the same in all of them: the token index and the phrase list are built from it,
-    /// `displayForm(of:person:)` and `tokenBreakdown(for:)` compare against it, `othersSharing`
-    /// scans it, and ``FolderSurveyBuilder`` matches folder names against it to recognise a
-    /// person-bucket. (The first two are private, so they are named in prose rather than linked.) Spelled out separately in each, a new form source reaches some and not others,
-    /// and a folder starts matching for the person axis while failing to count as a person folder.
+    /// One definition for "what does this person go by": the token index and phrase list are
+    /// built from it, `displayForm(of:person:)`, `tokenBreakdown(for:)` and `othersSharing` read
+    /// it, and ``FolderSurveyBuilder`` matches folder names against it. Separate copies would let a
+    /// new form reach some and not others.
     ///
-    /// Order is part of the contract: the display name leads, because the phrase list records the
-    /// form it matched and that is the one shown back to the user.
+    /// Order is part of the contract: the display name leads, since the matched form is the one
+    /// shown back to the user.
     public var nameForms: [String] { [displayName] + fullNames + aliases }
 
-    /// An id derived from a display name — lowercased ASCII words joined by `-`, or a timestamp-free
-    /// fallback when the name yields nothing usable (a name written only in a non-Latin script).
+    /// An id derived from a display name: lowercased ASCII words joined by `-`, or `person` when
+    /// the name yields nothing usable (a name only in a non-Latin script).
     ///
-    /// Deliberately not a UUID: these ids are read by a human in `people.json` and compared against
-    /// the profile's `axes.person` values by eye. Uniqueness is the caller's job — ``PeopleStore``
-    /// disambiguates, because only it knows the rest of the roster.
+    /// Not a UUID: people read these ids in `people.json` and compare them with `axes.person` by
+    /// eye. Uniqueness is ``PeopleStore``'s job, since only it knows the rest of the roster.
     public static func idCandidate(from displayName: String) -> String {
         let words = PersonRegistry.words(displayName)
         return words.isEmpty ? "person" : words.joined(separator: "-")
@@ -62,12 +55,10 @@ extension Person: Codable {
         case id, displayName, relationship, fullNames, aliases
     }
 
-    /// The keys of a person record this build models — everything `init(from:)` reads and
-    /// `encode(to:)` writes, which are deliberately the same set.
-    ///
-    /// **Derived from `Key`, not written out beside it.** A second hand-maintained list is how a
-    /// field gets added to the record and stays absent from this set, which would make
-    /// ``PeopleStore`` carry a key it had just written and then prefer the carried copy forever.
+    /// The keys of a person record this build models: everything `init(from:)` reads and
+    /// `encode(to:)` writes, deliberately the same set. Derived from `Key`, so a new field can't be
+    /// missed here, which would make ``PeopleStore`` carry a key it writes and prefer the stale
+    /// carried copy forever.
     static let modelledKeys: Set<String> = Set(Key.allCases.map(\.rawValue))
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -78,9 +69,8 @@ extension Person: Codable {
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
     }
 
-    /// Written back in the shape the file already has, and **empty collections are omitted** — the
-    /// file is meant to be read and hand-edited, and `"aliases": []` on five of seven people is
-    /// noise that makes the two who have them harder to see.
+    /// Written back in the shape the file already has, with empty collections omitted: the file
+    /// is read and hand-edited, and `"aliases": []` on most people is noise.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
         try c.encode(id, forKey: .id)
@@ -94,7 +84,7 @@ extension Person: Codable {
 /// One person named by a piece of text, and what named them.
 public struct PersonMatch: Sendable, Equatable {
     public let personId: String
-    /// The name form that matched, spelled as the roster spells it — "Daughter Father", "Mom".
+    /// The name form that matched, spelled as the roster spells it: "Daughter Father", "Mom".
     public let form: String
     /// The words it consumed, in order.
     public let words: [String]
@@ -112,8 +102,8 @@ public struct PersonMatch: Sendable, Equatable {
 
 /// A word that names somebody in the roster but was spent inside a longer name.
 ///
-/// This is the single most useful thing an explanation can say: "Father" in "Daughter Father"
-/// *would* have named her father, and did not, because the phrase claimed it first.
+/// The most useful thing an explanation can say: "Father" in "Daughter Father" would have named
+/// her father, and didn't, because the phrase claimed it first.
 public struct AbsorbedWord: Sendable, Equatable {
     public let word: String
     /// The person it would have named on its own.
@@ -147,49 +137,39 @@ public struct PersonMatchReport: Sendable, Equatable {
 
 /// The household, compiled for matching.
 ///
-/// **This family's names overlap, and that is the whole problem.** "Father" is one person's
-/// first name and three others' surname; "Elder" is Dad's first name, Mom's surname, and
-/// Father's surname. A token intersection cannot attribute either — it reads "Daughter Father"
-/// as evidence for two people. So matching is **phrase-first, longest wins, and a match consumes
-/// its span**: the surname in "Daughter Father" is spent on Daughter and never doubles as evidence
-/// for Father. What remains is attributed only where it cannot mislead — a token unique to one
-/// person (`maiden`, `granny`), or a shared token standing alone that is exactly one person's first
-/// name (`elder` by itself is Dad).
+/// A household's names overlap: "Father" is one person's first name and others' surname, so a
+/// token intersection reads "Daughter Father" as two people. So matching is phrase-first, longest
+/// wins, and a match consumes its span: the surname in "Daughter Father" is spent on Daughter.
+/// What remains is attributed only where it can't mislead: a token unique to one person (`maiden`,
+/// `granny`), or a shared token standing alone that is exactly one person's first name (`elder`
+/// alone is Dad).
 ///
-/// The strong/weak split is **computed from the registry, never hand-maintained** — adding a
-/// seventh person re-derives it, so a variant added later can demote a token from unique to
-/// shared without anything else changing.
+/// The strong/weak split is computed from the registry, never hand-maintained, so adding a person
+/// or a variant re-derives it.
 public struct PersonRegistry: Sendable {
 
-    /// Where the roster came from — shown in Settings, because "six people, seeded from your
-    /// folder names" and "six people, from the file you wrote" are different claims about how
-    /// much the app actually knows.
+    /// Where the roster came from, shown in Settings: "seeded from your folder names" and "from
+    /// the file you wrote" are different claims about how much the app knows.
     public enum Source: String, Sendable, Equatable {
         /// Read from `people.json`.
         case file
-        /// Derived from the profile's `axes.person` values and alias map — no full names, so
-        /// phrase matching has nothing to work with beyond the folder labels themselves.
+        /// Derived from the profile's `axes.person` values and alias map: no full names, so phrase
+        /// matching has only the folder labels.
         case profileAxis
     }
 
     public let people: [Person]
     public let source: Source
     /// Ids that arrived more than once and were collapsed to one record, sorted and unique.
-    ///
-    /// **A reducer has to report what it gave up, or the thing it repaired becomes unsayable.**
-    /// `people` above is the repaired roster, and nothing in it records that a repair happened —
-    /// so `PeopleStore`'s load-time warning, which is the only thing that tells the user their
-    /// file repeats an id, had no way to see one once this collapse existed. (It scanned the
-    /// roster it was handed, and silently stopped firing the moment that roster was clean. Caught
-    /// by its own test, not by reasoning.) Empty is the ordinary case.
+    /// `people` is already repaired, so this is the only way `PeopleStore`'s load-time warning can
+    /// see a repeated id. Usually empty.
     public let repeatedIds: [String]
 
     struct Phrase: Sendable {
         let tokens: [String]
         let id: String
-        /// The form exactly as it was registered — "Mother I Maiden", not `mother r maiden`. Carried so
-        /// an explanation can quote what the user typed into the roster rather than the tokenizer's
-        /// view of it.
+        /// The form exactly as registered ("Mother I Maiden", not `mother i maiden`), so an
+        /// explanation quotes what the user typed rather than the tokenizer's view of it.
         let display: String
     }
 
@@ -197,29 +177,18 @@ public struct PersonRegistry: Sendable {
     let phrases: [Phrase]
     /// Single token → the one person whose names contain it. Absent when shared.
     let strong: [String: String]
-    /// Shared single token → the one person whose *first name* it is — the reading a person
-    /// picks up when the token stands alone. Absent when two people share the first name too.
+    /// Shared single token → the one person whose first name it is: the reading used when the
+    /// token stands alone. Absent when two people share the first name too.
     let given: [String: String]
 
     public var isEmpty: Bool { people.isEmpty }
 
     public init(people: [Person], source: Source = .file) {
-        // **An id names exactly one person from here down, and this is where that becomes true.**
-        // A hand-edited `people.json` can list the same id twice — the in-app paths cannot, since
-        // `add` derives a unique id and `update` matches on one — and every reader below then
-        // answered differently: the phrase list took BOTH records, the token map took the LAST,
-        // `PeopleStore.person(id:)` takes the FIRST, and the Settings list drew the first record
-        // twice because `ForEach` keys on the id. One roster, four answers, in one window.
-        //
-        // The quiet one was `givenClaims`, which appends per record and then only publishes a
-        // given name claimed by exactly one id: a person listed twice claimed their own given
-        // name twice, so `claims.count == 1` was false and their given-name matching was
-        // *disabled by the duplicate*. Measured, not reasoned: with the fix reverted,
-        // `detect(in: "Elder statement.pdf")` on a roster listing Elder twice returns NOTHING.
-        //
-        // Last wins, which is what `PeopleStore` already warns at load and what the two derived
-        // maps already did; the first occurrence's POSITION is kept, since the roster is written
-        // in display order and a repair should not also reorder it.
+        // From here on an id names exactly one person. A hand-edited `people.json` can repeat an
+        // id (the in-app paths can't), and each reader would then answer differently. Worse,
+        // `givenClaims` publishes only a given name claimed by one id, so a duplicate would
+        // disable that person's given-name matching. Last record wins, as `PeopleStore` warns at
+        // load, at the first one's position, so the repair doesn't reorder the roster.
         let deduped = PersonRegistry.uniqueById(people)
         self.people = deduped
         self.source = source
@@ -263,8 +232,7 @@ public struct PersonRegistry: Sendable {
 
     /// The ids that appear more than once in `people`, sorted and unique.
     ///
-    /// Read off the RAW list, before `uniqueById` collapses it — which is the whole point: after
-    /// the collapse there is nothing left to count.
+    /// Read off the raw list, before `uniqueById` collapses it and leaves nothing to count.
     static func repeatedIds(in people: [Person]) -> [String] {
         var seen = Set<String>()
         var repeated = Set<String>()
@@ -272,13 +240,11 @@ public struct PersonRegistry: Sendable {
         return repeated.sorted()
     }
 
-    /// One record per id — the last one listed, at the first one's position.
+    /// One record per id: the last one listed, at the first one's position.
     ///
-    /// Separate and `internal` so the rule can be tested for what it keeps as well as what it
-    /// drops: the winner is a whole record, not a merge of the two. Merging was the alternative
-    /// and is rejected deliberately — a union of two records' name forms is a person neither
-    /// entry describes, and it would contradict the load-time warning that says which one wins.
-    /// A duplicate is a mistake in a file somebody typed, and the honest repair is to pick one.
+    /// `internal` so tests can check what it keeps: a whole record, not a merge. A union of two
+    /// records' name forms is a person neither entry describes, and would contradict the load-time
+    /// warning that says which one wins.
     static func uniqueById(_ people: [Person]) -> [Person] {
         var positions: [String: Int] = [:]
         var kept: [Person] = []
@@ -295,21 +261,18 @@ public struct PersonRegistry: Sendable {
 
     /// The people this text names, as registry ids.
     ///
-    /// Runs its own tokenizer over the raw string rather than accepting tokens, deliberately:
-    /// the two tokenizers already in play disagree (`nameTokens` splits camelCase,
-    /// `FilingRouter.tokenize` does not), and person identity asked through either would inherit
-    /// that disagreement. Phrase matching also needs *order*, which every Set-of-tokens caller
-    /// has already destroyed.
+    /// Runs its own tokenizer over the raw string rather than taking tokens: `nameTokens` and
+    /// `FilingRouter.tokenize` disagree (camelCase), and phrase matching needs word order, which a
+    /// set of tokens has lost.
     public func detect(in text: String) -> Set<String> {
         Set(explain(in: text).matches.map(\.personId))
     }
 
     /// The same matching, with its reasoning kept.
     ///
-    /// **`detect` is defined in terms of this, deliberately.** The explanation exists to be shown
-    /// to the user — "who would this file be attributed to, and why" — and an explanation produced
-    /// by a second implementation is a thing that can disagree with the engine while looking
-    /// authoritative. There is one matcher; this is it, and `detect` throws the reasons away.
+    /// `detect` is defined in terms of this, so the explanation shown to the user ("who would
+    /// this file be attributed to, and why") can never disagree with the engine. There is one
+    /// matcher; `detect` throws the reasons away.
     public func explain(in text: String) -> PersonMatchReport {
         guard !people.isEmpty else { return .empty }
         let tokens = PersonRegistry.words(text)
@@ -337,9 +300,8 @@ public struct PersonRegistry: Sendable {
             }
         }
 
-        // Words a longer name spent. These are the whole reason phrase matching exists: `father`
-        // inside "Daughter Father" would otherwise name her father as well, so reporting what was
-        // absorbed — and who it would have named — is the explanation, not a footnote.
+        // Words a longer name spent, and who they would have named: `father` inside "Daughter
+        // Father" would otherwise name her father too. This is the core of the explanation.
         var absorbed: [AbsorbedWord] = []
         for (i, token) in tokens.enumerated() {
             guard let phrase = consumedBy[i] else { continue }
@@ -351,10 +313,8 @@ public struct PersonRegistry: Sendable {
 
         for (i, t) in tokens.enumerated() where consumedBy[i] == nil && t.count >= 2 {
             guard let id = strong[t] ?? given[t] else { continue }
-            // Compared on `words`, not on `form`: `form` is the roster's spelling (`Mom`) and `t`
-            // is the lowercased token (`mom`), so this only ever matched a roster that happens to
-            // be all lowercase — and `Mom - Mom passport.pdf` produced the same match twice in a
-            // list whose whole purpose is to be shown to the user.
+            // Compared on `words`, not `form`: `form` is the roster's spelling (`Mom`) and `t` is
+            // lowercased, so comparing `form` would list `Mom - Mom passport.pdf`'s match twice.
             if matches.contains(where: { $0.personId == id && !$0.isPhrase && $0.words == [t] }) { continue }
             matches.append(PersonMatch(personId: id, form: displayForm(of: t, person: id),
                                        words: [t], isPhrase: false))
@@ -362,7 +322,7 @@ public struct PersonRegistry: Sendable {
         return PersonMatchReport(matches: matches, absorbed: absorbed)
     }
 
-    /// A single matched word, spelled the way the roster spells it — `Mom` rather than `mom`.
+    /// A single matched word, spelled the way the roster spells it: `Mom`, not `mom`.
     private func displayForm(of token: String, person id: String) -> String {
         guard let p = people.first(where: { $0.id == id }) else { return token }
         for name in p.nameForms
@@ -374,15 +334,11 @@ public struct PersonRegistry: Sendable {
 
     /// Who a document is about, from its name and — only when its name says nothing — its text.
     ///
-    /// **One precedence rule, in one place, because two would eventually disagree.** The filename
-    /// is the user's own label; a page-1 mention is testimony, and an application prints its
-    /// sponsor, a report card names a sibling, an affidavit names a witness. So a file whose name
-    /// declares a person is judged on that alone, and the page is consulted only when the name
-    /// names nobody — which is what gives `Scan 2026-08-02.pdf` any attribution at all.
-    ///
-    /// The cross-person veto and the `personIs` rule condition both come here. Before this existed
-    /// the veto had the rule inline, and a rule condition written to match "either" would have been
-    /// a second, quietly different answer to the same question.
+    /// One precedence rule, in one place. The filename is the user's own label; a page-1 mention
+    /// is testimony (an application prints its sponsor, an affidavit a witness). So a name that
+    /// declares a person decides alone, and the page is read only when the name names nobody,
+    /// which is what gives `Scan 2026-08-02.pdf` any attribution. The cross-person veto and the
+    /// `personIs` rule condition both come here.
     public func attribute(fileName: String, pageSample: String?,
                           identity: PersonIdentityIndex? = nil) -> Set<String> {
         attribution(fileName: fileName, pageSample: pageSample, identity: identity).people
@@ -390,19 +346,16 @@ public struct PersonRegistry: Sendable {
 
     /// Which tier of ``attribution(fileName:pageSample:identity:)`` produced the answer.
     ///
-    /// The tiers are not equally believable and the surfaces that show them have to say which one
-    /// spoke — "named in the file" and "page 1 reads" are different claims, and a review row that
-    /// confused them would be asking the user to judge evidence it had misdescribed.
+    /// The tiers are not equally believable, so surfaces must say which one spoke: "named in the
+    /// file" and "page 1 reads" are different claims for a review row to put to the user.
     public enum AttributionTier: String, Sendable, Equatable {
         /// Nobody was named by anything.
         case none
-        /// The file's own name — the user's own label, and the only tier that can claim a document
+        /// The file's own name: the user's own label, and the only tier that can claim a document
         /// on its own.
         case fileName
-        /// Page 1 named them. **Testimony, not a label**: measured over the live tree, this tier
-        /// puts 2,011 documents in one person's set purely because a joint bank form names her as
-        /// nominee and a swim-class invoice names her as the payer. Worth reviewing, never worth
-        /// assuming — see ``PersonFiles``.
+        /// Page 1 named them. Testimony, not a label: a joint bank form names a nominee, an invoice
+        /// the payer. Worth reviewing, never assuming (``PersonFiles``).
         case pageText
         /// An identifier the person's folders have received. Never above a name anybody wrote.
         case identifier
@@ -411,8 +364,8 @@ public struct PersonRegistry: Sendable {
     /// Who a document is about, and which tier said so.
     ///
     /// ``attribute(fileName:pageSample:identity:)`` is this with the tier thrown away, so there is
-    /// exactly one implementation of the precedence rule. Two would eventually disagree, and this
-    /// one is shared by the cross-person veto, the `personIs` rule condition and the person gather.
+    /// one implementation of the precedence rule, shared by the cross-person veto, the `personIs`
+    /// rule condition and the person gather.
     public func attribution(fileName: String, pageSample: String?,
                             identity: PersonIdentityIndex? = nil)
         -> (people: Set<String>, tier: AttributionTier) {
@@ -421,27 +374,22 @@ public struct PersonRegistry: Sendable {
         guard let pageSample else { return ([], .none) }
         let byName = detect(in: pageSample)
         if !byName.isEmpty { return (byName, .pageText) }
-        // **Last, and only when nothing was named.** An account number is the strongest evidence in
-        // a scan that reads as an image — but it is also the most surprising to be attributed by,
-        // so it never overrides a name anybody actually wrote. This is the tier that gives
-        // `Scan 2026-08-02.pdf` an answer at all.
+        // Last, and only when nothing was named: an account number is strong evidence in an image
+        // scan but the most surprising to be attributed by, so it never overrides a written name.
         let byId = identity?.people(in: pageSample) ?? []
         return byId.isEmpty ? ([], .none) : (byId, .identifier)
     }
 
-    /// The person a profile's `axes.person` value names, or nil when the registry cannot say —
-    /// including when the value somehow names two, which must not resolve arbitrarily.
+    /// The person a profile's `axes.person` value names, or nil when the registry can't say,
+    /// including when it names two, which must not resolve arbitrarily.
     public func person(forAxisValue value: String) -> String? {
         let ids = detect(in: value)
         return ids.count == 1 ? ids.first : nil
     }
 
-    /// A registry from a profile that has no `people.json` — one person per canonical axis value,
-    /// aliases attached to the person they resolve to.
-    ///
-    /// This is deliberately more than a fallback: the alias map alone fixes the misfire where
-    /// `Mom - passport.pdf` was vetoed *against* the folder whose axis says `granny`, because the
-    /// flattened token set knew both words but not that they are one person.
+    /// A registry from a profile with no `people.json`: one person per canonical axis value, with
+    /// aliases attached to the person they resolve to. More than a fallback: without the alias map,
+    /// `Mom - passport.pdf` would be vetoed from the folder whose axis says `granny`.
     public static func seeded(from profile: FolderProfile) -> PersonRegistry {
         var aliasesByCanonical: [String: [String]] = [:]
         for (alias, canonical) in profile.personAliases {
@@ -456,12 +404,9 @@ public struct PersonRegistry: Sendable {
         return PersonRegistry(people: people, source: .profileAxis)
     }
 
-    /// Every word this person is known by, split into the ones that identify them **on their own**
-    /// and the ones another member of the household also answers to.
-    ///
-    /// Derived from the roster, never stored: adding a seventh person can demote a token from
-    /// unique to shared, and a hand-maintained list would not notice. This is what Settings shows
-    /// when it says `father` is shared with three others.
+    /// Every word this person is known by, split into those that identify them on their own and
+    /// those another household member also answers to. Derived, never stored, since adding a
+    /// person can demote a token to shared. Settings shows this.
     public func tokenBreakdown(for id: String) -> (unique: [String], shared: [String]) {
         guard let p = people.first(where: { $0.id == id }) else { return ([], []) }
         var tokens = Set<String>()
@@ -485,28 +430,22 @@ public struct PersonRegistry: Sendable {
         }.count
     }
 
-    /// Lowercased ASCII-alphanumeric runs, in order, 1-character runs kept — the initial in
-    /// "Mother I Maiden" is part of the phrase even though it could never stand alone.
+    /// Lowercased ASCII-alphanumeric runs, in order, 1-character runs kept: the initial in "Mother
+    /// I Maiden" is part of the phrase though it never stands alone.
     ///
-    /// Public because the matcher's own splitting rule is the only correct way to derive anything
-    /// *from* a name elsewhere — Settings takes initials with it, and a second hand-rolled split
-    /// would disagree with matching on exactly the names that are hard.
+    /// Public because anything derived from a name elsewhere (Settings takes initials with it)
+    /// must use the matcher's own split, or it disagrees on exactly the hard names.
     public static func words(_ s: String) -> [String] {
         split(s.lowercased())
     }
 
-    /// The same runs, in the string's **own spelling** — for a caller that has to show the user
-    /// what the tree wrote rather than what the matcher compares.
+    /// The same runs, in the string's own spelling, for a caller that shows what the tree wrote
+    /// rather than what the matcher compares.
     ///
-    /// **Beside `words` and over the same `split`, because the two used to disagree.** The name
-    /// learner cut filenames on Unicode letters and numbers while this matcher cuts ASCII-only, so
-    /// for a roster holding `José García` the guard that stops one person being offered another's
-    /// name was comparing `josé garcía` against keys spelled `jos garc a`. It could never match, so
-    /// the run was rejected — conservative, and therefore silent, which is why it had no test.
-    ///
-    /// Aligning the derived helper to the matcher rather than widening the matcher is deliberate:
-    /// `words` builds the persisted `strong` and `given` maps every existing roster is matched
-    /// through, and this file already declares it the authority for anything derived from a name.
+    /// Over the same `split` as `words`, so keys built from either agree: with a non-ASCII name
+    /// (`José García`) a separate Unicode split would never match the matcher's keys. The helper
+    /// follows the matcher, not the other way round, because `words` builds the `strong` and
+    /// `given` maps every roster is matched through.
     public static func spelledWords(_ s: String) -> [String] {
         split(s)
     }

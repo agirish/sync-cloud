@@ -2,14 +2,13 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins ``AutomationCondition/requiresContent`` — both the answer it gives today and the shape that
-/// keeps it answering for the *next* case someone adds.
+/// Pins ``AutomationCondition/requiresContent``: the answers it gives, and the shape that keeps it
+/// answering for the next case someone adds.
 ///
-/// The shape matters more than the values here. `requiresContent` is what decides whether the file's
-/// text is extracted at all, so a content-reading condition that answers `false` is handed nothing
-/// to read: the rule passes `isRunnable`, shows a green pill, and then matches no file, ever — with
-/// no error and nothing in the log. A `default: return false` makes that the automatic fate of every
-/// case added after it, which is precisely how this switch was written before.
+/// The shape matters more. `requiresContent` decides whether the file's text is extracted at all, so
+/// a content-reading condition answering `false` is handed nothing to read: the rule passes
+/// `isRunnable`, shows a green pill, and silently matches no file, ever. A `default: return false`
+/// would make that the fate of every case added after it.
 @Suite struct AutomationConditionTotalityTests {
 
     /// The two hand lists, hoisted so the roll-call below can check them against the enum's own
@@ -25,16 +24,15 @@ import Testing
         .kindIs(.pdf),
         .largerThanMB(10),
         .untouchedForDays(30),
-        // A judgement, not an oversight: see the note on `requiresContent`. A person is almost
-        // always named in the filename, and forcing a text extraction per person rule would
-        // spend seconds a scan to catch the minority case.
+        // A judgement, not an oversight (see `requiresContent`): a person is almost always named in
+        // the filename, and a text extraction per person rule would cost seconds a scan.
         .personIs("daughter"),
         // Never `isComplete`, so in production this is never asked — but it still has to answer.
         .unrecognized(name: "fromAFutureBuild", payload: Data("{}".utf8)),
     ]
 
     /// Every case, with the answer it must give. Listed by hand rather than derived, so a change to
-    /// an existing answer has to be made here too — the point of a pin.
+    /// an existing answer has to be made here too.
     @Test func everyConditionAnswersRequiresContentAsSpecified() {
         for condition in Self.readsText {
             #expect(condition.requiresContent, "\(condition.kindKey) must ask for the file's text")
@@ -46,14 +44,11 @@ import Testing
         #expect(named.count == Self.readsText.count + Self.doesNot.count, "a condition is listed twice above")
     }
 
-    /// The roll-call the comment above always claimed and the old assertion never was: the old
-    /// check compared the hand lists against THEMSELVES (no duplicates), so a tenth case added to
-    /// the enum left this suite green while `requiresContent`'s answer for it went unpinned. The
-    /// declared set comes from the enum's own body; the listed set comes from the values via
-    /// `Mirror`, not `kindKey`, because `kindKey` for `.unrecognized` returns the carried payload
-    /// name rather than the case.
+    /// The roll-call: every case declared in the enum's body is in the hand lists, so a new case
+    /// can't go unpinned. The listed set comes from the values via `Mirror`, not `kindKey`, which
+    /// for `.unrecognized` returns the carried payload name rather than the case.
     ///
-    /// Mutation-verified 2026-08-22: un-listing `.personIs` fails this naming both sets.
+    /// Un-listing `.personIs` must fail this, naming both sets.
     @Test func theHandListsNameEveryDeclaredCase() throws {
         let source = try Self.automationsSource()
         let body = try #require(
@@ -87,8 +82,8 @@ import Testing
         let source = try Self.automationsSource()
         let body = try #require(Self.body(ofFirst: "public var requiresContent: Bool {", in: source),
                                 "Could not find requiresContent in Automations.swift — the scan found nothing to check, which is not the same as finding nothing wrong.")
-        // Prove the slice is the CONDITION's property and not ``AutomationRule/requiresContent``,
-        // which is a one-line `contains` over the array and has no switch to be total about.
+        // Prove the slice is the condition's property, not ``AutomationRule/requiresContent``,
+        // which is a one-line `contains` with no switch to be total about.
         #expect(body.contains(".contentContains"),
                 "Found a requiresContent body, but not the condition's — the anchor above needs fixing.")
         let complaint = "requiresContent switches on a `default:` again. A new condition that reads "
@@ -111,8 +106,8 @@ import Testing
     }
 
     /// The text between `header`'s opening brace and its matching close, or nil when the header
-    /// isn't there. Brace counting rather than a line range so the slice can't quietly run past the
-    /// property into whatever follows it.
+    /// isn't there. Brace counting rather than a line range, so the slice can't run past the
+    /// property.
     private static func body(ofFirst header: String, in source: String) -> String? {
         guard let headerRange = source.range(of: header) else { return nil }
         var depth = 1

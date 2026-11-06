@@ -1,25 +1,21 @@
 import FileProvider
 import Foundation
 
-/// **When a cloud app isn't syncing, its files look current and are not** (RD68, decision DK).
+/// When a cloud app isn't syncing, its files look current and are not. With the Dropbox, OneDrive
+/// or Google Drive app quit, the account's folder still lists, in SyncCloud and in Finder, but
+/// nothing another device changed arrives, and a folder not downloaded to this Mac won't open. So
+/// every surface that shows a provider says so, from this one status per provider.
 ///
-/// With the Dropbox, OneDrive or Google Drive app quit, the account's folder is still on disk and
-/// still lists — in SyncCloud and in Finder — but nothing another device changed arrives, and a
-/// folder not downloaded to this Mac won't open. Measured 2026-10-30 with Dropbox quit: writes made
-/// here still uploaded, server-side changes never arrived until the app ran again. So every surface
-/// that shows a provider says so, from this one status per provider.
-///
-/// What it can see, and nothing more — "nothing is shown when no problem is known", never a green
+/// It reports only what it can see, and shows nothing when no problem is known, never a green
 /// "syncing":
 ///
-/// - **Not running**: the vendor's app, by bundle ID, missing for `notRunningGrace` — at any time,
-///   not only at login, so a restart in progress never flashes a warning. Cleared the moment the app
-///   launches.
-/// - **Not responding**: a folder not downloaded to this Mac whose listing passed its deadline
+/// - Not running: the vendor's app, by bundle ID, missing for `notRunningGrace`, so a restart in
+///   progress never flashes a warning. Cleared the moment the app launches.
+/// - Not responding: a folder not downloaded to this Mac whose listing passed its deadline
 ///   (`DatalessFolderReads`, 5 s). Dropbox keeps every file here, so it never gets this one.
-/// - **iCloud off**: no iCloud account token — signed out, or iCloud Drive turned off. The token
-///   reads without any iCloud entitlement (measured on an unsigned probe).
-/// - **Not uploading**: a file SyncCloud itself changed (`ChangedFileLedger`) still not uploaded
+/// - iCloud off: no iCloud account token (signed out, or iCloud Drive off). The token reads
+///   without any iCloud entitlement.
+/// - Not uploading: a file SyncCloud itself changed (`ChangedFileLedger`) still not uploaded
 ///   `uploadDeadline` later. Never a walk of a provider. A file the provider refuses is skipped,
 ///   not "not uploading".
 ///
@@ -102,8 +98,8 @@ public struct CloudSkippedFile: Equatable, Sendable {
     }
 }
 
-/// **The rules, with no system behind them** — what the monitor publishes, as a function of what
-/// it has seen. A value, so a test can put it in any state and read the answer.
+/// The rules, with no system behind them: what the monitor publishes, as a function of what it
+/// has seen. A value, so a test can put it in any state and read the answer.
 public struct CloudAppStatusModel: Sendable {
 
     /// How long an app must be missing before it is called not running.
@@ -116,7 +112,7 @@ public struct CloudAppStatusModel: Sendable {
         case uploaded
         case pending
         case refused(String)
-        /// Gone, not in a cloud folder, or not saying yet — never a problem. Still watched until
+        /// Gone, not in a cloud folder, or not saying yet: never a problem. Still watched until
         /// the deadline: a file just put in place may not have its upload state yet.
         case unknown
     }
@@ -132,10 +128,10 @@ public struct CloudAppStatusModel: Sendable {
     /// started if the caller knew; absent while it is missing or before it is first seen. One-way
     /// sync waits until Dropbox has run a while (`OneWaySyncDropboxGate`).
     public private(set) var runningSince: [CloudApp: Date] = [:]
-    /// **Apps the user asked about while they were missing** (decision DN): a source picked in a
-    /// pane, its menu opened, Settings ▸ Sources shown. The panes, menus and sidebar say "not
-    /// running" for these at once; the grace stays for what appears on its own — at launch, on
-    /// wake, and in Activity. Cleared when the app runs.
+    /// Apps the user asked about while they were missing: a source picked in a pane, its menu
+    /// opened, Settings ▸ Sources shown. The panes, menus and sidebar say "not running" for these at
+    /// once; the grace stays for what appears on its own (at launch, on wake, in Activity). Cleared
+    /// when the app runs.
     public private(set) var askedWhileMissing: Set<CloudApp> = []
     /// Folders not downloaded to this Mac that did not answer.
     public var unanswered: [String] = []
@@ -173,13 +169,13 @@ public struct CloudAppStatusModel: Sendable {
         }
     }
 
-    /// The user asked about `app` and it was seen `isRunning` just now (DN).
+    /// The user asked about `app` and it was seen `isRunning` just now.
     public mutating func asked(_ app: CloudApp, isRunning: Bool, at now: Date) {
         self.app(app, isRunning: isRunning, at: now)
         if !isRunning { askedWhileMissing.insert(app) }
     }
 
-    /// SyncCloud changed the file at `path` at `now`. A later change restarts its wait — the
+    /// SyncCloud changed the file at `path` at `now`. A later change restarts its wait: the
     /// provider may hold an upload while a file keeps changing. Names a provider never uploads are
     /// not watched: they would read "not uploaded" for good.
     public mutating func noteChanged(_ path: String, at now: Date) {
@@ -187,7 +183,7 @@ public struct CloudAppStatusModel: Sendable {
         changed[path] = ChangedFile(changedAt: now)
     }
 
-    /// Keeps the newest `watchLimit` changes — once per batch, not per change: a large copy drains
+    /// Keeps the newest `watchLimit` changes, once per batch, not per change: a large copy drains
     /// a thousand changes at a time.
     public mutating func trimToLimit() {
         guard changed.count > Self.watchLimit else { return }
@@ -196,16 +192,16 @@ public struct CloudAppStatusModel: Sendable {
         for (path, _) in oldest { changed[path] = nil }
     }
 
-    /// **Names the providers skip without an error.** Measured 2026-10-30: Dropbox reports its
-    /// ignored `.DS_Store` as not uploaded, with no error, for good — so hidden files are never
-    /// watched, nor the other system clutter Dropbox and OneDrive document as never synced.
+    /// Names the providers skip without an error. Dropbox reports its ignored `.DS_Store` as not
+    /// uploaded, with no error, for good, so hidden files are never watched, nor the other system
+    /// clutter Dropbox and OneDrive document as never synced.
     public static func isNeverUploaded(name: String) -> Bool {
         name.hasPrefix(".") || name.hasPrefix("~$") || name == "Icon\r"
             || ["desktop.ini", "thumbs.db"].contains(name.lowercased())
     }
 
     /// The files inside the folder at `path`, at most `limit`; empty for a file, or a folder whose
-    /// contents are not on this Mac (dataless, never descended — listing one is what hangs on its
+    /// contents are not on this Mac (dataless, never descended: listing one can hang on its
     /// provider). A folder SyncCloud copied or moved in is its files to upload, and the folder's own
     /// upload state says nothing about them. Hidden files and package insides are left out, as the
     /// provider leaves them; a package is one document. Blocks: asked off the main thread.
@@ -259,17 +255,16 @@ public struct CloudAppStatusModel: Sendable {
     }
 
     /// Each enabled cloud source's problem, by provider id. A source with no known problem is
-    /// absent — there is no "fine" entry to draw. `waitingOutTheGrace` drops what the user asked
-    /// about (DN) back to the grace — what Activity's rows use, which appear on their own.
+    /// absent: there is no "fine" entry to draw. `waitingOutTheGrace` puts what the user asked
+    /// about back under the grace, for Activity's rows, which appear on their own.
     public func problems(for providers: [CloudProvider], disabled: Set<String>,
                          now: Date, waitingOutTheGrace: Bool = false) -> [String: CloudAppProblem] {
         let sources = providers.filter { !$0.isLocalFolder && !disabled.contains($0.id) && !leftoverIds.contains($0.id) }
         let coverage = FileLocation.coverage(of: sources, disabledProviderIds: [])
         func owner(_ path: String) -> String? { FileLocation.covering(path: path, in: coverage)?.providerId }
 
-        // A folder under a name the provider never syncs is not one it will ever answer for —
-        // measured 2026-10-31: each OneDrive account's dataless `.Trash` stayed silent past 20 s with
-        // OneDrive running and its Documents listing at once. Counting it said "not responding" at
+        // A folder under a name the provider never syncs will never answer: a OneDrive account's
+        // dataless `.Trash` stays silent with OneDrive running, and would read "not responding" at
         // every launch.
         let silent = Set(unanswered.filter { !Self.isNeverUploaded(name: ($0 as NSString).lastPathComponent) }
             .compactMap(owner))
@@ -287,9 +282,9 @@ public struct CloudAppStatusModel: Sendable {
                         || (!waitingOutTheGrace && askedWhileMissing.contains(app)) {
                 answer[source.id] = .notRunning(app)
             } else if let app = CloudApp(source.type), missingSince[app] != nil {
-                // Missing, and still within its grace: a folder of an app that is not running does
-                // not answer, and saying "not responding" now is the flash the grace exists to
-                // prevent — with the wrong cause. Nothing until the grace says "not running".
+                // Missing, within its grace: its folders don't answer, and "not responding" now
+                // would be the flash the grace prevents, with the wrong cause. Nothing until the
+                // grace says "not running".
                 continue
             } else if silent.contains(source.id) {
                 answer[source.id] = .notResponding
@@ -316,24 +311,24 @@ public struct CloudAppStatusModel: Sendable {
 
     // MARK: Reading an upload
 
-    /// Whether an upload error is the provider refusing THIS file — its name, or a kind it never
-    /// syncs — rather than the account or the network being in the way, which is "not uploading".
     /// Whether an upload error is the account being out of space.
     public static func isQuotaError(_ error: Error) -> Bool {
         let error = error as NSError
         return error.domain == NSFileProviderErrorDomain && error.code == NSFileProviderError.Code.insufficientQuota.rawValue
     }
 
+    /// Whether an upload error is the provider refusing this file (its name, or a kind it never
+    /// syncs) rather than the account or network being in the way, which is "not uploading".
     public static func isRefusal(_ error: Error) -> Bool {
         let error = error as NSError
         guard error.domain == NSFileProviderErrorDomain else { return false }
         // Not `cannotSynchronize`: a general failure, which may be the account's or the extension's
-        // rather than this file's — and a wrong "skipped" hides a real "not uploading".
+        // rather than this file's, and a wrong "skipped" hides a real "not uploading".
         return [NSFileProviderError.Code.filenameCollision.rawValue,
                 NSFileProviderError.Code.excludedFromSync.rawValue].contains(error.code)
     }
 
-    /// Reads a file's upload state. **Only an explicit "not uploaded" counts**: a file that is gone,
+    /// Reads a file's upload state. Only an explicit "not uploaded" counts: a file that is gone,
     /// outside every cloud folder, or not answering the key is `.unknown`. A file carrying
     /// Dropbox's ignore mark (`com.dropbox.ignored`, which a copy keeps) is one it never uploads.
     public static func reading(at path: String) -> UploadReading {
@@ -351,10 +346,10 @@ public struct CloudAppStatusModel: Sendable {
     }
 }
 
-/// **The files SyncCloud put in place**, kept for the cloud app status to watch their upload
-/// (RD68): every copy, move and rename through the file-operation cores, and every save and new
-/// file of Edit's. Not Restructure's own folder writes. Written from any thread; drained by the
-/// monitor, which keeps only the ones inside a cloud source.
+/// The files SyncCloud put in place, kept for the cloud app status to watch their upload: every
+/// copy, move and rename through the file-operation cores, and every save and new file of Edit's.
+/// Not Restructure's own folder writes. Written from any thread; drained by the monitor, which
+/// keeps only the ones inside a cloud source.
 public final class ChangedFileLedger: @unchecked Sendable {
     public static let shared = ChangedFileLedger()
 
@@ -379,7 +374,7 @@ public final class ChangedFileLedger: @unchecked Sendable {
     }
 }
 
-/// A row Activity ▸ Now shows for a cloud app that isn't syncing — information, no notification.
+/// A row Activity ▸ Now shows for a cloud app that isn't syncing: information, no notification.
 public struct CloudAppNotice: Identifiable, Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         case open(CloudApp)
@@ -473,7 +468,7 @@ public struct CloudAppNotice: Identifiable, Equatable, Sendable {
         return rows
     }
 
-    /// "40 min", "2 h", "2 h 5 min" — never less than a minute.
+    /// "40 min", "2 h", "2 h 5 min"; never less than a minute.
     public static func duration(_ seconds: TimeInterval) -> String {
         let minutes = max(1, Int(seconds / 60))
         guard minutes >= 60 else { return "\(minutes) min" }

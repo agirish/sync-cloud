@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.4's review section shows the operations; this is the shape those operations produce — one
-/// member's children before and after, derived from the manifest alone (proposal O3).
+/// The plan sheet's review section shows the operations; this is the shape they produce: one
+/// member's children before and after, derived from the manifest alone.
 @Suite struct RestructurePreviewTests {
 
     private static func view(_ tree: [String: (folders: [String], files: [String])])
@@ -66,7 +66,7 @@ import Testing
         #expect(preview.after[0].files == 2, "a rename carries its files")
     }
 
-    /// A member the plan never touches shows the same two columns — that is the honest answer,
+    /// A member the plan never touches shows the same two columns: that is the honest answer,
     /// and an empty after-column would read as "everything goes".
     @Test func anUntouchedMemberIsUnchangedOnBothSides() throws {
         let tree = Self.view(["F/2020": (["Forms"], []), "F/2020/Forms": ([], ["a.pdf"])])
@@ -79,7 +79,7 @@ import Testing
         #expect(preview.after.allSatisfy { $0.fate == .unchanged })
     }
 
-    /// Only DIRECT children get rows: a file moving two levels down belongs to its folder's row.
+    /// Only direct children get rows: a file moving two levels down belongs to its folder's row.
     @Test func aDeeperMoveDoesNotInventARow() throws {
         let tree = Self.view(["F/2013": (["Forms"], []),
                               "F/2013/Forms": (["Sub"], []),
@@ -100,9 +100,9 @@ import Testing
                               "F/2013/A": ([], ["dup.pdf"]),
                               "F/2013/B": ([], ["dup.pdf"]),
                               "F/2013/C": ([], ["dup.pdf"])])
-        // The two must have DIFFERENT owners, or reading `dst` instead of `collidedInto`
-        // gives the same answer and the assertion cannot fail (law 1: the fixture's expected
-        // value must not equal the fallback's).
+        // The two must have different owners, or reading `dst` instead of `collidedInto` gives
+        // the same answer and the assertion cannot fail: the expected value must not equal the
+        // fallback's.
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
             actions: [.init(action: .moveFile, src: "F/2013/A/dup.pdf", dst: "F/2013/B/dup.pdf",
@@ -116,9 +116,9 @@ import Testing
         #expect(b.files == 1, "B never received it")
     }
 
-    /// **Against the 6 Aug oracle** — the release's own proof fixture. That day renamed
-    /// `Application` to `Petition` under H-1B, carrying its files; the preview of the member it
-    /// happened in has to show exactly that and invent nothing else.
+    /// Against the 6 Aug oracle, the planner's proof fixture. That day renamed `Application` to
+    /// `Petition` under H-1B, carrying its files; the preview of that member has to show exactly
+    /// that and invent nothing else.
     @Test func theOraclesRenameShowsAsARenameInItsMember() throws {
         let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
                                                  withExtension: "json", subdirectory: "Fixtures"))
@@ -157,8 +157,8 @@ import Testing
 
     // MARK: The shapes a delta-based preview got wrong
 
-    /// **A two-way swap goes through a temporary name**, and the after column must not show it.
-    /// The delta version kept `B.restructure-swap` as a surviving row and gave `A` zero files.
+    /// A two-way swap goes through a temporary name, and the after column must not show it: no
+    /// surviving `B.restructure-swap` row, and the contents swap with the names.
     @Test func aSwapReportsTheOriginalNamesAndNoScratchFolder() throws {
         let tree = Self.view(["M": (["A", "B"], []),
                               "M/A": ([], ["a1.pdf", "a2.pdf"]),
@@ -181,8 +181,8 @@ import Testing
                 "the chain collapses to the ORIGINAL name, not the temporary one")
     }
 
-    /// A merge whose source holds no loose files moves only folders — and the delta version,
-    /// which read merges off `move-file` alone, left the drained source standing.
+    /// A merge whose source holds no loose files moves only folders, so a preview that read merges
+    /// off `move-file` alone would leave the drained source standing.
     @Test func aFolderOnlyMergeStillDrainsItsSource() throws {
         let tree = Self.view(["M": (["Old", "Forms"], []),
                               "M/Old": (["Sub"], []),
@@ -197,7 +197,7 @@ import Testing
         #expect(preview.after[0].fate == .mergedFrom(renamedFrom: nil, sources: ["Old"]))
     }
 
-    /// The discriminating other direction: a folder that gives up ONE of its things still
+    /// The discriminating other direction: a folder that gives up one of its things still
     /// stands, and dropping it would be the after column lying.
     @Test func aPartiallyDrainedFolderSurvives() throws {
         let tree = Self.view(["M": (["Old", "Forms"], []),
@@ -224,8 +224,8 @@ import Testing
         #expect(preview.after.map(\.name) == ["Keep"])
     }
 
-    /// A folder carried in from OUTSIDE the member arrives with the files it carried — the
-    /// delta version labelled it created and showed zero.
+    /// A folder carried in from outside the member arrives with the files it carried, not with
+    /// zero.
     @Test func aFolderCarriedInArrivesWithItsFiles() throws {
         let tree = Self.view(["M": (["Forms"], []), "M/Forms": ([], ["f.pdf"])])
         let manifest = RestructureManifest(

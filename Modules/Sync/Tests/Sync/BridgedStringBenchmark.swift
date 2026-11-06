@@ -2,31 +2,23 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Prices the ObjC bridge that `FileNode.id` and `FileNode.name` carry, at every place the app
-/// actually spends them.
-///
-/// `FileNode.id` is `URL.path` and `FileNode.name` is `URL.lastPathComponent`; both come back from
-/// Foundation lazily bridged from `NSString`, so a hash or a comparison of one can take the ObjC
-/// slow path instead of running over native UTF-8. `NameCheckBenchmark` established the multiplier
-/// for ONE consumer (the row badge's memo: 77–135 ns native against 1.2–2.1 µs bridged). This asks
-/// the question that decides whether anything should change: which of the app's OTHER per-node
-/// paths pay it, how much of a real pane load that is, and what forcing native storage at
-/// construction would cost the walk — which is already at the floor of directory enumeration
-/// (~785 ms per 40,000 nodes) and must not be made slower to speed up a lookup.
+/// Prices the ObjC bridge that `FileNode.id` (`URL.path`) and `FileNode.name`
+/// (`URL.lastPathComponent`) carry. Both come back lazily bridged from `NSString`, so hashing or
+/// comparing one can take the ObjC slow path. `NameCheckBenchmark` priced one consumer; this asks
+/// which other per-node paths pay it, how much of a real pane load that is, and what nativizing
+/// at construction would cost the walk, which is already at the floor of directory enumeration.
 ///
 /// Inert unless `SYNCCLOUD_BRIDGE_BENCHMARK` names the roots to walk (colon-separated, tilde
-/// allowed), so an ordinary `swift test` — and CI — never runs it:
+/// allowed), so an ordinary `swift test` and CI never run it:
 ///
 /// ```sh
 /// SYNCCLOUD_BRIDGE_BENCHMARK="~/Documents:~/Library/CloudStorage/OneDrive-Personal" \
 ///   arch -arm64 swift test -c release --filter BridgedStringBenchmark
 /// ```
 ///
-/// **Every measurement interleaves its arms.** Medians on this machine drift several percent
-/// between identical runs, so a bridged batch timed before a native batch measures the drift as
-/// much as the bridge. Each repeat runs every arm once, and the arm order reverses on odd repeats
-/// so a within-repeat warming trend cannot favour whichever arm goes first. All samples are
-/// printed, never just the median.
+/// Every measurement interleaves its arms: medians drift several percent between identical runs,
+/// so timing one arm's batch before another's measures the drift. Each repeat runs every arm once,
+/// reversing the order on odd repeats so warming can't favour the first. All samples are printed.
 @Suite(.serialized) struct BridgedStringBenchmark {
 
     // MARK: - Inputs
@@ -36,21 +28,20 @@ import Testing
         return raw.split(separator: ":").map { URL(fileURLWithPath: (String($0) as NSString).expandingTildeInPath) }
     }
 
-    /// Repeats per arm. Small, because each one is tens of thousands of operations and the
-    /// spread between repeats is itself part of the answer.
+    /// Repeats per arm. Small: each is tens of thousands of operations, and the spread between
+    /// repeats is part of the answer.
     private static let repeats = 5
 
-    /// One walked root, exactly as the production walk sees it: `URL.path` and
-    /// `URL.lastPathComponent` straight from Foundation, with no round-trip that would quietly
-    /// nativize them.
+    /// One walked root as the production walk sees it: `URL.path` and `URL.lastPathComponent`
+    /// straight from Foundation, with no round-trip that would nativize them.
     private struct Corpus {
         let label: String
         /// Absolute paths — what `FileNode.id` holds.
         let paths: [String]
         /// Leaf names — what `FileNode.name` holds.
         let names: [String]
-        /// Sibling groups, parent path → its children's names, so the per-level sort can be
-        /// priced on the shape a real pane actually sorts rather than one 40,000-item array.
+        /// Sibling groups (parent path → children's names), so the per-level sort is priced on the
+        /// shape a real pane sorts rather than one huge array.
         let siblingGroups: [[String]]
         /// The walk root, for the relative-key measurement.
         let base: String
@@ -73,9 +64,8 @@ import Testing
                       siblingGroups: Array(groups.values), base: root.path)
     }
 
-    /// The same strings with guaranteed-native storage, by round-tripping the UTF-8 — the same
-    /// helper `NameCheckBenchmark.nativized` uses, and the operation a nativize-at-construction
-    /// change would perform in the walk.
+    /// The same strings with native storage, by round-tripping the UTF-8: as
+    /// `NameCheckBenchmark.nativized` does, and as nativizing at construction would in the walk.
     private static func nativized(_ strings: [String]) -> [String] {
         strings.map { String(decoding: Array($0.utf8), as: UTF8.self) }
     }
@@ -89,13 +79,12 @@ import Testing
         return Double(end - start) / Double(max(count, 1))
     }
 
-    /// Runs `arms` `repeats` times each, one repeat at a time and alternating the order, and
-    /// prints every sample plus the median and the spread. `count` divides each sample into a
-    /// per-item figure.
+    /// Runs each of `arms` `repeats` times, interleaved and alternating order, and prints every
+    /// sample with the median and spread. `count` turns each sample into a per-item figure.
     private static func compare(_ measurement: String, root: String, count: Int,
                                 arms: [(String, () -> Void)]) {
-        // One untimed pass per arm, so no arm is charged for first-touch faults or for warming
-        // shared ICU/allocator state that the arm running second would find already warm.
+        // One untimed pass per arm, so no arm pays for first-touch faults or warming shared
+        // ICU/allocator state.
         for (_, body) in arms { body() }
 
         var samples: [String: [Double]] = [:]
@@ -113,9 +102,8 @@ import Testing
             print(String(format: "BENCH %@ · %@ · %@: median %.0f ns/item · min %.0f max %.0f · samples [%@]",
                          root, measurement, name, median, values.first!, values.last!, all))
         }
-        // The ratios the whole investigation is about, stated rather than left to be eyeballed:
-        // every arm against the first, which is always the unchanged production storage. Above 1
-        // means production is paying that multiple; BELOW 1 means the change would LOSE here.
+        // Every arm against the first, which is always production storage. Above 1, production
+        // pays that multiple; below 1, the change would lose here.
         let base = samples[arms[0].0]!.sorted()[repeats / 2]
         for (name, _) in arms.dropFirst() {
             let other = samples[name]!.sorted()[repeats / 2]
@@ -150,16 +138,12 @@ import Testing
         print("BENCH sink \(sink)")
     }
 
-    /// The `DiffStatusIndex` shape: the dictionary's KEYS are native (the index builds them by
-    /// concatenating root + "/" + relativePath), and only the QUERY is a bridged `node.id`. This
-    /// is the per-render cost of a badge lookup, and it is the one place where the bridge is paid
-    /// without the app having any say in how the table was built.
+    /// The `DiffStatusIndex` shape: native keys (built as root + "/" + relativePath), queried with a
+    /// bridged `node.id`. The per-render cost of a badge lookup.
     private mutating func measureDictionaryLookups(_ c: Corpus, nativePaths: [String]) {
-        // The table is keyed from a SECOND, independent nativization. Keying it from
-        // `nativePaths` — the very array the native arm then queries with — would hand that arm
-        // `String.==`'s identical-storage short circuit on every hit, which is a property of the
-        // benchmark's own bookkeeping and not of native storage. Equal but distinct allocations
-        // are what a real lookup compares.
+        // Keyed from a second, independent nativization. Keying from `nativePaths` would give the
+        // native arm `String.==`'s identical-storage short circuit on every hit; a real lookup
+        // compares equal but distinct allocations.
         var table: [String: Int] = [:]
         table.reserveCapacity(nativePaths.count)
         for (i, p) in Self.nativized(c.paths).enumerated() { table[p] = i }
@@ -184,8 +168,8 @@ import Testing
         sink &+= s
     }
 
-    /// The `PaneChildrenIndex` shape: built once per publish, and its keys ARE `node.id`, so a
-    /// bridged id is hashed on the way IN as well as on the way out.
+    /// The `PaneChildrenIndex` shape: built once per publish with `node.id` as keys, so a bridged id
+    /// is hashed on the way in as well as out.
     private mutating func measurePaneChildrenIndexBuild(_ c: Corpus, nativePaths: [String]) {
         var s = 0
         Self.compare("dict build (node.id as key)", root: c.label, count: c.paths.count, arms: [
@@ -205,14 +189,12 @@ import Testing
         sink &+= s
     }
 
-    /// `FileSyncManager.sortLevel` over every real sibling group, which is the whole per-level
-    /// sort one publish performs. `localizedStandardCompare` is an `NSString` method, so this is
-    /// the arm where nativizing could plausibly LOSE: a native string has to be bridged TO
-    /// `NSString` for every comparison, while a lazily-bridged one already is one.
+    /// `FileSyncManager.sortLevel` over every real sibling group: one publish's per-level sort.
+    /// `localizedStandardCompare` is an `NSString` method, so here nativizing could lose: a native
+    /// string must be bridged to `NSString` per comparison, a lazily-bridged one already is one.
     private mutating func measureSort(_ c: Corpus) {
-        // Real directory membership, not just real group sizes: each level holds the names that
-        // actually sit side by side in that folder, so the comparisons are the ones a publish
-        // really performs. Built once, outside timing; the two arms differ only in storage.
+        // Each level holds the names that sit side by side in a real folder, so the comparisons
+        // are a publish's own. Built outside timing; the arms differ only in storage.
         func levels(_ transform: (String) -> String) -> [[FileNode]] {
             c.siblingGroups.map { group in
                 group.map { name in
@@ -232,10 +214,9 @@ import Testing
         sink &+= s
     }
 
-    /// `ProviderNameRules`' byte-level fast paths — `pathHasNothingToNormalize` iterates
-    /// `path.utf8`, and `f6ba96e7` added it precisely so the 94%-ASCII common case would be cheap.
-    /// If a bridged string cannot serve its UTF-8 contiguously, that loop pays an ObjC call per
-    /// byte and the fast path is delivering far less than it appears to.
+    /// `ProviderNameRules`' byte-level fast paths: `pathHasNothingToNormalize` iterates `path.utf8`
+    /// to make the mostly-ASCII case cheap. If a bridged string can't serve its UTF-8 contiguously,
+    /// that loop pays an ObjC call per byte and the fast path delivers far less than it seems.
     private mutating func measureNameRules(_ c: Corpus, nativePaths: [String], nativeNames: [String]) {
         var s = 0
         Self.compare("pathHasNothingToNormalize (utf8 scan)", root: c.label, count: c.paths.count, arms: [
@@ -253,9 +234,9 @@ import Testing
         sink &+= s
     }
 
-    /// The `FileDiffEngine.flatten` shape: `id.utf8.starts(with: baseUTF8)` then
-    /// `String(decoding:)` the remainder — one per node at scan setup, and the reason the diff's
-    /// own dictionary ends up natively keyed whatever `FileNode.id` holds.
+    /// The `FileDiffEngine.flatten` shape: a UTF-8 prefix check, then `String(decoding:)` of the
+    /// rest, once per node at scan setup. Why the diff's dictionary is natively keyed whatever
+    /// `FileNode.id` holds.
     private mutating func measureRelativeKey(_ c: Corpus, nativePaths: [String]) {
         let baseUTF8 = Array(c.base.utf8)
         func relativeKey(_ id: String) -> String {
@@ -274,16 +255,12 @@ import Testing
         sink &+= s
     }
 
-    /// What nativizing at construction would cost, per node, if it were added to the walk: the
-    /// UTF-8 round-trip itself, against a baseline that reads the same `URL` properties and keeps
-    /// them as-is. Both arms re-derive the strings from `URL`s, so the comparison is between two
-    /// versions of `leafNode` rather than between a string copy and nothing.
+    /// What nativizing at construction would cost the walk per node: the UTF-8 round-trip, against
+    /// a baseline that reads the same `URL` properties as-is. Both arms derive the strings from
+    /// `URL`s, so this compares two versions of `leafNode`, not a copy against nothing.
     ///
-    /// The arms accumulate their nodes into an array and sink its COUNT. An earlier version sank
-    /// `n.id.utf8.count` instead, which quietly made the comparison meaningless: reading the UTF-8
-    /// of a bridged string is itself the expensive thing being measured, so the as-is arm was
-    /// charged ~1 µs per node that the nativized arms were not, and the round-trip looked about
-    /// four times cheaper than it is. Nothing in a sink may touch the strings under test.
+    /// The arms sink the node count only. Nothing in a sink may touch the strings under test:
+    /// reading a bridged string's UTF-8 is the cost being measured, and would charge it to one arm.
     private mutating func measureNativizationCost(_ c: Corpus) {
         let urls = c.paths.map { URL(fileURLWithPath: $0) }
         var s = 0
@@ -312,20 +289,14 @@ import Testing
 
     // MARK: - End to end, on a real built tree
 
-    /// Every microbenchmark above prices one operation. This one asks whether the total shows up:
-    /// it walks a real root with the production `buildTree`, then times the whole-tree phases a
-    /// pane load actually runs, over THREE versions of the same tree — production's storage, `id`
-    /// alone forced native, and `id` and `name` both forced native.
+    /// Whether the total shows up in a real pane load: walks a root with the production
+    /// `buildTree`, then times the whole-tree phases over three versions of the tree: production
+    /// storage, `id` native, and `id` and `name` native.
     ///
-    /// The `id`-only arm is not a curiosity. Every dictionary and set in the app is keyed on the
-    /// path, and none of them is keyed on the leaf name; the one whole-tree consumer that reads
-    /// `name` is the per-level sort, which goes through `localizedStandardCompare` — an `NSString`
-    /// method that a bridged string is already prepared for and a native one is not. So the two
-    /// fields pull in opposite directions, and splitting them is what tells the difference between
-    /// a change worth making and one that pays for its own win.
-    ///
-    /// The walk itself is timed in the same run, so any saving can be stated against the cost it
-    /// would be traded for rather than against a figure remembered from another investigation.
+    /// The fields are split because they pull opposite ways: every dictionary and set is keyed on
+    /// the path, while the one whole-tree reader of `name` is the sort, whose
+    /// `localizedStandardCompare` favours a bridged string. The walk is timed in the same run, so
+    /// any saving is stated against the cost it would be traded for.
     @Test func priceARealPaneLoad() async {
         let roots = Self.roots
         guard !roots.isEmpty else { return }
@@ -373,19 +344,17 @@ import Testing
                 ("native id+name", { s &+= FileDiffEngine.filesInfo(fromTree: both, basePath: treeRoot).count }),
             ])
 
-            // `buildTree` returned this tree already sorted by name, and Swift's sort detects an
-            // existing run — so this prices a RE-sort (what toggling the sort option back to name
-            // costs), not the walk's own first sort. The unsorted case is `measureSort`, which
-            // builds its levels straight from enumerator order over real sibling groups.
+            // `buildTree` returns the tree sorted by name and Swift's sort detects an existing run,
+            // so this prices a re-sort (toggling back to name), not the walk's first sort. The
+            // unsorted case is `measureSort`.
             Self.compare("re-sort of a sorted tree: sort(by: .name)", root: root.lastPathComponent, count: count, arms: [
                 ("as-is", { s &+= FileSyncManager.sort(nodes: tree, by: .name).count }),
                 ("native id", { s &+= FileSyncManager.sort(nodes: idOnly, by: .name).count }),
                 ("native id+name", { s &+= FileSyncManager.sort(nodes: both, by: .name).count }),
             ])
 
-            // What the walk would pay to hand the phases above a native tree, against a control
-            // that rebuilds every node WITHOUT the round-trip — so this is the price of nativizing
-            // rather than the price of reconstructing a tree, which the walk does anyway.
+            // What the walk would pay to produce a native tree, against a control that rebuilds
+            // every node without the round-trip, so this prices nativizing, not rebuilding.
             Self.compare("walk surcharge (whole-tree transform)", root: root.lastPathComponent, count: count, arms: [
                 ("no-op rebuild (control)", { s &+= Self.nodeCount(Self.nativize(tree, id: false, name: false)) }),
                 ("nativize id", { s &+= Self.nodeCount(Self.nativize(tree, id: true, name: false)) }),
@@ -399,10 +368,9 @@ import Testing
         nodes.reduce(0) { $0 + 1 + nodeCount($1.children ?? []) }
     }
 
-    /// The candidate change applied to an already-built tree, per field. Rebuilding every node
-    /// either way makes the all-false case an exact control for the transform's own cost. `kind`
-    /// is left alone throughout: it is equally bridged (it comes from `URLResourceValues`), but it
-    /// is outside the change under consideration and only the `.kind` sort reads it.
+    /// The candidate change applied to a built tree, per field. Every node is rebuilt either way,
+    /// so the all-false case is an exact control. `kind` is bridged too, but is left alone: it is
+    /// outside the change and only the `.kind` sort reads it.
     private static func nativize(_ nodes: [FileNode], id: Bool, name: Bool) -> [FileNode] {
         func nat(_ s: String) -> String { String(decoding: Array(s.utf8), as: UTF8.self) }
         return nodes.map { n in

@@ -2,11 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the diff engine's `.nameConflict` classification: cross-pane pairs whose names differ
-/// only invisibly (trailing/leading whitespace, trailing dots, Unicode NFC/NFD) surface as a
-/// single conflict row with both REAL item paths — not as two "missing" rows whose copy offer
-/// would mint an identical-looking, provider-unsyncable duplicate (the iCloud `Swimming ` vs
-/// Dropbox `Swimming` doppelganger).
+/// Pins the diff engine's `.nameConflict` classification: cross-pane pairs whose names differ only
+/// invisibly (leading/trailing whitespace, trailing dots, NFC/NFD) surface as one conflict row with
+/// both real item paths, not as two "missing" rows whose copy offer would mint an identical-looking
+/// duplicate the provider can't sync (iCloud's `Swimming ` beside Dropbox's `Swimming`).
 @Suite struct NameConflictDiffTests {
 
     private let leftURL = URL(fileURLWithPath: "/left")
@@ -49,8 +48,8 @@ import Foundation
     // MARK: - Classification
 
     @Test func testTrailingSpaceFolderPairIsOneNameConflictNotTwoMissingRows() {
-        // The confirmed real-world shape: iCloud stores "Swimming " (trailing space), the
-        // Dropbox server normalized its copy to "Swimming"; identical content inside.
+        // The real-world shape: iCloud stores "Swimming " (trailing space) and the Dropbox server
+        // normalized its copy to "Swimming"; identical content inside.
         let left = [
             "Fitness": info(leftURL, "Fitness", isDir: true),
             "Fitness/Swimming ": info(leftURL, "Fitness/Swimming ", isDir: true),
@@ -64,13 +63,13 @@ import Foundation
 
         let diffs = compute(left: left, right: right)
 
-        // Exactly one row: the folder conflict. The identical children pair up through the
+        // Exactly one row, the folder conflict. The identical children pair up through the
         // normalized ancestor and produce nothing.
         #expect(diffs.count == 1)
         let conflict = diffs[0]
         #expect(conflict.type == .nameConflict)
         #expect(conflict.relativePath == "Fitness/Swimming ")
-        // Both paths are REAL items, so a sync targets the existing counterpart (a normal
+        // Both paths are real items, so a sync targets the existing counterpart (a normal
         // collision), never a to-be-created doppelganger.
         #expect(conflict.leftItemPath == "/left/Fitness/Swimming ")
         #expect(conflict.rightItemPath == "/right/Fitness/Swimming")
@@ -99,10 +98,10 @@ import Foundation
     }
 
     @Test func testUnicodeFormVariantsAlreadyMatchAsExactPairs() {
-        // Swift String equality (and Dictionary hashing) is canonical: an NFD key and its
-        // NFC twin are THE SAME key, so the engine's exact-match pass pairs them before any
-        // near-name logic could — identical metadata produces no rows at all. This pins the
-        // guarantee that NFC/NFD form differences can never mint phantom "missing" rows.
+        // Swift String equality and Dictionary hashing are canonical: an NFD key and its NFC twin
+        // are the same key, so the exact-match pass pairs them before any near-name logic, and
+        // identical metadata produces no rows. NFC/NFD differences can't mint phantom "missing"
+        // rows.
         let nfd = "Cafe\u{0301}.txt"
         let nfc = "Café.txt"
         #expect(Array(nfd.utf8) != Array(nfc.utf8)) // different bytes on disk…
@@ -137,8 +136,8 @@ import Foundation
     }
 
     @Test func testCaseOnlyDifferenceIsNotANameConflict() {
-        // Pure case variants stay the case-variant story (existing behavior): equal-content
-        // files surface as the comparable "Names differ only by case" row, not a conflict.
+        // Pure case variants stay case variants: equal-content files surface as the comparable
+        // "Names differ only by case" row, not a conflict.
         let left = ["readme.txt": info(leftURL, "readme.txt")]
         let right = ["README.txt": info(rightURL, "README.txt")]
 
@@ -186,8 +185,8 @@ import Foundation
 
         let missing = diffs.first { $0.type == .missingOnRight }
         #expect(missing?.relativePath == "Swimming /new.txt")
-        // Re-aimed at the destination's REAL folder — the naive join would have been
-        // "/right/Swimming /new.txt", creating the doppelganger folder on copy.
+        // Re-aimed at the destination's real folder; a naive join would give
+        // "/right/Swimming /new.txt" and create the doppelganger folder on copy.
         #expect(missing?.rightItemPath == "/right/Swimming/new.txt")
     }
 
@@ -231,9 +230,9 @@ import Foundation
     // MARK: - Guards
 
     @Test func testExactPairOwnsItsKeysOverNearNameMatching() {
-        // Left holds BOTH spellings (the post-bug doppelganger state on one side); the right
-        // "Swimming" belongs to its exact left twin, so the trailing-space folder stays a
-        // plain missing row rather than stealing the match.
+        // Left holds both spellings (the doppelganger state on one side); the right "Swimming"
+        // belongs to its exact left twin, so the trailing-space folder stays a plain missing row
+        // rather than stealing the match.
         let left = [
             "Swimming": info(leftURL, "Swimming", isDir: true),
             "Swimming ": info(leftURL, "Swimming ", isDir: true),
@@ -249,11 +248,11 @@ import Foundation
         #expect(diffs[0].relativePath == "Swimming ")
     }
 
-    /// The same folders with a file inside. The trailing-space folder pairs with nothing, but the
-    /// near-name of its `log.txt` is claimed once on each side, so the file paired across into the
-    /// folder the exact pair owns: a both-sides row inside a folder reported missing, never
-    /// collapsed into it. Syncing the two rows handled `log.txt` twice, and the right side's own
-    /// `log.txt`, which the left `Swimming` lacks, was never reported at all.
+    /// The same folders with a file inside. The trailing-space folder pairs with nothing, so its
+    /// `log.txt` stays in that folder's missing row and the right's `log.txt` gets its own row,
+    /// even though the file's near-name is claimed once on each side. Pairing it across into the
+    /// folder the exact pair owns would handle `log.txt` twice on sync and never report the right
+    /// side's own `log.txt`, which the left `Swimming` lacks.
     @Test(arguments: [false, true])
     func testAChildOfAFolderThatPairsWithNothingStaysInItsMissingRow(caseInsensitive: Bool) {
         let left = [
@@ -275,8 +274,8 @@ import Foundation
         #expect(byPath["Swimming/log.txt"]?.type == .missingOnLeft)
     }
 
-    /// Mirrored: the doppelganger pair is on the RIGHT, and the left `log.txt` paired across into
-    /// the right's unpaired folder.
+    /// Mirrored: the doppelganger pair is on the right, and the left `log.txt` must not pair across
+    /// into the right's unpaired folder.
     @Test func testAChildOfARightFolderThatPairsWithNothingStaysInItsMissingRow() {
         let left = [
             "Swimming": info(leftURL, "Swimming", isDir: true),
@@ -297,13 +296,12 @@ import Foundation
         #expect(byPath["Swimming/log.txt"]?.type == .missingOnRight)
     }
 
-    /// **A file against a folder whose names differ invisibly is one row, and it carries the
-    /// folder's contents** — as a type mismatch's row does, since either direction replaces the
-    /// folder's whole subtree. Left out, each child was a missing row aimed at the other side's
-    /// spelling: copying `Notes/a.txt` to the left made a `Notes` folder beside the file `Notes `,
-    /// the doppelganger the conflict row exists to prevent, and a bulk sync handled the subtree
-    /// twice. The folder takes a turn on each side, because the row is keyed by the LEFT spelling
-    /// whichever side the folder is on.
+    /// A file against a folder whose names differ invisibly is one row carrying the folder's
+    /// contents, as a type mismatch's row does, since either direction replaces the whole subtree.
+    /// Otherwise each child would be a missing row aimed at the other side's spelling: copying
+    /// `Notes/a.txt` to the left would make a `Notes` folder beside the file `Notes `, and a bulk
+    /// sync would handle the subtree twice. The folder takes a turn on each side, because the row is
+    /// keyed by the left spelling whichever side the folder is on.
     @Test(arguments: [true, false])
     func testAFileAgainstAFolderCarriesTheFoldersContents(folderOnTheRight: Bool) {
         let folderRoot = folderOnTheRight ? rightURL : leftURL
@@ -323,8 +321,8 @@ import Foundation
         #expect(diffs.first?.leftIsDirectory == !folderOnTheRight && diffs.first?.rightIsDirectory == folderOnTheRight)
     }
 
-    /// The folder that pairs with nothing is two levels up, and the level between pairs on its
-    /// own near-name — so every folder above the key is checked, not only its parent.
+    /// The folder that pairs with nothing is two levels up, and the level between pairs on its own
+    /// near-name, so every folder above the key is checked, not only its parent.
     @Test func testEveryFolderAboveAChildMustPairNotOnlyItsParent() {
         let left = [
             "Swimming": info(leftURL, "Swimming", isDir: true),
@@ -349,7 +347,7 @@ import Foundation
     }
 
     /// The boundary of that rule: an ambiguous near-name is not a disqualification by itself.
-    /// `Swimming` is claimed twice on the left, but it pairs EXACTLY, so a file inside it still
+    /// `Swimming` is claimed twice on the left, but it pairs exactly, so a file inside it still
     /// pairs across on its own invisible difference.
     @Test func testAChildOfAnExactlyPairedFolderStillPairsOnItsOwnNearName() {
         let left = [

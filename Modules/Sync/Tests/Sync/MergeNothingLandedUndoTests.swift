@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A move's merge that moved nothing out still puts its emptied source in the Trash, and registers
-/// an undo for that (U4). What that undo is called, and what "Undo Last Run" may pair with it.
+/// A move's merge that moved nothing out still puts its emptied source in the Trash and registers
+/// an undo for that. What that undo is called, and what "Undo Last Run" may pair with it.
 ///
 /// Real disk with a `ScratchTrash`: the merge decides by what is in the folders.
 @Suite struct MergeNothingLandedUndoTests {
@@ -28,9 +28,9 @@ import Testing
         (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
     }
 
-    /// **M1.** A paired "Move 1 Item" run, then a merge that moved nothing out — also "Move 1 Item",
-    /// and with no history of its own. The earlier run's pairing must not survive it: the name gate
-    /// would pass, and Undo Last Run would list the earlier move while `undo()` reversed the merge.
+    /// A paired "Move 1 Item" run, then a merge that moved nothing out: also "Move 1 Item", with no
+    /// history of its own. The earlier run's pairing must not survive it, or the name gate would
+    /// pass and Undo Last Run would list the earlier move while `undo()` reversed the merge.
     @MainActor
     @Test func aMergeThatMovedNothingOutEndsTheEarlierRunsPairing() async throws {
         let root = try makeCanonicalTempRoot(prefix: "merge-nothing-pairing")
@@ -59,8 +59,8 @@ import Testing
                 "Undo Last Run still describes the first move, over the merge's group")
     }
 
-    /// **L4.** A merge that moved nothing out of `Reports` — nor out of the `sub` folder merged
-    /// inside it — trashed two folders for ONE item the user moved: its undo is "Move 1 Item".
+    /// A merge that moved nothing out of `Reports`, nor out of the `sub` folder merged inside it,
+    /// trashed two folders for one item the user moved: its undo is "Move 1 Item".
     @MainActor
     @Test func aNestedMergeThatMovedNothingOutIsNamedForTheOneItemMoved() async throws {
         let root = try makeCanonicalTempRoot(prefix: "merge-nothing-name")

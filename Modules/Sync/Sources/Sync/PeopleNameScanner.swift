@@ -4,25 +4,19 @@ import Foundation
 /// Reads the filenames inside each person's folders so ``PersonNameLearning`` has something to
 /// learn from.
 ///
-/// **A separate type because it is the only part that touches a disk.** The rule itself is pure
-/// over `folder → filenames`, which is what makes it testable without staging a tree; this is the
-/// I/O, kept where a caller can decide when to pay for it. On the surveyed tree that is ~430
-/// shallow directory listings — fast, but not something to do on every keystroke, which is why the
-/// People section asks for it rather than doing it on appear.
+/// The only part that touches a disk: the learning rule is pure over `folder → filenames`, so it
+/// tests without a staged tree, and the caller decides when to pay for this I/O. A real tree is
+/// ~430 shallow listings, so the People section asks for it rather than running it on appear.
 public enum PeopleNameScanner {
 
     /// Lists the immediate files of every folder the profile records as somebody's.
     ///
     /// `root` is the provider root the profile's relative paths hang off. Unreadable folders are
-    /// skipped rather than failing the sweep: a person's folder living on an evicted iCloud path is
-    /// an ordinary state, and one of them must not cost the other four hundred.
+    /// skipped rather than failing the sweep: an evicted iCloud folder is an ordinary state.
     ///
-    /// **Through the shared `listing(of:)`, because an evicted folder is exactly what it guards.**
-    /// Its contents are not on this Mac, so listing it asks the cloud app for them — and when that
-    /// app is not running, the bare `contentsOfDirectory` this used to call never returned: the
-    /// sweep stopped for good at that folder, holding the thread it ran on, one more per click on
-    /// Look for Names. Now the folder costs at most the reads' deadline, once, and is skipped like
-    /// any other folder that cannot be read.
+    /// Lists through the shared `listing(of:)`, which has a deadline. Listing an evicted folder
+    /// asks the cloud app, and with that app not running a bare `contentsOfDirectory` never
+    /// returns, holding its thread for good. With the deadline the folder is skipped as unreadable.
     public static func fileNames(registry: PersonRegistry, profile: FolderProfile, root: URL,
                                  fileManager: FileManaging = FileManager.default) -> [String: [String]] {
         var out: [String: [String]] = [:]
@@ -31,8 +25,8 @@ public enum PeopleNameScanner {
             let listing = fileManager.listing(of: url)
             guard listing.outcome != .unreadable else { continue }
             let names = listing.urls.map(\.lastPathComponent)
-            // Directory entries only — a subfolder's NAME is not a document's name, and including
-            // it would let a folder called "Granny Elder" vouch for itself.
+            // Files only: a subfolder's name is not a document's name, and counting it would let a
+            // folder called "Granny Elder" vouch for itself.
             let files = names.filter { name in
                 var isDirectory: ObjCBool = false
                 let child = url.appendingPathComponent(name).path

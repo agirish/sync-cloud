@@ -6,7 +6,7 @@
 import Foundation
 
 /// One sync in Activity ▸ History: what it set out to do, written before anything is applied, and
-/// each step ticked off as it lands. It is what *Reverse in iCloud* reads (DE), and what a launch
+/// each step ticked off as it lands. It is what *Reverse in iCloud* reads, and what a launch
 /// after a crash reads to find a sync cut short.
 ///
 /// SyncCloud's own saved store, not the app's Sync History (`SyncHistoryStore`), which is
@@ -64,8 +64,8 @@ public struct OneWaySyncHistoryStep: Codable, Equatable, Sendable {
     /// The file as recorded once the step landed: Reverse is offered only for an item still
     /// like this on both sides.
     public var recorded: OneWaySyncFileRecord?
-    /// Older versions of the file DJ sent from SyncCloud Removed to Dropbox's own deleted files to
-    /// make room for the one this step kept, by their place in SyncCloud Removed.
+    /// Older versions of the file sent from SyncCloud Removed to Dropbox's own deleted files to
+    /// make room for the one this step kept (seven per file), by their place in SyncCloud Removed.
     public var emptied: [String]?
 
     public enum Status: Codable, Equatable, Sendable {

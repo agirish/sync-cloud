@@ -125,9 +125,8 @@ import Testing
     }
 
     @Test func destinationAnchorsAtProviderRootNotScannedSubfolder() async throws {
-        // Regression: previewing while focused into a subfolder used to anchor the destination at
-        // that subfolder, nesting the whole rule tree under it (e.g. TODO/Home/…). Destinations must
-        // anchor at the provider root regardless of which subfolder is scanned.
+        // Destinations anchor at the provider root whichever subfolder is scanned; anchoring at the
+        // subfolder would nest the whole rule tree under it (e.g. TODO/Home/…).
         let providerRoot = try tempDir(); defer { try? FileManager.default.removeItem(at: providerRoot) }
         let scanned = providerRoot.appendingPathComponent("TODO")
         try FileManager.default.createDirectory(at: scanned, withIntermediateDirectories: true)
@@ -221,14 +220,13 @@ import Testing
 
     @Test func filingRefusesToRebuildAProviderThatWentAwayAfterThePreview() async throws {
         // The provider unmounts (or the cloud folder is removed) between the preview and the apply.
-        // `createDirectory(withIntermediateDirectories: true)` will happily rebuild the whole path as
-        // an ordinary local folder, so without a guard the file is MOVED out of a live tree into a
-        // dead one nothing syncs — and reported as filed.
+        // `createDirectory(withIntermediateDirectories: true)` would rebuild the whole path as an
+        // ordinary local folder, so without a guard the file moves out of a live tree into a dead
+        // one nothing syncs, reported as filed.
         //
-        // The scanned folder is a SIBLING of the provider root, not a child: with the source inside
-        // the root, deleting the root also deletes the source, and the pre-existing
-        // `fileExists(atPath: src.path)` check would refuse first — the new guard would never be
-        // reached and this test would pass with it removed.
+        // The scanned folder is a sibling of the provider root, not a child: inside the root, the
+        // source would go with it and the `fileExists(atPath: src.path)` check would refuse first,
+        // so the test would pass without the guard.
         let base = try tempDir(); defer { try? FileManager.default.removeItem(at: base) }
         let inbox = base.appendingPathComponent("Inbox")
         let providerRoot = base.appendingPathComponent("Provider")
@@ -259,9 +257,8 @@ import Testing
         let banner = try #require(m.banner)
         #expect(banner.severity == .warning)
         #expect(banner.message.contains("no longer available"))
-        // The other direction of the guard — that it does NOT refuse a provider that is still
-        // there — is pinned by every filing test above; each anchors on a root that exists, and a
-        // guard stuck closed fails all of them.
+        // The other direction (no refusal while the provider is there) is pinned by every filing
+        // test above: each anchors on a root that exists, so a guard stuck closed fails them all.
     }
 
     // MARK: Mentions rules & content reading
@@ -360,9 +357,8 @@ import Testing
 
     // MARK: - A preview is not applied at the moment it is taken
 
-    /// **Every previewed row records what the file was**, which is the premise the guard below
-    /// rests on. Without this the refusal could quietly stop applying to production rows — a nil
-    /// identity means "not recorded" and proceeds — and nothing would say so.
+    /// Every previewed row records what the file was, the premise the guard below rests on: a nil
+    /// identity means "not recorded" and proceeds, so the refusal could silently stop applying.
     @Test func everyPreviewedRowCarriesTheIdentityItWasReadWith() async throws {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         try write("invoice_acme.pdf", in: dir, modified: now)
@@ -383,12 +379,9 @@ import Testing
         }
     }
 
-    /// **A file that changed since the preview is left where it is.**
-    ///
-    /// The apply gated on `fileExists(atPath:)`, and a path is not a file. Between the preview and
-    /// the click — which the walkthrough stretches over as many rows as the user has — anything
-    /// taking that path got moved instead: out of the folder they were looking at, into a
-    /// destination chosen for a document it is not, and being a move, with nothing left behind.
+    /// A file that changed since the preview is left where it is. A path is not a file: between
+    /// the preview and the click, which can span many rows, anything taking that path would be
+    /// moved into a destination chosen for a different document.
     @Test func aFileReplacedSinceThePreviewIsNotFiled() async throws {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         try write("invoice_acme.pdf", in: dir, modified: now)
@@ -413,8 +406,8 @@ import Testing
         #expect(outcome.failed == 0, "a refusal is not a failure; nothing went wrong with the disk")
     }
 
-    /// And it is SAID — in the banner and the log. A refusal nobody is told about leaves a smaller
-    /// number that reads as "there was less to do", which is the same silence the guard replaces.
+    /// And it is said, in the banner and the log: a silent refusal leaves a smaller number that
+    /// reads as "there was less to do".
     @Test func aRefusedAutomationFilingSaysSo() async throws {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         try write("invoice_acme.pdf", in: dir, modified: now)
@@ -459,8 +452,8 @@ import Testing
                 "an untouched run reported a refusal")
     }
 
-    /// A row built without an identity — every hand-made fixture in the suite — files as it always
-    /// did. The escape hatch is deliberate and this is what keeps it honest about being one.
+    /// A row built without an identity (every hand-made fixture in the suite) files unguarded. The
+    /// escape hatch is deliberate, and this pins it.
     @Test func aRowWithNoRecordedIdentityFilesAsBefore() async throws {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         try write("invoice_acme.pdf", in: dir, modified: now)
@@ -479,11 +472,9 @@ import Testing
 
     // MARK: The public start/cancel/clear seam
     //
-    // Everything above drives `runAutomationDryRun` directly, which leaves the wrapper the UI
-    // actually calls — `startAutomationDryRun`'s task replacement, `cancelAutomationDryRun`,
-    // `clearAutomationDryRun` — with no coverage at all. These three park the scan mid-flight in
-    // the injected extractor so cancellation and supersession are exercised deterministically
-    // rather than raced against a scan over a tiny folder.
+    // Covers the wrappers the UI calls (`startAutomationDryRun`'s task replacement,
+    // `cancelAutomationDryRun`, `clearAutomationDryRun`). These park the scan mid-flight in the
+    // injected extractor, so cancellation and supersession are deterministic, not raced.
 
     /// `cancelAutomationDryRun`'s documented contract: the in-flight preview is abandoned and
     /// "the previous report (if any) is left intact".
@@ -543,10 +534,9 @@ import Testing
             }
             return "lease agreement for unit 4"
         }
-        // Collect every publish, because the final state alone cannot see the defect this test
-        // exists for: the superseded scan runs first, so even WITHOUT the cancel its report would
-        // be overwritten by the replacement's and the end state would look right. A stale report
-        // flashing up and being replaced is exactly the supersession bug; the sequence pins it.
+        // Collect every publish: without the cancel the superseded report would still be
+        // overwritten, so the end state would look right. A stale report flashing up is the bug,
+        // and only the sequence shows it.
         var publishedRoots: [String?] = []
         let subscription = m.$automationDryRun.dropFirst().sink { publishedRoots.append($0?.root) }
         defer { subscription.cancel() }
@@ -584,11 +574,9 @@ import Testing
         #expect(!m.automationDryRunLifecycle.hasCompleted)
     }
 
-    /// `clearAutomationDryRun`'s FIRST line is a task cancel, and clearing after a completed
-    /// preview — the test above — never exercises it. This is the half the provider-switch path
-    /// actually leans on: a clear that only dropped the standing report would let the old
-    /// provider's in-flight scan finish and publish AFTER the clear, which is the stale-preview-
-    /// under-another-provider defect with a one-step-longer fuse.
+    /// `clearAutomationDryRun` first cancels the task, which clearing after a completed preview
+    /// never exercises. The provider switch leans on it: a clear that only dropped the report would
+    /// let the old provider's in-flight scan publish after it, under the new provider.
     @Test func clearAbandonsAnInFlightPreviewEntirely() async throws {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         try write("scan0042.pdf", in: dir, modified: now)

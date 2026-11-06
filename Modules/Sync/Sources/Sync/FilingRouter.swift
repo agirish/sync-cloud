@@ -1,35 +1,23 @@
 import Foundation
 
-/// Ranks destinations for a loose file from the tree's own profile and memory — **no model call.**
-///
-/// This is the free tier's answer to "where does this go?". Measured leave-one-out over 9,558 real
-/// filed documents, choosing one of ~2,950 folders from a file name plus 400 characters of page 1:
-///
-/// | | top-1 | top-3 |
-/// |---|---|---|
-/// | name against a bare folder list | 12.6% | 19.3% |
-/// | ＋ ``FolderProfile`` | 28.9% | 40.2% |
-/// | ＋ ``FilingMemory`` | 58.2% | 77.4% |
-/// | ＋ inheritance that is actually in scale (see ``rank``) | 59.8% | 79.6% |
-/// | ＋ the document's own years, and `inheritWeight` re-swept | **61.9%** | **81.8%** |
-///
-/// Two of the rules below were found by measuring rather than by reasoning, and both are load-bearing.
+/// Ranks destinations for a loose file from the tree's own profile and memory, with **no model
+/// call**: the free tier's answer to "where does this go?". Measured leave-one-out on a real tree
+/// (thousands of filed documents, a file name plus 400 characters of page 1), name alone puts the
+/// right folder first about 13% of the time; with ``FolderProfile``, ``FilingMemory`` and the rules
+/// below, about 62% (82% in the top three). Several of those rules were found by measuring, and are
+/// load-bearing.
 public enum FilingRouter {
 
     /// A ranked destination, relative to the provider root.
     public struct Candidate: Sendable, Equatable {
         public let relativePath: String
         public let score: Double
-        /// The readable anchor that contributed most — display-ready evidence for the card, and nil
-        /// when the folder was reached by name or by inheritance rather than by content.
+        /// The readable anchor that contributed most: display-ready evidence for the card, nil when
+        /// the folder was reached by name or inheritance rather than content.
         public let evidenceToken: String?
-        /// How many distinctive **words** this file shares with the folder's filed documents.
-        ///
-        /// Deliberately not called anything with "files" or "matches" in it. It was
-        /// `neighborMatches`, which is the name of a `FilingDestination` field meaning *how many
-        /// files in the target contain the evidence word* — so a token count reached a card that
-        /// renders it as "N similar files already here". The memory does not record per-token file
-        /// counts, so that claim cannot be made from it at all.
+        /// How many distinctive **words** this file shares with the folder's filed documents. Not a
+        /// file count, and named to avoid one: the memory records no per-token file counts, so a
+        /// card can't say "N similar files already here" from it.
         public let sharedAnchors: Int
 
         public init(relativePath: String, score: Double, evidenceToken: String?, sharedAnchors: Int) {
@@ -42,15 +30,11 @@ public enum FilingRouter {
 
     public struct Ranking: Sendable, Equatable {
         public let candidates: [Candidate]
-        /// How separated the winner is — see ``FilingRouter/margin(top:runnerUp:)``, which is the
-        /// one place the rule lives. `(top − runnerUp) / top`; 1.0 for a lone candidate that
-        /// scored above zero, and **0 when the top score is zero or less**, because a folder the
-        /// scorer penalised is the last one standing rather than a winner.
-        ///
-        /// **This is the only honest confidence Organize has had.** Measured on the held-out split:
-        /// a margin ≥ 0.5 is right 94% of the time and covers 15% of files; below 0.2 it is right
-        /// 42% of the time and covers 46%. That is the signal for what to auto-file, what to
-        /// suggest, and what is worth paying the refine tier for.
+        /// How separated the winner is; ``FilingRouter/margin(top:runnerUp:)`` is the one place the
+        /// rule lives. `(top − runnerUp) / top`, 1.0 for a lone candidate above zero, and 0 when
+        /// the top score is zero or less. This is Organize's real confidence signal: on held-out
+        /// data a margin ≥ 0.5 is right 94% of the time, and below 0.2 only 42%, which sets what to
+        /// auto-file, suggest, or refine.
         public let margin: Double
 
         public var best: Candidate? { candidates.first }
@@ -68,48 +52,29 @@ public enum FilingRouter {
         public static let empty = Ranking(candidates: [], margin: 0)
     }
 
-    // Weights. Tuned on a 2,000-document split and reported on the 7,558 held out from it; they are
-    // deliberately few, because a scorer with many knobs tuned on one tree would be fitting that
-    // tree rather than describing it.
+    // Weights, tuned on one split and reported on another held out from it. Deliberately few: many
+    // knobs tuned on one tree would fit that tree rather than describe it.
     static let contentWeight = 1.0
     static let nameWeight = 0.55
-    /// How much of a scoring folder's evidence its neighbours inherit — its siblings and its own
-    /// children. A multiple of the donor's score, not a constant: see ``rank``.
-    ///
-    /// **Above 1: a cold folder is worth more than a fraction of its family.** The value was 0.45
-    /// from when the share was normalised into [0, 0.45] and could not mean anything else. Once the
-    /// share became proportional it was never re-swept, and 0.45 turned out to be far too timid for
-    /// the case inheritance exists for: the *current year's* bucket. `Home/Utilities/AT&T/2026` has
-    /// no documents in it yet — January's bill is the first — so it can only inherit, and at 0.45 it
-    /// lost to `Finance/US/Credit Accounts/Apple Card/2026`, a different family whose 2026 folder
-    /// had both its own content and the same exact year match. The AT&T folder's own siblings hold
-    /// twelve bills a year each and their anchors are `myat, snap, myatt, att, autopay, managing,
-    /// bills` — every one of them on the page.
-    ///
-    /// Re-swept on the 2,000-document tune split, which is flat from 0.9 upward (64.6% → 64.9%), and
-    /// reported on the 7,370 held out: 60.0% → **61.9%** top-1, 80.0% → **81.8%** top-3. The class it
-    /// is for moves most — a gold folder with no documents of its own goes from 1.0% to 6.9%.
+    /// How much of a scoring folder's evidence its neighbours (siblings and its own children)
+    /// inherit, as a multiple of the donor's score, not a constant (see ``rank``). Above 1 because
+    /// inheritance exists for the cold folder, above all the current year's empty bucket
+    /// (`Home/Utilities/AT&T/2026` before January's bill), which can only inherit and must beat a
+    /// different family whose year folder has content of its own. Flat on the tune split from 0.9
+    /// up.
     static let inheritWeight = 1.4
     static let yearInNameWeight = 3.0
     static let yearInBodyWeight = 2.0
     static let identifierBoost = 4.0
 
-    /// How much of a document the router reads: **page 1, 400 characters** — the sampling rule the
-    /// ``FilingMemory`` records for itself, and the rule under which every weight above was tuned
-    /// and every accuracy figure in this file was measured.
-    ///
-    /// **Enforced here rather than trusted from the caller**, because the caller was not honouring
-    /// it. `ContentSignalExtractor` returns up to five pages and 20,000 characters — a sane budget
-    /// for a classifier prompt, and four decimal orders more than this scorer was ever measured on.
-    /// A T-Mobile bill handed over at full length still ranked its real home first, but pages 2-5
-    /// are line items, and the vocabulary in them pulled `Home/Insurance/2025` and three tax-
-    /// deduction folders up close behind it: the margin fell from 0.37 to 0.14, which is the
-    /// difference between `.medium` and `.low` — between a home that leads a card and one that
-    /// cannot displace anything. The doc for `rank` always said "page 1 only". Nothing enforced it.
+    /// How much of a document the router reads: **page 1, 400 characters**, the sampling rule
+    /// ``FilingMemory`` records and the one every weight here was tuned under. Enforced here, not
+    /// trusted from the caller: `ContentSignalExtractor` returns up to five pages, and the line
+    /// items on pages 2-5 pull unrelated folders close enough to drop a `.medium` margin to `.low`.
     static let contentSampleChars = 400
 
-    /// A prepared inverted index. Built once per scan, not per file: a scan of a few hundred loose
-    /// files against a few thousand folders would otherwise walk every folder's token list per file.
+    /// A prepared inverted index, built once per scan, not per file, so a scan doesn't walk every
+    /// folder's token list for every file.
     public struct Index: Sendable {
         let byAnchor: [String: [(folder: String, weight: Double)]]
         let byIdHash: [String: [(folder: String, weight: Double)]]
@@ -122,29 +87,24 @@ public enum FilingRouter {
         let children: [String: [String]]
         let personTokens: Set<String>
         /// Folder → the registry person its `axes.person` resolves to. Only folders the registry
-        /// can actually resolve appear; an axis value naming someone outside the registry is left
-        /// to the token fallback rather than half-resolved.
+        /// can resolve appear; an axis naming someone outside it is left to the token fallback.
         let folderPerson: [String: String]
         let registry: PersonRegistry?
         let salt: String
-        /// Name-token → folders, and year → folders.
-        ///
-        /// These exist for speed, and the speed is not a nicety. Scoring names by walking every
-        /// destination cost **10 ms per file** against a real 2,979-folder tree; the root inbox of
-        /// the tree this was built for holds 524 loose files, so a scan spent five seconds of
-        /// synchronous work before showing anything. Looking folders up by the tokens a file
-        /// actually has is the same arithmetic over a few hundred folders instead of three thousand.
+        /// Name-token → folders, and year → folders. For speed, which matters: scoring names by
+        /// walking every destination costs about 10 ms per file on a 3,000-folder tree, seconds of
+        /// synchronous work per scan. Looking up by the file's own tokens touches a few hundred
+        /// folders instead.
         let foldersByPathToken: [String: [String]]
         let foldersByYear: [String: [String]]
         /// Folder → its anchors, for recovering display evidence for the shown candidates.
         let anchorsByFolder: [String: [String: Double]]
         /// Folder → anchor → share of that folder's documents carrying it, where the memory records
-        /// it. Read only by ``AutomationRuleProposer``: ranking a *destination* wants rarity, while
-        /// keying a *rule* wants recurrence, and they are different numbers.
+        /// it. Read only by ``AutomationRuleProposer``: ranking a destination wants rarity, keying
+        /// a rule wants recurrence.
         let docFrequencyByFolder: [String: [String: Double]]
-        /// The same, for the hashed digit-bearing tokens. Separate because they are keyed by hash
-        /// and looked up by hash — folding them into the readable map would need every lookup to
-        /// know which kind of token it holds.
+        /// The same, for the hashed digit-bearing tokens. Separate because they are keyed and
+        /// looked up by hash; one map would make every lookup know which kind it holds.
         let idDocFrequencyByFolder: [String: [String: Double]]
         /// Folder → the folders it is a stash of copies of. See ``SatelliteFolders``.
         let satelliteHomes: [String: Set<String>]
@@ -152,14 +112,12 @@ public enum FilingRouter {
         public var isEmpty: Bool { destinations.isEmpty }
     }
 
-    /// Prepares the index for one taxonomy.
-    ///
-    /// `destinations` is the taxonomy the caller already computed; folders the profile forbids are
-    /// dropped here rather than at the call site so no consumer can forget.
+    /// Prepares the index for one taxonomy. `destinations` is the caller's taxonomy; folders the
+    /// profile forbids are dropped here, not at the call site, so no consumer can forget.
     public static func makeIndex(destinations: [String], profile: FolderProfile?,
                                  memory: FilingMemory?, registry: PersonRegistry? = nil,
                                  satelliteHomes: [String: Set<String>] = [:]) -> Index {
-        // One rule, asked the same way everywhere — see ``FolderProfile/isInboxPath(_:)``.
+        // One rule, asked the same way everywhere; see ``FolderProfile/isInboxPath(_:)``.
         let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
         var byAnchor: [String: [(String, Double)]] = [:]
         var byIdHash: [String: [(String, Double)]] = [:]
@@ -223,8 +181,8 @@ public enum FilingRouter {
                 folderPerson[f] = id
             }
         }
-        // Only pairs whose BOTH ends survived the allow-list can ever fire, so a satellite whose
-        // home was filtered out (an inbox, a forbidden folder) is not half-applied.
+        // Only pairs whose both ends survived the allow-list can fire, so a satellite whose home
+        // was filtered out (an inbox, a forbidden folder) is not half-applied.
         let satellites = satelliteHomes.reduce(into: [String: Set<String>]()) { out, pair in
             guard allowedSet.contains(pair.key) else { return }
             let homes = pair.value.filter { allowedSet.contains($0) }
@@ -241,39 +199,32 @@ public enum FilingRouter {
                      satelliteHomes: satellites)
     }
 
-    /// Ranks destinations for one file.
-    ///
-    /// `contentSnippet` is page 1 only — the same rule the profile carries, because a statement,
-    /// form, letter or bill says what it is on its first page and pages 2..n are line items that
-    /// cost context and change nothing.
+    /// Ranks destinations for one file. `contentSnippet` is page 1 only, as the profile assumes: a
+    /// statement, form, letter or bill says what it is on page 1, and later pages are line items
+    /// that change nothing.
     public static func rank(fileName: String, contentSnippet: String?, index: Index,
                             excluding: Set<String> = [], limit: Int = 5) -> Ranking {
         guard !index.isEmpty else { return .empty }
         let stem = (fileName as NSString).deletingPathExtension
         let nameTokens = Set(tokenize(stem))
-        // The sample this scorer was measured on — see ``contentSampleChars``. Callers hand over
-        // whatever their extractor produced; what gets scored is bounded here.
+        // The sample this scorer was measured on (``contentSampleChars``); whatever the caller
+        // hands over, only this much is scored.
         let sample = contentSnippet.map { String($0.prefix(contentSampleChars)) }
         var contentTokens = nameTokens
         if let sample { contentTokens.formUnion(tokenize(sample)) }
 
         let yearsInName = nameTokens.filter(isYearToken)
-        // **Years must be read out of the document, not only the filename.** Three files all called
-        // `Lease Agreement.pdf` differ only by the term printed inside them; without this the
-        // scorer picks whichever sibling year folder happens to sort first.
-        //
-        // Read from the TEXT, not from its tokens. `tokenize` splits on non-alphanumerics, so a
-        // date printed `20NOV2026` — how every US visa foil prints its expiry — is the single token
-        // `20nov2026` and never looks like a year at all. Worse, `contentTokens` starts as a copy of
-        // `nameTokens`, so the "body" year was in practice the FILENAME's year counted a second
-        // time: a document that named no year of its own still collected the body bonus.
+        // **Years must be read from the document, not only the filename**: three `Lease
+        // Agreement.pdf` files differ only by the term printed inside. Read from the text, not its
+        // tokens: `tokenize` keeps `20NOV2026` (a visa foil's expiry) as one token that never looks
+        // like a year, and `contentTokens` starts as a copy of `nameTokens`, so a token-based body
+        // year would just count the filename's year twice.
         let yearsInBody = sample.map(yearsInText) ?? []
 
         // ---- content evidence -------------------------------------------------------------
-        // Scoring keeps ONE number per folder. Which anchor won and how many matched are needed
-        // only for the handful of folders actually shown, so they are recovered at the end instead
-        // of being maintained for every folder a common word touches — a document routinely puts
-        // thousands in play, and that bookkeeping was two extra dictionary writes on each.
+        // Scoring keeps one number per folder. The winning anchor and the match count are recovered
+        // at the end for the few folders shown, not tracked for the thousands a common word
+        // touches.
         var content: [String: Double] = [:]
         for token in contentTokens {
             if isIdentifier(token) {
@@ -291,26 +242,20 @@ public enum FilingRouter {
             content[folder] = raw / Double(n).squareRoot()
         }
 
-        // **Evidence has to reach the folders that hold none of their own, or an empty folder is
-        // unreachable.** `Home/Utilities/AT&T/2024` is empty for 2024, so it has no content of its
-        // own and can never be proposed however obviously an AT&T bill belongs there — while its
-        // siblings are full of AT&T bills. Content identifies the family; the year axis below picks
-        // the member.
+        // **Evidence has to reach folders that hold none of their own, or an empty folder is
+        // unreachable.** `Home/Utilities/AT&T/2024` has no content yet while its siblings are full
+        // of AT&T bills: content identifies the family, and the year axis below picks the member.
         //
-        // A scoring folder shares with its siblings (through the parent they share) **and with its
-        // own children**. Both directions are load-bearing, and the first cut had only the first:
-        // `Immigration/Visa/US/H-1B Visa` holds every H-1B visa foil while its per-era children hold
-        // none, so the folders the file actually belonged in inherited nothing at all.
+        // A scoring folder shares with its siblings (through their parent) **and with its own
+        // children**; both are load-bearing. `Immigration/Visa/US/H-1B Visa` holds every visa foil
+        // while its per-era children hold none.
         //
-        // **The share is proportional to the donor's score, not normalised to `inheritWeight`.**
-        // Dividing by the peak made every share land in [0, 0.45] and then added it to RAW content
-        // scores, which on a real memory reach the hundreds — so a cold folder moved by ~0.2% of the
-        // leader and inheritance was, in the one case it exists for, arithmetically inert. Measured
-        // leave-one-out over 7,370 held-out documents against 2,956 folders, the two fixes together
-        // take top-1 from 58.2% to 59.8% and top-3 from 77.4% to 79.6%.
+        // **The share is proportional to the donor's score, not normalised.** Content scores reach
+        // the hundreds, so a share normalised to [0, `inheritWeight`] would barely move a cold
+        // folder.
         if !content.isEmpty {
             // Donors are read from a snapshot taken before any share lands, so evidence moves one
-            // hop and cannot cascade down a deep tree.
+            // hop and can't cascade down a deep tree.
             var donors: [String: Double] = [:]
             for (folder, score) in content where score > 0 {
                 donors[folder] = max(donors[folder] ?? 0, score)
@@ -329,10 +274,10 @@ public enum FilingRouter {
 
         // ---- name and axis evidence -------------------------------------------------------
         //
-        // Only folders this file can actually reach are scored: ones sharing a name token, ones
-        // whose year the file names, and ones content already put in play. Everything else scores
-        // zero (no overlap, no year) or loses anyway (a non-matching year is a penalty on a folder
-        // with nothing else going for it), so walking the whole tree only bought latency.
+        // Only folders this file can reach are scored: ones sharing a name token, ones whose year
+        // the file names, and ones content already put in play. Everything else scores zero or
+        // loses anyway (a non-matching year is a penalty on a folder with nothing else), so walking
+        // the whole tree only adds latency.
         var reachable = Set<String>()
         for t in nameTokens {
             if let fs = index.foldersByPathToken[t] { reachable.formUnion(fs) }
@@ -343,11 +288,10 @@ public enum FilingRouter {
         reachable.formUnion(content.keys)          // a wrong year must still penalise a live folder
 
         let people = nameTokens.intersection(index.personTokens)
-        // Person identity, phrase-first — asked of the raw strings, not the token sets, because
-        // "Daughter Father" must spend its surname on Daughter and a Set has already lost the order
-        // that makes that possible. Detected once per file; the body is included so a scan whose
-        // *page* names its person routes between sibling person buckets the same way a well-named
-        // file does.
+        // Person identity, phrase-first, asked of the raw strings: "Daughter Father" must spend its
+        // surname on Daughter, and a Set has lost the order that makes that possible. Detected once
+        // per file, body included, so a scan whose page names its person routes between sibling
+        // person buckets as a well-named file does.
         let detectedPeople: Set<String>
         if let registry = index.registry, !index.folderPerson.isEmpty {
             detectedPeople = registry.detect(in: sample.map { stem + " " + $0 } ?? stem)
@@ -363,18 +307,16 @@ public enum FilingRouter {
                 overlap += 1
             }
             s += Double(overlap) * 2.0
-            // The axis, where the registry resolves it: a match is confirmation, and a
-            // *contradiction* — the document names people and this folder's person is not among
-            // them — is the strongest negative signal name evidence has. Sibling person buckets
-            // differ by exactly this, so it is what routes `Son … Report Card.pdf` to
-            // `School/Son` over a sibling holding identical documents. Multi-person documents
-            // are safe by construction: no penalty for anyone the document actually names.
+            // The axis, where the registry resolves it: a match confirms, and a contradiction (the
+            // document names people and this folder's person isn't among them) is the strongest
+            // negative name evidence has. It is what routes `Son … Report Card.pdf` to `School/Son`
+            // over a sibling with identical documents. Multi-person documents are safe: no penalty
+            // for anyone the document names.
             //
-            // **Computed before the early-outs below, and counted as a reason to score the folder
-            // at all.** Those guards drop any folder the file name does not touch, which is
-            // precisely the case this signal exists for: `Scan 2026-08-02.pdf` shares no token
-            // with `School/Son`, so the folder was dropped before the person was ever consulted
-            // and a page naming Son routed to his sister.
+            // **Computed before the early-outs below, and a reason to score the folder at all.**
+            // Those guards drop folders the file name doesn't touch, which is exactly this case:
+            // `Scan 2026-08-02.pdf` shares no token with `School/Son`, yet a page naming Son must
+            // route there.
             var personDelta = 0.0
             if let fp = index.folderPerson[folder], !detectedPeople.isEmpty {
                 personDelta = detectedPeople.contains(fp) ? 1.0 : -3.0
@@ -392,9 +334,9 @@ public enum FilingRouter {
         }
 
         // ---- blend --------------------------------------------------------------------------
-        // Both sides are normalised to [0, 1] first. Adding raw scores let content outvote the
-        // profile exactly where the profile was the only signal left — a folder with nothing filed
-        // in it scored 0.7% before this, against 26.8% for the profile alone.
+        // Both sides are normalised to [0, 1] first. Adding raw scores would let content outvote
+        // the profile exactly where the profile is the only signal, such as a folder with nothing
+        // filed yet.
         let contentPeak = content.values.max() ?? 0
         let namePeak = name.values.max() ?? 0
         var total: [String: Double] = [:]
@@ -407,26 +349,21 @@ public enum FilingRouter {
         }
         for f in excluding { total.removeValue(forKey: f) }
 
-        // **A folder does not outrank the folder it is a stash of copies of.**
+        // **A folder does not outrank the folder it is a stash of copies of.** Applied here, not by
+        // the callers (`rank` has two, and one could forget), and to the scores rather than the
+        // final order, so the margin below reflects what the ranking claims.
         //
-        // Applied here rather than by the caller — `rank` has two call sites and a re-rank one of
-        // them forgot would be invisible — and applied to the scores rather than to the final
-        // order, so the margin below is computed on what the ranking actually claims.
+        // A demotion, not a removal: the satellite stays on the card as an alternate, since the
+        // relation says which folder is home, not that a document may never be copied into a
+        // petition packet.
         //
-        // A DEMOTION, not a removal: the satellite stays on the card as an alternate, one click
-        // away, because the relation is a statement about which folder is the home and not about
-        // whether a document may ever be copied into a petition packet again.
-        //
-        // Only fires when both ends are in play for the same file, which is a narrow event: 14
-        // pairs over the tree's 3,013 profiled folders, and 67 of 10,470 identified documents live
-        // in a satellite at all. **Leave-one-out cannot score this**, and that is worth saying
-        // plainly rather than reporting a number that looks like validation: the corpus's ground
-        // truth for those 67 documents IS the satellite — they are filed there — so a replay
-        // scores the demotion as 67 regressions. The population it exists for is the one the
-        // corpus never holds, a document arriving for the first time.
+        // Fires only when both ends are in play for the same file. Leave-one-out can't score it:
+        // the corpus files those documents in the satellite, so a replay counts every demotion as a
+        // regression. It exists for a document arriving for the first time, which the corpus never
+        // holds.
         if !index.satelliteHomes.isEmpty {
             // Read from a snapshot, so a chain (A copies B, B copies C) settles against the scores
-            // as ranked rather than against a partially demoted set.
+            // as ranked, not against a partly demoted set.
             let scored = total
             for (satellite, homes) in index.satelliteHomes {
                 guard let own = scored[satellite] else { continue }
@@ -436,9 +373,8 @@ public enum FilingRouter {
         }
         guard !total.isEmpty else { return .empty }
 
-        // Top-k by selection, not by sorting. A document routinely puts a few thousand folders in
-        // play and only the first five are ever shown, so a full `sorted()` was ordering ~3,000
-        // string keys to read six of them — the single largest cost in this function.
+        // Top-k by selection, not sorting: a document puts thousands of folders in play and only
+        // five are shown, and a full `sorted()` would be the largest cost in this function.
         let want = max(limit, 2)                       // the runner-up is what the margin needs
         var best: [(key: String, value: Double)] = []
         best.reserveCapacity(want + 1)
@@ -462,33 +398,23 @@ public enum FilingRouter {
 
     /// How separated the winner is: `(top − runnerUp) / top`, and 1.0 when it runs unopposed.
     ///
-    /// **A top score of zero or less is not a winner, it is the last folder standing**, and that is
-    /// the case this is a named function for. Name scores go negative — a wrong-year `yearFit` and
-    /// a person contradiction both subtract — and a negative folder still enters the blend whenever
-    /// some *other* folder scored positively. Normally that other folder is the top one and the
-    /// question never arises; but `excluding` (what "Try another" has been told no about) is
-    /// applied after the blend, so in principle the positives can all be removed and leave a folder
-    /// the scorer actively penalised at the top. The expression this replaces answered 1.0 there —
-    /// `.high` — for a folder whose own evidence argues against it, and `route` promotes a `.high`
-    /// with no evidence token as `fromContent == false`, which is blind-batch eligible. Zero is
-    /// `.low`: still offered, never filed unseen.
-    ///
-    /// Honest about its own status: **no fixture reached `top <= 0` through `rank`** — several were
-    /// tried, and the blend's normalisation keeps pulling the survivor back above zero. So this is
-    /// a guard on an arithmetic rule that is wrong on its face rather than a fix for a reproduced
-    /// bug, and it is a named function so the rule can be stated and tested without needing a
-    /// scorer fixture that may not exist. Where `top > 0` it is the same arithmetic as before.
+    /// **A top score of zero or less is not a winner but the last folder standing.** Name scores go
+    /// negative (a wrong-year `yearFit`, a person contradiction), and `excluding` ("Try another"'s
+    /// refusals) is applied after the blend, so in principle every positive can be removed and
+    /// leave a penalised folder on top. Answering 1.0 there would make it `.high`, and `route`
+    /// treats a `.high` with no evidence token as not `fromContent`, so blind-batch eligible. Zero
+    /// is `.low`: offered, never filed unseen. No `rank` fixture has reached `top <= 0` (the
+    /// blend's normalisation keeps pulling the survivor above zero), so this is a guard, named so
+    /// it can be tested directly.
     static func margin(top: Double, runnerUp: Double?) -> Double {
         guard top > 0 else { return 0 }
         guard let runnerUp else { return 1.0 }
         return (top - runnerUp) / top
     }
 
-    /// The heaviest anchor this file shares with `folder`, and how many it shares.
-    ///
-    /// Recomputed for the shown candidates rather than tracked for every folder during scoring.
-    /// Ties break on the token so the evidence chip on a card is the same on every run —
-    /// `contentTokens` is a Set, and its iteration order is not.
+    /// The heaviest anchor this file shares with `folder`, and how many it shares, computed for the
+    /// shown candidates only. Ties break on the token so a card's evidence chip is the same every
+    /// run: `contentTokens` is a Set, and its order isn't.
     static func evidence(for folder: String, tokens: Set<String>,
                          index: Index) -> (token: String?, hits: Int) {
         guard let anchors = index.anchorsByFolder[folder] else { return (nil, 0) }
@@ -509,8 +435,8 @@ public enum FilingRouter {
     // MARK: - Tokenizing
     //
     // **This has to agree exactly with the builder that wrote the memory.** A token the builder
-    // stored as `pg&e` → `pg`, `e` but that this splits differently simply never matches, and the
-    // failure is silent: fewer hits, lower accuracy, no error anywhere.
+    // split differently (`pg&e` → `pg`, `e`) simply never matches: fewer hits, lower accuracy, no
+    // error.
 
     static let stopWords: Set<String> = [
         "the", "an", "and", "or", "of", "to", "in", "for", "on", "at", "by", "with", "from", "is",
@@ -538,21 +464,16 @@ public enum FilingRouter {
         return out
     }
 
-    /// Digit-bearing and long enough to discriminate — an account last-4, a case number, a claim id.
+    /// Digit-bearing and long enough to discriminate: an account last-4, a case number, a claim id.
     static func isIdentifier(_ t: String) -> Bool {
         t.count >= 4 && t.contains(where: \.isNumber)
     }
 
     /// A folder's own name tokens, plus the punctuation-free form of each word in it.
-    ///
-    /// `tokenize("H-1B Visa")` is `["1b", "visa"]` — the hyphen the folder is *named* with splits
-    /// the classification off, so a file called `H1B Visa - Nov 2026.pdf` matches only `visa` and
-    /// scores its own branch no better than `H-4 Visa`. Indexing `h1b` alongside `1b` costs one
-    /// extra token per word and makes the two spellings the same folder.
-    ///
-    /// **Index-side only, and that is what keeps it safe.** These tokens come from folder names, not
-    /// from a ``FilingMemory``, so widening them cannot disagree with the builder that wrote the
-    /// stored anchors — the reason ``tokenize`` itself is left exactly as it is.
+    /// `tokenize("H-1B Visa")` is `["1b", "visa"]`, so without `h1b` a file called `H1B Visa - Nov
+    /// 2026.pdf` would score its branch no better than `H-4 Visa`. Index-side only, which keeps it
+    /// safe: these come from folder names, not ``FilingMemory``, so they can't disagree with the
+    /// builder. That is why ``tokenize`` itself stays as it is.
     static func pathTokens(of folder: String) -> Set<String> {
         var out = Set(tokenize(folder))
         for component in folder.split(separator: "/") {
@@ -566,15 +487,11 @@ public enum FilingRouter {
         return out
     }
 
-    /// Every year the text itself prints, found without going through ``tokenize``.
+    /// Every year the text prints, found without ``tokenize``. A separate reader because changing
+    /// the tokenizer would silently stop stored anchors matching; years never feed anchor lookup.
     ///
-    /// Deliberately a second, narrower reader rather than a change to the tokenizer. The stored
-    /// anchors in a ``FilingMemory`` were produced by the builder's tokenizer, and a token this side
-    /// splits differently simply stops matching — silently, as fewer hits and lower accuracy. So
-    /// years are read alongside the tokens and never feed anchor lookup.
-    ///
-    /// A year is a four-digit `19xx`/`20xx` run that is not part of a longer digit run: that finds
-    /// `2026` inside `20NOV2026` while refusing `2024` inside the control number `20241808200001`.
+    /// A year is a four-digit `19xx`/`20xx` run that isn't part of a longer digit run: it finds
+    /// `2026` in `20NOV2026` and refuses `2024` in the control number `20241808200001`.
     static func yearsInText(_ text: String) -> Set<String> {
         var out: Set<String> = []
         var digits = ""
@@ -589,11 +506,9 @@ public enum FilingRouter {
         return out
     }
 
-    /// Text whose glyphs arrive one-per-field — `0 3 J U L 2 0 2 4` — put back together.
-    ///
-    /// A real extraction artifact, and the reason this document's *issue* date was invisible while
-    /// its expiry was not. Joins any run of four or more consecutive single-character fields, which
-    /// cannot damage a year that was already contiguous.
+    /// Text whose glyphs arrive one per field (`0 3 J U L 2 0 2 4`), put back together. A real
+    /// extraction artifact that can hide an issue date. Joins any run of four or more
+    /// single-character fields, which can't damage a year that was already contiguous.
     static func despaced(_ text: String) -> String {
         var out: [String] = []
         var run: [String] = []
@@ -633,26 +548,21 @@ public enum FilingRouter {
 
 public extension FilingRouter {
 
-    /// Re-orders a ranking by how well each candidate's EXISTING FILE NAMES cover the incoming one.
+    /// Re-orders a ranking by how well each candidate's existing file names cover the incoming one.
     ///
-    /// **Only between a folder and its own ancestor or descendant**, and that scoping is the whole
-    /// reason this is safe. A folder and its subfolder share their vocabulary by construction, so
-    /// content cannot separate them — `Immigration/OCI/Son` scored 1.388 and
-    /// `Immigration/OCI/Son/Application` 1.374 for `Son OCI Photo.jpg`, a 1% gap — while the
-    /// file names in them say it plainly: `Application/` already holds
-    /// `Son OCI Photo - 4up print sheet.jpg` and `Son OCI.jpg`. Between UNRELATED folders the
-    /// same bonus is noise, and measurably so: applied to the whole shortlist it moved held-out
-    /// top-1 by +0.2 points while the tune split moved −0.4, a disagreement in sign. Scoped to one
-    /// branch both splits are flat (±0.1) and the case above is fixed.
+    /// **Only between a folder and its own ancestor or descendant**, which is what makes it safe. A
+    /// folder and its subfolder share vocabulary, so content can't separate them
+    /// (`Immigration/OCI/Son` and its `Application` child scored within 1% for `Son OCI
+    /// Photo.jpg`), while their file names can. Between unrelated folders the bonus is noise:
+    /// across a whole shortlist it moved held-out and tune accuracy in opposite directions.
     ///
-    /// **Coverage of the incoming name, not Jaccard.** `Son OCI Photo - 4up print sheet` covers
-    /// all of `Son OCI Photo`; `Son OCI.pdf` in the parent covers two thirds. Jaccard scores
-    /// those identically (0.67 each) and picks the wrong folder.
+    /// **Coverage of the incoming name, not Jaccard.** `Son OCI Photo - 4up print sheet` covers all
+    /// of `Son OCI Photo`, `Son OCI.pdf` two thirds; Jaccard scores both 0.67 and picks the wrong
+    /// folder.
     ///
-    /// `namesInFolder` is injected because this module does not touch the filesystem — see
-    /// ``FileSyncManager/peerNameLookup()`` for the listing side, and `route(_:index:…)` for the one
-    /// call that applies this. (The name written here before, `rerankByPeerNames(_:fileName:
-    /// providerRoot:)`, never existed — the doc link pointed at the caller this helper was missing.)
+    /// `namesInFolder` is injected because this module doesn't touch the filesystem; see
+    /// ``FileSyncManager/peerNameLookup()`` for the listing and `route(_:index:…)` for the one
+    /// caller.
     static func rerankedByPeerNames(_ ranking: Ranking, fileName: String,
                                     namesInFolder: (String) -> [String]) -> Ranking {
         guard let top = ranking.best?.relativePath else { return ranking }
@@ -675,7 +585,7 @@ public extension FilingRouter {
             let bonus = onSameBranch(c.relativePath) ? peerWeight * coverage(c.relativePath) : 0
             return (c, c.score + bonus)
         }
-        // Ties break on the path, exactly as `rank` does, so a re-order is reproducible.
+        // Ties break on the path, as in `rank`, so a re-order is reproducible.
         let sorted = rescored.sorted { a, b in
             a.1 == b.1 ? a.0.relativePath < b.0.relativePath : a.1 > b.1
         }
@@ -688,8 +598,7 @@ public extension FilingRouter {
                        margin: margin)
     }
 
-    /// How much a fully-covering peer name is worth. Swept on both splits; flat within ±0.1 either
-    /// way once scoped to one branch, so this is set to what separates the case it exists for
-    /// rather than to a peak that is not there.
+    /// How much a fully covering peer name is worth. Swept on both splits and flat within ±0.1 once
+    /// scoped to one branch, so it is set to what separates the case it exists for.
     static var peerWeight: Double { 0.30 }
 }

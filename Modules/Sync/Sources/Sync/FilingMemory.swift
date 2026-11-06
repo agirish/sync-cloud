@@ -1,23 +1,20 @@
 import CryptoKit
 import Foundation
 
-/// What a folder has **received** — the discriminative content of the documents already filed in it.
+/// What a folder has **received**: the discriminative content of the documents already filed in it.
 ///
-/// The companion to ``FolderProfile``, and the distinction is the point: the profile records what a
-/// folder *is*, mined from names, while this records what it has *been given*, mined from page 1.
-/// Names are frequently useless — a tree holds fourteen payslips called `Nov 30 Paycheck EMP.pdf`
-/// belonging with files called `Payslip_2025-11-28.pdf`, and screenshots carrying nothing but a case
-/// number that only an already-filed confirmation can attribute. Measured over 9,558 filed documents
-/// choosing one of ~2,950 folders, adding this to the profile takes top-1 routing from 28.9% to
-/// 58.2% and top-3 from 40.2% to 77.4%.
+/// The companion to ``FolderProfile``: the profile records what a folder *is*, mined from names;
+/// this records what it has been given, mined from page 1. Names are often useless (payslips named
+/// `Nov 30 Paycheck EMP.pdf` beside `Payslip_2025-11-28.pdf`, screenshots carrying only a case
+/// number), and adding this to the profile roughly doubles top-1 routing accuracy.
 ///
-/// **Not portable, for the same reason the profile is not.** It is a description of one person's
-/// documents; a missing memory restores the profile-only behaviour exactly.
+/// Not portable, like the profile: it describes one person's documents. A missing memory restores
+/// profile-only behaviour exactly.
 public struct FilingMemory: Sendable, Equatable {
     public let profileId: String
-    /// Salt for ``hash(_:)``. Stored beside the hashes it produces, necessarily — this keeps the
-    /// file from being a readable list of account numbers, which is worth doing because it sits in
-    /// Application Support and gets backed up. It is **obfuscation, not a security boundary.**
+    /// Salt for ``hash(_:)``, stored beside the hashes it produces. It keeps the file, which sits
+    /// in Application Support and gets backed up, from being a readable list of account numbers. It
+    /// is **obfuscation, not a security boundary.**
     public let salt: String
     public let folders: [String: FilingMemoryEntry]
 
@@ -29,26 +26,19 @@ public struct FilingMemory: Sendable, Equatable {
 
     public var isEmpty: Bool { folders.isEmpty }
 
-    /// The stored form of a digit-bearing token. Matching is equality on this, so a candidate file's
-    /// tokens are hashed the same way and compared — the raw account number never has to be stored.
+    /// The stored form of a digit-bearing token. A candidate file's tokens are hashed the same way
+    /// and compared for equality, so the raw account number is never stored.
     public func hash(_ token: String) -> String {
         FilingMemory.hash(token, salt: salt)
     }
 
-    /// `sha256(salt + token)`, first 16 hex characters.
-    ///
-    /// The exact form matters: the builder that writes the file produces these, so a change here
-    /// silently stops every identifier matching — the failure is a quiet loss of accuracy, not an
-    /// error, which is why `FilingProfileStoreTests/theIdentifierHashMatchesTheBuilder` pins a
-    /// known token/salt pair against a literal.
+    /// `sha256(salt + token)`, first 16 hex characters. The offline builder writes these, so any
+    /// change here silently stops every identifier matching (lost accuracy, no error);
+    /// `FilingProfileStoreTests/theIdentifierHashMatchesTheBuilder` pins a token and salt to a
+    /// literal.
     static func hash(_ token: String, salt: String) -> String {
         let digest = SHA256.hash(data: Data((salt + token).utf8))
-        // The first EIGHT bytes, which is the same sixteen characters the hand-rolled loop
-        // produced: it appended two characters per byte and broke once it had sixteen, so it
-        // always stopped mid-digest at byte eight and the trailing `prefix(16)` never trimmed
-        // anything. Spelled as the prefix here because that is what it always meant — and
-        // `FilingProfileStoreTests/theIdentifierHashMatchesTheBuilder` pins the result against a
-        // literal, so a change in the value would be caught rather than absorbed.
+        // The first eight bytes: sixteen hex characters, the builder's form.
         return HexEncoding.string(digest.prefix(8))
     }
 }
@@ -56,21 +46,18 @@ public struct FilingMemory: Sendable, Equatable {
 /// One folder's learned content.
 public struct FilingMemoryEntry: Sendable, Equatable {
     /// How many filed documents this was learned from. Scores divide by its square root so a folder
-    /// does not win on sheer volume.
+    /// doesn't win on volume.
     public let docs: Int
-    /// Readable words — provider, document type, clinician, plan name — with their rarity weight.
-    /// Readable on purpose: these are also the useful half of a prompt for the paid tier.
+    /// Readable words (provider, document type, clinician, plan name) with their rarity weight.
+    /// Readable on purpose: they are also the useful half of a paid-tier prompt.
     public let anchors: [FilingMemoryToken]
     /// Digit-bearing tokens (account last-4, case, member and policy numbers), hashed.
     public let idHashes: [FilingMemoryToken]
-    /// The folder's own modification time when this entry was learned, whole seconds since 1970.
-    ///
-    /// **The staleness key, and it was being written and thrown away.** The builder has stamped this
-    /// since the memory first shipped; nothing decoded it, so every re-survey was a full one. A
-    /// directory's mtime moves when a child is added, removed or renamed — exactly the events that
-    /// make a folder's learned content wrong — so comparing it against the disk names the folders
-    /// worth re-reading without opening a single document. nil for an entry from a build that could
-    /// not stat the folder, which reads as "assume stale".
+    /// The folder's own modification time when this entry was learned, whole seconds since 1970:
+    /// the staleness key. A directory's mtime moves when a child is added, removed or renamed, the
+    /// events that make learned content wrong, so comparing it with the disk names the folders
+    /// worth re-reading without opening a document. nil (the builder couldn't stat it) reads as
+    /// stale.
     public let folderModified: Int?
 
     public init(docs: Int, anchors: [FilingMemoryToken], idHashes: [FilingMemoryToken],
@@ -87,14 +74,10 @@ public struct FilingMemoryToken: Sendable, Equatable {
     public let token: String
     /// Rarity: higher means it appears in fewer folders.
     public let weight: Double
-    /// Share of THIS folder's documents whose first page contains the token, 0…1 — and nil for an
-    /// artifact built before the builder recorded it.
-    ///
-    /// **The two numbers answer opposite questions and a rule needs both.** Weight ranks how well a
-    /// word tells this folder from every other one, which makes the heaviest word the one least
-    /// likely to be seen again: `Home/Utilities/T-Mobile/2025` weighs `awesome` (one campaign) above
-    /// `autopay` (every bill). A rule keyed on rarity alone matched nothing else in the tree 7.8% of
-    /// the time. See ``AutomationRuleProposer/recurrenceFloor``.
+    /// Share of this folder's documents whose first page contains the token, 0…1, or nil for an
+    /// artifact built without it. Weight ranks how well a word tells this folder from others, which
+    /// makes the heaviest word the one least likely to recur (one campaign's `awesome` over every
+    /// bill's `autopay`), so a rule needs both. See ``AutomationRuleProposer/recurrenceFloor``.
     public let docFrequency: Double?
 
     public init(token: String, weight: Double, docFrequency: Double? = nil) {
@@ -107,11 +90,10 @@ public struct FilingMemoryToken: Sendable, Equatable {
 // MARK: - Decoding the on-disk shape
 
 extension FilingMemoryToken: Decodable {
-    /// Stored as a positional array `["kaiser", 3.9, 0.85]` rather than an object, because at
-    /// ~58,000 tokens the key names would be a third of the file. The third element is the document
-    /// share and is **optional**: an artifact written before it existed decodes with `nil` there and
-    /// keeps working, which is why the proposer has a family-agreement fallback rather than a
-    /// requirement.
+    /// Stored as a positional array `["kaiser", 3.9, 0.85]`, because across tens of thousands of
+    /// tokens the key names would be a third of the file. The third element (document share) is
+    /// optional: an artifact without it decodes with `nil`, which is why the proposer has a
+    /// family-agreement fallback.
     public init(from decoder: Decoder) throws {
         var c = try decoder.unkeyedContainer()
         token = try c.decode(String.self)
@@ -127,8 +109,8 @@ extension FilingMemoryEntry: Decodable {
         docs = try c.decodeIfPresent(Int.self, forKey: .docs) ?? 0
         anchors = try c.decodeIfPresent([FilingMemoryToken].self, forKey: .anchors) ?? []
         idHashes = try c.decodeIfPresent([FilingMemoryToken].self, forKey: .idHashes) ?? []
-        // Written as a JSON null when the builder could not stat the folder, so this must tolerate
-        // an explicit null and not only an absent key — `decodeIfPresent` does both.
+        // The builder writes a JSON null when it couldn't stat the folder; `decodeIfPresent`
+        // tolerates both null and an absent key.
         folderModified = try c.decodeIfPresent(Int.self, forKey: .folderModified)
     }
 }
@@ -148,13 +130,10 @@ extension FilingMemory: Decodable {
 // MARK: - Writing it back
 
 extension FilingMemoryToken: Encodable {
-    /// The same positional array the reader expects — `["kaiser", 3.9, 0.85]`.
-    ///
-    /// **The third element is written whenever it is known**, and that is not a formality: it is
-    /// optional *by position*, so a writer that stops emitting it produces a file that still decodes
-    /// perfectly and quietly takes ``AutomationRuleProposer`` back to keying rules on the rarest word
-    /// rather than the recurring one. A survey that rebuilt the memory without it would undo that
-    /// work with no error anywhere.
+    /// The same positional array the reader expects: `["kaiser", 3.9, 0.85]`. **Write the third
+    /// element whenever it is known.** It is optional by position, so a file without it still
+    /// decodes and silently sends ``AutomationRuleProposer`` back to keying rules on the rarest
+    /// word rather than the recurring one.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.unkeyedContainer()
         try c.encode(token)
@@ -170,8 +149,8 @@ extension FilingMemoryEntry: Encodable {
         try c.encode(docs, forKey: .docs)
         try c.encode(anchors, forKey: .anchors)
         try c.encode(idHashes, forKey: .idHashes)
-        // `encode` rather than `encodeIfPresent`: a null stamp and an absent one mean the same thing
-        // to the reader, and writing the key keeps the shape identical to the Python builder's.
+        // `encode`, not `encodeIfPresent`: null and absent mean the same to the reader, and writing
+        // the key keeps the shape identical to the Python builder's.
         try c.encode(folderModified, forKey: .folderModified)
     }
 }

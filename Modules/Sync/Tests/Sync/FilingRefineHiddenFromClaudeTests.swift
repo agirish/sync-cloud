@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Refine honours Hidden from Claude** (Settings ▸ Intelligence). The list said "Claude is never
-/// shown these folders and files … not their names", but only Ask Claude read it: Refine sent a
-/// hidden file's name and page, and every hidden folder as a destination or an "avoid".
+/// Refine honours Hidden from Claude (Settings ▸ Intelligence), as Ask Claude does: a hidden file's
+/// name and page never go, and a hidden folder is never sent as a destination or an "avoid", nor
+/// taken as an answer.
 ///
 /// Each test pairs the hidden run with an unhidden control, so a filter that does nothing fails.
 @MainActor

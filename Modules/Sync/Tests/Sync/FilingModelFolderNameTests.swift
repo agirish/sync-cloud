@@ -2,14 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A folder a model names into being must be a name the folder can have (FR47).**
-///
-/// The user-typed "Create as" path checks `validateItemName`; a model's answer went from
-/// `destination(from:)` to `createDirectory` with only empty, `.`, `..` and file-looking segments
-/// refused. So `Taxes: 2025` was created (Finder shows the `:` as `/`, so it is not the folder the
-/// card named), and `Acme Inc.` was created on Dropbox and OneDrive, which refuse to sync a name
-/// ending in a period. Now every NEW segment is held to the shared predicate and to the destination
-/// provider's rules, and a candidate that fails is dropped; an existing folder is never judged.
+/// A folder a model proposes creating must have a legal name. Every new segment is held to
+/// `validateItemName` and to the destination provider's rules, and a candidate that fails is
+/// dropped: `Taxes: 2025` would show in Finder with a `/`, and Dropbox and OneDrive refuse to sync
+/// a name ending in a period. An existing folder is never judged.
 @Suite struct FilingModelFolderNameTests {
 
     static let root = "/root"
@@ -52,9 +48,9 @@ import Testing
         #expect(dest?.newSegments == [])
     }
 
-    /// **The call site** (law 5): the scan hands its `nameProvider` through `applyVerdicts`, so a
-    /// model's `Beta Corp.` never reaches a Dropbox card — and on iCloud the same answer does, which
-    /// is what shows the classifier was reached at all.
+    /// At the call site: the scan hands its `nameProvider` through `applyVerdicts`, so a model's
+    /// `Beta Corp.` never reaches a Dropbox card. On iCloud the same answer does, which shows the
+    /// classifier was reached at all.
     @MainActor
     @Test func theScanHoldsAModelsNewFolderToTheProvidersRules() async throws {
         func scan(_ provider: CloudProvider.ProviderType) async throws -> (FilingSuggestion, URL) {

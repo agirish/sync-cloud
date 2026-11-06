@@ -1,28 +1,26 @@
 import Foundation
 @testable import Sync
 
-/// A RAM-only filesystem simulator built for Unit Tests.
-/// It intercepts `FileManaging` protocol endpoints to emulate standard volume constraints,
-/// read/write states, and failure behaviors without interacting with the physical local disk.
+/// A RAM-only filesystem for unit tests: it implements `FileManaging` with volume constraints,
+/// read/write state and injectable failures, without touching the real disk.
 ///
-/// **One recursive lock guards it, from both sides.** Every method takes it, so the mock is safe
-/// to drive from the parallel worker pools in `syncAll` / bulk verify (up to 4 concurrent
-/// operations), and every COLLECTION a test and an operation both touch — ``virtualDisk``, the
-/// recording lists, the arming sets — takes it at the property, so a test's own read or write
-/// waits out whole operations too. It is recursive because `moveItem`/`trashItem` call
-/// `copyItem`/`removeItem` while holding it, and because every method re-enters it through those
-/// properties.
+/// One recursive lock guards it, from both sides. Every method takes it, so the mock is safe to
+/// drive from the parallel worker pools in `syncAll` and bulk verify, and every collection a test
+/// and an operation both touch (``virtualDisk``, the recording lists, the arming sets) takes it at
+/// the property, so a test's own access waits out whole operations too. Recursive because
+/// `moveItem`/`trashItem` call `copyItem`/`removeItem` while holding it, and every method re-enters
+/// it through those properties.
 ///
-/// Flags, injected errors and hooks stay plain properties, so the rule for them is order: arm them
+/// Flags, injected errors and hooks are plain properties, so the rule for them is order: arm them
 /// before starting the operation and read them after it drains (a callback may disarm its own
-/// hook). A racing read of a `Bool` or `Int` is merely stale, but a hook or an error is a
-/// reference, and racing one could crash like a collection.
+/// hook). A racing `Bool` or `Int` read is merely stale, but a hook or error is a reference and can
+/// crash like a collection.
 ///
 /// **A callback that runs under the lock must never block**: `onFileExists`, `onAttributesOfItem`,
-/// and `beforeCopyItem` whenever that copy is nested inside `moveItem`, `trashItem`, `replaceItem`
-/// or a folder's own copy. It may touch the disk — the lock is recursive — but while it blocks,
-/// every other thread's access waits with it, a test's `waitUntil` poll on the main actor
-/// included. Park in ``beforeFileExists`` instead, which runs before `fileExists` takes the lock.
+/// and `beforeCopyItem` when that copy is nested inside `moveItem`, `trashItem`, `replaceItem` or a
+/// folder's own copy. It may touch the disk (the lock is recursive), but while it blocks every
+/// other thread's access waits too, a test's `waitUntil` poll on the main actor included. Park in
+/// ``beforeFileExists`` instead, which runs before `fileExists` takes the lock.
 public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public struct FileStub {
@@ -39,54 +37,48 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     /// Takes the lock for a locked property's `_modify`, returning the thread that took it.
-    ///
-    /// `_modify`, not `set`: a write mutates the collection in place, under the lock. A setter
-    /// would copy the whole collection per subscript assignment, and its read-modify-write would
-    /// not be atomic against an operation's own writes.
+    /// `_modify`, not `set`: a write mutates the collection in place under the lock, where a setter
+    /// would copy the collection per assignment and its read-modify-write wouldn't be atomic.
     private func lockForMutation() -> pthread_t {
         lock.lock()
         return pthread_self()
     }
 
-    /// Releases ``lockForMutation()``'s lock on the thread that took it, or stops the process.
-    /// An access held `inout` across an `await` can end on another thread, and an `NSRecursiveLock`
-    /// unlocked by a thread that does not own it stays locked (measured, 2026-10-03): every later
-    /// call into this mock would hang with nothing to say why.
+    /// Releases ``lockForMutation()``'s lock on the thread that took it, or stops the process. An
+    /// access held `inout` across an `await` can end on another thread, and an `NSRecursiveLock`
+    /// unlocked by a non-owner stays locked, so every later call into the mock would hang silently.
     private func unlockAfterMutation(_ owner: pthread_t) {
         precondition(pthread_equal(owner, pthread_self()) != 0,
                      "a MockFileManager property was held inout across an `await` and released on another thread")
         lock.unlock()
     }
 
-    /// The dictionary-backed RAM virtual disk. A test reads it while the operation it started is
-    /// still writing it — a `waitUntil` polls it — which is why it locks at the property.
+    /// The RAM disk. A test reads it while the operation it started is still writing it (a
+    /// `waitUntil` polls it), so it locks at the property.
     ///
-    /// Unlocked, that read can land inside a write. For the length of an in-place insert or remove,
-    /// Swift parks a placeholder in the variable that holds the dictionary (`0x8000000000000000`
-    /// on arm64), and a lookup that loads it takes it for a bridged `NSDictionary`: SIGSEGV at
-    /// `0x10`, or SIGABRT on a selector sent to instance `0x8000000000000000`. A read that survives
-    /// can still see half of a compound operation, such as a `moveItem` that has copied but not yet
-    /// removed. See "An unlocked read of the mock's disk lands inside the write the test is waiting
-    /// for" in `docs/flaky-tests.md`.
+    /// An unlocked read can land inside a write: during an in-place insert or remove, Swift parks a
+    /// placeholder in the variable (`0x8000000000000000` on arm64), and a lookup that loads it
+    /// treats it as a bridged `NSDictionary` and crashes (SIGSEGV at `0x10`, or SIGABRT on a
+    /// selector sent to that address). A read that survives can still see half of a compound
+    /// operation, such as a `moveItem` that has copied but not removed. See "An unlocked read of
+    /// the mock's disk lands inside the write the test is waiting for" in `docs/flaky-tests.md`.
     ///
     /// **Never pass this, or any locked property here, `inout` across an `await`**: the access
-    /// holds the lock for its whole length — see ``unlockAfterMutation(_:)``.
+    /// holds the lock for its whole length (see ``unlockAfterMutation(_:)``).
     public var virtualDisk: [String: FileStub] {
         get { sync { _virtualDisk } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_virtualDisk }
     }
     private var _virtualDisk: [String: FileStub] = [:]
 
-    /// Paths whose stub is a **dangling symlink**: the directory entry is there, its target is not.
+    /// Paths whose stub is a dangling symlink: the directory entry is there, its target is not.
     ///
-    /// The one filesystem state that separates the two existence probes, and the reason this
-    /// exists rather than a general symlink model: `fileExists(atPath:)` FOLLOWS the link and so
-    /// answers `false`, while `attributesOfItem(atPath:)` reports on the link itself and succeeds.
-    /// Production code that asks only the first cannot see the entry at all — see
-    /// `deleteItems(at:)`, which skipped such an item silently.
+    /// This is the state that separates the two existence probes: `fileExists(atPath:)` follows the
+    /// link and answers `false`, while `attributesOfItem(atPath:)` describes the link and succeeds.
+    /// Code that asks only the first can't see the entry at all (see `deleteItems(at:)`).
     ///
-    /// Keep the stub in ``virtualDisk`` as well: the entry really is there, so trashing it works
-    /// and removes it, exactly as on a real volume.
+    /// Keep the stub in ``virtualDisk`` as well: the entry really is there, so trashing it works and
+    /// removes it, as on a real volume.
     public var danglingSymlinks: Set<String> {
         get { sync { _danglingSymlinks } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_danglingSymlinks }
@@ -95,56 +87,48 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public init() {}
 
-    /// Invoked (under the lock) after each `fileExists` check (both the plain and the
-    /// `isDirectory:` overloads), with the queried path. Lets tests plant a file right after an
-    /// existence check to simulate TOCTOU races (e.g. a cloud placeholder hydrating between the
-    /// backup stat and the final move, or between the collision stat and the operation running).
-    /// The returned existence reflects state *before* the callback runs, matching a real stat.
+    /// Invoked (under the lock) after each `fileExists` check, both overloads, with the queried
+    /// path. Lets a test plant a file right after an existence check to simulate a TOCTOU race (a
+    /// cloud placeholder hydrating between the backup stat and the final move, say). The returned
+    /// existence reflects the state before the callback, as a real stat would.
     public var onFileExists: ((String) -> Void)?
 
-    /// Invoked (under the lock) after each successful `attributesOfItem` lookup, with the queried
-    /// path — the walk-progress seam. A test that interleaves an EDIT with an identity walk needs
-    /// to know the walk has already READ a file's pre-edit state; the stat IS that read, which
-    /// neither `onFileExists` nor `onEnumerate` can witness. The callback runs under the lock, so
-    /// it must not block (see the type's doc); setting a flag in a `LockedBox` is the usual use.
+    /// Invoked (under the lock) after each successful `attributesOfItem`, with the queried path:
+    /// the walk-progress seam. A test interleaving an edit with an identity walk needs to know the
+    /// walk has read a file's pre-edit state, and the stat is that read, which neither
+    /// `onFileExists` nor `onEnumerate` sees. Must not block (see the type's doc); setting a flag in
+    /// a `LockedBox` is the usual use.
     public var onAttributesOfItem: ((String) -> Void)?
 
     /// Invoked once per `enumerator(at:…)` call, with the directory being listed. A listing is the
-    /// unit of cost for a tree walk, so this is what a test asserting a walk's *budget* counts —
-    /// counting entries or `fileExists` calls instead would measure the fixture's shape rather than
-    /// how far the walk went.
+    /// unit of cost of a tree walk, so a test asserting a walk's budget counts these; counting
+    /// entries or `fileExists` calls would measure the fixture's shape instead.
     public var onEnumerate: ((URL) -> Void)?
 
-    /// Paths of directories that exist but cannot be LISTED — permission denied, I/O error, a
-    /// volume that went away. Without this the mock models a disk on which every directory is
-    /// readable, so a test for the unreadable case could only pass vacuously.
+    /// Directories that exist but can't be listed (permission denied, I/O error, a vanished
+    /// volume), so a test of the unreadable case isn't vacuous.
     ///
-    /// The modelled behaviour is what the real `FileManager` was measured doing, which is the
-    /// opposite of the intuitive one: `enumerator(at:)` hands back a **non-nil enumerator that
-    /// yields zero entries** and reports the failure through the `errorHandler` — it does not
-    /// return nil. A mock that returned nil here would make every `guard let enumerator … else`
-    /// look tested while that branch stays dead in production.
+    /// Modelled on what the real `FileManager` does, which is counterintuitive: `enumerator(at:)`
+    /// returns a non-nil enumerator that yields nothing and reports the failure through
+    /// `errorHandler`. A mock that returned nil would make every `guard let enumerator … else` look
+    /// tested while that branch stays dead in production.
     public var unlistableDirectories: Set<String> {
         get { sync { _unlistableDirectories } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_unlistableDirectories }
     }
     private var _unlistableDirectories: Set<String> = []
 
-    /// Invoked BEFORE the lock is taken, on the calling thread, for each `fileExists` check —
-    /// the unlocked sibling of ``onFileExists``.
+    /// Invoked before the lock is taken, on the calling thread, for each `fileExists` check: the
+    /// unlocked sibling of ``onFileExists``.
     ///
-    /// It exists for the one thing `onFileExists` cannot do: PARK a call. A test that needs a
-    /// batch to wait at a known point until a concurrent identity walk has reached some file has
-    /// to block somewhere, and blocking inside `onFileExists` holds the recursive lock the walk's
-    /// own `attributesOfItem` needs — a deadlock, not a race. Blocking here holds nothing, so the
-    /// walk runs on and the parked thread is a worker rather than the main one.
-    ///
-    /// Like `onFileExists` it may touch the disk; unlike it, it runs while the mock holds no lock,
-    /// so it may also block.
+    /// It can park a call, which `onFileExists` can't: blocking there holds the recursive lock a
+    /// concurrent identity walk's `attributesOfItem` needs, a deadlock. Blocking here holds nothing,
+    /// so the walk runs on and the parked thread is a worker, not the main one. It may touch the
+    /// disk and may block.
     public var beforeFileExists: ((String) -> Void)?
 
-    /// Sets or removes one entry — the same as assigning into ``virtualDisk``, which takes the
-    /// lock itself, so either is safe while a walk, a copy worker or a queued operation is live.
+    /// Sets or removes one entry, the same as assigning into ``virtualDisk``, which takes the lock
+    /// itself, so either is safe while a walk, a copy worker or a queued operation is live.
     public func setStub(_ stub: FileStub?, at path: String) {
         virtualDisk[path] = stub
     }
@@ -152,8 +136,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     public func fileExists(atPath path: String) -> Bool {
         beforeFileExists?(path)
         return sync {
-            // A dangling link is followed to a target that is not there — `false`, as on a real
-            // volume, even though the entry exists and `attributesOfItem` below will describe it.
+            // A dangling link is followed to a missing target: `false`, as on a real volume, even
+            // though the entry exists and `attributesOfItem` below describes it.
             let exists = virtualDisk.keys.contains(path) && !danglingSymlinks.contains(path)
             onFileExists?(path)
             return exists
@@ -179,10 +163,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             var attrs = stub.attributes ?? [:]
             attrs[.type] = danglingSymlinks.contains(path) ? FileAttributeType.typeSymbolicLink
                 : (stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular)
-            // A real regular file always reports a size; a stub built without an attributes
-            // dictionary reported none, so anything reading size off this double saw "unknown"
-            // for an ordinary file — a state the real filesystem does not produce. Synthesized for
-            // the same reason `.type` above is, and only when the fixture did not state one.
+            // A real regular file always reports a size, so a stub built without attributes gets
+            // one; otherwise anything reading its size would see "unknown", which the real
+            // filesystem never produces. Synthesized like `.type` above, only if the fixture
+            // didn't state one.
             if !stub.isDirectory, attrs[.size] == nil {
                 attrs[.size] = NSNumber(value: 0)
             }
@@ -191,10 +175,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
-    /// Runs before ``setAttributes(_:ofItemAtPath:)`` — and so before every `setModificationDate`,
-    /// which goes through it — while the mock holds no lock, so it may block: it parks Match
-    /// Dates, which writes a date and copies nothing (review E6), the way ``beforeCopyItem`` parks
-    /// a copy.
+    /// Runs before ``setAttributes(_:ofItemAtPath:)``, and so before every `setModificationDate`,
+    /// while the mock holds no lock, so it may block. It parks Match Dates (which writes a date and
+    /// copies nothing) the way ``beforeCopyItem`` parks a copy.
     public var beforeSetAttributes: ((String) -> Void)?
 
     public func setAttributes(_ attributes: [FileAttributeKey : Any], ofItemAtPath path: String) throws {
@@ -219,25 +202,24 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
             }
 
-            // In a true mock, we'd traverse and split intermediate structures,
-            // but for generic target testing, we stub it barebones.
+            // Intermediate directories aren't modelled; only the requested one is created.
             virtualDisk[path] = FileStub(isDirectory: true, attributes: attributes, contents: [])
         }
     }
 
     public var calledCopyItem: Bool = false
-    /// One-shot copy failure (mirrors `shouldFailMove`): the next copyItem throws, then the
-    /// flag resets so a retry succeeds — for pinning retry flows.
+    /// One-shot copy failure (like `shouldFailMove`): the next copyItem throws, then the flag resets
+    /// so a retry succeeds, for pinning retry flows.
     public var shouldFailCopy: Bool = false
 
-    /// Invoked with the source path immediately BEFORE each `copyItem`, before that call takes the
-    /// lock, so a test may block in it: that is what lets a bulk run be held genuinely mid-flight,
-    /// by its own I/O, instead of by a foreign operation parked on the queue ahead of it (which
-    /// moves `fileOperationsEpoch` and so cannot coexist with a live copy offer).
+    /// Invoked with the source path before each `copyItem` takes the lock, so a test may block in
+    /// it: that holds a bulk run mid-flight by its own I/O, rather than by a foreign operation
+    /// parked on the queue ahead of it (which moves `fileOperationsEpoch` and so can't coexist with
+    /// a live copy offer).
     ///
-    /// Only a DIRECT `copyItem` runs it without the lock. One nested inside `moveItem`,
-    /// `trashItem`, `replaceItem` or a folder's own copy is called with the lock already held, and
-    /// blocking there blocks every other access to this mock (see the type's doc).
+    /// Only a direct `copyItem` runs it without the lock. One nested inside `moveItem`,
+    /// `trashItem`, `replaceItem` or a folder's own copy runs with the lock held, and blocking there
+    /// blocks every other access to the mock (see the type's doc).
     public var beforeCopyItem: ((String) -> Void)?
 
     public func copyItem(at srcURL: URL, to dstURL: URL) throws {
@@ -261,7 +243,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
             virtualDisk[dst] = sourceData
 
-            // Deep copy simulated contents
+            // Deep copy of the contents
             if sourceData.isDirectory, let children = sourceData.contents {
                 for child in children {
                     try? copyItem(at: srcURL.appendingPathComponent(child), to: dstURL.appendingPathComponent(child))
@@ -272,15 +254,15 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public var shouldFailMove: Bool = false
     public var shouldFailMoveOnTempRename: Bool = false
-    /// Counted variant of `shouldFailMoveOnTempRename`, for pinning flows where SEVERAL
-    /// consecutive `.tmp_` moves must fail (the replace swap-in AND the restoring move-back).
+    /// Counted variant of `shouldFailMoveOnTempRename`, for flows where several consecutive `.tmp_`
+    /// moves must fail (the replace swap-in and the restoring move-back).
     public var tempRenameFailuresRemaining: Int = 0
 
     public func moveItem(at srcURL: URL, to dstURL: URL) throws {
         try sync {
             if shouldFailMove {
                 shouldFailMove = false
-                // Emulate Cross-Device Link failure (EXDEV)
+                // Emulate a cross-device link failure (EXDEV)
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
             }
 
@@ -296,41 +278,38 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
             }
 
-            // Simple mock of move (copy + delete)
+            // A move is a copy plus a delete here
             try copyItem(at: srcURL, to: dstURL)
             try removeItem(at: srcURL)
-            // Models the real refusal `trashAfterReregistering` exists for: an item becomes
-            // trashable only once it has been moved INTO the path being trashed. Without this the
-            // retry would pass on `trashErrorOnce` alone — i.e. whether or not the move happened.
+            // Models the refusal `trashAfterReregistering` exists for: an item becomes trashable
+            // only once it has been moved into the path being trashed. Without this the retry
+            // would pass on `trashErrorOnce` alone, whether or not the move happened.
             movedInto.insert(dstURL.path)
         }
     }
 
-    /// Destination paths whose next `moveItem` throws a permission error (then clears). This is
-    /// the ONLY way to reach `trashAfterReregistering`'s strand branch: the park must succeed and
-    /// the move BACK must fail, and `shouldFailMove` cannot express that — it clears on its first
-    /// throw, so it always takes the park instead.
+    /// Destination paths whose next `moveItem` throws a permission error (then clears). The only
+    /// way to reach `trashAfterReregistering`'s strand branch, where the park must succeed and the
+    /// move back must fail; `shouldFailMove` clears on its first throw, so it always takes the park.
     public var failMoveToPathsOnce: Set<String> {
         get { sync { _failMoveToPathsOnce } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_failMoveToPathsOnce }
     }
     private var _failMoveToPathsOnce: Set<String> = []
 
-    /// When set, EVERY `trashItem` throws this error — unlike `trashErrorOnce`, which clears on
-    /// the first throw. This is the "nothing can trash this" case, where all three attempts are
-    /// denied, as distinct from `trashRefusedUntilMovedIn`, which is the measured case that
-    /// re-registering the item fixes. A once-only error cannot express it: the retries would
-    /// succeed simply because the injected failure ran out.
+    /// When set, every `trashItem` throws this error, unlike `trashErrorOnce`, which clears on the
+    /// first throw. The "nothing can trash this" case, where all three attempts are denied, as
+    /// distinct from `trashRefusedUntilMovedIn`, which re-registering fixes. A once-only error
+    /// can't express it: the retries would succeed because the injected failure ran out.
     public var trashErrorAlways: Error? = nil
 
-    /// When set, `trashItem` refuses with a permission error for any path that has not been
-    /// moved into place since. This is the shape of the refusal measured on the real files
-    /// (2026-08-30): both Trash APIs deny a long-registered item, and moving it re-registers it.
-    /// It is what keeps the re-registration test honest — remove the production retry and it
-    /// fails, because `trashErrorOnce` alone would clear on the first throw and let ANY second
-    /// attempt through.
+    /// When set, `trashItem` refuses with a permission error for any path not moved into place
+    /// since. This is the refusal seen on real files: both Trash APIs deny a long-registered item,
+    /// and moving it re-registers it. Removing the production retry must fail the re-registration
+    /// test, which `trashErrorOnce` alone couldn't ensure (it clears and lets any second attempt
+    /// through).
     public var trashRefusedUntilMovedIn: Bool = false
-    /// Paths that have been the DESTINATION of a `moveItem` on this mock.
+    /// Paths that have been the destination of a `moveItem` on this mock.
     public var movedInto: Set<String> {
         get { sync { _movedInto } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_movedInto }
@@ -338,12 +317,12 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     private var _movedInto: Set<String> = []
 
     public var shouldFailTrash: Bool = false
-    /// When set, `trashItem` moves the item to the Trash but reports no resulting location — the
+    /// When set, `trashItem` moves the item to the Trash but reports no resulting location: the
     /// platform's nil `resultingItemURL`, which `deleteItems` must not read as a permanent delete.
     public var trashReportsNoLocation: Bool = false
-    /// When set, the next `trashItem` throws this specific error (then clears), letting tests pin
-    /// how a particular failure — e.g. a transient EBUSY vs. an unsupported-volume error — is
-    /// classified by `deleteItems`. Checked before `shouldFailTrash`.
+    /// When set, the next `trashItem` throws this error (then clears), so a test can pin how
+    /// `deleteItems` classifies a particular failure, such as a transient EBUSY versus an
+    /// unsupported volume. Checked before `shouldFailTrash`.
     public var trashErrorOnce: Error? = nil
     public var trashedPaths: [String] {
         get { sync { _trashedPaths } }
@@ -357,14 +336,13 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
     private var _failRemovePathsOnce: Set<String> = []
 
-    /// Deterministic enumerator gate: when set, the FIRST enumerator call signals `entered` and
-    /// then parks until `release` is signalled. Use this — not `enumeratorDelay` sleeps — for
-    /// "load observably in flight" tests: any fixed delay/sleep pairing loses its race under a
-    /// loaded parallel test run.
+    /// Deterministic enumerator gate: when set, the first enumerator call signals `entered` and
+    /// parks until `release` is signalled. Use it, not `enumeratorDelay`, for "load observably in
+    /// flight" tests: a fixed delay loses its race under a loaded parallel run.
     ///
-    /// The park is bounded, and `ParkGate` records a timed-out release: check
-    /// `try #require(!gate.releasedByTimeout)` after the load completes, or a walk that resumed
-    /// on its own reads exactly like one the test held.
+    /// The park is bounded and `ParkGate` records a timed-out release: check
+    /// `try #require(!gate.releasedByTimeout)` after the load completes, or a walk that resumed on
+    /// its own reads exactly like one the test held.
     public var enumeratorGate: ParkGate?
     private let gateLock = NSLock()
     private var gateFired = false
@@ -383,7 +361,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                               code: NSFileWriteNoPermissionError, userInfo: nil)
             }
             if shouldFailTrash {
-                // Simulate network drive without trash bin
+                // A network drive without a Trash
                 throw NSError(domain: POSIXError.errorDomain, code: Int(POSIXError.ENOTSUP.rawValue))
             }
 
@@ -395,8 +373,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             // Emulate moving to ~/.Trash
             let trashedTarget = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(url.lastPathComponent)
 
-            // Use a direct copy+remove path so injected move-failure flags continue to apply
-            // only to the operation under test, not to trash bookkeeping.
+            // A direct copy+remove, so injected move-failure flags apply only to the operation
+            // under test, not to trash bookkeeping.
             try copyItem(at: url, to: trashedTarget)
             try removeItem(at: url)
             trashedPaths.append(trashedTarget.path)
@@ -405,9 +383,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
-    /// Every path `removeItem` was called with, whether or not the removal succeeded. The mock
-    /// disk is case-sensitive, so a removal that would hit a case-variant of an existing entry
-    /// on a real (case-insensitive) volume shows up here even though the mock throws no-such-file.
+    /// Every path `removeItem` was called with, whether or not it succeeded. The mock disk is
+    /// case-sensitive, so a removal that would hit a case variant on a real (case-insensitive)
+    /// volume shows up here even though the mock throws no-such-file.
     public var attemptedRemovePaths: [String] {
         get { sync { _attemptedRemovePaths } }
         _modify { let owner = lockForMutation(); defer { unlockAfterMutation(owner) }; yield &_attemptedRemovePaths }
@@ -441,10 +419,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     /// Models `FileManager.replaceItemAt` atomically: the prior destination becomes the sibling
     /// backup, then the staged item takes its place. Both steps go through `moveItem`, so the
-    /// injected failure flags still bite — in particular the staged URL is a `.tmp_`, so
-    /// `shouldFailMoveOnTempRename` fires on the swap-in and lets the rollback pin tests drive a
-    /// mid-replace failure. On failure the original destination is restored, mirroring the real
-    /// primitive's guarantee that a failed replace leaves the destination untouched.
+    /// injected failure flags still apply; the staged URL is a `.tmp_`, so
+    /// `shouldFailMoveOnTempRename` fires on the swap-in for the rollback tests. On failure the
+    /// original destination is restored, as the real primitive guarantees.
     public func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
         try sync {
             calledReplaceItem = true
@@ -454,9 +431,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 do {
                     try moveItem(at: destinationURL, to: backupURL)
                 } catch {
-                    // Backing up the destination failed; nothing was swapped, so the destination
-                    // must be left untouched (the real primitive's atomicity guarantee). Clean any
-                    // partial backup copy so no stray artifact survives a failed replace.
+                    // Backing up the destination failed and nothing was swapped, so the
+                    // destination is left untouched (the real primitive's atomicity). Clean any
+                    // partial backup so no stray artifact survives a failed replace.
                     try? removeItem(at: backupURL)
                     throw error
                 }
@@ -483,8 +460,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             Thread.sleep(forTimeInterval: enumeratorDelay)
         }
 
-        // An unlistable ROOT: report it and yield nothing, exactly as the real enumerator does.
-        // The enumerator stays non-nil — that is the whole point of modelling this.
+        // An unlistable root: report it and yield nothing, as the real enumerator does. The
+        // enumerator stays non-nil; that is the point of modelling this.
         if unlistableDirectories.contains(url.path) {
             _ = handler?(url, NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError))
             return MockEnumerator(urls: [])
@@ -514,30 +491,26 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                         continue
                     }
 
-                    // An unlistable DESCENDANT is still yielded as an entry — it exists, it just
-                    // cannot be descended into — while everything below it is withheld. Matches
-                    // the measured shape: a listable root holding one locked subdirectory yields
-                    // the subdirectory and reports it through the handler.
+                    // An unlistable descendant is still yielded as an entry (it exists, it just
+                    // can't be descended into) while everything below it is withheld, as the real
+                    // enumerator does for a locked subdirectory, reporting it through the handler.
                     //
-                    // Sorted by (length, path) rather than taken with `first(where:)`: a Set
-                    // iterates in an order Swift's per-launch hash seed decides, so with nested
-                    // unlistable directories (/a and /a/b) the one reported would change between
-                    // runs of an unchanged test. Shortest = outermost, which is the one the real
-                    // enumerator meets first on its way down.
+                    // Sorted by (length, path), not `first(where:)`: a Set's order depends on the
+                    // per-launch hash seed, so with nested unlistable directories (/a and /a/b) the
+                    // one reported would vary between runs. Shortest is outermost, the one the
+                    // real enumerator meets first.
                     //
-                    // Skipped wholesale when nothing is armed, which is every existing test: the
-                    // filter-and-sort allocates two collections PER ENTRY, and this loop runs over
-                    // every key of the virtual disk on every enumeration.
+                    // Skipped when nothing is armed: the filter-and-sort allocates per entry, and
+                    // this loop runs over every key on every enumeration.
                     let ancestors = unlistableDirectories.isEmpty ? [] : unlistableDirectories
                         .filter { key.hasPrefix($0 + "/") }
                         .sorted { ($0.count, $0) < ($1.count, $1) }
                     if let blocked = ancestors.first {
                         blockedDescendants.append(URL(fileURLWithPath: blocked))
-                        // The blocked directory is itself a real entry, and the real enumerator
-                        // yields it whether or not this virtual disk happens to hold a stub for it.
-                        // Without this, a fixture that created only `/root/a/b` would withhold
-                        // `/root/a` as well, the listing would come back with nothing at all, and a
-                        // genuinely PARTIAL answer would read as a wholly unreadable root.
+                        // The blocked directory is itself a real entry, yielded whether or not the
+                        // disk holds a stub for it. Otherwise a fixture that created only
+                        // `/root/a/b` would withhold `/root/a` too, and a partial answer would read
+                        // as a wholly unreadable root.
                         blockedEntries.insert(blocked)
                         continue
                     }
@@ -559,16 +532,14 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             return children
         }
 
-        // `.producesRelativePathURLs` is modelled rather than ignored, because a caller reads the
-        // answer through `relativePath`, not through `path`. `FileManaging.listing(of:)` re-spells
-        // every entry as "the URL I was asked about" + `relativePath` — that is how a folder
-        // reached through a symlink keeps the caller's spelling at every depth — so an enumerator
-        // that quietly hands back an ABSOLUTE `relativePath` makes it build `/p//p/Health` and lose
-        // the lot. Measured: with the option unmodelled, `listSubfolders(of: "/p")` on this double
-        // came back empty while the real filesystem answered correctly.
+        // `.producesRelativePathURLs` is modelled because a caller reads the answer through
+        // `relativePath`. `FileManaging.listing(of:)` re-spells every entry as "the URL I was asked
+        // about" + `relativePath` (how a folder reached through a symlink keeps the caller's
+        // spelling at every depth), so an absolute `relativePath` would make it build
+        // `/p//p/Health` and lose everything.
         //
-        // `path` is unchanged either way, which is what every existing assertion reads, so this
-        // only moves for a caller that asked for it — today, `listing(of:)` alone.
+        // `path` is unchanged either way, which is what existing assertions read, so this only
+        // matters to a caller that asks for it (`listing(of:)`).
         guard mask.contains(.producesRelativePathURLs) else { return MockEnumerator(urls: allChildren) }
         let base = URL(fileURLWithPath: url.path, isDirectory: true)
         return MockEnumerator(urls: allChildren.map { child in

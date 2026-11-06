@@ -2,18 +2,16 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A file locked in Finder can be copied, and leaves nothing behind when it cannot** (FR31).
-///
-/// `copyItem` and `copyfile` carry `uchg`/`uappnd` onto the copy, and a locked staging `.tmp_` can
-/// be neither renamed into place, nor swapped over a destination, nor removed. So a locked file was
-/// never copied, and each attempt left a hidden full-size copy beside the destination that no
-/// removal and no Trash could clear. Real files throughout: the claim is about what the kernel
-/// refuses, which no double models.
+/// A file locked in Finder can be copied, and leaves nothing behind when it can't. `copyItem` and
+/// `copyfile` carry `uchg`/`uappnd` onto the copy, and a locked staging `.tmp_` can be neither
+/// renamed into place, nor swapped over a destination, nor removed, so without care a locked file
+/// never copies and each attempt leaves a hidden full-size copy no removal or Trash can clear. Real
+/// files throughout: the claim is about what the kernel refuses, which no double models.
 @Suite struct LockedFileTransferTests {
 
     private static let locks: [FileAttributeKey] = [.immutable, .appendOnly]
 
-    /// A scratch folder whose cleanup lifts every lock first, or the folder could not be removed.
+/// A scratch folder; `removeUnlocking` lifts every lock first, or it couldn't be removed.
     private func scratch() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("locked-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url.appendingPathComponent("src"), withIntermediateDirectories: true)
@@ -42,8 +40,8 @@ import Testing
     }
 
     /// A locked file copies to a new name: the copy has its content and its lock, the original
-    /// keeps its own, and no staging copy is left. Observed (`copyfile`, as a pane transfer copies)
-    /// and plain (`copyItem`) both carry the lock onto the copy.
+    /// keeps its own, and no staging copy is left. Both the observed path (`copyfile`, as a pane
+    /// transfer copies) and the plain one (`copyItem`).
     @Test(arguments: Self.locks, [false, true])
     func aLockedFileCopiesAndItsCopyIsLockedLikeIt(lock: FileAttributeKey, observed: Bool) throws {
         let base = try scratch()
@@ -81,7 +79,7 @@ import Testing
     }
 
     /// A move must rename or Trash the original, which a lock forbids, so it is refused before
-    /// anything is written — not attempted, half-done and reverted.
+    /// anything is written, not attempted, half-done and reverted.
     @Test(arguments: Self.locks)
     func movingALockedFileIsRefusedBeforeAnythingIsWritten(lock: FileAttributeKey) throws {
         let base = try scratch()
@@ -100,7 +98,7 @@ import Testing
                 "the refused move left something at the destination")
     }
 
-    /// Refuses the install step — the rename of a `.tmp_` into place — as a full disk or a racing
+    /// Refuses the install step (the rename of a `.tmp_` into place), as a full disk or a racing
     /// writer would.
     private final class InstallRefusingDisk: FileManager, @unchecked Sendable {
         override func moveItem(at srcURL: URL, to dstURL: URL) throws {
@@ -110,7 +108,7 @@ import Testing
     }
 
     /// A folder's copy keeps the locks of the files inside it. When its install fails, the staging
-    /// folder is still removed — its locked files and all — rather than left beside the destination.
+    /// folder is still removed, locked files and all, rather than left beside the destination.
     @Test func aFailedInstallLeavesNoStagingEvenWithALockedFileInside() throws {
         let base = try scratch()
         defer { removeUnlocking(base) }
@@ -129,8 +127,8 @@ import Testing
         #expect(isLocked(lockedChild, by: .immutable), "the original's lock was lifted")
     }
 
-    /// An orphaned staging copy that carries a lock — what every attempt left before this fix — is
-    /// swept like any other, rather than refused by the Trash forever.
+    /// An orphaned staging copy that carries a lock is swept like any other, rather than refused by
+    /// the Trash forever.
     @Test func theSweepClearsALockedOrphanedStagingCopy() throws {
         let base = try scratch()
         defer { removeUnlocking(base) }
@@ -154,10 +152,10 @@ import Testing
         return m
     }
 
-    /// ⌘Z of a locked file's copy puts that copy in the Trash. The copy carries the original's
-    /// lock, and the kernel refuses to Trash a locked item, so the undo read the refusal as "busy"
-    /// and asked for a retry that could never work. The lock the copy carried is lifted from the
-    /// copy alone; the original keeps its own.
+    /// ⌘Z of a locked file's copy puts that copy in the Trash. The copy carries the original's lock
+    /// and the kernel refuses to Trash a locked item, so the undo lifts the lock the copy carried,
+    /// from the copy alone; otherwise it reads the refusal as "busy" and asks for a retry that can
+    /// never work. The original keeps its own lock.
     @MainActor
     @Test(arguments: Self.locks)
     func undoingALockedFilesCopyTrashesTheCopy(lock: FileAttributeKey) async throws {
@@ -182,8 +180,8 @@ import Testing
         #expect(isLocked(source, by: lock), "the original's lock was lifted")
     }
 
-    /// A lock the copy did NOT carry — its source is unlocked, so someone locked the copy since —
-    /// is not this undo's to lift. The copy stays, locked, and the banner says why.
+    /// A lock the copy didn't carry (its source is unlocked, so someone locked the copy since) is
+    /// not this undo's to lift. The copy stays, locked, and the banner says why.
     @MainActor
     @Test func undoingACopyLockedSinceLeavesItLockedInPlace() async throws {
         let base = try scratch()

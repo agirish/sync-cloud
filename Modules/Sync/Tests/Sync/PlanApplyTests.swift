@@ -3,7 +3,7 @@ import Testing
 import Events
 @testable import Sync
 
-/// A card of changes applied as one undo step (TE262), on a real folder.
+/// A card of changes applied as one undo step, on a real folder.
 @MainActor
 @Suite(.serialized) struct PlanApplyTests {
 
@@ -143,8 +143,8 @@ import Events
         #expect(tree() == before)
     }
 
-    /// Decision GA: a folder whose files all left goes with its emptied subfolders; one holding a
-    /// file at any depth stays.
+    /// A folder whose files all left goes with its emptied subfolders; one holding a file at any
+    /// depth stays.
     @Test func anEmptiedFolderGoesWithItsEmptySubfolders() async throws {
         defer { cleanUp() }
         try write("Downloads/Trip/Inner/b.pdf")
@@ -165,7 +165,7 @@ import Events
         #expect(tree() == before)
     }
 
-    /// Decision GF at the click: a copy goes only while its twin is another file with its bytes.
+    /// Checked at the click: a copy goes only while its twin is another file with its bytes.
     @Test func aCopyIsTrashedOnlyWhileItsTwinStillHoldsItsBytes() async throws {
         defer { cleanUp() }
         try write("Downloads/a.pdf", "same")
@@ -276,7 +276,8 @@ import Events
     }
 }
 
-/// The pane's own Rename and New Folder, closing the gaps TE262's plan found.
+/// The pane's own Rename and New Folder: the disk's name-length limit, waiting for Verify All, and
+/// a rename in History.
 @MainActor
 @Suite struct RenameAndNewFolderGapTests {
 

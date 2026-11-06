@@ -4,7 +4,7 @@ import Testing
 /// The Move picker's one suggestion: the year folder the item's neighbours imply, and every case
 /// where it must say nothing.
 @Suite struct DestinationSuggestionTests {
-    /// Travel › Trips › IN-US as it stood mid-reorganisation on 2026-11-01.
+    /// A real Travel › Trips › IN-US folder, part-way through reorganising.
     let parent = "/d/Travel/Trips/IN-US"
     let years = ["2012", "2013", "2014", "2015", "2017", "2018", "2020", "2022", "2023", "2024", "2025"]
     var siblings: [String] { years + ["Family", "16. Sep 2026"] }
@@ -71,7 +71,7 @@ import Testing
     }
 
     /// A year is a word on its own. A camera counter, a resolution or a flight number that falls
-    /// in range is not one — these were all "years" until the review of 2026-11-01.
+    /// in range is not one.
     @Test func testCountersAndCodesAreNotYears() {
         for name in ["IMG_2047.HEIC", "DSC_1999.JPG", "wallpaper-1920x1080.jpg", "Boarding AI2016.pdf",
                      "Trip_2019.pdf", "2019a"] {

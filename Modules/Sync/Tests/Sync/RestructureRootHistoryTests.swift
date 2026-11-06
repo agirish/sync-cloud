@@ -2,13 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Each folder Setup walks keeps its own Restructure history (FR4, follow-up).
-///
-/// A walk of another folder used to carry the old folder's `restructure.json` across, so its
-/// path-keyed suppressions, answers and drafts applied to a different tree. Now the folder left is
-/// recorded in `restructure-roots.json`, the new folder starts its own ledger (or takes up the one
-/// it had), and the retire sweep keeps what a walk back needs. Real temp folders throughout: the
-/// rules compare folders through links and by containment, which only a real disk answers.
+/// Each folder Setup walks keeps its own Restructure history. The history is path-keyed
+/// (suppressions, answers, drafts), so carrying it to another folder would apply it to a different
+/// tree. The folder left is recorded in `restructure-roots.json`, the new folder starts its own
+/// ledger (or takes up the one it had), and the retire sweep keeps what a walk back needs. Real
+/// temp folders throughout: the rules compare folders through links and by containment, which only
+/// a real disk answers.
 @MainActor
 @Suite struct RestructureRootHistoryTests {
 
@@ -97,7 +96,7 @@ import Testing
 
     // MARK: - The person verdicts
 
-    /// The verdicts are keyed by paths in the folder walked (review R2), so they follow the
+    /// The verdicts are keyed by paths in the folder walked, so they follow the
     /// folder as the ledger does: another folder starts with none — and with a file of its own,
     /// so the old folder is not stranded — and walking back takes them up again. A folder whose
     /// only history is a verdict is still kept for the walk back.
@@ -155,7 +154,7 @@ import Testing
             atPath: profiles.appendingPathComponent("\(b0)/\(exported)").path),
                 "a plan exported for one folder's tree followed the walk to another folder")
         let a2 = try await walk(m, a, at: 3)
-        // M2: the plan the sheet named comes back beside the folder's survey with its history.
+        // The plan the sheet named comes back beside the folder's survey with its history.
         #expect(FileManager.default.fileExists(
             atPath: profiles.appendingPathComponent("\(a2)/\(exported)").path))
 
@@ -178,8 +177,8 @@ import Testing
 
     /// A folder inside the first one, walked and reshaped by a landing, then the first folder
     /// walked again: its history comes back, but its Undo is not offered — its inverse describes
-    /// folders the nested landing moved. The controls: the same landing in a SIBLING folder, and
-    /// a nested landing from BEFORE the user left the folder, both leave the Undo offered.
+    /// folders the nested landing moved. The controls: the same landing in a sibling folder, and
+    /// a nested landing from before the user left the folder, both leave the Undo offered.
     @Test func aLandingInsideTheFolderSinceItWasLeftWithdrawsItsUndo() async throws {
         let base = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [base, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -201,7 +200,7 @@ import Testing
         #expect(back.applied.contains { $0.manifest.manifestId == "landing-1" })
         #expect(back.undoableReorganisation(currentProfileId: a2) == nil,
                 "an Undo was offered over a tree a landing inside it has reshaped since")
-        // The card says why (review R7): the record names the folder whose landing did it.
+        // The card says why: the record names the folder whose landing did it.
         #expect(back.applied.first { $0.manifest.manifestId == "landing-1" }?.undoWithheldBy
                 == FileSyncManager.recordedRoot(for: nested), "the withheld Undo gives no reason")
 
@@ -215,8 +214,8 @@ import Testing
                 "a landing in a folder beside this one withdrew its Undo")
     }
 
-    /// A nested folder whose history cannot be read MIGHT hold a later landing, so the Undo is
-    /// withheld — but not blamed on a reorganization nobody saw (review C9).
+    /// A nested folder whose history cannot be read might hold a later landing, so the Undo is
+    /// withheld, but not blamed on a reorganization nobody saw.
     @Test func anUnreadableOverlappingHistoryWithholdsTheUndoUnsure() async throws {
         let base = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [base, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -237,9 +236,9 @@ import Testing
                 "an unreadable history was recorded as a reorganization that reshaped the tree")
     }
 
-    /// "Since" is not read off the clock (review R6). The stamps are local time with no zone, so
-    /// after a zone change or the autumn hour a landing made after the user left reads as earlier
-    /// than leaving — and the Undo was re-pointed over a tree that landing had reshaped.
+    /// "Since" is not read off the clock. The stamps are local time with no zone, so after a zone
+    /// change or the autumn hour a landing made after the user left reads as earlier than leaving,
+    /// and the Undo would be re-pointed over a tree that landing had reshaped.
     @Test func aLandingStampedBeforeTheFolderWasLeftButMadeAfterStillWithdrawsItsUndo() async throws {
         let base = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [base, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -257,7 +256,7 @@ import Testing
                 "an Undo was offered over a tree a later landing reshaped, because its stamp read earlier")
     }
 
-    /// The other half of "since": a landing in a nested folder from BEFORE the user walked away
+    /// The other half of "since": a landing in a nested folder from before the user walked away
     /// from the outer one is already part of the tree the outer folder's Undo describes.
     @Test func aNestedLandingFromBeforeTheFolderWasLeftKeepsItsUndo() async throws {
         let base = try Self.scratch(), profiles = try Self.scratch()
@@ -386,11 +385,10 @@ import Testing
         return report
     }
 
-    /// A failed take-up, then the user goes on working in the folder (review C1). The history
-    /// made since is history too — so the walk away used to replace the entry naming the REAL
-    /// history with the folder that started empty, and the sweep then retired the real one. The
-    /// entry stays until the history is taken up; the walk back brings it back; and Setup was
-    /// told on screen, not only in the log.
+    /// A failed take-up, then the user goes on working in the folder. The history made since is
+    /// history too, but the walk away must not let it replace the entry naming the real history,
+    /// or the sweep retires the real one. The entry stays until the history is taken up, the walk
+    /// back brings it back, and Setup is told on screen, not only in the log.
     @Test func historyMadeAfterAFailedTakeUpDoesNotDisplaceTheEntry() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -420,8 +418,8 @@ import Testing
                 "the folder's history was lost to what it gathered after a failed take-up")
     }
 
-    /// The same, walking the SAME folder again: the take-up is tried again rather than the entry
-    /// dropped because the folder now holds something (review C1).
+    /// The same, walking the same folder again: the take-up is tried again rather than the entry
+    /// dropped because the folder now holds something.
     @Test func aWalkOfTheSameFolderRetriesAFailedTakeUp() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -464,11 +462,10 @@ import Testing
                                     now: time(0))
     }
 
-    /// The survey is keyed by paths in the folder walked, exactly as the history is, so it
-    /// follows the folder too (review C3): Setup's Save of the same folder again, or of a folder
-    /// whose history it takes up, used to land on a profile with no corpus — and the Save then
-    /// started a full survey of hours though the corpus for that very folder was on disk. The
-    /// control: a folder with no survey of its own starts none.
+    /// The survey is keyed by paths in the folder walked, as the history is, so it follows the
+    /// folder too. Otherwise Setup's Save of the same folder again, or of one whose history it takes
+    /// up, would land on a profile with no corpus and start an hours-long survey though the corpus
+    /// was on disk. The control: a folder with no survey of its own starts none.
     @Test func theFoldersSurveyFollowsItAcrossWalks() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -496,11 +493,10 @@ import Testing
 
     // MARK: - A map that cannot be written
 
-    /// The folder left is recorded in the map BEFORE the index names the new one (review C2).
-    /// With the map unwritable, the walk used to switch anyway and carry the old folder's history
-    /// into the new one "as before" — the next walk away then recorded that borrowed history as
-    /// the new folder's own, over the entry naming its real one. Now the Save is refused, with a
-    /// sentence, and nothing moves.
+    /// The folder left is recorded in the map before the index names the new one. With the map
+    /// unwritable the Save is refused, with a sentence, and nothing moves. Switching anyway would
+    /// carry the old folder's history into the new one, and the next walk away would record that
+    /// borrowed history as the new folder's own, over the entry naming its real one.
     @Test func aMapThatCannotBeWrittenRefusesTheSave() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -542,10 +538,9 @@ import Testing
                                                countsByKind: ["shape": 1], landing: false))
     }
 
-    /// A trend point is not history (review R1). After a failed copy the app stamps one into the
-    /// empty ledger the walk started; counted as history, the next walk of the same folder, or
-    /// a walk away, dropped or displaced the entry naming the real history, and the sweep then
-    /// retired it.
+    /// A trend point is not history. After a failed copy the app stamps one into the empty ledger
+    /// the walk started; counted as history, the next walk of the same folder, or a walk away,
+    /// would drop or displace the entry naming the real history, and the sweep would retire it.
     @Test func aTrendPointInTheEmptyLedgerIsNotHistory() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -560,7 +555,7 @@ import Testing
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
         let a1 = try await walk(m, a, at: 2)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
-        // An entry from before a failed take-up was marked (review C1): only the history test
+        // An entry from before a failed take-up was marked: only the history test
         // tells it from a stale one, and that test must not count a trend point.
         guard case .loaded(var unmarked) = RestructureRootMap.read(in: profiles) else {
             Issue.record("the map did not read"); return
@@ -591,8 +586,8 @@ import Testing
 
     // MARK: - Entries that hold nothing
 
-    /// A folder left with no history — only the trend point every walk stamps — gets no entry
-    /// (review R4): one would pin its profile folder, corpus and memory, for good.
+    /// A folder left with no history (only the trend point every walk stamps) gets no entry: one
+    /// would pin its profile folder, corpus and memory, for good.
     @Test func aFolderWithNoHistoryIsNotRecorded() async throws {
         let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
@@ -611,7 +606,7 @@ import Testing
     }
 
     /// An entry whose Setup folder has been deleted goes at the next walk to another folder, and
-    /// its profile folder with it at the next sweep (review R4). A folder whose PARENT is missing —
+    /// its profile folder with it at the next sweep. A folder whose parent is missing —
     /// how an unmounted volume looks — is not gone, and keeps its entry.
     @Test func anEntryWhoseFolderIsGoneIsDropped() async throws {
         let base = try Self.scratch(), profiles = try Self.scratch()
@@ -643,7 +638,7 @@ import Testing
         #expect(FilingProfileStore.profile(id: c0, in: profiles) != nil)
     }
 
-    /// iCloud Drive comes back (review C11): a folder in it missing — iCloud signed out — is not
+    /// iCloud Drive can come back: a folder in it missing (iCloud signed out) is not
     /// gone, at any depth, so its history entry and profile folder stay.
     @Test(.machinePinned(.iCloudDrive)) func aFolderInICloudDriveIsNeverGone() throws {
         let profiles = try Self.scratch()
@@ -664,8 +659,8 @@ import Testing
                                            in: profiles) != nil)
     }
 
-    /// A folder whose volume does not answer is not gone, and the Save does not wait on it
-    /// (review C11): the probe is bounded.
+    /// A folder whose volume does not answer is not gone, and the Save does not wait on it: the
+    /// probe is bounded.
     @Test func aFolderThatDoesNotAnswerIsNotGoneAndIsNotWaitedOn() throws {
         let profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: profiles) }

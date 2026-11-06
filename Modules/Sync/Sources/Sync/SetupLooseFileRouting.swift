@@ -2,15 +2,10 @@ import Foundation
 
 /// Where the files sitting loose at the top of a learned tree would go, by name alone.
 ///
-/// **The Structure screen's second view, and the only claim setup makes about filing before the
-/// user has approved anything.** It is name-only on purpose: the profile has just been previewed
-/// and no document has been opened, so this is exactly the evidence To File will have on its first
-/// run — which makes the preview honest rather than optimistic. Nothing moves; the routes are
-/// shown and thrown away.
-///
-/// No production caller ranks with `contentSnippet: nil` today, which is why this lives here rather
-/// than being borrowed from ``FileSyncManager``: the setup sheet is the first place the app has
-/// reason to ask what it can tell from a name and nothing else.
+/// The Structure screen's second view, and setup's only claim about filing before the user approves
+/// anything. Name-only on purpose: no document has been opened yet, so this is the evidence To File
+/// has on its first run, and the preview stays honest. Nothing moves; the routes are shown and
+/// thrown away. It lives here because no other caller ranks with `contentSnippet: nil`.
 public enum SetupLooseFileRouting {
 
     /// One loose file's proposed home.
@@ -34,12 +29,9 @@ public enum SetupLooseFileRouting {
         public var isReady: Bool { home != nil && confidence >= readyBar }
     }
 
-    /// The bar a name-only ranking has to clear to be shown as an answer.
-    ///
-    /// ``FilingEngine/Ranking/hasConfidentHome`` uses the same value from the other direction, and
-    /// `FileSyncManager+FilingRoute` uses it to stop an unsure name-only ranking from evicting a
-    /// folder-creating suggestion. One bar, so the count setup shows and the tiers To File draws
-    /// cannot disagree about what "ready" means.
+    /// The bar a name-only ranking has to clear to be shown as an answer. Shared with
+    /// ``FilingEngine/Ranking/hasConfidentHome`` and `FileSyncManager+FilingRoute`, so setup's
+    /// count and To File's tiers agree on what "ready" means.
     public static let readyBar: FilingConfidence = .medium
 
     /// Routes every loose file in `walk`, against the profile the user is about to save.

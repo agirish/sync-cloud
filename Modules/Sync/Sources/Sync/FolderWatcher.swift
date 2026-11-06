@@ -4,17 +4,14 @@ import Foundation
 
 // MARK: - What the watcher reports
 
-/// One folder to watch, spelled the way its consumer spells it (ROADMAP item 5).
-///
-/// **The spelling is the consumer's, the watch is the disk's.** FSEvents watches the resolved
-/// folder and reports what it finds there in resolved spelling: on this Mac iCloud Drive ▸
-/// Documents is a link to `~/Documents`, and a temp folder under `/var` lives under `/private/var`.
-/// A root handed over through the link is watched at its target and its events come back spelled
-/// through the link again (``FolderWatchEvent/path``), so a consumer never meets a second spelling
-/// of its own folder. The resolved one rides along as ``FolderWatchEvent/realPath``.
+/// One folder to watch, spelled the way its consumer spells it. FSEvents watches and reports the
+/// resolved folder (iCloud Drive ▸ Documents can be a link to `~/Documents`; `/var` is
+/// `/private/var`), so a root given through a link is watched at its target and its events are
+/// spelled back through the link (``FolderWatchEvent/path``). The resolved spelling rides along as
+/// ``FolderWatchEvent/realPath``.
 public struct FolderWatchRoot: Hashable, Sendable {
-    /// Tilde expanded, trailing slashes trimmed (`PathBoundary.normalizedRoot`) — nothing more,
-    /// so the events say exactly what the consumer said.
+    /// Tilde expanded, trailing slashes trimmed (`PathBoundary.normalizedRoot`), nothing more, so
+    /// the events say exactly what the consumer said.
     public let path: String
 
     public init(path: String) {
@@ -26,8 +23,8 @@ public struct FolderWatchRoot: Hashable, Sendable {
 /// says *something happened here*, and a walk of the folder decides what is there now.
 public struct FolderWatchEvent: Equatable, Sendable {
 
-    /// What happened to the item, as FSEvents' item flags say it. Several can be set at once —
-    /// FSEvents folds a burst on one item into one event — so read it as "at least these".
+    /// What happened to the item, as FSEvents' item flags say it. FSEvents folds a burst on one item
+    /// into one event, so several can be set: read it as "at least these".
     public struct Change: OptionSet, Hashable, Sendable {
         public let rawValue: UInt32
         public init(rawValue: UInt32) { self.rawValue = rawValue }
@@ -44,34 +41,33 @@ public struct FolderWatchEvent: Equatable, Sendable {
         public static let isDirectory = Change(rawValue: UInt32(kFSEventStreamEventFlagItemIsDir))
         public static let isSymlink = Change(rawValue: UInt32(kFSEventStreamEventFlagItemIsSymlink))
 
-        /// Nothing but extended attributes changed, whatever kind of item it is. Measured 31 Oct: a
-        /// "last opened" stamp, a quarantine mark and a Finder tag each arrive as exactly this.
+        /// Nothing but extended attributes changed, whatever kind of item it is: how a "last
+        /// opened" stamp, a quarantine mark or a Finder tag arrives.
         public var isOnlyExtendedAttributes: Bool {
             subtracting([.isFile, .isDirectory, .isSymlink]) == .extendedAttributes
         }
 
-        /// Every bit this type names — what an event's raw flags are masked to.
+        /// Every bit this type names: what an event's raw flags are masked to.
         static let all: Change = [.created, .removed, .renamed, .modified, .inodeMetadata, .finderInfo,
                                   .owner, .extendedAttributes, .isFile, .isDirectory, .isSymlink]
     }
 
-    /// FSEvents' id for the change: system-wide and increasing, so it orders this change against
-    /// any moment ``FolderWatcher/currentEventId()`` was read — the "was this before or after that
-    /// walk started?" a consumer needs, which a delivery time cannot answer (delivery lags the
-    /// change by the stream's latency).
+    /// FSEvents' id for the change: system-wide and increasing, so it orders the change against any
+    /// ``FolderWatcher/currentEventId()`` reading ("before or after that walk started?"). Delivery
+    /// time can't, since it lags by the stream's latency.
     public let id: UInt64
     /// The watched root this event is under, as the consumer spelled it.
     public let root: String
     /// The changed item, spelled under ``root`` the way the consumer spells the root.
     public let path: String
-    /// The changed item as FSEvents spelled it — the resolved location on disk.
+    /// The changed item as FSEvents spelled it: the resolved location on disk.
     public let realPath: String
     public let change: Change
     /// The item's inode number, when FSEvents gave one.
     public let fileID: UInt64?
-    /// The item's document id (`kFSEventStreamCreateWithDocID`), when FSEvents gave one — stable
-    /// across the safe-save rename dance an app's save does, so a consumer can follow one document
-    /// through a burst that removes and recreates its path.
+    /// The item's document id (`kFSEventStreamCreateWithDocID`), when FSEvents gave one. Stable
+    /// across an app's safe-save renames, so a consumer can follow one document through a burst
+    /// that removes and recreates its path.
     public let documentID: UInt64?
     /// This process made the change (`kFSEventStreamCreateFlagMarkSelf`). Never set on a replayed
     /// event: FSEvents does not record who made a change in its history.
@@ -79,10 +75,10 @@ public struct FolderWatchEvent: Equatable, Sendable {
     /// Replayed from FSEvents' history (the stream started from a stored event id and has not yet
     /// reached its `HistoryDone` sentinel) rather than seen as it happened.
     ///
-    /// **False does not prove the change came after watching began.** fseventsd numbers a change
-    /// when it reads it from the kernel, a moment after the write, and a change it had not read
-    /// when the stream started arrives after the sentinel as a live event (measured,
-    /// `aRestartReplaysWhatChangedWhileNothingWatched`). Order by ``id``, never by this flag.
+    /// **False doesn't prove the change came after watching began.** fseventsd numbers a change when
+    /// it reads it from the kernel, a moment after the write, so one not yet read when the stream
+    /// started arrives after the sentinel as live (`aRestartReplaysWhatChangedWhileNothingWatched`).
+    /// Order by ``id``, never by this flag.
     public let isHistorical: Bool
 
     public init(id: UInt64, root: String, path: String, realPath: String, change: Change,
@@ -100,8 +96,8 @@ public struct FolderWatchEvent: Equatable, Sendable {
     }
 }
 
-/// **FSEvents cannot say what changed under ``path``** — treat everything there as changed and
-/// list it again. The watcher's way of never claiming more than the events give.
+/// FSEvents can't say what changed under ``path``: treat everything there as changed and list it
+/// again. How the watcher never claims more than the events give.
 public struct FolderWatchRescan: Equatable, Sendable {
     public enum Reason: Equatable, Sendable {
         /// `MustScanSubDirs`: FSEvents coalesced too much under this folder to name the items.
@@ -114,7 +110,7 @@ public struct FolderWatchRescan: Equatable, Sendable {
         case rootChanged
         /// `Mount` / `Unmount` at or under the root: a different volume is there now.
         case volumeChanged
-        /// No stored event id for this volume — nothing to replay since the last time we looked.
+        /// No stored event id for this volume: nothing to replay since the last look.
         case noHistory
         /// The volume's FSEvents history is not the one the stored id belongs to (its
         /// `FSEventsCopyUUIDForDevice` changed: history purged, volume erased or replaced).
@@ -123,7 +119,7 @@ public struct FolderWatchRescan: Equatable, Sendable {
 
     /// The watched root, as the consumer spelled it.
     public let root: String
-    /// Where to list again, spelled under ``root`` — the root itself for every reason but
+    /// Where to list again, spelled under ``root``: the root itself for every reason but
     /// `.mustScanSubDirs`, which can name a folder below it.
     public let path: String
     public let reason: Reason
@@ -156,13 +152,10 @@ public struct FolderWatchBatch: Equatable, Sendable {
 
 // MARK: - The stored history
 
-/// The last event id seen per volume, and which FSEvents history it belongs to — what lets the next
-/// launch replay what changed while the app was closed, and tell when it cannot.
-///
-/// Keyed by the volume's own UUID (`volumeUUIDStringKey`), which survives a reboot; the stored
-/// `deviceUUID` is FSEvents' identity for that volume's history (`FSEventsCopyUUIDForDevice`),
-/// which changes when the history is purged and is how a replay knows its stored id has gone
-/// meaningless.
+/// The last event id seen per volume, and which FSEvents history it belongs to, so the next launch
+/// can replay what changed while the app was closed, or know it can't. Keyed by the volume's UUID
+/// (`volumeUUIDStringKey`), which survives a reboot. `deviceUUID` (`FSEventsCopyUUIDForDevice`)
+/// changes when the history is purged, which is how a replay knows its stored id is meaningless.
 public struct FolderWatchHistory: Sendable {
     public struct Record: Codable, Equatable, Sendable {
         public var deviceUUID: String
@@ -185,7 +178,7 @@ public struct FolderWatchHistory: Sendable {
     /// The defaults key the app's history lives under.
     public static let defaultsKey = "folderWatchHistory"
 
-    /// One JSON blob under ``defaultsKey`` in `defaults` — the app's, and only the app's.
+    /// One JSON blob under ``defaultsKey`` in `defaults`: the app's, and only the app's.
     public static func userDefaults(_ defaults: UserDefaults, key: String = defaultsKey) -> FolderWatchHistory {
         nonisolated(unsafe) let defaults = defaults
         return FolderWatchHistory(
@@ -199,7 +192,7 @@ public struct FolderWatchHistory: Sendable {
             })
     }
 
-    /// Held in memory and nowhere else — for a test, or a consumer that wants no replay.
+    /// Held in memory only, for a test or a consumer that wants no replay.
     public static func inMemory(_ initial: [String: Record] = [:]) -> FolderWatchHistory {
         let box = Box(initial)
         return FolderWatchHistory(load: { box.value }, save: { box.value = $0 })
@@ -218,9 +211,9 @@ public struct FolderWatchHistory: Sendable {
 
 // MARK: - Coalescing
 
-/// When a batch is due: once the events have been quiet for `quiet`, or `maxDelay` after the first
-/// one, whichever comes first — so a provider's burst of hundreds of changes reaches the consumer
-/// once, and a provider that never stops still reaches it every `maxDelay`.
+/// When a batch is due: once events have been quiet for `quiet`, or `maxDelay` after the first,
+/// whichever is sooner. A provider's burst of hundreds reaches the consumer once, and one that never
+/// stops still reaches it every `maxDelay`.
 struct FolderWatchCoalescer: Equatable {
     let quiet: TimeInterval
     let maxDelay: TimeInterval
@@ -280,10 +273,9 @@ extension FolderWatcher {
     /// - Parameter replaying: whether the stream is still replaying history when the first of
     ///   `raw` arrives; the answer after the last comes back, so the next callback continues it.
     /// - Parameter now: ``currentEventId()`` as the callback runs. **Every rescan is dated no
-    ///   earlier than this**, because the ids FSEvents puts on these flags do not say when:
-    ///   `RootChanged` arrives with id ZERO (FSEvents.h), and a consumer ordering it against a walk
-    ///   would find every walk newer — a moved root that marked nothing. Dated now, it reads as
-    ///   "anything listed before this moment is suspect", which is what each of them means.
+    ///   earlier than this**: FSEvents' ids on these flags don't say when (`RootChanged` comes with
+    ///   id 0), and every walk would look newer than it. Dated now, it means "anything listed
+    ///   before this moment is suspect".
     static func interpret(_ raw: [RawFolderEvent], roots: [ResolvedWatchRoot],
                           replaying: Bool, now: UInt64) -> (batch: FolderWatchBatch, replaying: Bool) {
         var batch = FolderWatchBatch()
@@ -329,8 +321,8 @@ extension FolderWatcher {
             }
             let placed = spell(event.path, in: roots)
             if flags & kFSEventStreamEventFlagMustScanSubDirs != 0 {
-                // A folder no root places is still a folder FSEvents lost track of under one of
-                // them: the whole stream, rather than nothing.
+                // A folder no root places was still lost track of under one of them: rescan the
+                // whole stream rather than nothing.
                 guard !placed.isEmpty else {
                     rescanAll(.mustScanSubDirs)
                     continue
@@ -353,9 +345,9 @@ extension FolderWatcher {
         return (batch, replaying)
     }
 
-    /// Every root holding `realPath`, with the path spelled under that root. Exact first; then
-    /// case-insensitively, because the default macOS volume is, and a root typed in another case
-    /// than the disk's would otherwise hear nothing.
+    /// Every root holding `realPath`, with the path spelled under that root. Exact first, then
+    /// case-insensitively (as the default macOS volume is), so a root typed in another case than
+    /// the disk's still hears its events.
     static func spell(_ realPath: String, in roots: [ResolvedWatchRoot]) -> [(ResolvedWatchRoot, String)] {
         var placed: [(ResolvedWatchRoot, String)] = []
         for root in roots {
@@ -381,41 +373,35 @@ extension FolderWatcher {
 public enum FolderWatchReplay: Hashable, Sendable {
     /// From now. Nothing before the stream started is reported, and nothing is claimed about it.
     case none
-    /// From the last id stored for the root's volume (``FolderWatchHistory``) — what happened while
-    /// nobody watched, since the last launch. With no stored id, or one from a history that has
-    /// since gone (`FSEventsCopyUUIDForDevice` changed), the root gets a `.noHistory` /
-    /// `.historyLost` rescan as of the start instead.
-    ///
-    /// **Per volume, not per root**: a root this watcher has never watched replays from wherever
-    /// the volume's record stands, which says nothing about that root's past before it. A consumer
-    /// starting on a new root has no listing to compare against anyway, and lists it in full.
+    /// From the last id stored for the root's volume (``FolderWatchHistory``): what happened while
+    /// nobody watched since the last launch. With no stored id, or one from a history since gone
+    /// (`FSEventsCopyUUIDForDevice` changed), the root gets a `.noHistory` or `.historyLost` rescan
+    /// as of the start instead. Per volume, not per root, so it says nothing about a never-watched
+    /// root's past; a consumer new to a root lists it in full anyway.
     case stored
-    /// From this id, read earlier in this boot with ``FolderWatcher/currentEventId()`` — for a
-    /// consumer holding a listing it made while nothing watched the root. A history that has gone
-    /// since the stored record was written makes it a `.historyLost` rescan.
+    /// From this id, read earlier in this boot with ``FolderWatcher/currentEventId()``, for a
+    /// consumer holding a listing made while nothing watched the root. A history gone since the
+    /// stored record was written makes it a `.historyLost` rescan.
     case since(UInt64)
 }
 
-/// **Watches folders with FSEvents and says, coalesced, what changed under them** — the "when
-/// files change" trigger ROADMAP item 5 describes, shared by the panes' freshness and RD67's
-/// one-way sync. Free of any UI concern: it reports, the consumer decides.
+/// Watches folders with FSEvents and says, coalesced, what changed under them: the "when files
+/// change" trigger shared by the panes' freshness and one-way sync. No UI concern: it reports, the
+/// consumer decides.
 ///
 /// - **File-level, with document ids** (`FileEvents | UseCFTypes | UseExtendedData | WithDocID`),
 ///   and marked when this process made the change (`MarkSelf`), so a consumer can leave its own
 ///   writes to the paths that already account for them.
 /// - **Hints, not listings.** A consumer re-lists before it acts; the watcher only says where.
-/// - **Never more freshness than the events give.** Where FSEvents cannot name the items —
-///   `MustScanSubDirs`, dropped events, wrapped ids, a moved root, a volume change — and where the
-///   history it would replay is gone, it says so with a ``FolderWatchRescan``.
+/// - **Never more freshness than the events give.** Where FSEvents can't name the items
+///   (`MustScanSubDirs`, dropped events, wrapped ids, a moved root, a volume change) or the history
+///   to replay is gone, it says so with a ``FolderWatchRescan``.
 /// - **Replays across launches**, when asked (``FolderWatchReplay/stored``). The last id delivered
 ///   is stored per volume (``FolderWatchHistory``).
 ///
-/// **One stream per root, and a root's stream is never restarted while it stays watched.** A
-/// restart has to replay from the old stream's last delivered id to lose nothing in between, and a
-/// replay drops the mark FSEvents puts on this process's own writes (`MarkSelf` "has no effect on
-/// historical events") — so a write the consumer made a moment before would come back as someone
-/// else's. Measured: one shared stream, restarted when the second pane's folder was added, replayed
-/// the fixture's own writes unmarked and flagged the first pane changed.
+/// **One stream per root, never restarted while the root stays watched.** A restart must replay
+/// from the last delivered id, and replayed events lose `MarkSelf`, so the consumer's own recent
+/// writes would come back as someone else's.
 ///
 /// Everything mutable lives on one serial queue; the handler runs there, so it must not call back
 /// into ``watch(_:)``, ``stop()`` or ``roots`` synchronously — each is a `queue.sync`.
@@ -444,16 +430,16 @@ public final class FolderWatcher: @unchecked Sendable {
     /// The roots with a live stream. A root asked for that could not be watched is not in here,
     /// so the next ``watch(_:)`` asking for it tries again rather than taking the set as settled.
     private var watched: Set<FolderWatchRoot> = []
-    /// Roots already logged as unwatchable — the retry above is quiet after the first line.
+    /// Roots already logged as unwatchable, so the retry above is quiet after the first line.
     private var reportedUnwatchable: Set<FolderWatchRoot> = []
-    /// The history as last read or written — read once, so a burst's callbacks do not each decode it.
+    /// The history as last read or written; read once, so a burst's callbacks don't each decode it.
     private var storedRecords: [String: FolderWatchHistory.Record]?
 
     /// - Parameters:
     ///   - history: where the last id per volume is kept. No default: only the real app may write
     ///     the real defaults domain.
     ///   - latency: FSEvents' own coalescing window, the first fold of a burst.
-    ///   - quiet: how long the events must stop before a batch goes out — the second fold.
+    ///   - quiet: how long the events must stop before a batch goes out: the second fold.
     ///   - maxDelay: the longest a batch waits however busy the folder stays.
     public init(history: FolderWatchHistory, latency: TimeInterval = 0.3,
                 quiet: TimeInterval = 1, maxDelay: TimeInterval = 5, persistEvery: TimeInterval = 30,
@@ -480,11 +466,11 @@ public final class FolderWatcher: @unchecked Sendable {
         queue.sync { watched }
     }
 
-    /// How many FSEvents callbacks have arrived — for a test showing that a batch joined several.
+    /// How many FSEvents callbacks have arrived, for a test showing a batch joined several.
     var callbackCount: Int { queue.sync { callbacks } }
     private var callbacks = 0
 
-    /// The events still being coalesced — for a test pacing its writes by what the watcher holds.
+    /// The events still being coalesced, for a test pacing its writes by what the watcher holds.
     var pendingEvents: [FolderWatchEvent] { queue.sync { pending.events } }
 
     /// Watches exactly `roots` from now on, every newly added one replaying as `replay` says. A
@@ -494,7 +480,7 @@ public final class FolderWatcher: @unchecked Sendable {
         watch(Dictionary(uniqueKeysWithValues: roots.map { ($0, replay) }))
     }
 
-    /// ``watch(_:replay:)`` with a replay per root — read only for the roots not yet watched.
+    /// ``watch(_:replay:)`` with a replay per root, read only for roots not yet watched.
     public func watch(_ roots: [FolderWatchRoot: FolderWatchReplay]) {
         queue.sync {
             let wanted = Set(roots.keys)
@@ -502,9 +488,8 @@ public final class FolderWatcher: @unchecked Sendable {
             for root in watched.subtracting(wanted) {
                 streams.removeValue(forKey: root)?.invalidate()
             }
-            // Judged against the history as it stood BEFORE this call: the first new root on a
-            // volume rewrites the record, and a second root judged against that would find it
-            // intact and be told nothing about the history the first one found gone.
+            // Judged against the history as it stood before this call: the first new root on a
+            // volume rewrites the record, which would hide a lost history from the second.
             let before = storedRecords ?? history.load()
             var records = before
             var recordsChanged = false
@@ -605,8 +590,7 @@ public final class FolderWatcher: @unchecked Sendable {
         let startMark = Self.currentEventId()
         if !replaying { stream.latestId = startMark }
         if let lost {
-            // Nothing to replay, so nothing since the last look can be vouched for: the root is
-            // changed as of now.
+            // Nothing to replay, so nothing since the last look is vouched for: changed as of now.
             pending.rescans.append(FolderWatchRescan(root: root.spelled, path: root.spelled, reason: lost, id: startMark))
             Logger.shared.info("[watch] \(lost == .noHistory ? "no stored history" : "the stored history is gone")"
                                + " for “\(root.real)”; treating it as changed")
@@ -651,15 +635,13 @@ public final class FolderWatcher: @unchecked Sendable {
         return true
     }
 
-    /// Stores, per volume, the OLDEST newest-delivered id among its live streams: a `.stored` replay
-    /// from it then misses nothing any of them had yet to deliver, at the price of repeating what
-    /// the others had. Only ids that reached the HANDLER — called from ``flush()`` once a batch has
-    /// gone out, never as a callback arrives: a batch still being coalesced is lost with the
-    /// process, and an id stored ahead of it would make the next replay skip it for good.
-    /// The replay point is saved at most this often while batches flow, and always at `stop`:
-    /// each save is a defaults write every observer of the domain hears, and an autosave in a
-    /// watched folder makes a batch every few seconds. One lost to a crash replays at most this
-    /// much again, which the consumers order by id and drop.
+    /// How often, at most, ``persist(force:)`` saves the replay point while batches flow (always at
+    /// `stop`): each save is a defaults write every observer of the domain hears. A crash replays at
+    /// most this much again, which consumers order by id and drop.
+    ///
+    /// Per volume it stores the oldest newest-delivered id among live streams, so a replay misses
+    /// nothing any had yet to deliver. **Only ids that reached the handler**, from ``flush()``:
+    /// storing an id ahead of a batch still being coalesced would skip that batch for good.
     let persistEvery: TimeInterval
     private var lastPersisted: Date?
 
@@ -743,11 +725,10 @@ public final class FolderWatcher: @unchecked Sendable {
 
     // MARK: Resolution
 
-    /// Whether `path` lies on a local volume, read from the kernel's mount table as it stands
-    /// (`getfsstat` with `MNT_NOWAIT`, into a buffer of its own: `getmntinfo`'s is shared and not
-    /// thread-safe), so a network server that doesn't answer is never asked. By the path as
-    /// spelled: the mount whose point is its longest prefix; a link into a network mount from a
-    /// local folder reads as local.
+    /// Whether `path` lies on a local volume, from the kernel's mount table as it stands
+    /// (`getfsstat` with `MNT_NOWAIT`, into its own buffer, since `getmntinfo`'s is shared and not
+    /// thread-safe), so an unresponsive network server is never asked. Judged by the path as spelled
+    /// (longest mount-point prefix), so a local link into a network mount reads as local.
     public static func isOnLocalVolume(_ path: String) -> Bool {
         let capacity = getfsstat(nil, 0, MNT_NOWAIT)
         guard capacity > 0 else { return true }
@@ -768,8 +749,8 @@ public final class FolderWatcher: @unchecked Sendable {
         return best.local
     }
 
-    /// `realpath(3)`: the folder's location with every link resolved, as FSEvents spells it — nil
-    /// when nothing is there, or it is not a folder.
+    /// `realpath(3)`: the folder's location with every link resolved, as FSEvents spells it; nil
+    /// when nothing is there or it isn't a folder.
     static func resolve(_ path: String) -> String? {
         guard let resolved = realpath(path, nil) else { return nil }
         defer { free(resolved) }

@@ -3,14 +3,10 @@ import Foundation
 import Events
 @testable import Sync
 
-/// Rename folded into Organize: the Filing scan now reports cloud-hostile names on the pass it was
-/// already making, instead of a separate place you had to remember to visit.
-///
-/// The claim being tested is a *coverage* claim, not a plumbing one. The standalone Rename scan
-/// walked the whole provider; the Filing scan walks the loose folder at depth 1 AND the whole
-/// provider for its taxonomy. If the fold quietly attached the detector to the shallow walk, the
-/// finding would only ever see the inbox — it would still work, still show a count, and silently
-/// miss every risky name in the rest of the provider.
+/// The Filing scan reports cloud-hostile names on the pass it already makes. This guards coverage:
+/// the scan walks the loose folder at depth 1 and the whole provider for its taxonomy, and a
+/// detector attached to the shallow walk would still show a count while missing every risky name
+/// outside the inbox.
 @Suite struct FilingNameFindingTests {
 
     private func write(_ url: URL, bytes: Int = 500) throws {
@@ -23,9 +19,8 @@ import Events
     @Test func theFilingScanReportsRiskyNamesFromTheWholeProviderNotJustTheInbox() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingNames")
         defer { try? FileManager.default.removeItem(at: root) }
-        // Names that END in a space — the hazard, and one macOS will happily create. One sits in
-        // the scanned inbox, one three levels away. A depth-1 detector finds only the first, which
-        // is the regression this exists to catch.
+        // Names ending in a space, which macOS will create: one in the scanned inbox, one three
+        // levels away. A depth-1 detector finds only the first.
         try write(root.appendingPathComponent("Downloads/inbox tail "))
         try write(root.appendingPathComponent("Documents/Archive/deep tail "))
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
@@ -41,8 +36,7 @@ import Events
 
     @MainActor
     @Test func theFindingIsEmptyWhenEveryNameIsSafe() async throws {
-        // The chip's whole argument is that it is ABSENT on the common day. An empty finding has
-        // to actually come back empty rather than, say, flagging every file with an extension.
+        // The chip should be absent on the common day, so a clean tree must give an empty finding.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesClean")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/Statement.pdf"))
@@ -57,9 +51,8 @@ import Events
 
     @MainActor
     @Test func aScanWithNoNameProviderLeavesTheFindingUntouched() async throws {
-        // The CLI and the engine tests call the scan without a provider. That must not be read as
-        // "no risky names" — it is "nobody asked", and clobbering a previous finding with an empty
-        // list would make the chip vanish for a reason the user never triggered.
+        // The CLI and engine tests scan without a provider. That means "nobody asked", not "no
+        // risky names", so the previous finding stays and the chip doesn't vanish.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesOptOut")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/tail "))
@@ -78,10 +71,9 @@ import Events
 
     @MainActor
     @Test func theProposedNameIsComputedWithTheScannedProvidersRules() async throws {
-        // The ruleset travels on each RESULT, not on the manager: `sanitizedName` is computed
-        // during the scan, and "Fix all" renames to that stored string. So the thing worth pinning
-        // is the proposed name, not a remembered provider — a colon is legal on iCloud and illegal
-        // on OneDrive, so scanning the same file under the two rulesets must differ here.
+        // `sanitizedName` is computed during the scan and "Fix all" renames to that stored string,
+        // so the proposed name is what to pin. A colon is legal on iCloud and illegal on OneDrive,
+        // so the two rulesets must differ here.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesRuleset")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/Q3: report.pdf"))
@@ -103,15 +95,14 @@ import Events
 
     @MainActor
     @Test func aScanThatOptsOutOfTheNameCheckLeavesTheFindingAlone() async throws {
-        // A caller that does not ask for the name check must leave the previous finding exactly
-        // as it found it. Publishing an empty list would read as "nothing is wrong" and take the
-        // chip off screen for a reason the user never triggered.
+        // A caller that doesn't ask for the name check leaves the previous finding as it was. An
+        // empty list would read as "nothing is wrong" and take the chip off screen.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesPairing")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/a.pdf"))
 
         let manager = FileSyncManager()
-        // Stand in for a completed OneDrive scan: results, and the ruleset that produced them.
+        // Stand in for a completed OneDrive scan's results.
         manager.riskyNames = [RiskyName(id: "/prev/tail ", relativePath: "tail ",
                                         currentName: "tail ", sanitizedName: "tail",
                                         reason: "a trailing space", isDirectory: false)]
@@ -124,13 +115,9 @@ import Events
 
     @MainActor
     @Test func aCancelledDetectionDoesNotReplaceTheNamesOnScreen() async {
-        // A superseded scan must publish nothing: the finding on screen belongs to the scan that
-        // produced it, and a newer scan that is cancelled before it finishes knows nothing better.
-        // Landing a partial or empty result here would change the chip's count — and which list
-        // the user is looking at — on the strength of a scan that was abandoned.
-        //
-        // Asserted through the injected cancellation check rather than by racing a real Task: a
-        // timing-dependent version of this passes for the wrong reason most of the time.
+        // A cancelled scan publishes nothing: a partial or empty result would change the chip's
+        // count on the strength of an abandoned scan. Uses the injected cancellation check, since
+        // racing a real Task would mostly pass for the wrong reason.
         let manager = FileSyncManager()
         let previous = RiskyName(id: "/prev/tail ", relativePath: "tail ", currentName: "tail ",
                                  sanitizedName: "tail", reason: "a trailing space", isDirectory: false)
@@ -145,18 +132,13 @@ import Events
 
     @MainActor
     @Test func anUnreadableProviderRootIsNotItselfOfferedAsARename() async {
-        // `buildTree` reports a permission-denied root as ONE unexplored marker carrying the
-        // root's own path. The detector cannot tell that from a real entry, so it would flag the
-        // provider root's name — and "Fix all" would rename it. A rename needs only parent-write,
-        // so it would succeed, dangling the configured root and every path aimed at it.
-        //
-        // The standalone scan has always guarded this. The folded one was written without it,
-        // which is why the check now lives in one shared predicate.
+        // `buildTree` reports a permission-denied root as one unexplored marker at the root's own
+        // path. Unguarded, the detector would flag the provider root's name and "Fix all" would
+        // rename it (a rename needs only parent-write), dangling every path aimed at the root.
         let root = URL(fileURLWithPath: "/denied/Provider Root ")
         let marker = FileNode(id: root.path, name: "Provider Root ", isDirectory: true,
                               children: nil, isUnexplored: true)
-        // Sanity: the name IS one the detector would otherwise flag, so this test cannot pass
-        // merely because the fixture was safe.
+        // Control: the detector would otherwise flag this name, so the fixture isn't simply safe.
         #expect(NameNormalizer.risky(name: marker.name, relativePath: marker.name,
                                      absolutePath: marker.id, isDirectory: true,
                                      provider: .oneDrive) != nil)
@@ -169,8 +151,8 @@ import Events
 
     @MainActor
     @Test func aRealEntryThatHappensToMatchTheRootPathIsStillScanned() async {
-        // The guard keys on the unexplored MARKER, not merely on the path — otherwise a readable
-        // tree whose single entry sits at the root path would be silently skipped.
+        // The guard keys on the unexplored marker, not the path, or a real entry at the root path
+        // would be skipped.
         let root = URL(fileURLWithPath: "/readable")
         let child = FileNode(id: "/readable/tail ", name: "tail ", isDirectory: false)
 
@@ -183,8 +165,8 @@ import Events
     // MARK: The single-file door (the pane row's "Fix name")
 
     @Test func theOneNodeCheckAgreesWithTheWholeTreeScan() {
-        // Two doors onto one rule. If they ever disagree, a name the batch flags would offer no
-        // per-row fix — or worse, a row would offer a fix the batch does not believe in.
+        // The row menu and the batch share one rule. If they disagreed, a flagged name would have
+        // no per-row fix, or a row would offer a fix the batch doesn't.
         let hazards = ["trailing ", "colon:name.pdf", "a\u{200B}b.txt"]
         let safe = ["Statement.pdf", "Café.pdf", "folder"]
 
@@ -201,8 +183,8 @@ import Events
     }
 
     @Test func theOneNodeCheckProposesTheSameNameTheBatchWould() {
-        // The menu item's help text quotes `sanitizedName`, and the fix routes through the same
-        // `normalizeNames` the batch uses — so the two must produce one answer, not two.
+        // The menu item's help text quotes `sanitizedName`, and the fix runs through the batch's
+        // `normalizeNames`, so both must propose the same name.
         let name = "Q3: report .pdf"
         let one = NameNormalizer.risky(name: name, relativePath: name, absolutePath: "/x/\(name)",
                                        isDirectory: false, provider: .oneDrive)

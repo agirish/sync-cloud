@@ -44,8 +44,8 @@ import Testing
     }
 
     @Test func symlinksAreNotCountedTwice() {
-        // The walk resolves a symlink to its target's size, so a link (fileSize = target's size)
-        // plus its in-tree target would double the reported usage. Storage Lens must skip symlinks.
+        // The walk gives a symlink its target's size, so a link plus its in-tree target would
+        // double the usage. Storage Lens must skip symlinks.
         let realFile = file("/root/A/big.bin", size: 10_000)
         let link = FileNode(id: "/root/shortcut", name: "shortcut", isDirectory: false,
                             modificationDate: nil, fileSize: 10_000, isSymbolicLink: true)
@@ -60,8 +60,8 @@ import Testing
     }
 
     @Test func unexploredSubtreeExcludedFromRollup() {
-        // An unexplored directory's empty `children` is a walk artifact, not an observation — it
-        // must contribute nothing to the rollup rather than a false zero *or* a guessed size.
+        // An unexplored directory's empty `children` is a walk artifact, not an observation: it
+        // contributes nothing, neither a false zero nor a guessed size.
         let tree = [
             dir("/root/Known", [file("/root/Known/x.bin", size: 5000)]),
             dir("/root/Capped", [], isUnexplored: true),   // children not walked
@@ -168,11 +168,10 @@ import Testing
 
     // MARK: Totals counted before the cap (LN6)
 
-    /// **The report says how many, not only which ones.** Each list is the first `topN` rows, so a
-    /// headline built from the lists read "20 untouched" on any real tree, and "reclaimable" summed
-    /// only the first 20 candidates. The fixture is built so every count differs from the cap and
-    /// from every other count — 31 files, 27 of them stale, 23 of those reclaimable — and the
-    /// reclaimable bytes include the candidates the cap drops.
+    /// The report says how many, not only which ones. Each list is the first `topN` rows, so
+    /// headline counts and reclaimable bytes taken from the lists would stop at the cap. The fixture
+    /// makes every count differ from the cap and from each other (31 files, 27 stale, 23 of those
+    /// reclaimable), and the reclaimable bytes include the candidates the cap drops.
     @Test func totalsAreCountedBeforeTheListsAreCapped() {
         var children: [FileNode] = []
         // 23 large and long-idle: stale (500+ days) AND reclaimable (≥ 100 MB, past 180 days).
@@ -204,10 +203,9 @@ import Testing
                 "the reclaimable total is only the shown rows' sum — the cap is still in it")
     }
 
-    /// A snapshot saved before the totals existed (every 6.0 report on disk) still decodes — a
-    /// required key would have thrown, and Storage would come up empty after the update — **with
-    /// the totals unknown**, not read off its capped lists: that put "20 files · 20 untouched"
-    /// back on every restored report (LN6 again).
+    /// A snapshot saved before the totals existed still decodes (a required key would throw and
+    /// leave Storage empty), with the totals unknown rather than read off its capped lists, which
+    /// would show "20 files · 20 untouched" on every restored report.
     @Test func aReportSavedBeforeTheTotalsStillDecodes() throws {
         let entry = "{\"path\":\"/r/a\",\"name\":\"a\",\"bytes\":300}"
         let json = "{\"treemap\":[],\"largest\":[\(entry)],\"stale\":[\(entry),\(entry)],"

@@ -4,43 +4,37 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A folder whose provider never answers must not stop the comparison** — see
-/// `FileSyncManager.DatalessFolderReads`.
+/// A folder whose provider never answers must not stop the comparison
+/// (`FileSyncManager.DatalessFolderReads`). With OneDrive not running, listing a dataless folder
+/// such as its `.Trash` blocks forever: a walk that waits on it never compares, and each Refresh
+/// that reads it again blocks one more pool thread until the other pane stops loading too.
 ///
-/// The case measured on 2026-10-02: with OneDrive not running, listing either account's `.Trash`
-/// (dataless) blocks forever. The Home pane's walk reached one, its pool thread blocked inside the
-/// listing, and the refresh never got as far as comparing — the log said the walk had stopped at
-/// its budget and then nothing, ever. Each Refresh after that leaked one more blocked thread until
-/// the other pane stopped loading too.
-///
-/// The double here is that disk: one folder is dataless, and listing it parks until the test lets it
-/// go — the provider answering. Everything else is an ordinary `MockFileManager`.
+/// The double: one folder is dataless, and listing it parks until the test releases it (the
+/// provider answering). Everything else is an ordinary `MockFileManager`.
 @Suite struct UnansweredFolderTests {
 
-    /// **One disk per test, under a root of its own.** Every case here logs the same sentence about
-    /// its unanswered folder, the cases run in parallel, and a `LogCapture` hears all of them — so on
-    /// one shared path, another test's line could satisfy this one's log assertion.
+    /// One disk per test, under its own root: the cases run in parallel, log the same sentence, and
+    /// a `LogCapture` hears them all, so a shared path would let another test's line pass this one.
     ///
-    /// Left: `<root>/home`, holding the folder that does not answer. Right: `<root>/other`, which has
-    /// one file the left lacks (`Notes/c.txt` — the row that proves the comparison ran) and the same
-    /// file under its own `Archive` that the left's unread one holds (the row that must NOT appear).
+    /// Left: `<root>/home`, holding the folder that doesn't answer. Right: `<root>/other`, with one
+    /// file the left lacks (`Notes/c.txt`, proving the comparison ran) and the same file in its
+    /// `Archive` as the left's unread one holds (a row that must not appear).
     struct Fixture {
         let root: String
 
         var home: CloudProvider { provider("home", at: "/home") }
         var other: CloudProvider { provider("other", at: "/other") }
         var elsewhere: CloudProvider { provider("elsewhere", at: "/elsewhere") }
-        /// NOT a dot-folder, unlike the `.Trash` that found this: hidden rows are filtered out of
-        /// `differences` on their own, and a hidden name would let "nothing under it is reported
-        /// missing" pass whether or not the walk marked it.
+        /// Not a dot-folder: hidden rows are filtered out of `differences` anyway, so a hidden name
+        /// would let "nothing under it is reported missing" pass whether or not the walk marked it.
         var unanswered: String { root + "/home/Cloud/Archive" }
 
         func provider(_ id: String, at path: String) -> CloudProvider {
             CloudProvider(id: id, displayName: id, imageName: "folder", rootPath: root + path, type: .localFolder)
         }
 
-        /// `reads` is the registry the disk's own listings ask through — pass the manager's, so the
-        /// test has ONE registry, as the app does.
+        /// `reads` is the registry the disk's listings ask through. Pass the manager's, so the test
+        /// has one registry, as the app does.
         func disk(gate: ParkGate,
                   reads: FileSyncManager.DatalessFolderReads = .init(deadline: .milliseconds(250))) throws -> UnansweredFolderDisk {
             let mock = MockFileManager()
@@ -68,8 +62,8 @@ import Testing
 
     // MARK: - The pane walk
 
-    /// **The refresh compares while the folder's listing is still out**, and the folder comes back
-    /// unexplored — so nothing under it is reported missing, and everything else still is.
+    /// The refresh compares while the folder's listing is still out, and the folder comes back
+    /// unexplored: nothing under it is reported missing, and everything else still is.
     @MainActor
     @Test(.parksAThread) func aFolderThatNeverAnswersStillLetsTheRefreshCompare() async throws {
         let f = Fixture(root: "/refresh")
@@ -90,20 +84,20 @@ import Testing
         let archive = try #require(Self.node(f.unanswered, in: manager.rawLeftTree))
         #expect(archive.isUnexplored == true, "a folder that did not answer is unknown, not empty")
         #expect(await log.holds(.warning, containing: "“\(f.unanswered)” did not answer"))
-        // Not ALSO called unreadable: the walk's own line says "permission denied", and a reader of
-        // the log would go looking at the folder's permissions instead of at the app that syncs it.
+        // Not also called unreadable: that line says "permission denied", and would send a reader
+        // to the folder's permissions instead of the app that syncs it.
         #expect(!(await log.holds(containing: "could not list “\(f.unanswered)”")))
 
-        // The provider answers at last. The read it was holding comes back and leaves the registry.
+        // The provider answers at last: the held read comes back and leaves the registry.
         gate.release.signal()
         await refresh.value
         await waitUntil("the late answer came back") { !reads.isOutstanding(f.unanswered) }
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// **A Refresh does not read an unanswered folder again** — the leak, one blocked thread per
-    /// click, that took the whole pool. And once the provider answers, the next Refresh reads the
-    /// folder like any other: the deadline deferred it, it did not drop it.
+    /// A Refresh doesn't read an unanswered folder again, or each click would block one more pool
+    /// thread. Once the provider answers, the next Refresh reads it like any other: the deadline
+    /// deferred it, not dropped it.
     @MainActor
     @Test(.parksAThread) func aRefreshSkipsAFolderStillUnansweredAndReadsItOnceItAnswers() async throws {
         let f = Fixture(root: "/skip")
@@ -142,11 +136,10 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// **A pane whose ROOT does not answer is unknown, not empty.** The walk hands back the folder
-    /// itself marked unexplored — the shape a root that cannot be listed has always had
-    /// (`isUnreadableRootWalk`). As a bare `[]` the side would read as authoritatively empty, and
-    /// every file opposite it would be reported missing. The same shape is what stops a source switch
-    /// keeping the walk, and the walk after the switch asks again without a second read.
+    /// A pane whose root doesn't answer is unknown, not empty. The walk hands back the folder itself
+    /// marked unexplored, the shape of an unlistable root (`isUnreadableRootWalk`); a bare `[]`
+    /// would report every file opposite as missing. That shape also stops a source switch keeping
+    /// the walk, and the next walk asks again without a second provider read.
     @MainActor
     @Test(.parksAThread) func aPaneRootThatNeverAnswersIsUnknownAndIsNotKept() async throws {
         let f = Fixture(root: "/rootpane")
@@ -181,9 +174,9 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// **A walk superseded while it waits lets go at once**, rather than sitting out the deadline —
-    /// navigating away from Home must not cost the old walk's wait. The deadline here is far longer
-    /// than the bound the test allows, so the only way to make the bound is to stop waiting on cancel.
+    /// A walk superseded while it waits lets go at once, rather than sitting out the deadline:
+    /// navigating away must not cost the old walk's wait. The deadline is far past the test's bound,
+    /// so only stopping on cancel can meet it.
     @MainActor
     @Test(.parksAThread) func aSupersededWalkStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/supersede")
@@ -195,10 +188,10 @@ import Testing
         let first = Task { await manager.refreshTreesAndScan(left: f.home, right: f.other) }
         await awaitSignal(gate.entered, "the walk never reached the folder that does not answer")
 
-        // Ten seconds AND a hundred scheduler turns, not seconds alone: under main-actor load this
-        // test took 26 s with nothing wrong (`docs/flaky-tests.md`, "A park's bound counted seconds
-        // while its release waited for scheduler turns"), while sitting out the deadline costs
-        // sixty seconds and thousands of turns.
+        // Ten seconds and the turn floor, not seconds alone: main-actor load can stretch a correct
+        // run past ten seconds (`docs/flaky-tests.md`, "A park's bound counted seconds while its
+        // release waited for scheduler turns"), and sitting out the deadline costs sixty seconds
+        // and far more turns.
         let budget = TurnDeadline(seconds: 10, turns: signalTurnFloor)
         await manager.refreshTreesAndScan(left: f.elsewhere, right: f.other)
         await first.value
@@ -214,10 +207,9 @@ import Testing
 
     // MARK: - The comparison's disk walk
 
-    /// **The scan's own walk gives up on the folder too.** Compare walks the disk itself whenever a
-    /// pane has no cached walk of the folder it compares — the comparison Compare owes on arrival
-    /// is a direct `scanDirectories`, which does not wait for a pane's load — and that walk is a
-    /// `DirectoryEnumerator`, which would block descending into the folder.
+    /// The scan's own walk gives up on the folder too. With no cached pane walk (as on arrival in
+    /// Compare, a direct `scanDirectories`), the scan walks the disk with a `DirectoryEnumerator`,
+    /// which would block descending into the folder.
     @MainActor
     @Test(.parksAThread) func theComparisonsOwnWalkGivesUpOnTheFolderToo() async throws {
         let f = Fixture(root: "/coldscan")
@@ -242,9 +234,8 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// **A cancelled comparison stops waiting for the folder too.** That walk cannot suspend — it
-    /// waits on its thread — so it has to notice the cancel itself; otherwise Stop, or the refresh
-    /// that supersedes it, would sit out the deadline holding the scanning slot.
+    /// A cancelled comparison stops waiting too. That walk waits on its thread and can't suspend,
+    /// so it must notice the cancel itself, or Stop would sit out the deadline holding the slot.
     @MainActor
     @Test(.parksAThread) func aCancelledComparisonStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/cancel")
@@ -272,8 +263,8 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// The same walk, read directly: the folder's entry is there, marked unexplored, and nothing
-    /// below it is — it was never listed.
+    /// The same walk, read directly: the folder's entry is there, marked unexplored, with nothing
+    /// below it, since it was never listed.
     @Test(.parksAThread) func theDiskWalkMarksTheFolderUnexploredAndListsNothingBelowIt() async throws {
         let f = Fixture(root: "/diskwalk")
         let gate = ParkGate()
@@ -298,10 +289,9 @@ import Testing
 
     // MARK: - The registry
 
-    /// **One folder is one read, whichever way the walk reached it.** The Home pane reaches each
-    /// OneDrive `.Trash` through OneDrive's link in the home folder (`~/OneDrive/.Trash`, measured)
-    /// and can reach it again under `~/Library/CloudStorage/…`. Read once per spelling, a folder
-    /// that is not answering would hold two threads and cost a walk two waits.
+    /// One folder is one read, however the walk reached it. The Home pane can reach a OneDrive
+    /// folder through its link in the home folder and again under `~/Library/CloudStorage/…`; read
+    /// once per spelling, an unanswered folder would hold two threads and cost two waits.
     @Test(.parksAThread) func aFolderReachedThroughALinkIsTheReadAlreadyOut() async throws {
         let root = try makeCanonicalTempRoot(prefix: "dataless-spelling")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -331,9 +321,8 @@ import Testing
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
-    /// When the app that syncs a folder launches, its unanswered folders are forgotten — the read
-    /// asked of the process that quit may never return — and the next walk reads them again.
-    /// Another app's unanswered folder stays.
+    /// When the app that syncs a folder launches, its unanswered folders are forgotten (a read asked
+    /// of the process that quit may never return) and read again. Another app's stay.
     @Test(.parksThreads(2)) func aLaunchedAppsUnansweredFoldersAreReadAgain() async throws {
         let root = try makeCanonicalTempRoot(prefix: "dataless-forget")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -367,18 +356,17 @@ import Testing
     }
 }
 
-/// A disk on which one folder is dataless and its provider is not answering: listing it — directly,
-/// or by an enumerator descending into it — parks on `gate` until the test releases it. Released, it
-/// is materialized, exactly as listing a real one leaves it: no longer dataless, and listed at once.
+/// A disk with one dataless folder whose provider isn't answering: listing it, directly or by an
+/// enumerator descending into it, parks on `gate` until the test releases it. Released, it is
+/// materialized as a real listing leaves it: no longer dataless, and listed at once.
 ///
-/// The recursive enumerator descends LAZILY, as the real one was measured to: it reads a folder's
-/// contents on the call AFTER the one that yielded the folder, so `skipDescendants()` made in
-/// between keeps it from asking the provider at all. And it marks a folder entry as one
-/// (`hasDirectoryPath`), as the real one does in both its absolute and its relative spelling —
-/// measured 2026-10-15, and pinned by `theRealEnumeratorMarksEveryFolderItYields`.
+/// Like the real one, the recursive enumerator descends lazily: it reads a folder's contents on
+/// the call after the one that yielded it, so `skipDescendants()` in between never asks the
+/// provider. It marks folder entries (`hasDirectoryPath`) in absolute and relative spellings, as
+/// the real one does (`theRealEnumeratorMarksEveryFolderItYields`).
 ///
-/// Its listings ask through `datalessFolderReads`, a short-deadline registry of its own, so a test
-/// neither waits out the app's five seconds nor shares the app's registry.
+/// Its listings ask through `datalessFolderReads`, a short-deadline registry passed in, so a test
+/// never waits out the app's five seconds or touches `DatalessFolderReads.shared`.
 final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
     private let inner: MockFileManager
     private let unanswered: String
@@ -403,8 +391,8 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         return reads
     }
 
-    /// The dispatch queue each of those asks ran on — the cooperative pool's
-    /// (`com.apple.root.*.cooperative`) is the one it must never be.
+    /// The dispatch queue each ask ran on. It must never be the cooperative pool's
+    /// (`com.apple.root.*.cooperative`).
     var providerReadQueues: [String] {
         lock.lock(); defer { lock.unlock() }
         return readQueues
@@ -423,8 +411,8 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         reads += 1
         readQueues.append(queue)
         lock.unlock()
-        // Two minutes, so "came back while still parked" stays true on a loaded machine: the tests
-        // release it themselves, and only a caller blocked on it ever waits this out.
+        // Two minutes, so "still parked" holds on a loaded machine. The tests release it
+        // themselves; only a caller blocked on it ever waits this out.
         gate.park(timeout: 120)
         lock.lock(); answered = true; lock.unlock()
     }
@@ -491,7 +479,7 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         override func nextObject() -> Any? {
             if let folder = justYielded {
                 justYielded = nil
-                // Descending into the dataless folder is reading it — unless the caller said not to.
+                // Descending into the dataless folder reads it, unless the caller skipped it.
                 if folder == unanswered, skipping != folder { disk.askTheProvider() }
             }
             while index < entries.count {

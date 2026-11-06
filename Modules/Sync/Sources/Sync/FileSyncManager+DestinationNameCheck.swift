@@ -4,12 +4,10 @@ import Foundation
 // MARK: - Pre-write destination-name check
 //
 // Every transfer entry point (`syncFile`, `transferItems`, `syncAll`) runs the destination
-// through this check before any I/O. A name the destination provider forbids (e.g. a
-// trailing space on Dropbox) would be written locally just fine — and then never uploaded,
-// leaving an identical-looking, local-only duplicate next to the provider-normalized
-// original. The check surfaces the `invalidNameResolver` prompt offering a sanitized name;
-// an accepted sanitized name that collides with an existing item then flows through the
-// normal collision machinery.
+// through this check before any I/O. A name the provider forbids (a trailing space on Dropbox)
+// is written locally but never uploaded, leaving a local-only look-alike beside the original.
+// The `invalidNameResolver` prompt offers a sanitized name; if that collides with an existing
+// item, the normal collision handling takes over.
 
 extension FileSyncManager {
 
@@ -43,10 +41,9 @@ extension FileSyncManager {
         return nil
     }
 
-    /// The pure core: the prompt describing why `url`'s provider rejects its name, plus the
-    /// sanitized URL to offer — or nil when the name is acceptable (or not attributable to a
-    /// provider). Static and value-in/value-out so `transferItems`' detached worker can call
-    /// it with captured snapshots.
+    /// The prompt saying why `url`'s provider rejects its name, plus the sanitized URL to offer,
+    /// or nil when the name is fine or no provider owns it. Static and pure so `transferItems`'
+    /// detached worker can call it with captured snapshots.
     nonisolated static func nameViolationPrompt(
         forDestination url: URL,
         providers: (left: CloudProvider, right: CloudProvider)?,

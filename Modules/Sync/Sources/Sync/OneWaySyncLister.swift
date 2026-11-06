@@ -10,7 +10,7 @@ import Foundation
 /// Something the lister left out on purpose, which Now lists as skipped: a symlink, a live
 /// library, a package holding a symlink, or a name Dropbox won't take.
 public struct OneWaySyncSkippedItem: Equatable, Sendable {
-    /// The reason for a name Dropbox never syncs, and for a copy Dropbox refused (ES).
+    /// The reason for a name Dropbox never syncs, and for a copy Dropbox refused.
     public static let dropboxWontTakeIt = "Dropbox won’t take it"
     /// The reason for an iCloud package with a symlink inside (an app's `Versions/Current`): no
     /// symlink is copied, so it can't go whole.
@@ -43,9 +43,9 @@ public struct OneWaySyncSideListing: Equatable, Sendable {
     }
 }
 
-/// **Reads one side of RD67's sync from disk** into what the planner diffs: every folder directly
+/// Reads one side of the one-way sync from disk into what the planner diffs: every folder directly
 /// in the parent, and everything inside the synced folders, each with the ID the provider keeps on
-/// it (DH). It only reads: no file is opened, so an offloaded iCloud file stays offloaded.
+/// it. It only reads: no file is opened, so an offloaded iCloud file stays offloaded.
 ///
 /// - Every path is read with `lstat`; no symlink is followed or listed. Symlinks are skipped,
 ///   and so is an iCloud package holding one.
@@ -231,7 +231,7 @@ public struct OneWaySyncLister: Sendable {
     }
 
     /// Whether macOS reports the folder as shared: iCloud's sharing, and a File Provider's that
-    /// reports it the same way. Dropbox's is not known to be reported (DL asks at setup instead).
+    /// reports it the same way. Dropbox's is not known to be reported, so setup asks instead.
     public static let reportsShared: @Sendable (URL) -> Bool = { url in
         let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.ubiquitousItemIsSharedKey])
         return values?.ubiquitousItemIsShared == true

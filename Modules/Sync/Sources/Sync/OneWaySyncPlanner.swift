@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// The two DA settings: what SyncCloud does when a synced Dropbox file is changed directly.
+/// The two settings for what SyncCloud does when a synced Dropbox file is changed directly.
 public struct OneWaySyncSettings: Codable, Equatable, Sendable {
     public enum WhenDeletedRenamedOrMoved: String, Codable, Sendable {
         case matchICloud
@@ -33,7 +33,7 @@ public enum OneWaySyncRemovalCause: Codable, Equatable, Sendable {
     /// Renamed in iCloud onto a Dropbox-only file with identical contents, which was adopted; this
     /// is the old Dropbox copy it makes redundant.
     case duplicateOfAdoptedFile(String)
-    /// SyncCloud's own copy that Dropbox refused, its iCloud file since deleted or moved out (ES).
+    /// SyncCloud's own copy that Dropbox refused, its iCloud file since deleted or moved out.
     /// Never synced, so it counts toward nothing.
     case refusedCopy
 }
@@ -90,7 +90,7 @@ public enum OneWaySyncWaitReason: Codable, Equatable, Sendable {
     /// Same size on both sides, contents not read yet. The plan lists the files to read
     /// (`iCloudContentsToRead`, `dropboxContentsToRead`), and the next pass decides.
     case contentsNotRead
-    /// Dropbox refused its copy, and iCloud's file hasn't changed since (ES): listed as skipped.
+    /// Dropbox refused its copy, and iCloud's file hasn't changed since: listed as skipped.
     case refusedByDropbox
 
     /// Whether this waits for the user (a row under *Needs you*), rather than for something
@@ -128,7 +128,7 @@ public struct OneWaySyncStep: Codable, Equatable, Sendable {
     /// is applied, the record's `matchedICloudAt` is set, so a second such change within a day waits.
     public var undoesDropboxChange: Bool
     /// A copy of a file moved into a synced folder from one that isn't: where it was in iCloud at
-    /// the pass before, which *Reverse in iCloud* moves it back to (EU). Nil for anything else.
+    /// the pass before, which *Reverse in iCloud* moves it back to. Nil for anything else.
     public var movedInFrom: String?
 
     public init(action: OneWaySyncAction, record: UInt64? = nil, undoesDropboxChange: Bool = false, movedInFrom: String? = nil) {
@@ -174,7 +174,7 @@ public struct OneWaySyncPass: Sendable {
     }
 }
 
-/// A refused file whose iCloud file changed (ES): written again this pass at `iCloudPath`. Kept in
+/// A refused file whose iCloud file changed: written again this pass at `iCloudPath`. Kept in
 /// the record until that write lands or is refused again, so a retry that doesn't go through
 /// still writes over SyncCloud's refused copy next time.
 public struct OneWaySyncRetry: Equatable, Sendable {
@@ -205,7 +205,7 @@ public struct OneWaySyncPlan: Sendable {
     /// crash mid-pass never lets one drop out of the 24 hours (`OneWaySyncRun.apply`).
     public var window: OneWaySyncRemovalWindow
     public var matches: OneWaySyncMatches
-    /// Refused files that still stand (ES): iCloud's file unchanged, or not decided this pass.
+    /// Refused files that still stand: iCloud's file unchanged, or not decided this pass.
     public var refused: [OneWaySyncRefusedFile]
     /// Refused files tried again this pass, their iCloud file having changed.
     public var retrying: [OneWaySyncRetry]
@@ -217,13 +217,13 @@ public struct OneWaySyncPlan: Sendable {
     /// them against.
     public var refusedCopies: [String: OneWaySyncItem]
     /// Recorded files whose change time moved with their size and date unchanged, and whose
-    /// contents were read and found unchanged (ET): the record takes the new change time.
+    /// contents were read and found unchanged: the record takes the new change time.
     public var settledChangeTimes: Set<UInt64>
 
     public var actions: [OneWaySyncAction] { steps.map(\.action) }
 }
 
-/// RD67's diff: each side against the record, per the state table, into a plan of actions.
+/// The one-way sync's diff: each side against the record, per the state table, into a plan of actions.
 ///
 /// Pure. It reads no file and writes none; the caller applies the plan and updates the record.
 public enum OneWaySyncPlanner {
@@ -324,10 +324,10 @@ private struct PlanBuilder {
     /// Synced folder record keys by Dropbox name key.
     var syncedFolderKey: [String: UInt64] = [:]
 
-    /// Recorded files whose change time moved and whose contents read as unchanged (ET).
+    /// Recorded files whose change time moved and whose contents read as unchanged.
     var settledChangeTimes = Set<UInt64>()
 
-    // Refused files (ES), by index in `record.refused`.
+    // Refused files, by index in `record.refused`.
     /// Gone from iCloud: dropped from the record.
     var retired = Set<Int>()
     /// Changed in iCloud: written again at this iCloud path.
@@ -503,7 +503,7 @@ private struct PlanBuilder {
     // MARK: Recorded files: the state table
 
     /// Whether iCloud's file differs from the record: by size or date, by a hash already read, or
-    /// (ET) by its contents when only its change time moved — an edit that kept the size and date.
+    /// by its contents when only its change time moved — an edit that kept the size and date.
     /// Those are compared with the recorded hash, or else with Dropbox's copy where it is as
     /// recorded, and asked for until read; unread, the file counts as unchanged and the record
     /// keeps its old change time, so the next pass asks again. Never for an offloaded file.
@@ -582,7 +582,7 @@ private struct PlanBuilder {
         case .movedOut, .gone: break
         }
 
-        // An edit whose replace Dropbox refused (ES): Dropbox holds SyncCloud's own copy, which is
+        // An edit whose replace Dropbox refused: Dropbox holds SyncCloud's own copy, which is
         // no edit of Dropbox's. It waits while iCloud's file is unchanged; once it changes, iCloud's
         // version is written over it, whatever iCloud's file now is.
         var overRefusedCopy = false
@@ -780,7 +780,7 @@ private struct PlanBuilder {
         return still
     }
 
-    /// Files never synced whose copy Dropbox refused (ES). While iCloud's file is unchanged it waits,
+    /// Files never synced whose copy Dropbox refused. While iCloud's file is unchanged it waits,
     /// listed as skipped, and neither it nor the refused copy is paired, adopted or listed as
     /// Dropbox's own. Once it changes, iCloud's file is written over the refused copy, which then
     /// takes iCloud's new name if it was renamed; with no copy left, it is copied as new. Once
@@ -921,7 +921,7 @@ private struct PlanBuilder {
         if d.contentHash == nil { dropboxContentsToRead.append(d.path) }
     }
 
-    /// CZ: on a first run, different contents at one name go by which is newer. The same date to
+    /// On a first run, different contents at one name go by which is newer. The same date to
     /// the second, or a date in the future, is unclear and waits.
     mutating func planFirstRunDifference(i: OneWaySyncItem, d: OneWaySyncItem, at current: String, subject: OneWaySyncWait.Subject) {
         if i.second > now || d.second > now {
@@ -945,7 +945,7 @@ private struct PlanBuilder {
             var op = Op(
                 kind: .copy(iCloudPath: item.path, needsDownload: !item.isDownloaded), target: item.path,
                 subject: .file(iCloudPath: item.path, dropboxPath: nil))
-            // Moved in from a folder that isn't synced (EU): where it was is what Reverse needs. Not
+            // Moved in from a folder that isn't synced: where it was is what Reverse needs. Not
             // from a folder synced now: a folder just ticked copies its own files, moved nowhere.
             op.movedInFrom = matches.iCloud.recordableID(of: item).flatMap { pass.outside[$0] }
                 .flatMap { syncedICloudTops.contains(iKey(OneWaySyncPath.top($0))) ? nil : $0 }

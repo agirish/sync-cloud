@@ -7,20 +7,18 @@ import Combine
 /// and serializes file operations (copy, move, delete) with undo support and termination guards.
 @MainActor
 public class FileSyncManager: ObservableObject {
-    /// **One-way sync's copy is iCloud's to change** (RD67): given the paths a rename, move or
-    /// delete is about to touch, why it may not, or nil. Set by the app; a synced Dropbox file is
-    /// changed in iCloud, and the sync carries it over.
+    /// Refuses a rename, move or delete that would change one-way sync's copy, which is iCloud's to
+    /// change: given the paths about to be touched, the reason, or nil. Set by the app. A synced
+    /// Dropbox file is changed in iCloud, and the sync carries it over.
     public var oneWaySyncRefusal: (([String]) -> String?)?
 
     /// File system abstraction used for all disk I/O (supports injection for tests).
     public let fileManager: FileManaging
     
-    /// A closure that resolves naming collisions during file operations.
-    /// Defaults to `.skip` so an unwired manager never overwrites existing files.
-    /// The app wires an NSAlert-backed prompt at construction; tests inject specific resolutions.
-    /// The `FileCollision` carries the source and destination paths (so the prompt can say
-    /// which copy is replacing which) and whether the colliding destination is a folder (so
-    /// it can warn that replacing a folder replaces its whole contents).
+    /// Resolves a name collision during a file operation. Defaults to `.skip` so an unwired manager
+    /// never overwrites; the app wires an NSAlert prompt and tests inject answers. The
+    /// `FileCollision` says which copy replaces which, and whether the destination is a folder,
+    /// whose whole contents a replace would take.
     public var collisionResolver: @MainActor (FileCollision) -> CollisionResolution = { _ in
         return .skip
     }
@@ -31,226 +29,174 @@ public class FileSyncManager: ObservableObject {
         return (.skip, false)
     }
 
-    /// Confirms a copy/move before any I/O starts — every transfer entry point
-    /// (`transferItems`, `syncFile`, `syncAll`) asks it exactly once per user action, so a
-    /// stray click can be cancelled while it still costs nothing. Defaults to proceeding
-    /// (a transfer is recoverable: replaces are separately prompted and everything is
-    /// undoable); the app wires an NSAlert gated by the "Confirm before copying or moving"
-    /// setting at construction.
+    /// Confirms a copy or move before any I/O. Each transfer entry point (`transferItems`,
+    /// `syncFile`, `syncAll`) asks once per user action. Defaults to proceeding, since a transfer
+    /// is undoable and replaces prompt separately; the app wires an NSAlert gated by the "Confirm
+    /// before copying or moving" setting.
     public var transferConfirmer: @MainActor (TransferSummary) -> Bool = { _ in
         return true
     }
 
-    /// Whether the volume a not-yet-created destination will land on distinguishes names by case.
-    ///
-    /// A seam purely so the multi-volume batch is reachable from a test: a single machine's disk is
-    /// one answer, and the bug this guards against needs two. `syncAll` asks per destination, and a
-    /// wrong answer is a data-loss bug rather than a cosmetic one — a batch told "case-sensitive"
-    /// about a case-INSENSITIVE destination lets two case-variant targets both pass its in-memory
-    /// uniqueness check, after which the parallel workers write to one file.
+    /// Whether the volume a not-yet-created destination will land on distinguishes names by case. A
+    /// seam so a multi-volume batch is testable; `syncAll` asks per destination. A wrong answer
+    /// loses data: told "case-sensitive" about a case-insensitive volume, two case-variant targets
+    /// both pass the batch's uniqueness check and the parallel workers write to one file.
     public var destinationCaseSensitivity: (URL) -> Bool = { url in
         FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: url)
     }
 
-    /// Resolves a destination name the destination provider forbids (Dropbox/OneDrive reject
-    /// trailing spaces or dots; OneDrive also certain characters and reserved names), BEFORE
-    /// any I/O: writing such a name into a provider's folder creates an item the provider
-    /// silently never uploads — a local-only doppelganger that looks identical to its
-    /// sanitized sibling. Defaults to `.skip` so an unwired manager never creates one; the
-    /// app wires an NSAlert-backed prompt (offering the sanitized name) at construction.
-    /// Only consulted when the destination lies inside a provider root known from the last
-    /// scan (see `lastScanProviders`).
+    /// Resolves a destination name the provider forbids (Dropbox and OneDrive reject trailing
+    /// spaces or dots; OneDrive also some characters and reserved names), before any I/O. Such a
+    /// name creates an item the provider never uploads, a local-only lookalike of its sanitized
+    /// sibling. Defaults to `.skip`; the app wires a prompt offering the sanitized name. Consulted
+    /// only inside a provider root known from the last scan (`lastScanProviders`).
     public var invalidNameResolver: @MainActor (NameViolationPrompt) -> InvalidNameResolution = { _ in
         return .skip
     }
 
-    /// The pane providers of the most recent completed scan; how transfer destinations are
-    /// attributed to a provider for the `invalidNameResolver` pre-write name check. nil until
-    /// a scan lands (tests, CLI cold start) — destinations are then not name-checked, which
-    /// preserves the pure pre-seam behavior. Cleared with the rest of the comparison state
-    /// on provider changes and swapped in `swapPanes`.
+    /// The pane providers of the most recent completed scan, which attribute transfer destinations
+    /// to a provider for the `invalidNameResolver` check. nil until a scan lands (tests, CLI cold
+    /// start), and then destinations are not name-checked. Cleared with the comparison state on
+    /// provider changes; swapped in `swapPanes`.
     ///
-    /// Readable outside the module — like `lastScanRootNames` beside it, and for the same reason:
-    /// it names the pair the published rows came from, which is what a caption ABOUT those rows has
-    /// to use. Reading the panes instead would let a navigation after the scan rename the sources a
-    /// caption is describing. Set only here.
+    /// Public for the reason `lastScanRootNames` is: a caption about the published rows must name
+    /// the pair they came from, not wherever the panes navigated since. Set only here.
     public internal(set) var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
 
-    /// The last path component of each compared folder at the moment the most recent scan's
-    /// results were published — what the differences table's Path column anchors its paths to,
-    /// so a root-level row can say "Home" instead of nothing. Captured with the results rather
-    /// than read live from the panes: the panes can navigate away while the diff still describes
-    /// the folders that were scanned. nil until a scan lands; cleared with the rest of the
-    /// comparison state and swapped in `swapPanes`. Not `@Published` — it changes only inside
-    /// the same publish that replaces `differences`, which already re-renders every reader.
+    /// The last path component of each compared folder when the latest scan's results were
+    /// published, which the differences table's Path column anchors to (so a root-level row says
+    /// "Home"). Captured with the results, since the panes can navigate away while the diff still
+    /// describes the scanned folders. nil until a scan lands; cleared with the comparison state and
+    /// swapped in `swapPanes`. Not `@Published`: it changes only in the publish that replaces
+    /// `differences`.
     public internal(set) var lastScanRootNames: (left: String, right: String)?
 
-    /// When the most recent comparison scan completed — which scan the rows on screen came from,
-    /// so the Differences view tells a new one from the last (its folds are kept per scan). nil
-    /// until a scan lands and whenever the comparison state is invalidated (provider change), so a
-    /// stale timestamp never outlives the diff it describes. A swap keeps it (same scan, sides
-    /// traded). Published so the header re-renders as scans land. **Not the comparison's age**,
-    /// which is `lastScanReadAt`.
+    /// When the latest comparison scan completed, so the Differences view tells a new scan from the
+    /// last (its folds are kept per scan). nil until a scan lands and whenever the comparison is
+    /// invalidated, so it never outlives its diff; a swap keeps it. Published so the header
+    /// re-renders. Not the comparison's age, which is `lastScanReadAt`.
     @Published public internal(set) var lastScanDate: Date?
 
-    /// When the folders behind the most recent comparison were read — the older of its two walks —
-    /// which is how old the comparison really is, and the age its freshness pill and the
-    /// not-scanned card report. nil exactly when `lastScanDate` is; a swap keeps it too.
+    /// When the folders behind the latest comparison were read (the older of its two walks): the
+    /// comparison's real age, which its freshness pill and the not-scanned card report. nil exactly
+    /// when `lastScanDate` is; a swap keeps it.
     ///
-    /// **Not `lastScanDate`, because a scan from cached trees reads no disk.** It compares the
-    /// panes' walks (`prefetchedTrees`), each as old as the walk that made it
-    /// (`prefetchedTreeReadAt`), and a source switch keeps the other pane's walk — so it can be
-    /// hours old. Dated by the scan, the pill said "just now" over it and never gave the hour-old
-    /// warning. A scan that walks both folders itself has the two dates agree.
+    /// Not `lastScanDate`, because a scan from cached trees reads no disk: it compares the panes'
+    /// walks (`prefetchedTrees`), each as old as its `prefetchedTreeReadAt`, and a source switch
+    /// keeps the other pane's walk, so it can be hours old. A scan that walks both folders itself
+    /// has the two dates agree.
     @Published public internal(set) var lastScanReadAt: Date?
 
-    /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes),
-    /// given their **absolute paths**. Paths rather than basenames because this is the app's only
-    /// unrecoverable action and its dialog has to be able to tell two same-named items apart — the
-    /// duplicates flows ask about exactly that, since a group's copies usually share a name.
-    /// Defaults to `false` so an unwired manager never destroys data; the app wires an
-    /// NSAlert-backed confirmation at construction.
+    /// Confirms permanently deleting items that could not be moved to the Trash (such as on network
+    /// volumes), given their absolute paths: this is the app's only unrecoverable action, and its
+    /// dialog must tell two same-named items apart, which a duplicate group's copies usually are.
+    /// Defaults to `false` so an unwired manager never destroys data; the app wires an NSAlert
+    /// confirmation.
     public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { _ in
         return false
     }
 
-    /// Moves items to the Trash through the SYSTEM's file-operation service, for the case
-    /// `FileManager.trashItem` is refused permission. Returns original → trashed for whatever it
-    /// moved; an empty result means it could not either.
+    /// Moves items to the Trash through the system's file-operation service, for when
+    /// `FileManager.trashItem` is refused permission. Returns original → trashed for what it moved;
+    /// empty means it couldn't either.
     ///
-    /// **Why a second way to trash exists at all.** `FileManager.trashItem` performs the move in
-    /// THIS process, so it needs this process to be allowed to write wherever the Trash for that
-    /// item is — and for a file kept in iCloud Drive that is `~/Library/Mobile Documents/.Trash`,
-    /// not `~/.Trash`. Measured on the reported file: the item, its parent and its attributes are
-    /// all fine (a byte-identical copy in the same folder, made with `ditto` so the xattrs came
-    /// too, trashes without complaint from another process), and granting the app Full Disk Access
-    /// did not change the answer. `NSWorkspace.recycle` asks the system to perform the move
-    /// instead, which is how Finder does it.
+    /// `trashItem` moves in this process, so this process must be allowed to write to that item's
+    /// Trash, which for an iCloud Drive file is `~/Library/Mobile Documents/.Trash`; Full Disk
+    /// Access does not help. `NSWorkspace.recycle` asks the system to do the move, as Finder does.
     ///
-    /// **Defaults to doing nothing, and the app wires the real service at construction** — the
-    /// same shape as `permanentDeleteConfirmer` above, and for two reasons. `NSWorkspace` is
-    /// AppKit, which this engine may not import (`LayeringPinTests` enforces that, and caught the
-    /// first version of this); and an unwired manager then behaves exactly as it did before this
-    /// fallback existed, which is what makes adding it to the delete path safe.
-    ///
-    /// It is a FALLBACK, never the first attempt. `trashItem` reports per-item errors this cannot,
-    /// and it is the path every successful delete in this app has always taken.
+    /// Defaults to doing nothing, and the app wires the real service at construction: the engine
+    /// may not import AppKit (`LayeringPinTests`), and an unwired manager then behaves as if there
+    /// were no fallback. A fallback only, never the first attempt: `trashItem` reports per-item
+    /// errors this can't.
     public var trashViaWorkspace: @Sendable ([URL]) async -> [URL: URL] = { _ in [:] }
 
-    /// Whether a provider is moving this item's bytes right now — consulted by `deleteItems`
-    /// before it spends the re-registration retry, which physically renames the item twice.
+    /// Whether a provider is moving this item's bytes right now. `deleteItems` asks before spending
+    /// the re-registration retry, which renames the item twice.
     ///
-    /// **A property on the manager rather than a parameter, so exactly one path can consult it.**
-    /// The delete path's alternative to parking is a retryable refusal that leaves the file where
-    /// it is; the MOVE primitives' source cleanup reaches the same retry through
-    /// `retriedSourceCleanupTrash`, and there the alternative is `removeItem` — a permanent
-    /// deletion. One answer must not serve both, so the question is asked where the delete loop
-    /// can see it and nothing static can pick it up by accident.
+    /// A property, so only the delete loop consults it. There the alternative to parking is a
+    /// retryable refusal that leaves the file in place; the move primitives' source cleanup reaches
+    /// the same retry through `retriedSourceCleanupTrash`, where the alternative is `removeItem`, a
+    /// permanent delete. One answer must not serve both.
     ///
-    /// A seam for the reason `trashViaWorkspace` above is one: an uploading ubiquitous item cannot
-    /// be fabricated in a test, the flag is provider-set, and this decides the branch that must not
-    /// touch the file. Unlike `trashViaWorkspace` it defaults to the REAL probe, because
-    /// `URL.resourceValues` is Foundation and needs no AppKit — nothing has to be wired for it to
-    /// work, and an answer of false is the behaviour that existed before it.
+    /// A seam because an uploading item can't be fabricated in a test. It defaults to the real
+    /// probe (Foundation only, nothing to wire); false is the behaviour without it.
     public var isMidCloudTransfer: @Sendable (URL) -> Bool = { FileSyncManager.midCloudTransfer($0) }
 
-    /// Confirms a cloud (Claude) Filing classify before it commits, given a pre-flight cost estimate
-    /// and this month's spend-vs-cap. Consulted once per **refine pass** — never by a scan, which
-    /// classifies at ``FilingClassifierTier/free`` and cannot spend — and only when cloud Filing is
-    /// actually on (`filingUsesAI && filingUsesCloud`), just before the classifier runs. The real
-    /// cost is only known after the call, so this is the only chance to show the user a figure
-    /// first. Returning false skips the cloud call and leaves the free scan's suggestions in place.
-    /// Defaults to `true` (proceed) so an unwired manager keeps its prior behavior; the app wires an
-    /// NSAlert-backed estimate/budget prompt at construction.
+    /// Confirms a cloud (Claude) Filing classify before it commits, given a cost estimate and this
+    /// month's spend against the cap. Asked once per refine pass, only when cloud Filing is on
+    /// (`filingUsesAI && filingUsesCloud`), just before the classifier runs; never by a scan, which
+    /// classifies at ``FilingClassifierTier/free`` and can't spend. The real cost is known only
+    /// afterwards, so this is the only chance to show a figure. False skips the cloud call and
+    /// keeps the free scan's suggestions. Defaults to `true`; the app wires an estimate and budget
+    /// prompt.
     public var filingCloudSpendConfirmer: @MainActor (FilingSpendPreflight) -> Bool = { _ in
         return true
     }
 
-    /// Confirms a whole-tree pass whose PROBE ran out of budget — the tree is bigger than the pass
-    /// can analyse without a wait worth warning about.
+    /// Confirms a whole-tree pass whose probe ran out of budget: the tree is too big to analyse
+    /// without a wait worth warning about. Asked only when the probe stopped; otherwise the probe's
+    /// walk is the tree the pass uses.
     ///
-    /// Consulted only when the probe actually stopped, so on every ordinary source it never fires
-    /// and costs nothing: the probe walk under its budget IS the tree the pass then uses.
-    ///
-    /// **Defaults to `false` — refuse — and that is the fail-safe direction here.** Proceeding costs
-    /// time rather than data, so this is a weaker claim than `permanentDeleteConfirmer`'s, but the
-    /// failure it guards is precisely a pass that never finishes: an unwired manager that proceeded
-    /// would reintroduce the hang this exists to prevent, in the one configuration where nobody is
-    /// watching. A refusal is not silent — the caller logs it and leaves the previous result
-    /// standing. The app wires an NSAlert-backed prompt at construction.
+    /// Defaults to `false`, the fail-safe here: an unwired manager that proceeded would start a
+    /// pass that may never finish, where nobody is watching. A refusal is logged and leaves the
+    /// previous result standing. The app wires an NSAlert prompt.
     public var largeWalkConfirmer: @MainActor (LargeWalkPreflight) -> Bool = { _ in
         return false
     }
 
-    /// **How much a whole-tree pass reads before it stops to ask.**
+    /// How much a whole-tree pass reads before it stops to ask. Larger than `paneNodeBudget`, which
+    /// is about latency and truncates silently because a partial pane is still useful. These passes
+    /// have a progress bar and a cancel, and can't truncate: a storage total or a duplicate group
+    /// computed from part of a tree is a wrong answer.
     ///
-    /// Deliberately larger than `paneNodeBudget`, and the two are answering different questions. A
-    /// pane must stay responsive, so its budget is about latency and it truncates silently because
-    /// a partial view is still a useful view. These passes are deliberate acts with a progress bar
-    /// and a cancel, so theirs is about whether the work is worth starting — and they cannot
-    /// truncate at all, because a storage total or a duplicate group computed from part of a tree
-    /// is a wrong ANSWER rather than a partial one.
-    ///
-    /// Measured (`PaneNodeBudgetBenchmark`, Release, warm, on a 196,726-directory home folder): a
-    /// 400,000-entry walk costs ~2.3-2.5 s, which is a tolerable price for finding out that the
-    /// real answer would cost minutes. Below this, no prompt appears and nothing is spent — the
-    /// probe's tree is handed straight to the pass.
+    /// A 400,000-entry walk costs ~2.5 s (`PaneNodeBudgetBenchmark`, Release, warm), a fair price
+    /// for learning that the real answer would take minutes. Below it no prompt appears, and the
+    /// probe's tree goes straight to the pass.
     nonisolated public static let defaultWholeTreeProbeBudget = 400_000
 
-    /// The live probe budget. An instance property rather than the constant directly, so a test can
-    /// drive the guard against a fixture of a dozen files instead of one of four hundred thousand —
-    /// which is the difference between the confirm/decline paths being covered and being reasoned
-    /// about.
+    /// The live probe budget, an instance property so a test can drive the guard on a dozen-file
+    /// fixture.
     public var wholeTreeProbeBudget: Int = FileSyncManager.defaultWholeTreeProbeBudget
 
-    /// The durable, structured Sync History (X2) every copy/move/delete is recorded into —
-    /// separate from the in-memory Activity Log so it survives quit and can be filtered,
-    /// exported, and reversed by run. Injected (defaults to the shared singleton) so tests get
-    /// an isolated store. Recording is a best-effort side effect: `SyncHistoryStore.appendBatch`
-    /// never throws and hands its disk write to a background queue, so a store failure can never
-    /// block or fail the file operation that produced the record.
+    /// The durable Sync History every copy, move and delete is recorded into: unlike the in-memory
+    /// Activity Log it survives quit and can be filtered, exported and reversed by run. Injected
+    /// (defaults to the shared store) so tests get their own. Recording never fails or blocks the
+    /// operation: `SyncHistoryStore.appendBatch` doesn't throw and writes on a background queue.
     public var syncHistoryStore: SyncHistoryStore = .shared
 
-    /// The `UndoManager` action name captured the moment the last history-recorded run finished
-    /// registering its undo group, plus that run's records. Together they let
-    /// `undoLastSyncRunAskingFirst` verify the stack's top is STILL that run before reversing it —
-    /// the shared `UndoManager` also carries Filing/rename/"New Folder" actions that are not sync
-    /// runs and are not in the history.
+    /// The `UndoManager` action name captured when the last history-recorded run registered its
+    /// undo group, plus that run's records. They let `undoLastSyncRunAskingFirst` check that the
+    /// stack's top is still that run, since the shared `UndoManager` also holds Filing, rename and
+    /// New Folder actions that aren't sync runs.
     private(set) var lastRecordedRunUndoName: String?
     private(set) var lastRecordedRunRecords: [SyncHistoryRecord] = []
-    /// A fresh token each time a run arms the pairing, carried by the preview it produces — so
-    /// a confirmation shown for one run can tell, when it is answered, whether the run on top is
-    /// still that one (FR26). The name cannot: every bulk run is "Sync run".
+    /// A fresh token each time a run arms the pairing, carried by its preview, so a confirmation
+    /// can tell when answered whether the run on top is still the one it showed. The name can't:
+    /// every bulk run is "Sync run".
     private(set) var lastRecordedRunToken: UUID?
     /// When the pairing was last armed — how recent the run is, for its message's Show in History.
     private(set) var lastRecordedRunAt: Date?
-    /// Whether any run armed the pairing this session — distinguishes "the pairing was
-    /// invalidated" (a manual ⌘Z, a mixed delete, a manager swap) from "no sync run ever
-    /// happened", so the refusal doesn’t claim history changed "since the last sync
-    /// run" on a fresh launch that never had one.
+    /// Whether any run armed the pairing this session. Tells "the pairing was invalidated" (a
+    /// manual ⌘Z, a mixed delete, a manager swap) from "no sync run yet", so a fresh launch's
+    /// refusal doesn't claim history changed since a last sync run.
     private(set) var hasArmedRunPairingThisSession = false
     /// The Ask Claude card whose Apply tops the undo stack (`applyPlan`); cleared by every undo
     /// registration (`invalidateUndoableBanner`) and every undo or redo (`invalidateRunUndoPairing`).
     var planUndoToken: UUID?
 
-    /// Records a run's history entries, if any. A thin funnel so every op site records the same
-    /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
-    /// Also snapshots the run's undo-group name (each op site registers its undo BEFORE calling
-    /// this) so "Undo Last Run" can later confirm it's still the top of the stack.
+    /// Records a run's history entries, if any: one funnel so every op site records the same way.
+    /// Never fails the caller. Also snapshots the run's undo-group name (each op site registers its
+    /// undo first) so Undo Last Run can confirm it's still the top of the stack.
     ///
-    /// **Called in the same main-actor turn as the registration, never after an await** (FR26).
-    /// The bulk runs, a single sync and a pane copy used to call this only after awaiting their
-    /// identity walks, and the name read then was whatever topped the stack at the END of that
-    /// tail: a rename registered during it was paired with the run's records — "Undo Last Run"
-    /// described the run and reversed the rename — and a ⌘Z during it, whose invalidation had
-    /// already run, was undone by this re-arming the pairing over the group below.
+    /// **Call it in the same main-actor turn as the registration, never after an await.** Read
+    /// later, the top may be a rename registered meanwhile (Undo Last Run would describe the run
+    /// and reverse the rename), and a ⌘Z in between would be undone by re-arming the pairing over
+    /// the group below.
     ///
-    /// `pairedWithUndo: false` appends to the durable store WITHOUT touching the pairing — for
-    /// runs that registered no undo group covering exactly these records (an all-permanent
-    /// delete: nothing reached the Trash, so nothing was registered). Snapshotting there would
-    /// pair these records with whatever action happens to sit on top of the stack — and "Undo
-    /// Last Run" would then describe this run while reversing that unrelated one. The previous
-    /// pairing stays live: its group is still the top, so it still describes what undo() does.
+    /// `pairedWithUndo: false` appends without touching the pairing, for runs that registered no
+    /// undo group for these records (an all-permanent delete). Pairing them would describe this run
+    /// while reversing whatever sits on top. The previous pairing stays live: its group is still
+    /// the top.
     func recordSyncHistory(_ records: [SyncHistoryRecord], pairedWithUndo: Bool = true) {
         guard !records.isEmpty else { return }
         syncHistoryStore.appendBatch(records)
@@ -262,16 +208,14 @@ public class FileSyncManager: ObservableObject {
         hasArmedRunPairingThisSession = true
     }
 
-    /// Drops the run-undo pairing. Called on every direct `UndoManager` undo/redo (the
-    /// `undoManager` didSet wires the notifications): a manual ⌘Z can pop run B and leave run
-    /// A's *identically named* group ("Sync run") on top, where the name gate alone would pass —
-    /// previewing B's records while reversing A. Identity can't be checked by name, so any
-    /// undo/redo outside `reverseLastSyncRun` (which clears the pairing itself) invalidates it.
+    /// Drops the run-undo pairing. Called on every direct undo or redo (wired in the `undoManager`
+    /// didSet): a manual ⌘Z can pop run B and leave run A's identically named "Sync run" group on
+    /// top, where the name gate would preview B and reverse A. `reverseLastSyncRun` clears the
+    /// pairing itself.
     ///
-    /// Also called (internal, from `deleteItems`) when an op registers an undo group WITHOUT
-    /// arming the pairing — a mixed delete pushes a "Move <trashedCount> Items to Trash" group whose
-    /// name can collide with an earlier armed delete's, and the stale pairing would pass the
-    /// name gate over the wrong group.
+    /// Also called from `deleteItems` when an op registers an undo group without arming the
+    /// pairing: a mixed delete's "Move N Items to Trash" can match an earlier armed delete's name
+    /// and pass the gate over the wrong group.
     func invalidateRunUndoPairing() {
         lastRecordedRunUndoName = nil
         lastRecordedRunRecords = []
@@ -279,11 +223,10 @@ public class FileSyncManager: ObservableObject {
         planUndoToken = nil
     }
 
-    /// A preview of what "Undo Last Run" would reverse, or nil when it must not act: nil unless the
-    /// `UndoManager` can undo AND its next-undo action name still equals the last recorded run's
-    /// (i.e. nothing — a Filing move, a rename, a New Folder, or a manual ⌘Z — has changed the top
-    /// since). This is the gate that makes the reversal describe-what-it-does and never touch the
-    /// wrong action.
+    /// A preview of what Undo Last Run would reverse, or nil when it must not act: nil unless the
+    /// `UndoManager` can undo and its next action name still equals the last recorded run's, so
+    /// nothing (a Filing move, rename, New Folder or manual ⌘Z) has changed the top since. This
+    /// gate keeps the reversal from touching the wrong action.
     public var lastSyncRunUndoPreview: SyncRunUndoPreview? {
         guard let undoManager, undoManager.canUndo,
               let expected = lastRecordedRunUndoName,
@@ -294,30 +237,22 @@ public class FileSyncManager: ObservableObject {
         return SyncRunUndoPreview(actionName: expected, records: lastRecordedRunRecords, runToken: token)
     }
 
-    /// Why "Undo Last Run" would refuse right now, in the words the user sees — or nil when it
-    /// would act (`lastSyncRunUndoPreview` is non-nil).
-    ///
-    /// Shown only in the Sync History window's own alert (`undoLastSyncRunAskingFirst`). The
-    /// History window used to set the main window's banner instead, so a click there after a
-    /// relaunch looked like it did nothing — the answer landed in another window.
-    ///
-    /// The advice names the main window because ⌘Z pressed in Sync History acts on that window's
-    /// own (empty) undo stack; the file operations' stack is the main window's.
+    /// Why Undo Last Run would refuse right now, in the user's words, or nil when it would act.
+    /// Shown in the Sync History window's own alert (`undoLastSyncRunAskingFirst`), where the click
+    /// happened. The advice names the main window because ⌘Z in Sync History acts on that window's
+    /// own, empty undo stack.
     public var lastSyncRunUndoRefusal: String? {
-        // **A long run going is the first reason** (Banner Room, CF): undo waits for it, as every
-        // other write does, whatever the stack holds.
+        // A long run going is the first reason: undo waits for it, as every other write does,
+        // whatever the stack holds.
         if let run = activeProgress { return run.runLockReason ?? Progress.genericRunLockReason }
         guard lastSyncRunUndoPreview == nil else { return nil }
         guard let undoManager, undoManager.canUndo else {
             return "There’s no recent sync run to undo — the undo history resets when SyncCloud restarts."
         }
         let top = undoManager.undoActionName
-        // A DEAD pairing (a manual ⌘Z/⇧⌘Z or a partial delete invalidated it) is not a
-        // name mismatch: the top may well be named "Sync run", and the old text — "the
-        // most recent action is “Sync run”, not a sync run" — contradicted itself.
-        // NEVER-ARMED is different again: on a fresh launch with no sync run, "the undo
-        // history changed since the last sync run" would invent a run — name the top
-        // action instead (the pre-existing text, which is honest there).
+        // A dead pairing (a manual ⌘Z or ⇧⌘Z, or a partial delete, invalidated it) is not a name
+        // mismatch: the top may well be named "Sync run". Never armed is different again: with no
+        // sync run this launch, name the top action rather than invent a run.
         if lastRecordedRunUndoName == nil && hasArmedRunPairingThisSession {
             return "The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) in the main window to step back."
         }
@@ -326,14 +261,12 @@ public class FileSyncManager: ObservableObject {
             : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it."
     }
 
-    /// Reverses the most recent sync run, as the Sync History window's "Undo Last Run" drives it:
-    /// ask `confirm` with the preview, and reverse the run only on yes. The reversal reuses the
-    /// app's existing, tested `UndoManager` stack (safeMove-back, Trash-restore) — no new
-    /// file-mutating path; bulk runs are one grouped step, so a whole run reverses at once.
+    /// Reverses the most recent sync run for Sync History's Undo Last Run: asks `confirm` with the
+    /// preview, and reverses only on yes. Reuses the tested `UndoManager` stack, no new
+    /// file-mutating path; a bulk run is one grouped step, so it reverses at once.
     ///
-    /// When there is nothing it may reverse, `confirm` is never asked and the reason comes back
-    /// for the caller to show **where the click happened** — no banner is set, because the banner
-    /// belongs to the main window, not the one the user is looking at.
+    /// When nothing may be reversed, `confirm` isn't asked and the reason is returned for the
+    /// caller to show where the click happened. No banner: that belongs to the main window.
     /// - Returns: The refusal, or nil when it asked (whatever the answer was).
     @discardableResult
     public func undoLastSyncRunAskingFirst(confirm: (SyncRunUndoPreview) -> Bool) -> String? {
@@ -343,8 +276,7 @@ public class FileSyncManager: ObservableObject {
         // a run may have started behind it, too.
         guard activeProgress == nil, let current = lastSyncRunUndoPreview else { return loggedRunUndoRefusal() }
         // …and it must still be the run the alert listed: a second "Sync run" finishing behind the
-        // modal re-arms the pairing under the same name (FR26), and Undo would reverse a run the alert
-        // never listed.
+        // modal re-arms the pairing under the same name.
         guard current.runToken == preview.runToken else {
             Logger.shared.warning("Undo Last Run refused: the run on top of the undo stack is not the one the confirmation listed (\(preview.operationCount) operation(s) shown, \(current.operationCount) on top)")
             return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo Last Run… again to see what it would reverse."
@@ -353,8 +285,8 @@ public class FileSyncManager: ObservableObject {
         return nil
     }
 
-    /// `lastSyncRunUndoRefusal`, logged. The refusal is shown in Sync History's own alert, which
-    /// leaves no trace; the banner it replaced logged itself, so the log keeps the line.
+    /// `lastSyncRunUndoRefusal`, logged: Sync History's alert leaves no trace, so the log keeps the
+    /// line.
     private func loggedRunUndoRefusal() -> String? {
         let refusal = lastSyncRunUndoRefusal
         if let refusal { Logger.shared.info("Undo Last Run refused: \(refusal)") }
@@ -383,22 +315,18 @@ public class FileSyncManager: ObservableObject {
     internal var rawDifferences: [FileDifference] = [] {
         didSet { rawDifferencesVersion += 1 }
     }
-    /// Bumped on every write to ``rawDifferences``, including an in-place element edit. Lets
-    /// `applyFilters()` tell whether the authoritative rows moved while its detached compute
-    /// ran — the same trick `publishedLeftTreeVersion` plays for the panes, and the reason the
-    /// reconcile pass there can be skipped rather than made cheaper.
+    /// Bumped on every write to ``rawDifferences``, including an in-place element edit, so
+    /// `applyFilters()` can tell whether the rows moved while its detached compute ran (as
+    /// `publishedLeftTreeVersion` does for the panes) and skip the reconcile pass when they didn't.
     internal private(set) var rawDifferencesVersion = 0
     /// Counterpart for ``syncingDifferenceIds``: the other input the reconcile pass re-applies.
     internal private(set) var syncingDifferenceIdsVersion = 0
-    /// IDs of differences with an in-flight sync/copy operation — the source of truth for the
-    /// row-level `isSyncing` flag. `applyFilters()` rebuilds `differences` from
-    /// `rawDifferences`, which never carries the flag, so a mid-operation filter pass (hidden
-    /// toggle, ignore change, re-sort, a scan landing) would otherwise publish every row
-    /// un-marked and re-enable the header sync actions while files are still being written.
-    /// Every transition goes through `markSyncing`/`clearSyncing`, which update the set and
-    /// the published rows in the same main-actor turn — and `applyFilters()` re-stamps the
-    /// flag from this set (and drops resolved rows) at publish time, so a pass whose
-    /// snapshot predates a transition cannot re-install stale rows.
+    /// IDs of differences with a sync or copy in flight: the source of truth for each row's
+    /// `isSyncing`. `applyFilters()` rebuilds `differences` from `rawDifferences`, which never
+    /// carries the flag, so without this a filter pass mid-operation would un-mark every row and
+    /// re-enable the sync actions while files are still being written. `markSyncing`/`clearSyncing`
+    /// update the set and the rows in one main-actor turn, and `applyFilters()` re-stamps the flag
+    /// from this set at publish time, so a stale snapshot can't reinstall stale rows.
     internal private(set) var syncingDifferenceIds: Set<UUID> = [] {
         didSet { syncingDifferenceIdsVersion += 1 }
     }
@@ -406,13 +334,11 @@ public class FileSyncManager: ObservableObject {
     internal var verifiedSameDifferenceIds: Set<UUID> = []
     /// When non-nil, a "Verify All" run is in progress: (completed count, total count).
     @Published public var verifyAllProgress: (completed: Int, total: Int)?
-    /// After Verify All completes, the differences that verified identical — the UI offers to
-    /// copy them left→right. Cleared when the user copies or cancels, and whenever the rows
-    /// underneath are superseded (rescan, pane retarget, swap).
-    ///
-    /// The list and the epoch its verdicts were hashed under travel together as one value
-    /// (see ``VerifiedCopyOffer``), so an offer without its stamp is unrepresentable. Settable
-    /// only inside this module — the app side reads it and nothing more.
+    /// After Verify All, the differences that verified identical, which the UI offers to copy
+    /// left→right. Cleared when the user copies or cancels, and when the rows are superseded
+    /// (rescan, pane retarget, swap). The list travels with the epoch its verdicts were hashed
+    /// under (``VerifiedCopyOffer``), so an offer without its stamp can't exist. Settable only in
+    /// this module.
     @Published public internal(set) var verifiedIdenticalForCopy: VerifiedCopyOffer?
     /// Filtered list of differences between the left and right panes (respects `showHiddenFiles`, `ignoredPaths`, and `verifiedSameDifferenceIds`).
     @Published public var differences: [FileDifference] = [] {
@@ -422,52 +348,33 @@ public class FileSyncManager: ObservableObject {
     /// it says whether the deep compare done off-main against an entry snapshot is still
     /// answering the question the main actor is about to ask.
     internal private(set) var publishedDifferencesVersion = 0
-    /// How many times `applyFilters()` has had to run the reconcile pass because an input moved
-    /// while its detached compute ran.
-    ///
-    /// Exists so the gate's FAST path is observable. The slow path is well covered — deleting the
-    /// gate's condition fails two `InFlightSyncStateTests` — but no test can see a gate that
-    /// silently never fires, and an optimization that never fires is one that does not exist.
+    /// How many times `applyFilters()` ran the reconcile pass because an input moved while its
+    /// detached compute ran. Makes the gate's fast path observable: no test can see a gate that
+    /// silently never fires.
     internal private(set) var reconcilePassesRun = 0
-    /// The denominator for ``reconcilePassesRun``: passes that got far enough to evaluate the
-    /// gate at all.
-    ///
-    /// Deliberately not `filterGeneration`, which counts every pass *started* — a superseded pass
-    /// returns before the gate and would quietly deflate the ratio, making a gate that never
-    /// fires look like one that fires often. Bumped where the gate is read, so the two numbers
-    /// are always about the same set of passes.
+    /// The denominator for ``reconcilePassesRun``: passes that reached the gate. Not
+    /// `filterGeneration`, which counts every pass started; superseded passes return before the
+    /// gate and would deflate the ratio. Bumped where the gate is read, so both numbers cover the
+    /// same passes.
     internal private(set) var filterPassesReachingPublish = 0
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
-    /// When the running scan started, or nil when none is running.
-    ///
-    /// The Compare scan is the longest thing the app does — two full directory walks — and until
-    /// this existed it published a bare `isScanning` and nothing else, so its only report was an
-    /// indeterminate spinner. Every lens scan says more than that. There is no honest *fraction* to
-    /// publish (`FileDiffEngine.getFilesInDirectory` counts nothing on the way through, and adding
-    /// a per-entry callback would put a main-actor hop in the hottest path in the app), so this
-    /// publishes the one true number that costs nothing: how long it has been running.
-    ///
-    /// Set and cleared in lockstep with `isScanning`, so "scanning with no start time" is not a
-    /// state any reader has to handle.
+    /// When the running scan started, or nil when none is running. The Compare scan has no honest
+    /// fraction to publish (`FileDiffEngine.getFilesInDirectory` counts nothing, and a per-entry
+    /// callback would put a main-actor hop on the hottest path), so it publishes how long it has
+    /// run. Set and cleared with `isScanning`, so no reader sees one without the other.
     @Published public internal(set) var scanStartedAt: Date?
-    /// Whether the running scan has run long enough to be shown as running — what every busy
-    /// surface of Compare reads (its card, its count pill, the panes' Stop rung), where
-    /// `isScanning` stays the fact the commands decide by.
-    ///
-    /// **Most scans should never be seen.** A scan of two cached walks finishes in 120–400 ms on
-    /// the user's own pairs (the INFO log's `[scan] … completed … in` lines, 2026-10-09 to 10-15),
-    /// so showing `isScanning` as it is flipped the pill to "scanning…", the in-sync card to the
-    /// big scanning card, and both rungs to Stop, and back, inside half a second: a flash that
-    /// reports nothing anyone can act on. This rises only once a scan has run for
-    /// `defaultScanShownAfter` (`scanShownWait`), and falls with `isScanning`.
+    /// Whether the running scan has run long enough to show as running. Every busy surface of
+    /// Compare reads it (its card, its count pill, the panes' Stop rung); commands still decide by
+    /// `isScanning`. A scan of two cached walks usually takes 120–400 ms, and showing that would
+    /// flash the pill, the card and the rungs inside half a second. Rises once a scan has run for
+    /// `defaultScanShownAfter` (`scanShownWait`); falls with `isScanning`.
     @Published public internal(set) var isScanShown = false
-    /// How long a scan runs before `isScanShown` rises. 0.75 s clears every scan in that sample and
-    /// still answers inside the second after which a wait reads as the app having stalled.
+    /// How long a scan runs before `isScanShown` rises. 0.75 s clears typical scans and still
+    /// answers inside the second after which a wait reads as a stall.
     static let defaultScanShownAfter: Duration = .milliseconds(750)
-    /// The wait itself — `defaultScanShownAfter` of sleep. A seam rather than a duration so a test
-    /// decides when the wait ends instead of racing a clock: on a loaded machine a two-file scan has
-    /// been measured at over a second, longer than any wait a timing test could afford.
+    /// The wait itself, `defaultScanShownAfter` of sleep. A seam so a test decides when it ends
+    /// rather than racing a clock: on a loaded machine a two-file scan can take over a second.
     var scanShownWait: @MainActor () async -> Void = {
         try? await Task.sleep(for: FileSyncManager.defaultScanShownAfter)
     }
@@ -478,32 +385,23 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Small persisted facts about what the user last did
 
-    /// Where the manager keeps the handful of small facts that have to outlive a launch — each
-    /// lens's last-completed scan target, and the Compare scan's last summary.
+    /// Where the manager keeps the few small facts that outlive a launch: each lens's
+    /// last-completed scan target, and the Compare scan's last summary.
     ///
-    /// Injected by the app; **nil — the default, what the CLI and bare test managers get — turns
-    /// every one of them off entirely, reads and writes both.** Same rule as the cache-store URLs,
-    /// and for the same reason: a fallback to `.standard` would have every test that completes a
-    /// scan writing the user's real defaults.
-    ///
-    /// One property rather than one per feature, and named for the rule rather than for the first
-    /// feature to need it (it was `lensAutoRescanDefaults`): a second injected store would be a
-    /// second thing for the app to remember to set, and the failure mode of forgetting is a
-    /// feature that is silently off.
+    /// Injected by the app. nil, the default for the CLI and bare test managers, turns all of them
+    /// off, reads and writes both; a fallback to `.standard` would have every test that completes a
+    /// scan writing the user's real defaults. One store rather than one per feature, since
+    /// forgetting to set a second would leave a feature silently off.
     public var persistedUIStateDefaults: UserDefaults?
 
     /// The defaults key holding ``LastScanSummary`` as JSON.
     public static let lastScanSummaryKey = "compareLastScanSummary"
 
-    /// **Whether the last completed Compare scan could read both sides in full.**
-    ///
-    /// Not persisted, unlike `lastScanSummary`: it describes rows that are on screen right now, and
-    /// a coverage claim restored beside a table nobody has rebuilt would be a warning about a scan
-    /// that is not there. Cleared by `invalidateComparisonState` with the rows it belongs to.
-    ///
-    /// See ``PartialComparison`` for what it costs the result — the short version is that a side
-    /// whose root came back unread mints no Missing rows at all, so the count is a floor and
-    /// nothing on screen said so.
+    /// Whether the last completed Compare scan could read both sides in full. Not persisted, unlike
+    /// `lastScanSummary`: it describes the rows on screen, and restored beside a table nobody
+    /// rebuilt it would warn about a scan that isn't there. Cleared by `invalidateComparisonState`
+    /// with its rows. See ``PartialComparison``: a side whose root came back unread mints no
+    /// Missing rows, so the count is a floor.
     @Published public internal(set) var lastScanCoverage: PartialComparison = .complete
 
     /// What the last completed Compare scan found, restored at launch. See ``LastScanSummary``.
@@ -513,11 +411,9 @@ public class FileSyncManager: ObservableObject {
     /// inside `body`.
     @Published public internal(set) var lastScanSummary: LastScanSummary?
 
-    /// Restores the persisted summary. Called once by the app after injecting the defaults; a
-    /// no-op without them, which is how this stays off for the CLI and tests.
-    ///
-    /// A value that no longer decodes is dropped rather than repaired: the whole feature is one
-    /// line of reassurance on an empty state, and there is nothing here worth a migration.
+    /// Restores the persisted summary. Called once by the app after injecting the defaults; a no-op
+    /// without them. A value that no longer decodes is dropped: it is one line of reassurance on an
+    /// empty state, not worth a migration.
     public func loadLastScanSummary() {
         guard let defaults = persistedUIStateDefaults,
               let data = defaults.data(forKey: Self.lastScanSummaryKey),
@@ -540,12 +436,10 @@ public class FileSyncManager: ObservableObject {
     public static let lastDuplicatesScanRootKey = "tidyLastDuplicatesScanRoot"
     /// Absolute folders recent completed Filing scans covered, newest first.
     public static let lastFilingScanFolderKey = "tidyLastFilingScanFolder"
-    /// How many targets per lens to remember. **A single remembered target is not enough**: two
-    /// panes on two providers is the ordinary way this app is used, so one key meant scanning the
-    /// right pane silently withdrew consent for the left, and the feature fired or didn't
-    /// depending on which provider was scanned last. Sized like ``StorageLensStore/maxRoots`` and
-    /// for the same reason — someone who points a lens at a dozen folders should not accumulate
-    /// consent forever, and the oldest is the least likely to be wanted.
+    /// How many targets per lens to remember. One is not enough: two panes on two providers is
+    /// ordinary use, and scanning one pane would silently withdraw consent for the other. Sized
+    /// like ``StorageLensStore/maxRoots``, so consent doesn't accumulate forever and the oldest
+    /// goes first.
     public static let maxRememberedScanTargets = 12
     /// The target an auto-rescan was already attempted for this session, per lens — whatever the
     /// outcome. One attempt per target: a completed scan latches via `hasCompleted`, but a
@@ -565,26 +459,19 @@ public class FileSyncManager: ObservableObject {
         defaults.set(Array(recent.prefix(Self.maxRememberedScanTargets)), forKey: key)
     }
 
-    /// Whether `path` is one of the targets the user has scanned to completion — the consent an
-    /// auto-rescan needs.
-    ///
-    /// `array(forKey:)` rather than `stringArray(forKey:)` so a value of the wrong shape reads as
-    /// "nothing remembered" instead of trapping: the first build of this feature wrote a bare
-    /// String to these keys, and an install that ran it has one sitting there. It self-heals —
-    /// the next completed scan overwrites the key with an array — at the cost of that install
-    /// forgetting one target once, which is a manual scan away from being right again.
+    /// Whether `path` is a target the user has scanned to completion: the consent an auto-rescan
+    /// needs. `array(forKey:)`, not `stringArray(forKey:)`, so a value of the wrong shape, such as
+    /// a bare String, reads as nothing remembered instead of trapping; the next completed scan
+    /// overwrites it with an array.
     func lensScanTargetIsRemembered(_ path: String, forKey key: String) -> Bool {
         guard let defaults = persistedUIStateDefaults else { return false }
         return (defaults.array(forKey: key) as? [String] ?? []).contains(path)
     }
 
-    /// Whether `path` is a directory that exists right now.
-    ///
-    /// A remembered target can be deleted, renamed, or — the case that matters — sit on a cloud
-    /// folder that is not mounted this launch. Scanning it anyway succeeds and publishes zero
-    /// rows, and "no duplicates found" is a very different claim from "not scanned": it reads as
-    /// a result about the user's files rather than as an absence of one. A manual scan may still
-    /// do that, because the user asked; an automatic one must not say it unprompted.
+    /// Whether `path` is a directory that exists right now. A remembered target can be deleted,
+    /// renamed, or on a cloud folder not mounted this launch. Scanning it would publish zero rows,
+    /// and "no duplicates found" reads as a result about the user's files. A manual scan may do
+    /// that because the user asked; an automatic one must not.
     static func isReachableDirectory(_ path: String, fileManager: FileManaging) -> Bool {
         var isDir: ObjCBool = false
         return fileManager.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
@@ -616,14 +503,13 @@ public class FileSyncManager: ObservableObject {
         get { duplicateScanLifecycle.isRunning }
         set { duplicateScanLifecycle.isRunning = newValue }
     }
-    /// Numeric progress for the duplicate scan's hashing phase; nil during the walk phase (total
-    /// unknown) and whenever no scan is running. Drives the determinate bar in the lens workspace.
+    /// Numeric progress for the duplicate scan's hashing phase; nil during the walk (total unknown)
+    /// and when no scan runs. Drives the lens's determinate bar.
     ///
-    /// Deliberately NOT folded into ``duplicateScanLifecycle``: its projected publisher
-    /// (`$duplicateScanProgress`) — and its exact per-write emission cadence — is a tested
-    /// contract (the numeric-progress and epoch-guard pin tests subscribe to it), and a computed
-    /// forwarder has no projected value. It is the only lens with determinate progress; its
-    /// writes are epoch-gated alongside the lifecycle's status via `updateScan`.
+    /// Not folded into ``duplicateScanLifecycle``: its projected publisher
+    /// (`$duplicateScanProgress`) and per-write cadence are a tested contract, and a computed
+    /// forwarder has no projected value. Its writes are epoch-gated with the lifecycle's status via
+    /// `updateScan`.
     @Published public var duplicateScanProgress: (completed: Int, total: Int)? = nil
     /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
     public var hasFoundDuplicates: Bool {
@@ -638,13 +524,12 @@ public class FileSyncManager: ObservableObject {
     /// The kept-separate keys the last duplicate scan found a copy of missing from its tree —
     /// groups no scan can flag again, so not counted or promised back (see `keptSeparateKeys`).
     @Published var keptSeparateGoneKeys: Set<String> = []
-    /// IDs of duplicate groups whose merge is currently in flight. A merge can run for minutes
-    /// (it re-hashes the keeper, copies unique files, then trashes the folded copy); this both
-    /// guards re-entry — a second click would re-plan against the half-merged keeper and mint
-    /// " 2" junk copies — and drives the lens card's disabled/progress state while it runs.
+    /// IDs of duplicate groups whose merge is in flight. A merge can run for minutes (re-hash the
+    /// keeper, copy unique files, trash the folded copy); this blocks a second click, which would
+    /// re-plan against the half-merged keeper and mint " 2" junk copies, and drives the card's
+    /// progress state.
     @Published public internal(set) var mergingGroupIDs: Set<DuplicateGroup.ID> = []
-    /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard;
-    /// internal — tests reach it via @testable, and nothing outside the module ever did).
+    /// Store for "Keep separate" duplicate-group keys, injectable so tests don't touch `.standard`.
     var duplicateIgnoreDefaults: UserDefaults = .standard
     /// The in-flight Find Duplicates task. Internal like the other lens tasks — the UI cancels
     /// through `cancelFindDuplicates()`, never by touching the task.
@@ -670,15 +555,12 @@ public class FileSyncManager: ObservableObject {
         get { storageLensLifecycle.root }
         set { storageLensLifecycle.root = newValue }
     }
-    /// Numeric progress for the build; the walk phase has no granular count, so it stays 0 (the UI
-    /// shows an indeterminate spinner). Reserved for a future determinate pass — kept as its own
-    /// stored property (like `duplicateScanProgress`) rather than folded into the lifecycle.
+    /// Numeric progress for the build. The walk has no granular count, so it stays 0 and the UI
+    /// shows a spinner; its own property, like `duplicateScanProgress`, for a future determinate
+    /// pass.
     ///
-    /// Deliberately NOT `@Published`, unlike its neighbours. It is written only to `0`, at the two
-    /// ends of a build, and read nowhere — so the wrapper bought nothing and cost two whole-window
-    /// invalidations per lens build (every `@Published` write on this manager re-evaluates the
-    /// observing view). Whoever lands the determinate pass adds the wrapper back along with the
-    /// reader that justifies it.
+    /// Not `@Published`: it is written only to 0 and read nowhere, and every `@Published` write on
+    /// this manager re-evaluates the observing view. Add the wrapper back with a reader.
     public var storageLensProgress: Double = 0
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
@@ -687,13 +569,12 @@ public class FileSyncManager: ObservableObject {
 
     /// The Name Normalizer scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
     @Published public internal(set) var nameScanLifecycle = ScanLifecycle()
-    /// The risky names (files AND folders) found by the most recent scan, each with its safe
+    /// The risky names (files and folders) found by the latest scan, each with its safe
     /// replacement. Empty until a scan runs; rows drop as they're fixed or skipped.
     ///
-    /// `internal(set)` because `reportable(_:)` is not advice: a kept name reaching this list is a
-    /// rename offered for something the user has already said they meant. A publicly settable
-    /// property left that invariant resting on every future caller remembering a comment, which is
-    /// the arrangement `filingSuggestions` was moved off for the same reason.
+    /// `internal(set)` so that `reportable(_:)` filtering out kept names doesn't rest on every
+    /// caller: a kept name here would offer a rename for something the user said they meant.
+    /// `filingSuggestions` is guarded the same way.
     @Published public internal(set) var riskyNames: [RiskyName] = []
     /// True while a Name Normalizer scan (walk + detect) is running.
     public var isScanningNames: Bool {
@@ -716,12 +597,10 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Rename pass — bring a folder back to its own convention (see +FilingRename.swift)
 
-    /// The folder rename plans found by the most recent Filing scan, one per folder that has
-    /// drifted from its own `NN. Mon YYYY` convention. Empty until a scan runs.
-    ///
-    /// `internal(set)` for the same reason `riskyNames` is: the only sound producer is the planner
-    /// running over a freshly walked tree, and a publicly settable list would let a caller put a
-    /// rename on screen that no folder ever asked for.
+    /// The folder rename plans from the latest Filing scan, one per folder that drifted from its
+    /// own `NN. Mon YYYY` convention. Empty until a scan runs. `internal(set)`, like `riskyNames`:
+    /// only the planner over a freshly walked tree may produce one, or a caller could show a rename
+    /// no folder asked for.
     @Published public internal(set) var renamePlans: [RenamePlan] = []
     /// True while an "Rename all" pass is applying renames.
     @Published public var isApplyingRenames = false
@@ -732,29 +611,22 @@ public class FileSyncManager: ObservableObject {
 
     /// The Filing scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
     @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
-    /// What the last folder-memory re-survey did, or nil when none has run this session.
-    ///
-    /// Published so the lens can say what happened rather than leaving a menu item that appears to
-    /// do nothing — the common outcome is "up to date", which is invisible unless it is stated.
+    /// What the last folder-memory re-survey did, or nil if none ran this session. Published so the
+    /// lens can say what happened; the usual "up to date" is invisible unless stated.
     @Published public internal(set) var filingSurveyReport: FilingSurveyReport?
-    /// When a survey last LOOKED at the tree, whatever it found — the corpus's `surveyedAt` stamp
-    /// (ROADMAP v5 §4.1). The app seeds it from disk at attach; a finishing re-survey publishes it
-    /// directly, so the footnote updates the moment the survey does. Public set for the same
-    /// reason `filingMemory`'s is: the app hands over what it read.
+    /// When a survey last looked at the tree, whatever it found: the corpus's `surveyedAt` stamp.
+    /// The app seeds it from disk at attach; a finishing re-survey publishes it, so the footnote
+    /// updates at once. Publicly settable, like `filingMemory`, so the app can hand over what it
+    /// read.
     @Published public var filingSurveyedAt: Date?
-    /// The folder-memory re-survey lifecycle — a separate lens from the scan's on purpose.
-    ///
-    /// A re-survey is not a scan: it produces no suggestions, and flipping `isSuggestingFiles`
-    /// would swap the lens to its scanning view and blank the results the user is reading. Its own
-    /// lifecycle lets the status line say what is happening without the results moving.
+    /// The folder-memory re-survey lifecycle, separate from the scan's. A re-survey makes no
+    /// suggestions, and flipping `isSuggestingFiles` would swap the lens to its scanning view and
+    /// blank the results being read.
     @Published public internal(set) var filingSurveyLifecycle = ScanLifecycle()
-    /// Where the running document survey has got to, or nil when none is running (RD11).
-    ///
-    /// **Its own published value rather than fields on ``ScanLifecycle``.** Six lifecycles share
-    /// that struct and five of them have nothing that can pause and no denominator to count
-    /// against; the survey's card needs a fraction, an ETA basis and a typed pause reason, and
-    /// giving all six those fields would move every test that builds or compares one. The
-    /// lifecycle above still says *running / completed / root*, which is what it has always meant.
+    /// Where the running document survey has got to, or nil when none is running. Its own value,
+    /// not fields on ``ScanLifecycle``: of the six lifecycles sharing that struct only the survey
+    /// pauses or has a denominator, and it needs a fraction, an ETA basis and a typed pause reason.
+    /// The lifecycle still says running, completed and root.
     @Published public internal(set) var documentSurveyProgress: DocumentSurveyProgress?
 
     /// What the last document survey did, for the completion card. Survives the run so the summary
@@ -769,8 +641,8 @@ public class FileSyncManager: ObservableObject {
     /// stands in for it, since only a File Provider can make a file cloud-only.
     public var documentSurveyIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
 
-    /// How a source's reading downloads a cloud-only document before reading it (GL). GO,
-    /// 2026-10-31: it stays downloaded after.
+    /// How a source's reading downloads a cloud-only document before reading it. It stays
+    /// downloaded after.
     public var sourceDocumentFetch: @Sendable (String) async -> Void = { await FileSyncManager.fetchCloudOnly($0) }
 
     /// The running survey, so Pause, Resume and Stop reach it. Not published: it is a handle, not a
@@ -794,15 +666,12 @@ public class FileSyncManager: ObservableObject {
     /// decided from are this actor's; cleared at the start of every run.
     var documentSurveyOverride = DocumentSurveyOverride()
 
-    /// What the Mac is doing that a background survey should stand aside for — display asleep,
+    /// What the Mac is doing that a background survey should stand aside for: display asleep,
     /// thermal state, Low Power Mode.
     ///
-    /// **A closure the app supplies, for the reason `filingSnippetExtractor` is one.** All three
-    /// facts come from AppKit and `ProcessInfo`, and `Sync` does not reach for either: nothing in
-    /// this module reads the display's state or a thermal sensor, and a library that did would be
-    /// answering differently under `swift test` than in the app. nil means "nothing known", which
-    /// yields a survey that never pauses for the machine — the honest behaviour for a host that
-    /// cannot see it, rather than one that guesses.
+    /// A closure the app supplies, as `filingSnippetExtractor` is: these come from AppKit and
+    /// `ProcessInfo`, and a `Sync` that read them would answer differently under `swift test`. nil
+    /// means nothing known, so the survey never pauses for the machine rather than guessing.
     public var machineConditions: (@MainActor @Sendable () -> MachineConditions)?
 
     /// Filing suggestions from the most recent scan of a picked folder.
@@ -818,39 +687,27 @@ public class FileSyncManager: ObservableObject {
     /// like ``filingLastCacheReuse`` it always describes the list currently shown.
     @Published public internal(set) var filingLastRefine: FilingRefineSummary?
 
-    /// The running refine pass's token, or nil when none is running.
-    ///
-    /// Both the re-entrancy guard and the ownership stamp: the token is compared again after the
-    /// await for the same reason `filingTryAnotherInFlight` carries one — a pass whose entry was
-    /// cleared mid-round-trip (a provider switch) must not release or overwrite its successor's.
-    ///
-    /// **The single storage for "a refine is running".** There was a separate stored
-    /// `isRefiningFilingSuggestions` boolean, set and cleared alongside this — the same fact twice,
-    /// with nothing stopping the two from disagreeing. Measured: deleting the token's re-entrancy
-    /// check changed no test, because the boolean's copy of that check silently covered for it.
-    /// One stored fact, so a mutation to the guard is a mutation to the only guard.
+    /// The running refine pass's token, or nil when none is running: the only stored fact for "a
+    /// refine is running". It is both the re-entrancy guard and the ownership stamp. It is compared
+    /// again after the await, as `filingTryAnotherInFlight`'s is, so a pass whose entry was cleared
+    /// mid-round-trip (a provider switch) doesn't release or overwrite its successor's. Keep it the
+    /// only copy, so the guard has one place to break.
     @Published public internal(set) var filingRefineInFlight: UUID?
 
-    /// True while the opt-in refine pass is out at the backend.
-    ///
-    /// Deliberately **not** `isSuggestingFiles`: that flag swaps the Organize lens to its scanning
-    /// view, and the whole point of the refine pass is that it improves a list the user is already
-    /// looking at. Flipping the scan flag would take that list off screen and put it back changed,
-    /// which is the one thing a "refine what I'm seeing" action must not do.
+    /// True while the opt-in refine pass is out at the backend. Not `isSuggestingFiles`, which
+    /// swaps the Organize lens to its scanning view: a refine improves the list the user is looking
+    /// at and must not take it off screen.
     public var isRefiningFilingSuggestions: Bool { filingRefineInFlight != nil }
-    /// Counts WHOLESALE replacements of `filingSuggestions` — the scan's single publish and
-    /// `clearFiling()`, and nothing else. It is the currency check a "Try another" round-trip
-    /// needs across its await: "is the list my verdict was computed against still the list on
-    /// screen?". Deliberately NOT the scan epoch, which answers a different question — `endScan`
-    /// lives in the scan body's `defer`, so a CANCELLED rescan bumps the epoch twice without ever
-    /// republishing, and the epoch would drop a verdict about cards that never moved.
+    /// Counts wholesale replacements of `filingSuggestions`: the scan's single publish and
+    /// `clearFiling()`. A "Try another" round-trip checks it across its await: is the list its
+    /// verdict was computed against still on screen? Not the scan epoch: `endScan` runs in the
+    /// scan's `defer`, so a cancelled rescan bumps the epoch twice without republishing, and would
+    /// drop a verdict about cards that never moved.
     ///
-    /// Per-item edits (`replaceFilingSuggestion`, the `removeAll` in `dismissFilingSuggestion` /
-    /// `performFiling`) do NOT bump it: they touch one card, so they cannot invalidate another
-    /// card's in-flight snapshot, and a re-ask for the SAME card is already refused by
-    /// `filingTryAnotherInFlight`'s token. Internal rather than private only because the one
-    /// writer lives in `FileSyncManager+Filing.swift`; write it through
-    /// `publishFilingSuggestions(_:)`, never by hand.
+    /// Per-item edits (`replaceFilingSuggestion`, the `removeAll` in
+    /// `dismissFilingSuggestion`/`performFiling`) don't bump it: they can't invalidate another
+    /// card's snapshot, and a re-ask for the same card is refused by `filingTryAnotherInFlight`'s
+    /// token. Write it only through `publishFilingSuggestions(_:)`.
     var filingSuggestionsGeneration = 0
     /// True while a Filing scan (walk folder + learn taxonomy + suggest) is running.
     public var isSuggestingFiles: Bool {
@@ -870,98 +727,74 @@ public class FileSyncManager: ObservableObject {
     /// The in-flight Filing scan task. Internal like the other lens tasks — the UI cancels
     /// through `cancelFindFilingSuggestions()`, never by touching the task.
     var filingScanTask: Task<Void, Never>?
-    /// On-device content extractor for Filing (file path → entity/keyword tokens), injected by the
-    /// app (PDF text / OCR / NaturalLanguage). nil = filename-only (F1). Gated by the read-contents
-    /// setting. Runs only on files with no confident home from their name.
+    /// On-device content extractor for Filing (path → entity and keyword tokens, from PDF text, OCR
+    /// and NaturalLanguage), injected by the app. nil means filename-only. Gated by the
+    /// read-contents setting; runs only on files with no confident home from their name.
     public var filingContentExtractor: (@Sendable (String) async -> Set<String>)?
-    /// Defaults store for the Filing read-contents toggle (injectable so tests don't touch standard;
-    /// internal — tests reach it via @testable, and nothing outside the module ever did).
+    /// Defaults store for the Filing read-contents toggle, injectable so tests don't touch
+    /// `.standard`.
     var filingContentDefaults: UserDefaults = .standard
-    /// Defaults store for remembered filing rules (F3), injectable so tests don't touch standard
-    /// (internal — tests reach it via @testable, and nothing outside the module ever did).
+    /// Defaults store for remembered filing rules, injectable so tests don't touch `.standard`.
     var filingRuleDefaults: UserDefaults = .standard
     /// Intelligent Filing backend — reasons about the folder taxonomy + file contents to pick a
     /// home (on-device Apple LLM, opt-in cloud), injected by the app. nil = keyword engine only.
     /// Its verdicts override the heuristic guess for files it's confident about.
     public var filingClassifier: FilingClassifier?
-    /// §5.6's seam — the mapping refine, injected by the app beside the classifier. nil when the
-    /// app has not wired it; whether a KEY is stored is `filingCloudRefineAvailable`'s question,
-    /// same as the filing refine's split.
+    /// The mapping refine, injected by the app beside the classifier. nil when the app hasn't wired
+    /// it; whether a key is stored is `filingCloudRefineAvailable`'s question, as for the filing
+    /// refine.
     public var mappingRefiner: MappingRefiner?
-    /// Extracts a bounded text excerpt for the classifier (PDF text / OCR / plain), injected by the
-    /// app. Gated by the same read-contents setting as F2's token extractor.
+    /// Extracts a bounded text excerpt for the classifier (PDF text, OCR, plain), injected by the
+    /// app. Gated by the same read-contents setting as `filingContentExtractor`.
     public var filingSnippetExtractor: (@Sendable (String) async -> String?)?
     /// Warms up the classifier backend (e.g. loads the on-device model), injected by the app. Called
     /// when a Filing scan starts so the ~cold-start latency overlaps the keyword + content phases.
     public var filingClassifierPrewarm: (@Sendable () -> Void)?
 
-    /// Names the backend that will answer this pass's classifications — the `model` component of
+    /// Names the backend that will answer this pass's classifications: the `model` component of
     /// ``FilingVerdictKey``. Called once per pass, before any classifying.
     ///
-    /// **Takes the tier**, because the answer differs by tier and nothing else can reconcile them:
-    /// the free pass resolves to the on-device model however the cloud toggle is set, while the
-    /// refine pass resolves the way the router does. Asking one tier-blind question and using the
-    /// answer for both would file every free-pass verdict under whatever the refine pass would
-    /// have used — the same silent substitution described below, in the other direction and on
-    /// every scan. It doubles as the check ``FileSyncManager/freePassWouldReachAPaidBackend``
-    /// makes: the app answering "cloud" for `.free` is the app telling us its router will bill for
-    /// a pass that promised not to, and we skip classifying rather than find out by being charged.
+    /// Takes the tier because the answer differs by tier: the free pass resolves to the on-device
+    /// model whatever the cloud toggle says, and the refine pass resolves as the router does. One
+    /// tier-blind answer would file free-pass verdicts under the refine pass's model. It doubles as
+    /// ``FileSyncManager/freePassWouldReachAPaidBackend``'s check: the app answering "cloud" for
+    /// `.free` means its router would bill a pass that promised not to, so classifying is skipped.
     ///
-    /// It exists because **only the app can answer this correctly.** The manager knows what is
-    /// *configured* (the cloud toggle and the model picker, both plain defaults), but the app's
-    /// router also weighs whether a key can actually be read, and downgrades to the on-device
-    /// model when it cannot. Caching an on-device verdict under a cloud model's name would make
-    /// that downgrade *durable*: the next scan of an unchanged file would serve the on-device
-    /// answer while the user believed Claude had filed it — the same silent-substitution problem
-    /// `FilingBackendRouter.missingKeyDowngradeMessage` exists to surface, made permanent.
-    /// Deciding the identity here also keeps the Keychain query on the app's side, where it stays
-    /// gated behind the cloud toggle rather than running on every scan.
+    /// Only the app can answer: its router also checks that a key can be read, and downgrades to
+    /// on-device when it can't. Caching an on-device verdict under a cloud model's name would make
+    /// that downgrade durable, serving on-device answers the user believes came from Claude (what
+    /// `FilingBackendRouter.missingKeyDowngradeMessage` surfaces). It also keeps the Keychain query
+    /// on the app's side, behind the cloud toggle.
     ///
-    /// Returning nil disables the cache for this scan — read *and* write. That is the honest
-    /// answer whenever the app cannot vouch for which backend will run.
+    /// Returning nil disables the cache for this scan, read and write: the honest answer when the
+    /// app can't vouch for the backend. Unset, it falls back to the configured identity, which is
+    /// right for the CLI and tests.
     ///
-    /// nil (unset) falls back to the configured identity, which is right for the CLI and tests:
-    /// neither has a Keychain downgrade to model.
-    ///
-    /// **Known gap, deliberately not plumbed:** a cloud call that fails at the *network* falls back
-    /// to on-device inside the app's classifier, after this has already been asked. Such a verdict
-    /// is cached under the cloud identity. It self-corrects when the file changes or via "Rescan
-    /// (ignore cache)", and closing it properly would mean widening the `FilingClassifier` seam to
-    /// carry provenance back — a change to a public contract with a dozen call sites, for a window
-    /// the app already logs a warning about.
+    /// Known gap: a cloud call that fails at the network falls back to on-device inside the app's
+    /// classifier, after this was asked, so that verdict is cached under the cloud identity. It
+    /// corrects when the file changes or on "Rescan (ignore cache)"; fixing it would widen the
+    /// public `FilingClassifier` seam, and the app already logs a warning.
     public var filingBackendIdentity: (@Sendable (FilingClassifierTier) -> String?)?
 
-    /// Whether the cloud backend is **set up** — the display question, and a different question
-    /// from ``filingBackendIdentity``'s.
+    /// Whether the cloud backend is set up: a display question, and far cheaper than
+    /// ``filingBackendIdentity``'s. That one resolves the real route through
+    /// `AnthropicKeychain.hasKey`, which reads the secret and can raise the Keychain password
+    /// prompt: right for a pass about to use the key, wrong for a toolbar button SwiftUI
+    /// re-evaluates on every render, including every keystroke in the Organize search field.
     ///
-    /// **It exists because the two cost wildly different things, and only one of them may be asked
-    /// while the user types.** `filingBackendIdentity` resolves the real route, which means
-    /// `AnthropicKeychain.hasKey`, which *reads the secret* and on a locked or ACL-guarded item
-    /// raises the Keychain password prompt. That is the right question for a pass about to use the
-    /// key — and exactly the wrong one for a toolbar button, which SwiftUI re-evaluates on every
-    /// render, including every keystroke in the Organize search field. Measured: the Refine button
-    /// asked the router once per render.
-    ///
-    /// The app answers this with `AnthropicKeychain.isConfigured` — an attributes-only match that
-    /// never decrypts and never prompts. `AnthropicKeychain` documents the split itself and points
-    /// display-only callers here.
-    ///
-    /// The trade is that "an item is stored" is not "the item is readable", so with a corrupt or
-    /// ACL-refused key this says yes while the route says on-device. That costs no money — the
-    /// spend gate reads the real route — and ``refineFilingSuggestions(_:)`` names the downgrade in
-    /// its banner rather than reporting a Claude result nobody got. nil (unset) falls back to the
-    /// real route, which is right for the CLI and tests: neither has a Keychain to be slow about.
+    /// The app answers with `AnthropicKeychain.isConfigured`, an attributes-only match that never
+    /// decrypts or prompts. The trade: "stored" isn't "readable", so with a corrupt or refused key
+    /// this says yes while the route says on-device. That costs no money (the spend gate reads the
+    /// real route), and ``refineFilingSuggestions(_:)`` names the downgrade in its banner. Unset,
+    /// it falls back to the real route, which is right for the CLI and tests.
     public var filingCloudRefineConfigured: (@Sendable () -> Bool)?
 
-    /// Where the Filing verdict cache is persisted. **nil disables the cache entirely** — no read,
-    /// no write, every file classified as before.
+    /// Where the Filing verdict cache is persisted. nil disables the cache entirely: no read, no
+    /// write.
     ///
-    /// There is deliberately no ambient default here. Falling back to
-    /// ``FilingVerdictStore/defaultURL(fileManager:)`` would mean library code reaching into the
-    /// real home directory whenever nobody said otherwise, and the first thing that happens under
-    /// `swift test` is a few dozen Filing tests constructing a bare `FileSyncManager()` — each of
-    /// which would then read and write the user's actual cache file. The app opts in by setting
-    /// this at startup; the CLI and tests get no cache and behave exactly as they did.
+    /// No ambient default: falling back to ``FilingVerdictStore/defaultURL(fileManager:)`` would
+    /// have every test that builds a bare `FileSyncManager()` read and write the user's real cache
+    /// file. The app sets it at startup; the CLI and tests get no cache.
     public var filingVerdictCacheURL: URL?
 
     /// The verdict cache, loaded from disk on first use and written back after a scan records into
@@ -971,9 +804,8 @@ public class FileSyncManager: ObservableObject {
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
     /// The name ruleset that scan checked against (its `nameProvider`), set and cleared with
-    /// ``filingLastProviderRoot`` — so a refine or a "Try another" holds a model's NEW folder names
-    /// to the same provider rules the scan did (FR47). nil ⇒ no provider rules, only
-    /// `validateItemName`.
+    /// ``filingLastProviderRoot``, so a refine or "Try another" holds a model's new folder names to
+    /// the same provider rules. nil means no provider rules, only `validateItemName`.
     public var filingLastNameProvider: CloudProvider.ProviderType?
 
     // MARK: Automations (N2)
@@ -995,12 +827,9 @@ public class FileSyncManager: ObservableObject {
     var automationDryRunTask: Task<Void, Never>?
     /// The capped folder list SENT to the classifier (bounded for token cost).
     public var filingLastTaxonomyFolders: [String] = []
-    /// The tree's own filing artifacts, loaded once and reused by every pass.
-    ///
-    /// Injected by the app rather than read here, exactly as the verdict cache and the hash index
-    /// are: `Sync` never reaches into a real home directory. Both nil is the ordinary state for
-    /// anyone who has not had their tree surveyed, and it restores the behaviour the app had before
-    /// any of this existed.
+    /// The tree's own filing artifacts, loaded once and reused by every pass. Injected by the app,
+    /// like the verdict cache and the hash index: `Sync` never reaches into a real home directory.
+    /// nil is the ordinary state for a tree that has not been surveyed.
     public var filingFolderProfile: FolderProfile? {
         didSet {
             // Bumped BEFORE the caches are dropped, so an in-flight warm-up started for the
@@ -1013,36 +842,27 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Bumped on every write to ``filingFolderProfile`` — the cache key both structure memos read,
-    /// and the token the off-actor warm-up presents before it installs anything.
-    ///
-    /// A counter rather than the profile itself: `FolderProfile` is a 5,020-entry dictionary on the
-    /// real tree, and comparing one per render to decide whether a cache is live would cost more
-    /// than the cache saves. `&+=` because wrap-around is not a correctness question here — two
-    /// *consecutive* values are what anything compares, and a run of 2⁶⁴ profile writes is not a
-    /// thing.
+    /// Bumped on every write to ``filingFolderProfile``: the cache key both structure memos read,
+    /// and the token the off-actor warm-up presents before it installs. A counter, because
+    /// comparing a 5,000-entry `FolderProfile` per render would cost more than the cache saves.
+    /// `&+=` because only consecutive values are compared, so wrap-around doesn't matter.
     private var filingFolderProfileGeneration: UInt64 = 0
 
     /// The warm-up computing ``structureReport`` off the main actor for the current profile, or nil.
     /// Cancelled and replaced when the profile changes again.
     private var structureWarmUpTask: Task<Void, Never>?
 
-    /// Computes the detector sweep off the main actor and installs it in the cache, so the first
-    /// Organize render after a survey lands finds it already there.
+    /// Computes the detector sweep off the main actor and caches it, so the first Organize render
+    /// after a survey finds it there. The synchronous path in ``structureReport`` stays correct: a
+    /// render that arrives first computes and caches the report itself, and this then installs an
+    /// identical value. Nothing is published; a cache entry changes no answer.
     ///
-    /// **The synchronous path in ``structureReport`` remains the answer, not a fallback that can be
-    /// wrong**: a render arriving before this finishes computes the report itself, caches it, and
-    /// this task then installs an identical value for the same profile. Nothing here is published —
-    /// installing a cache entry does not change any answer, and a publish would cost a render.
-    ///
-    /// Three properties the guards buy:
-    /// - **No stale install.** The generation is captured before the hop and re-checked on the main
-    ///   actor; a warm-up for a profile that has since been replaced returns without touching the
-    ///   cache. Cancellation is a fast path, not the guarantee — the token is.
-    /// - **No retain past the manager's life.** `[weak self]` on both the detached body and the
-    ///   main-actor hop, so a manager torn down mid-sweep is not held open by it.
-    /// - **No deadlock.** The detached body touches nothing actor-isolated: `FolderProfile` and
-    ///   `StructureReport` are both `Sendable` value types, and the only hop back is the install.
+    /// - No stale install: the generation is captured before the hop and re-checked on the main
+    ///   actor. Cancellation is a fast path; the token is the guarantee.
+    /// - No retain past the manager's life: `[weak self]` on both the detached body and the
+    ///   main-actor hop.
+    /// - No deadlock: the detached body touches nothing actor-isolated (`FolderProfile` and
+    ///   `StructureReport` are `Sendable` values); the only hop back is the install.
     private func warmStructureReport() {
         structureWarmUpTask?.cancel()
         guard let profile = filingFolderProfile else {
@@ -1060,27 +880,16 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Where the tree disagrees with its own habits — the whole detector set's report, computed
-    /// once per profile.
+    /// Where the tree disagrees with its own habits: the whole detector set's report, computed once
+    /// per profile. Cached because the caller is a view body: the detectors walk every folder in
+    /// the profile (about 5,000 on a real tree), and Organize's overview asks on every render.
+    /// Warmed off the main actor too (``warmStructureReport()``): the sweep is cheap enough to pay
+    /// on a render that arrives first, but not worth paying behind a tab switch.
     ///
-    /// **Cached, because the caller is a view body.** The detectors walk every folder in the
-    /// profile (5,020 of them on the real tree as of 2026-09-02) to build each family's
-    /// vocabulary, and Organize's overview asks for this on every render.
-    ///
-    /// **And warmed off the main actor** — see ``warmStructureReport()``. The sweep is no longer
-    /// the 1.6 s it was (`vocabulary` re-walked the whole profile per child of every family until
-    /// 2026-09-02), but it is not free either: `synccloud restructure --json`, which is a profile
-    /// decode plus one sweep, went 1.78 s → 0.15 s on that tree. What is left is small enough to
-    /// pay on a render that arrives first, and still not worth paying behind a tab switch when a
-    /// warm-up can have paid it already.
-    ///
-    /// The cache is keyed on nothing but the profile's own identity: `filingFolderProfile`'s
-    /// `didSet` drops it, which is the only way the answer can change — the detectors read the
-    /// profile and nothing else, no disk, no clock. **Scope is deliberately not part of the key**
-    /// (ROADMAP v5 §5.2): the lens scopes this report at render time by path prefix, so one cache
-    /// serves every scope and there is no scoped invalidation to get wrong. That is also why this
-    /// is not `@Published`: it is a pure function of a stored property, and republishing it would
-    /// be a second source of truth for the same fact.
+    /// Keyed on nothing but the profile: `filingFolderProfile`'s `didSet` drops it, the only way
+    /// the answer can change, since the detectors read nothing else. Scope isn't part of the key:
+    /// the lens scopes the report at render time by path prefix, so one cache serves every scope.
+    /// Not `@Published` either: it is a pure function of a stored property.
     public var structureReport: StructureReport {
         if let cachedStructureReport { return cachedStructureReport }
         guard let profile = filingFolderProfile else { return .empty }
@@ -1089,68 +898,47 @@ public class FileSyncManager: ObservableObject {
         return report
     }
 
-    /// The findings alone — every kind, in §5.2's grouped order.
+    /// The findings alone, every kind, in the report's grouped order.
     public var structureFindings: [StructureFinding] { structureReport.findings }
 
     private var cachedStructureReport: StructureReport?
 
-    /// Whether the user has opened Restructure's answer **this launch**.
+    /// Whether the user has opened Restructure's answer this launch. Every other lens shows its
+    /// setup card until its scan has run this launch (`hasSuggestedFiling`, `hasScannedDuplicates`,
+    /// `hasScannedNames`, `hasBuiltStorage`). Restructure has no scan: its findings are a pure
+    /// function of the folder profile, read at startup, so this flag declares that fact for it.
     ///
-    /// ## Why this flag exists at all
-    ///
-    /// Every other lens shows its setup card until its scan has run, and the flag that decides
-    /// that (`hasSuggestedFiling`, `hasScannedDuplicates`, `hasScannedNames`, `hasBuiltStorage`)
-    /// is a scan lifecycle that starts false at launch. So all of them open on the card, and a
-    /// relaunch puts them back there.
-    ///
-    /// **Restructure had no such flag, because it has no scan.** Its findings are a pure function
-    /// of the folder profile, which is read off disk during startup — so it arrived at its answer
-    /// before the user had asked anything, and it was the one lens that never showed the card.
-    /// This is the same "has this lens been run this launch" fact the others get for free,
-    /// declared explicitly for the one that cannot derive it.
-    ///
-    /// **Not persisted, deliberately.** The point is the launch boundary: the survey behind the
-    /// answer can be weeks old, and starting the session on the card is what makes "these are
-    /// cached results, here is how to refresh them" a thing the user is told rather than has to
-    /// remember. A stored flag would say "you looked at this once in July" and skip it forever.
+    /// Not persisted: the survey behind the answer can be weeks old, and opening each session on
+    /// the card tells the user these are cached results and how to refresh them. A stored flag
+    /// would skip the card forever.
     @Published public var hasReviewedStructure = false
-    /// Where those artifacts live, for the one pass that writes one back — see
-    /// ``resurveyFilingMemory(root:taxonomy:)``. Injected for the same reason they are: `Sync` does
-    /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any
-    /// machine that has never been surveyed.
+    /// Where those artifacts live, for the one pass that writes one back
+    /// (``resurveyFilingMemory(root:taxonomy:)``). Injected for the same reason: `Sync` doesn't
+    /// decide that a real home directory exists. nil means no re-survey.
     public var filingProfilesDirectory: URL?
-    /// The id those artifacts were actually **read under** — the folder name, not the `profileId`
-    /// field inside the file.
+    /// The id those artifacts were read under: the folder name, not the `profileId` field in the
+    /// file.
     ///
-    /// **The directory is the identity**, which ``FilingProfileStore/active(in:)`` states and warns
-    /// about when the two disagree: a `folder-profile.json` with no `profileId` decodes to
-    /// `"default"`, so a tree read from `work/` would have its re-survey written to `default/`,
-    /// where nothing reads it — and the fingerprint rehashed against that empty folder, which turns
-    /// off the verdict cache for every file. The app already loads the roster, the tag store and
-    /// the fingerprint under this id; the re-survey is the one pass that was still deriving its own
-    /// from the field, so it could send both artifacts somewhere the loader would never look.
-    ///
-    /// nil ⇒ fall back to the field, which is the pre-existing behaviour and the only thing a test
-    /// that never set this can expect.
+    /// The directory is the identity (``FilingProfileStore/active(in:)`` warns when the two
+    /// disagree). A `folder-profile.json` with no `profileId` decodes to `"default"`, so a tree
+    /// read from `work/` would have its re-survey written to `default/`, where nothing reads it,
+    /// and the fingerprint rehashed against that empty folder would turn off the verdict cache. The
+    /// app loads the roster, tag store and fingerprint under this id too. nil falls back to the
+    /// field, which is what a test that never sets it expects.
     public var filingProfileDirectoryId: String?
-    /// Where the two content indexes live — `~/Library/Application Support/SyncCloud`.
-    ///
-    /// **Injected, never defaulted**, for exactly the reason the line above is and the reason
-    /// ``FilingProfileStore/defaultDirectory(fileManager:)`` states: `Sync` does not decide that a
-    /// real home directory exists. Left nil, "is this document already filed?" and the satellite
-    /// relation are both no-ops — which is the state of any machine that has never hashed anything,
-    /// and the state every test runs in. Defaulting it would have had the filing tests decode ten
-    /// megabytes of the developer's own index on every scan.
+    /// Where the two content indexes live: `~/Library/Application Support/SyncCloud`. Injected,
+    /// never defaulted, for the reason ``FilingProfileStore/defaultDirectory(fileManager:)``
+    /// states: `Sync` doesn't decide that a real home directory exists. nil makes "is this document
+    /// already filed?" and the satellite relation no-ops, as in every test; a default would have
+    /// the filing tests decode the developer's own index on every scan.
     public var contentIndexDirectory: URL?
     /// The identity index the filing scan last built, and the index files' dates and sizes it was
     /// built from — see ``alreadyFiledIndex(in:providerRoot:)``.
     var filingAlreadyFiledIndex: (key: [String], index: DocumentIdentityIndex)?
-    /// Whether a document is on this disk to be read, asked before a re-survey opens one.
-    ///
-    /// Defaults to the real check, so this is the production path rather than a hook something else
-    /// has to remember to install — see ``FilingSurvey/isAvailable(_:)`` for why a cloud-only
-    /// placeholder must not be mistaken for an empty file. A test replaces it to make eviction reproducible,
-    /// which is otherwise impossible to stage.
+    /// Whether a document is on this disk to be read, asked before a re-survey opens one. Defaults
+    /// to the real check, so production needs nothing installed; see
+    /// ``FilingSurvey/isAvailable(_:)`` for why a cloud-only placeholder must not be mistaken for
+    /// an empty file. Tests replace it to stage eviction.
     public var filingDocumentIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
     /// Called at the start of each of Refresh's two off-main hops, on whatever thread runs it — the
     /// seam a test reads to prove the corpus decode and the memory build stay off the main thread.
@@ -1159,41 +947,34 @@ public class FileSyncManager: ObservableObject {
     /// How many `finishInterruptedSurveyReplay` calls are carrying a cut-off survey in; Refresh
     /// refuses while any is.
     var surveyReplaysInFlight = 0
-    /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
-    /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
+    /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey doesn't
+    /// replay answers composed against the old tree. See
+    /// ``FilingProfileStore/fingerprint(id:in:)``.
     ///
-    /// **Nil means UNAVAILABLE — an artifact exists but could not be read — and turns the verdict
-    /// cache off for read and write both** at the two key-building sites, exactly like a nil
-    /// verdict identity: a verdict recorded under a digest minted without the unreadable
-    /// component can never be looked up again once the file is fixed. `""` is different — a tree
-    /// with no artifacts at all, a perfectly recurring digest.
+    /// nil means unavailable (an artifact exists but couldn't be read), and turns the verdict cache
+    /// off, read and write, at both key-building sites: a verdict keyed by a digest missing the
+    /// unreadable part could never be found again once the file is fixed. `""` is a tree with no
+    /// artifacts, a stable digest.
     public var filingArtifactFingerprint: String? = ""
-    /// Loose PDFs that were READ and gave up nothing — scans with no text layer.
-    ///
-    /// Recorded rather than acted on: recovering their text means rendering a page and running it
-    /// through Vision, measured at 0.5–2.1 s each on a real tree. That is nothing for one file and
-    /// ten minutes for a 500-file inbox, so it is offered (``readScan(for:)``) instead of spent.
+    /// Loose PDFs that were read and gave up nothing: scans with no text layer. Recorded, not acted
+    /// on: OCR through Vision costs 0.5–2.1 s a file, nothing for one but ten minutes for a
+    /// 500-file inbox, so it is offered (``readScan(for:)``) instead.
     public internal(set) var filingUnreadableScans: Set<String> = []
-    /// Page 1 of each file the scan read, bounded to ``FilingRouter/contentSampleChars``.
-    ///
-    /// Kept because the *rule offered after a filing move* wants the same evidence the router had:
-    /// a file called `Scan 2026-03-02.pdf` says nothing in its name, and without the page it read
-    /// two minutes ago the offer falls back to the extension. Re-reading the PDF at click time to
-    /// recover text already in hand is the one thing that would make the offer expensive.
-    ///
-    /// Bounded, not the whole excerpt: 400 characters is the sample the memory's weights were
-    /// measured under, and 500 files of full extraction is megabytes held for one click.
+    /// Page 1 of each file the scan read, bounded to ``FilingRouter/contentSampleChars``. Kept so
+    /// the rule offered after a filing move has the router's evidence: `Scan 2026-03-02.pdf` says
+    /// nothing in its name, and re-reading the PDF at click time would make the offer expensive.
+    /// Bounded because 400 characters is the sample the memory's weights were measured under, and
+    /// full excerpts for 500 files is megabytes held for one click.
     public internal(set) var filingPageSamples: [String: String] = [:]
     /// Renders a PDF's first page and reads it with OCR — injected by the app, because Vision has no
     /// place in a framework-free module. nil ⇒ the offer is never made.
     public var filingOCRExtractor: (@Sendable (String) async -> String?)?
     /// Files whose OCR is currently running, so a second click cannot start a second render.
     public internal(set) var filingOCRInFlight: Set<String> = []
-    /// Loose files the last scan found only in the cloud (TE287, GJ), so it placed them by name.
-    ///
-    /// Recorded, never fetched: a scan that downloaded what it could not read would pull every
-    /// installer and archive in a cloud Downloads onto the disk to look at page 1. The cards say
-    /// "placed by name" and ``downloadAndReadFiling(_:)`` fetches them when asked.
+    /// Loose files the last scan found only in the cloud, so it placed them by name. Recorded,
+    /// never fetched: downloading what it couldn't read would pull every installer and archive in a
+    /// cloud Downloads onto the disk. The cards say "placed by name", and
+    /// ``downloadAndReadFiling(_:)`` fetches them when asked.
     public internal(set) var filingNotDownloaded: Set<String> = []
     /// True while ``downloadAndReadFiling(_:)`` is fetching and reading.
     @Published public internal(set) var isDownloadingFilingFiles = false
@@ -1208,12 +989,11 @@ public class FileSyncManager: ObservableObject {
     public var filingMemory: FilingMemory? {
         didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
     }
-    /// The household — who documents belong to. Loaded beside the artifacts above (from
-    /// `people.json`, or seeded from the profile's person axis), and part of the router index for
-    /// the same reason they are: it decides the person-axis score and the cross-person veto.
-    ///
-    /// Kept in step with ``filingPeopleStore`` rather than set independently once the store exists:
-    /// the store is the editable truth, this is the compiled copy the engine reads.
+    /// The household: who documents belong to. Loaded beside the artifacts above (from
+    /// `people.json`, or seeded from the profile's person axis), and part of the router index
+    /// because it decides the person-axis score and the cross-person veto. Kept in step with
+    /// ``filingPeopleStore`` once the store exists: the store is the editable truth, this the
+    /// compiled copy the engine reads.
     public var filingPersonRegistry: PersonRegistry? {
         didSet { invalidateFilingRouterIndex(); rebuildPersonIdentityIndex() }
     }
@@ -1224,19 +1004,17 @@ public class FileSyncManager: ObservableObject {
     /// What the cross-person rule has refused, so the People section can report it. Injected by
     /// the app like every other store; nil (tests, CLI) simply records nothing.
     public var filingPersonVetoLog: PersonVetoLog?
-    /// The editable roster, when the app has somewhere to keep one.
+    /// The editable roster, when the app has somewhere to keep one. Unlike the profile and memory,
+    /// it is written (``PeopleStore``). The subscriptions below make an edit take effect without a
+    /// relaunch: they recompile the registry, drop the router index built from the old one, and
+    /// re-derive the artifact fingerprint so verdicts composed against the old roster aren't
+    /// replayed.
     ///
-    /// Unlike the profile and the memory, this artifact is *written* — see ``PeopleStore``. The
-    /// subscriptions below are what make an edit take effect without a relaunch: they recompile
-    /// the registry, drop the router index built from the old one, and re-derive the artifact
-    /// fingerprint so cached verdicts composed against the previous roster are not replayed.
-    ///
-    /// **Two subscriptions, because they answer to different moments.** The registry is compiled
-    /// from the roster *in memory*, so `$people` is exactly its trigger. The fingerprint hashes
-    /// the roster *on disk*, and `$people` publishes before `save()` writes — reading it there
-    /// hashed the previous household's bytes and left every edit one save stale, which is the
-    /// replay the fingerprint exists to stop. It follows `$savedRevision` instead, which bumps
-    /// only after the write lands.
+    /// Two subscriptions, because they answer to different moments. The registry compiles from the
+    /// roster in memory, so `$people` is its trigger. The fingerprint hashes the roster on disk,
+    /// and `$people` publishes before `save()` writes, so reading it there would hash the previous
+    /// roster and leave every edit one save stale. It follows `$savedRevision`, which bumps only
+    /// after the write lands.
     public var filingPeopleStore: PeopleStore? {
         didSet {
             filingPersonRegistry = filingPeopleStore?.registry ?? filingPersonRegistry
@@ -1258,45 +1036,37 @@ public class FileSyncManager: ObservableObject {
     private var peopleCancellable: AnyCancellable?
     private var peopleSaveCancellable: AnyCancellable?
 
-    /// His verdicts on whose document is whose — see ``PersonTagStore``.
+    /// The user's verdicts on whose document is whose (``PersonTagStore``). The second writable
+    /// filing artifact, wired like the roster: a store with a subscription, so a verdict recorded
+    /// in the person view re-renders without a relaunch.
     ///
-    /// The second writable filing artifact, and wired exactly like the roster: a store rather than
-    /// a value, with a subscription so a verdict recorded in the person view re-renders the surface
-    /// that asked for it without a relaunch.
-    ///
-    /// **Not part of ``filingArtifactFingerprint``, unlike `people.json`.** That fingerprint exists
-    /// so cached *classifier* answers are not replayed against a changed question, and the roster
-    /// changes the question — it moves the router's shortlist through the person-axis score and the
-    /// cross-person veto. A tag does neither: it says who one document belongs to, is read only by
-    /// the person gather, and re-deriving every cached verdict because one file was confirmed would
-    /// be an expensive answer to a question nothing asked.
+    /// Not part of ``filingArtifactFingerprint``, unlike `people.json`. The fingerprint keeps
+    /// cached classifier answers from being replayed against a changed question, and the roster
+    /// changes the question (the person-axis score and the cross-person veto move the shortlist). A
+    /// tag only says who one document belongs to, and only the person gather reads it.
     public var filingPersonTagStore: PersonTagStore? {
         didSet {
             personTagCancellable = filingPersonTagStore?.$tags
                 .dropFirst()
                 .sink { [weak self] _ in
-                    // Announced on THIS object for the same reason the roster's edit is: the store
-                    // is a separate ObservableObject behind a plain var, so a view watching only
-                    // the manager would see nothing.
+                    // Announced on this object for the roster's reason: a view watching only the
+                    // manager would see nothing.
                     self?.objectWillChange.send()
-                    // **A "not theirs" has to take effect when it is pressed, not next launch.**
-                    // The identifier index is built from the surveyed tree plus these rejections,
-                    // and every other input to it rebuilds on its own `didSet`. Without this the
-                    // correction sat on disk while the wrong attribution kept being made — which is
-                    // most of what made it feel like the app was not listening.
+                    // A "not theirs" must take effect when pressed, not next launch. The identifier
+                    // index is built from the surveyed tree plus these rejections, and every other
+                    // input rebuilds it on its own `didSet`; without this the wrong attribution
+                    // would keep being made while the correction sat on disk.
                     self?.rebuildPersonIdentityIndex()
                 }
         }
     }
     private var personTagCancellable: AnyCancellable?
 
-    /// Everything Restructure remembers — suppressions and Ask answers now, drafts and the
-    /// applied ledger when §5.4/§5.5 land. Wired exactly like the roster and the person tags: a
-    /// store rather than a value, with the change re-announced on this object so the lens and the
-    /// rail badge re-render the moment a finding is suppressed.
-    ///
-    /// **Not part of ``filingArtifactFingerprint``**, for `filingPersonTagStore`'s reason: a
-    /// suppression changes what the lens shows, never the question any classifier was asked.
+    /// Everything Restructure remembers: suppressions and Ask answers. Wired like the roster and
+    /// the person tags: a store whose changes are re-announced on this object, so the lens and the
+    /// rail badge re-render the moment a finding is suppressed. Not part of
+    /// ``filingArtifactFingerprint``, for `filingPersonTagStore`'s reason: a suppression changes
+    /// what the lens shows, never what a classifier was asked.
     public var restructureStore: RestructureStore? {
         didSet {
             restructureCancellable = restructureStore?.objectWillChange
@@ -1305,62 +1075,50 @@ public class FileSyncManager: ObservableObject {
     }
     private var restructureCancellable: AnyCancellable?
 
-    /// True while a Restructure landing (scaffold, plan apply, or ledger undo) is anywhere
-    /// between its guards passing and its last step finishing. `activeFileOperationsCount`
-    /// covers only step 3's queued moves — it drops to zero while steps 6–7 re-derive the
-    /// profile through long awaits, and a second landing entering through that window would
-    /// record itself under a profile id the first landing is about to replace, wedging the undo
-    /// chain behind two honest-but-permanent refusals. Checked by `restructureLandingRefusal`.
+    /// True while a Restructure landing (scaffold, plan apply or ledger undo) is anywhere between
+    /// its guards passing and its last step finishing. `activeFileOperationsCount` covers only step
+    /// 3's queued moves and drops to zero while steps 6–7 re-derive the profile through long
+    /// awaits. A second landing entering then would record itself under a profile id the first is
+    /// about to replace, wedging the undo chain behind two permanent refusals. Checked by
+    /// `restructureLandingRefusal`.
     ///
-    /// **Published and readable outside this module, because a surface has to be able to say a
-    /// landing is running.** It was neither, so the Restructure lens could not see it: "Update
-    /// the survey" walked the tree for about five seconds with no busy state, no progress and no
-    /// completion message, which reads as a dead button. He clicked it repeatedly on 2026-08-29
-    /// and got four full re-derivations plus eight "another reorganisation is landing right now"
-    /// refusals, all from a control that looked like it had done nothing.
+    /// Published and public so a surface can show that a landing is running: "Update the survey"
+    /// walks the tree for seconds, and with no busy state it reads as a dead button and gets
+    /// clicked again.
     @Published public internal(set) var restructureLandingInProgress = false
 
-    /// What ⌘Q's guard counts as in flight: the queued file operations, and a Restructure landing
-    /// as one more while it runs (FR17).
-    ///
-    /// The guard read only `activeFileOperationsCount`, which is zero through a landing's
-    /// re-derive — seconds of corpus replay after `profiles.json` already names the new profile
-    /// folder and before that folder has its corpus and memory. A quit there asked nothing and
-    /// relaunched onto a survey with nothing learned in it. A landing is one operation however
-    /// many moves it queued, so this is the larger of the two, never their sum.
+    /// What ⌘Q's guard counts as in flight: the queued file operations, plus a Restructure landing
+    /// as one more while it runs. `activeFileOperationsCount` alone is zero through a landing's
+    /// re-derive, after `profiles.json` already names the new profile folder but before that folder
+    /// has its corpus and memory; a quit there would relaunch onto a survey with nothing learned. A
+    /// landing is one operation however many moves it queued, so this is the larger of the two,
+    /// never their sum.
     public var operationsAQuitWouldInterrupt: Int {
         max(activeFileOperationsCount, restructureLandingInProgress ? 1 : 0)
     }
 
-    /// Where a landing has got to, while it is running — nil at every other moment.
-    ///
-    /// **One small struct, published from the main actor, coalesced.** Every write to a published
-    /// property on this manager re-evaluates the window's root view — both file panes, the
-    /// differences pane and the inspector — so a progress value that published once per file
-    /// would be the storm ``ProgressPublishGate`` was written to stop. `RestructureApply` updates
-    /// this at its own step boundaries, and inside step 3 through that same gate.
+    /// Where a landing has got to while it runs; nil otherwise. One small struct, published from
+    /// the main actor and coalesced: every published write on this manager re-evaluates the
+    /// window's root view (both panes, the differences pane, the inspector), so publishing per file
+    /// would be the storm ``ProgressPublishGate`` stops. `RestructureApply` updates it at its step
+    /// boundaries, and inside step 3 through that gate.
     @Published public var restructureApplyProgress: RestructureApplyProgress?
 
-    /// ``structureFindings`` minus what the user said never to suggest again — what every surface
-    /// renders and counts. One definition, because the lens, the overview and the rail badge all
-    /// filtered `structureFindings` independently, and a suppression honoured by two of the three
-    /// would leave a badge counting a card that never renders.
-    /// §5.9's findings — the one detector that reads the duplicate scan rather than the profile,
-    /// so it lives beside the memoised report instead of inside it: `duplicateGroups` has its own
-    /// publish cycle, and the profile cache must not be invalidated by a scan finishing. Cheap on
-    /// every access — one pass over the current groups, which are already in memory.
+    /// The duplicated-taxonomy findings: the one detector that reads the duplicate scan rather than
+    /// the profile, so it lives beside the memoised report, not inside it. `duplicateGroups` has
+    /// its own publish cycle, and a scan finishing must not invalidate the profile cache. Cheap on
+    /// every access: one pass over the groups in memory.
     public var duplicatedTaxonomyFindings: [StructureFinding] {
         guard let profile = filingFolderProfile, duplicateScanCoversSurvey else { return [] }
         return StructureDuplicatedTaxonomy.findings(groups: duplicateGroups, in: profile)
     }
 
-    /// §5.9's staleness truth, in one place: whether a finished duplicate scan that COVERS the
-    /// surveyed tree is on hand. Deliberately not `!duplicateGroups.isEmpty` — a clean scan
-    /// leaves zero groups while very much having run, and a scan of an unrelated root leaves
-    /// groups that say nothing about the survey's tree. Both directions lied through the
-    /// emptiness test. No `isRunning` guard, on the lifecycle's own rule: the root is published
-    /// WITH results, never at scan start, so a non-nil root always labels what is on screen —
-    /// guarding on the flag made the answer flicker off for the length of every re-scan.
+    /// Whether a finished duplicate scan that covers the surveyed tree is on hand: the
+    /// duplicated-taxonomy findings' staleness rule, in one place. Not `!duplicateGroups.isEmpty`:
+    /// a clean scan leaves zero groups, and a scan of an unrelated root leaves groups that say
+    /// nothing about the survey's tree. No `isRunning` guard: the root is published with results,
+    /// never at scan start, so a non-nil root always labels what is on screen, and guarding on the
+    /// flag would blank the answer during every re-scan.
     public var duplicateScanCoversSurvey: Bool {
         guard let scanRoot = duplicateScanRoot,
               let profileRoot = filingFolderProfile?.root else { return false }
@@ -1369,25 +1127,20 @@ public class FileSyncManager: ObservableObject {
             || surveyed.hasPrefix(scanRoot.hasSuffix("/") ? scanRoot : scanRoot + "/")
     }
 
-    /// Everything the three inputs to ``visibleStructureFindings`` can contribute to its answer,
-    /// in one comparable value — the memo's key.
-    ///
-    /// **Every field is here because the answer moves when it moves**, and the two that are not
-    /// counters are the two that are cheap to compare outright:
-    /// - `profile` — ``filingFolderProfileGeneration``, which stands for the whole
-    ///   `filingFolderProfile` (and therefore for `structureReport`, and for the folder universe
-    ///   and file counts §5.9 reads).
-    /// - `duplicateGroups` — a `didSet` counter on the array. `duplicateGroups` is rewritten
-    ///   wholesale by a scan and mutated element-wise by a merge, a fold and a keeper change; a
-    ///   `didSet` on the stored property sees all of them, where a count or a scan flag would miss
-    ///   the element writes. Hashing the groups per render is the thing being avoided.
-    /// - `coversSurvey` — ``duplicateScanCoversSurvey``, which gates §5.9's findings on the scan
-    ///   root and can flip with no change to the groups at all (a scan of a different root).
-    /// - `store` and `suppressed` — the store's identity *and* its suppression set, compared by
-    ///   value. The set is the user's "never suggest this again" list: single digits in practice,
-    ///   so comparing it outright is cheaper than the render it guards, and it cannot go stale the
-    ///   way a counter on a separate object could if a store were swapped in carrying the same
-    ///   count. Both, because a different store with an equal set is still a different store.
+    /// Everything the inputs to ``visibleStructureFindings`` can contribute to its answer, in one
+    /// comparable value: the memo's key. Each field moves when the answer can:
+    /// - `profile`: ``filingFolderProfileGeneration``, standing for the whole `filingFolderProfile`
+    ///   (and so for `structureReport`, and the folder universe and file counts the
+    ///   duplicated-taxonomy findings read).
+    /// - `duplicateGroups`: a `didSet` counter on the array. A scan rewrites the groups wholesale,
+    ///   and a merge, a fold or a keeper change edits elements; a `didSet` sees all of them, where
+    ///   a count would miss element writes. Hashing the groups per render is what this avoids.
+    /// - `coversSurvey`: ``duplicateScanCoversSurvey``, which can flip with no change to the groups
+    ///   (a scan of another root).
+    /// - `store` and `suppressed`: the store's identity and its suppression set, by value. The set
+    ///   is single digits in practice, cheaper to compare than the render it guards, and can't go
+    ///   stale the way a counter on a swapped-in store could. Both, because a different store with
+    ///   an equal set is still a different store.
     private struct VisibleFindingsKey: Equatable {
         let profile: UInt64
         let duplicateGroups: UInt64
@@ -1398,6 +1151,9 @@ public class FileSyncManager: ObservableObject {
 
     private var cachedVisibleStructureFindings: (key: VisibleFindingsKey, value: [StructureFinding])?
 
+    /// ``structureFindings`` minus what the user said never to suggest again: what every surface
+    /// renders and counts. One definition for the lens, the overview and the rail badge, so a
+    /// suppression can't leave a badge counting a card that never renders.
     public var visibleStructureFindings: [StructureFinding] {
         let key = VisibleFindingsKey(
             profile: filingFolderProfileGeneration,
@@ -1411,27 +1167,21 @@ public class FileSyncManager: ObservableObject {
         return value
     }
 
-    /// The uncached answer.
-    ///
-    /// **Memoised at this layer, not only under it** (proposal from the 09-02 perf review): the
-    /// report below is already cached, but this rebuilt §5.9's findings over every duplicate group,
-    /// re-sorted and re-deduped the whole list through `grouped`, and re-filtered the suppressions
-    /// on *every access* — and Organize reads it two to four times per render, the window root
-    /// twice more.
+    /// The uncached answer. Memoised at this layer as well as below it: the report is cached, but
+    /// this re-derives the duplicated-taxonomy findings over every group, re-groups the whole list
+    /// and re-filters suppressions, and Organize reads it several times per render.
     private func computeVisibleStructureFindings(store: RestructureStore?) -> [StructureFinding] {
-        // Through `grouped`, not appended raw: §5.2's rule is that one folder's rows sit
-        // together, and the taxonomy findings joining the list after the report was grouped
-        // would strand a folder's second observation at the bottom.
+        // Through `grouped`, not appended raw: one folder's rows sit together, and findings
+        // appended after the report was grouped would strand a folder's second observation at the
+        // bottom.
         let all = StructureDetectors.grouped(structureFindings + duplicatedTaxonomyFindings)
         guard let store else { return all }
         return all.filter { !store.isSuppressed(RestructureKey($0)) }
     }
 
-    /// Records a cross-person refusal, resolving the ids to the names a person would recognise.
-    ///
-    /// The engine reports registry **ids** because that is what it reasons with; nobody wants to
-    /// read `elder-2` in a sentence about their father, so the display names are looked up here,
-    /// once, at the point the event becomes something a human will see.
+    /// Records a cross-person refusal, resolving the ids to names a person would recognise. The
+    /// engine reports registry ids; nobody wants to read `elder-2` in a sentence about their
+    /// father, so the names are looked up here, where the event becomes something a person sees.
     func recordPersonVeto(_ refusal: PersonVetoRefusal) {
         guard let log = filingPersonVetoLog else { return }
         log.record(PersonVetoEvent(namedPerson: refusal.namedPerson,
@@ -1441,16 +1191,9 @@ public class FileSyncManager: ObservableObject {
                                    at: Date()))
     }
 
-    /// Re-reads the artifact digest after one of them is written.
-    ///
-    /// **The roster is part of the question every file is asked** — it decides the person veto and
-    /// the person-axis score, both of which move the shortlist a backend is handed. Without this,
-    /// editing a person would leave `FilingVerdictCache` replaying answers composed against the old
-    /// household, which is the same bug the fingerprint was introduced for when a re-survey landed.
-    /// Rebuilds the identifier index from the current artifacts and roster.
-    ///
-    /// Cheap (a pass over the memory's folders) and done eagerly rather than lazily, because the
-    /// alternative is computing it inside attribution — which runs per file, per scan.
+    /// Rebuilds the identifier index from the current artifacts and roster. Cheap (a pass over the
+    /// memory's folders) and done eagerly: lazily, it would run inside attribution, which runs per
+    /// file, per scan.
     func rebuildPersonIdentityIndex() {
         guard let registry = filingPersonRegistry else {
             filingPersonIdentity = .empty
@@ -1462,30 +1205,24 @@ public class FileSyncManager: ObservableObject {
                                                         rejectedIdentifiers: rejectedIdentifiers())
     }
 
-    /// The identifiers the user's rejections withdraw, or empty when there are none.
-    ///
-    /// **The corpus is read only when there is a rejection to translate**, and that gating is the
-    /// whole reason this is a function rather than a stored value. `filing-corpus.json` is megabytes
-    /// — 4.9 MB on the tree this was built against — and this rebuild is documented as cheap and
-    /// runs eagerly whenever the roster, the profile or a tag moves. A household that has never
-    /// pressed "not theirs" pays one array scan for it.
+    /// The identifiers the user's rejections withdraw, or empty when there are none. A function so
+    /// the corpus is read only when there is a rejection to translate: `filing-corpus.json` is
+    /// megabytes, and this rebuild runs eagerly whenever the roster, the profile or a tag moves. A
+    /// household that never pressed "not theirs" pays one array scan.
     private func rejectedIdentifiers() -> [String: Set<String>] {
         let rejections = (filingPersonTagStore?.tags ?? []).filter { $0.verdict == .rejected }
         guard !rejections.isEmpty,
               let directory = filingProfilesDirectory,
-              // The folder, not the field — same law as ``filingProfileDirectoryId`` states and
-              // the fingerprint refresh below already follows. Keyed on the field, a disagreement
-              // reads a corpus that is not there, so this answers `[:]` and every "not theirs" the
-              // user pressed silently stops withdrawing anything.
+              // The folder, not the field, as ``filingProfileDirectoryId`` states. Keyed on the
+              // field, a disagreement reads a corpus that isn't there, answers `[:]`, and every
+              // "not theirs" silently stops withdrawing anything.
               let id = filingProfileDirectoryId ?? filingFolderProfile?.profileId,
               let memory = filingMemory
         else { return [:] }
-        // **Read once per change to the rejections, not once per verdict.** This rebuild fires on
-        // every write to the tag store, and the People queue's whole interaction is pressing yes or
-        // no on rows — so without the cache the SECOND rejection and every confirmation after it
-        // paid a full corpus decode on the main actor. Measured on the real profile: 4,866 KB,
-        // **100 ms**. That is the hitch `loadedFilingVerdictCache` exists to keep off this actor,
-        // arriving through a different door.
+        // Read once per change to the rejections, not once per verdict. This rebuild fires on every
+        // write to the tag store, and the People queue is all yes/no presses, so without the cache
+        // each press would decode the whole corpus on the main actor (about 100 ms on a real
+        // profile).
         //
         // The salt is in the key because a re-survey re-salts the hashes, and a map translated
         // under the old salt names nothing in the new memory.
@@ -1504,34 +1241,25 @@ public class FileSyncManager: ObservableObject {
     private var rejectedIdentifierCache: (rejections: [PersonTag], salt: String,
                                           value: [String: Set<String>])?
 
-    /// Re-derives ``filingArtifactFingerprint`` from the folder the roster was actually written
-    /// to, after ``PeopleStore/savedRevision`` says the bytes landed.
+    /// Re-derives ``filingArtifactFingerprint`` from the folder the roster was written to, after
+    /// ``PeopleStore/savedRevision`` says the bytes landed. The roster is part of the question
+    /// every file is asked (it decides the person veto and the person-axis score), so without this
+    /// a person edit would replay verdicts composed against the old household.
     ///
-    /// **The id comes from the store, not from `filingFolderProfile?.profileId`.** That field is
-    /// the one *inside* `folder-profile.json`, and `FilingArtifacts.attach` deliberately does not
-    /// build anything from it — see `FilingProfileStore.active`, which warns when it disagrees
-    /// with the folder and lets the folder win. A profile folder `work/` whose json says
-    /// `"profileId": "father"` therefore digested `father/`, a directory holding none of the
-    /// three artifacts, and `fingerprint` answers `""` for that.
+    /// The id comes from the store, not `filingFolderProfile?.profileId`: that field is inside
+    /// `folder-profile.json`, and `FilingProfileStore.active` lets the folder win when they
+    /// disagree. Digesting the field's folder would answer `""`, which is not nil, so both cache
+    /// gates (`FileSyncManager+Filing`, `FileSyncManager+FilingRefine`) would stay open and record
+    /// the session's verdicts under `artifacts: ""`: billed, unreachable next launch, and servable
+    /// against another artifact set.
     ///
-    /// `""` is not nil, so both cache gates (`FileSyncManager+Filing`,
-    /// `FileSyncManager+FilingRefine`) stayed OPEN: every verdict for the rest of the session was
-    /// recorded under `artifacts: ""` — billed, and unreachable at the next launch, when the digest
-    /// is read correctly again. Worse in reverse, a `""`-keyed verdict from one artifact set can be
-    /// served against another. That is the failure the `String?` change was made to prevent,
-    /// arriving through the other door.
+    /// Both other ways out are nil, which turns the cache off for read and write:
     ///
-    /// Both remaining ways out are nil rather than a value, because nil is the honest answer and
-    /// the safe one — cache off for read and write both:
-    ///
-    /// - **No file behind the store** (the in-memory `PeopleStore(people:)`, or none at all): there
-    ///   is nothing on disk to digest, and the digest already in hand describes artifacts this
-    ///   manager is no longer keyed to. Keeping it — which a bare `return` did — is a stale key
-    ///   with the cache still on.
-    /// - **`""` from a store that IS persistent**: unreachable by construction, since `save()` had
-    ///   just written `people.json` into that very folder, so it means the pair no longer names
-    ///   where the artifacts live. `""` would key this session's verdicts to an empty artifact set;
-    ///   nil records nothing instead.
+    /// - No file behind the store (the in-memory `PeopleStore(people:)`, or none): nothing on disk
+    ///   to digest, and the digest in hand describes artifacts this manager is no longer keyed to.
+    /// - `""` from a persistent store: `save()` just wrote `people.json` into that folder, so the
+    ///   pair no longer names where the artifacts live. nil records nothing rather than keying
+    ///   verdicts to an empty set.
     func refreshFilingArtifactFingerprint() {
         guard let store = filingPeopleStore, store.isPersistent else {
             filingArtifactFingerprint = nil
@@ -1549,22 +1277,20 @@ public class FileSyncManager: ObservableObject {
         }
         filingArtifactFingerprint = refreshed
     }
-    /// The prepared router index, and the destination set it was built from.
-    ///
-    /// Building it costs ~85 ms against a 2,979-folder tree, and the taxonomy is usually identical
-    /// from one scan to the next — a rescan after a single file lands rebuilt the whole thing. The
-    /// key is the destination set itself rather than a hash of it: `Set` equality exits early on a
-    /// count mismatch, and an exact comparison cannot collide into serving a stale index.
+    /// The prepared router index, and the destination set it was built from. A build costs ~85 ms
+    /// on a 3,000-folder tree, and the taxonomy rarely changes between scans. The key is the set
+    /// itself, not a hash: `Set` equality exits early on a count mismatch, and an exact comparison
+    /// can't collide into serving a stale index.
     var filingRouterIndex: FilingRouter.Index?
     var filingRouterIndexKey: Set<String>?
-    /// Bumped by every filing that teaches the router (GW), and recorded by the index it built
-    /// into: a filing changes no folder, so the destination key alone would serve the index from
-    /// before it. Separate from ``invalidateFilingRouterIndex()``, which drops the index — and with
-    /// it Read scan's routing, until the next scan.
+    /// Bumped by every filing that teaches the router, and recorded by the index built after it: a
+    /// filing changes no folder, so the destination key alone would serve the index from before it.
+    /// Separate from ``invalidateFilingRouterIndex()``, which drops the index, and with it Read
+    /// scan's routing until the next scan.
     var filingFiledSinceSurveyGeneration = 0
     var filingRouterIndexFiledGeneration = 0
-    /// Which survey the last To File scan placed its files with (GK–GN) — see
-    /// ``FilingSurveyInUse``. Nil before the first scan. The header's survey menu reads it.
+    /// Which survey the last To File scan placed its files with (``FilingSurveyInUse``). nil before
+    /// the first scan. The header's survey menu reads it.
     @Published public internal(set) var filingSurveyInUse: FilingSurveyInUse?
     /// Sources' own surveys, read once per profile id: a profile is thousands of entries to decode.
     var sourceSurveyProfiles: [String: FolderProfile] = [:]
@@ -1580,17 +1306,14 @@ public class FileSyncManager: ObservableObject {
     /// Where a replaced or forgotten source survey's folder goes: the Trash in the app, so a
     /// survey forgotten by mistake can be put back by hand. A test substitutes a plain removal.
     var sourceSurveyRetire: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
-    /// How many times the index has actually been built. Nothing reads it in the app — it exists
-    /// so a test can tell a reused index from a rebuilt one, which is otherwise invisible: a
-    /// rebuild produces a value equal to the one it replaced.
+    /// How many times the index was built. Only tests read it: a rebuild produces a value equal to
+    /// the one it replaced, so reuse is otherwise invisible.
     var filingRouterIndexBuilds = 0
 
-    /// Satellite folder → its homes, and the state that says whether it needs rebuilding.
-    ///
-    /// Derived from the two persisted content indexes, which together are ~10 MB of JSON — far too
-    /// much to decode per scan, and it does not change per scan. The key is the pair of files'
-    /// modification dates, so a duplicates scan that writes new fingerprints is picked up on the
-    /// next filing scan and nothing else re-reads them.
+    /// Satellite folder → its homes, and the state that says whether to rebuild it. Derived from
+    /// the persisted content indexes, ~10 MB of JSON: too much to decode per scan, and it doesn't
+    /// change per scan. Keyed by the index files' modification dates, so a duplicates scan that
+    /// writes new fingerprints is picked up by the next filing scan.
     var filingSatelliteHomes: [String: Set<String>] = [:]
     var filingSatelliteKey: [Date]?
     /// The provider root the map was built for. Its folders are relative to that tree, so filing
@@ -1644,37 +1367,31 @@ public class FileSyncManager: ObservableObject {
         filingSatelliteKey = nil
     }
 
-    /// Derives content tokens from text already read, so a file's page is never extracted twice.
-    ///
-    /// `filingContentExtractor` reads the file and then derives tokens from what it read; this is
-    /// the second half of that on its own. With it, the scan reads a page once and shares it
-    /// between the keyword pass, the router and the classifier — without it, the keyword pass and
-    /// the router each read the same PDF.
+    /// Derives content tokens from text already read, so a file's page is never extracted twice:
+    /// the second half of `filingContentExtractor` on its own. The scan reads a page once and
+    /// shares it between the keyword pass, the router and the classifier.
     public var filingTokensFromText: (@Sendable (String) -> Set<String>)?
-    /// The FULL set of existing relative folders (uncapped), used only to mark a "Try another"
-    /// verdict's segments new-vs-existing — the same basis the main scan uses. Kept separate from
-    /// the capped `filingLastTaxonomyFolders` so a real folder beyond the classifier cap isn't
-    /// mislabeled as a folder to be created.
+    /// The full set of existing relative folders (uncapped), used only to mark a "Try another"
+    /// verdict's segments new or existing, as the main scan does. Separate from the capped
+    /// `filingLastTaxonomyFolders`, so a real folder beyond the classifier cap isn't labelled as
+    /// one to create.
     public var filingLastExistingFolders: Set<String> = []
     /// Session-scoped "Try another" rejections keyed by file path. Persisted rejections are keyed
     /// by salient filename tokens, which token-less names ("IMG_0007", "Scan 12") don't have — this
     /// set is what stops those files from being re-offered the folder they just rejected.
     public var filingSessionRejections: [String: Set<String>] = [:]
-    /// "Try another" re-asks currently in flight: suggestion id → the owning invocation's token.
-    /// The button fires an unstructured Task per click, so two rapid clicks would run two
-    /// classifier round-trips for the same card and whichever RETURNED last would win —
-    /// `tryAnotherFolder` checks-and-inserts here at entry and ignores re-entrant calls for the
-    /// same suggestion. Published and publicly readable so the card can disable its button while
-    /// its own re-ask is out (`keys.contains` is the membership test) — a refused re-entrant
-    /// click that still looks clickable reads as a dead button.
+    /// "Try another" re-asks in flight: suggestion id → the owning invocation's token. Each click
+    /// fires an unstructured Task, so two rapid clicks would run two round-trips for one card and
+    /// the last to return would win; `tryAnotherFolder` checks-and-inserts here at entry and
+    /// ignores re-entrant calls. Published so the card can disable its button while its re-ask is
+    /// out (`keys.contains`): a refused click that still looks clickable reads as a dead button.
     ///
-    /// The VALUE is per-invocation ownership, and it is load-bearing: the key is the file's
-    /// absolute path, stable across scans and provider switches, and `clearFiling()` empties the
-    /// dictionary as the only recovery when a round-trip never returns (`FilingClassifier` has
-    /// no timeout). A cleared-then-re-armed key would otherwise let the STALE round-trip's defer
-    /// release the NEW round-trip's guard, and let its late verdict overwrite the recreated card
-    /// — so both the release and the result write check the token first (see `tryAnotherFolder`).
-    /// Written only inside this module.
+    /// The value is per-invocation ownership. The key is the file's absolute path, stable across
+    /// scans, and `clearFiling()` empties the dictionary as the only recovery from a round-trip
+    /// that never returns (`FilingClassifier` has no timeout). Without the token, a stale
+    /// round-trip's defer would release a re-armed key's guard and its late verdict would overwrite
+    /// the recreated card, so both the release and the result write check the token first. Written
+    /// only inside this module.
     @Published public internal(set) var filingTryAnotherInFlight: [String: UUID] = [:]
 
     /// Global sorting preference for the file trees.
@@ -1684,27 +1401,26 @@ public class FileSyncManager: ObservableObject {
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             dropPrefetchedTrees()
             if sortOption == .tags {
-                // Trees are built WITHOUT Finder tags unless sorting by them (the per-file
-                // xattr fetch dominated large scans — see TreeBuilder.includeTags), so the
-                // current nodes have nothing to re-sort by. Reload from disk instead; the
-                // fresh walk includes tags because this option is now current.
+                // Trees are built without Finder tags unless sorting by them (the per-file xattr
+                // fetch dominates large scans; see TreeBuilder.includeTags), so there is nothing to
+                // re-sort by. Reload from disk; the fresh walk includes tags because this option is
+                // now current.
                 noteScanConfigChanged()
                 refreshSubject.send(.both)
             } else {
-                // Re-sort current trees when the option changes — off the main actor; the full
-                // re-sort of both trees froze the UI on large panes.
+                // Re-sort off the main actor: re-sorting both large trees on it freezes the UI.
                 Task { await self.resortTreesAndRefilter() }
             }
         }
     }
     
-    /// Which file types the left pane shows (RD70), or `nil` for all of them. Per pane and per tab
-    /// (`PaneTab.typeFilter`), never saved across launches (FH): a filter left on from yesterday
-    /// makes files look missing.
+    /// Which file types the left pane shows, or `nil` for all. Per pane and per tab
+    /// (`PaneTab.typeFilter`), never saved across launches: a filter left on from yesterday makes
+    /// files look missing.
     ///
-    /// Unlike `showHiddenFiles`, a change keeps the prefetched walks — they are the unfiltered
-    /// listings and do not depend on it — and prunes the selection afterwards, so a row the filter
-    /// hides is never acted on unseen (TE276).
+    /// Unlike `showHiddenFiles`, a change keeps the prefetched walks (they are unfiltered and don't
+    /// depend on it) and prunes the selection afterwards, so a row the filter hides is never acted
+    /// on unseen.
     @Published public var leftTypeFilter: PaneTypeFilter? = nil {
         didSet {
             guard leftTypeFilter != oldValue else { return }
@@ -1727,24 +1443,23 @@ public class FileSyncManager: ObservableObject {
     /// the Trash prompt's hidden count, Ask Claude, and telling a filtered-out row from a missing one.
     public internal(set) var leftTreeBeforeTypeFilter: [FileNode] = []
     public internal(set) var rightTreeBeforeTypeFilter: [FileNode] = []
-    /// Paths this app just wrote into a pane — a new folder, a rename, a copy or move, an editor
-    /// save — kept visible through the type filter until the pane moves or the filter changes
-    /// (TE277). Without it New Folder would make a folder that vanishes at once: it holds no matches.
+    /// Paths this app just wrote into a pane (a new folder, a rename, a copy or move, an editor
+    /// save), kept visible through the type filter until the pane moves or the filter changes.
+    /// Without it New Folder would make a folder that vanishes at once: it holds no matches.
     internal var leftTypeFilterKeep: Set<String> = []
     internal var rightTypeFilterKeep: Set<String> = []
-    /// Folders open in each pane — the Columns stack, or the outline's expanded folders — as the
-    /// host last reported them (`setTypeFilterOpenFolders`). A type filter keeps them where they
-    /// are while they are open, matches or not (his call GQ): opening a folder the walk had not
-    /// listed, or changing the filter under an open column stack, made the folder vanish from its
-    /// parent and the stack close back past it. Unlike the keep-set above, a filter change keeps
-    /// them; closing the folder is what lets it go.
+    /// Folders open in each pane (the Columns stack, or the outline's expanded folders), as the
+    /// host last reported them (`setTypeFilterOpenFolders`). A type filter keeps them while they
+    /// are open, matches or not, so opening a folder or changing the filter under an open column
+    /// stack doesn't make it vanish from its parent and close the stack. Unlike the keep-set above,
+    /// a filter change keeps them; closing the folder lets it go.
     internal var leftTypeFilterOpen: Set<String> = []
     internal var rightTypeFilterOpen: Set<String> = []
 
-    /// Records the folders open in a pane, for the type filter's pass (GQ). Paths as the pane
-    /// spells them; a column's composed path is matched to the walk's node id, which differs below
-    /// a folder link (`TreeShape.position`). Re-runs the pass only when the pane is filtered and
-    /// the set changed.
+    /// Records the folders open in a pane, for the type filter's pass. Paths as the pane spells
+    /// them; a column's composed path is matched to the walk's node id, which differs below a
+    /// folder link (`TreeShape.position`). Re-runs the pass only when the pane is filtered and the
+    /// set changed.
     public func setTypeFilterOpenFolders(_ folders: Set<String>, isLeft: Bool) {
         guard folders != (isLeft ? leftTypeFilterOpen : rightTypeFilterOpen) else { return }
         if isLeft { leftTypeFilterOpen = folders } else { rightTypeFilterOpen = folders }
@@ -1769,19 +1484,19 @@ public class FileSyncManager: ObservableObject {
         return ids
     }
 
-    /// Records that the app itself just wrote `path`, so a type filter does not hide it (TE277).
-    /// Both panes: either may be showing the folder it landed in, and a path the other pane does not
-    /// list matches nothing there. A no-op while neither pane is filtered.
+    /// Records that the app itself just wrote `path`, so a type filter doesn't hide it. Both panes:
+    /// either may show the folder it landed in, and a path the other pane doesn't list matches
+    /// nothing there. A no-op while neither pane is filtered.
     public func noteOwnWrite(atPath path: String) {
         if leftTypeFilter != nil { leftTypeFilterKeep.insert(path) }
         if rightTypeFilter != nil { rightTypeFilterKeep.insert(path) }
     }
 
-    /// Something asked the pane to show `path` — Reveal in Browse, a PDF banner, Ask Claude — and
-    /// only the type filter is hiding it: clears that pane's filter so the request can land, and
-    /// says so (FM). The file was asked for by name, so it outranks a filter set earlier. Returns
-    /// whether it cleared anything; a path the pane shows, or one it does not hold at all, is left
-    /// to the caller's own wait.
+    /// Something asked the pane to show `path` (Reveal in Browse, a PDF banner, Ask Claude) and
+    /// only the type filter hides it: clears that pane's filter so the request can land, and says
+    /// so. The file was asked for by name, so it outranks an earlier filter. Returns whether it
+    /// cleared anything; a path the pane shows, or doesn't hold at all, is left to the caller's own
+    /// wait.
     @discardableResult
     public func clearTypeFilterHiding(_ path: String, isLeft: Bool) -> Bool {
         guard (isLeft ? leftTypeFilter : rightTypeFilter) != nil else { return false }
@@ -1795,27 +1510,26 @@ public class FileSyncManager: ObservableObject {
         return true
     }
 
-    /// How many items inside these folders a type filter is hiding (FJ): a selected folder still
-    /// carries everything in it to the Trash, a copy or a move, and this is the number the
-    /// confirmation and the result say out loud. `nodes` come from a pane's published tree, so
-    /// their children are the filtered ones; the tree before the filter holds the rest.
+    /// How many items inside these folders a type filter is hiding. A selected folder still carries
+    /// everything in it to the Trash, a copy or a move, and the confirmation and the result say
+    /// this number. `nodes` come from a pane's published tree, so their children are the filtered
+    /// ones; the tree before the filter holds the rest.
     public func itemsHiddenByTypeFilter(inside nodes: [FileNode]) -> Int {
         typeFilterHiddenCounts(inside: nodes).values.reduce(0, +)
     }
 
-    /// The tree a search in one pane checks "is it on the other side too?" against: the OTHER
+    /// The tree a search in one pane checks "is it on the other side too?" against: the other
     /// pane's tree before its type filter. A filter changes what that pane shows, not what is on
-    /// disk there, so a file it hides is still on both sides — read off the shown tree, a search
-    /// marked it "only on left". Nodes, not a `PaneTree`: projecting rows walks the whole tree, and
-    /// the caller does that off the main actor.
+    /// disk, so a file it hides is still on both sides. Nodes, not a `PaneTree`: projecting rows
+    /// walks the whole tree, and the caller does that off the main actor.
     public func searchSideAnnotationNodes(forPaneIsLeft isLeft: Bool) -> [FileNode] {
         isLeft ? rightTreeBeforeTypeFilter : leftTreeBeforeTypeFilter
     }
 
     /// `itemsHiddenByTypeFilter` per folder id, for a result that names only what landed. A folder
-    /// picked with something inside it counts once, as the outermost — the Trash and a transfer take
-    /// it once (`pruneNestedNodes`) — and a folder node with no children at all was not read off a
-    /// pane's tree, so there is nothing to measure it against.
+    /// picked with something inside it counts once, as the outermost, as the Trash and a transfer
+    /// take it (`pruneNestedNodes`). A folder node with no children wasn't read off a pane's tree,
+    /// so there is nothing to measure it against.
     public func typeFilterHiddenCounts(inside nodes: [FileNode]) -> [String: Int] {
         var counts: [String: Int] = [:]
         let sides = [(leftTypeFilter, leftTreeBeforeTypeFilter), (rightTypeFilter, rightTreeBeforeTypeFilter)]
@@ -1869,39 +1583,29 @@ public class FileSyncManager: ObservableObject {
     }
     private var ignoredItemsStoreCancellable: AnyCancellable?
 
-    /// Durable store of names the user deliberately meant (see ``KeptNamesStore``). Assigned by the
-    /// app at launch; nil (tests, CLI) means nothing is kept and every risky name is reported,
-    /// which is exactly the behavior before the store existed.
+    /// Durable store of names the user deliberately meant (``KeptNamesStore``). Assigned by the app
+    /// at launch; nil (tests, CLI) keeps nothing, so every risky name is reported.
     ///
-    /// Keeping a name drops it from `riskyNames` immediately, so Organize's list and its "Fix all"
-    /// can never rename something the user just said they meant. The reverse is deliberately NOT
-    /// symmetric: withdrawing a keep does not re-add the row, because `riskyNames` is the result of
-    /// a scan and this is not one. The row badge, which is live, does come back at once.
+    /// Keeping a name drops it from `riskyNames` at once, so Organize's list and its "Fix all"
+    /// never rename what the user just said they meant. Withdrawing a keep doesn't re-add the row,
+    /// since `riskyNames` is a scan's result; the live row badge does come back at once.
     public var keptNamesStore: KeptNamesStore? {
         didSet {
             keptNamesCancellable = keptNamesStore?.$names
                 .dropFirst()
                 .sink { [weak self] kept in
                     guard let self else { return }
-                    // Announce the change on THIS object, explicitly.
-                    //
-                    // The store is a separate `ObservableObject` reached through a plain `var`, so
-                    // nothing observing the manager observes it. Views that render the kept set but
-                    // only watch the manager — `DifferencesView`, whose name cells silence a badge
-                    // on a kept name — would otherwise not re-render when a keep is made from a
-                    // pane row, and the badge would linger in the table until something unrelated
-                    // moved.
+                    // Announce the change on this object explicitly. The store is a separate
+                    // `ObservableObject` behind a plain `var`, so views that render the kept set
+                    // but watch only the manager (`DifferencesView`, whose name cells silence a
+                    // badge on a kept name) would not re-render, and the badge would linger.
                     self.objectWillChange.send()
-                    // Assign only when a row genuinely goes. `removeAll(where:)` is a mutating
-                    // access, so calling it unconditionally republishes `riskyNames` — re-rendering
-                    // Organize's whole list — on every keep, including the overwhelmingly common
-                    // one that removes nothing because no scan has run or the name was never found.
-                    //
-                    // That spurious publish also used to be what refreshed the Differences table,
-                    // by accident: it was doing the announcement's job, which made the line above
-                    // untestable and made this efficiency fix a silent regression waiting to
-                    // happen. Separating them is what lets
-                    // `keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove` mean anything.
+                    // Assign only when a row really goes: `removeAll(where:)` is a mutating access,
+                    // so calling it unconditionally republishes `riskyNames`, re-rendering
+                    // Organize's whole list on every keep, usually for nothing. The announcement
+                    // above stays separate, so
+                    // `keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove` tests it on its
+                    // own.
                     let remaining = self.riskyNames.filter { !kept.contains($0.currentName) }
                     if remaining.count != self.riskyNames.count { self.riskyNames = remaining }
                 }
@@ -1923,9 +1627,9 @@ public class FileSyncManager: ObservableObject {
         return found.filter { !kept.contains($0.currentName) }
     }
 
-    /// When true (the default), ignoring an item also records it in `ignoredItemsStore` and
-    /// stored ignores apply to every scan. Off restores the old session-only behavior; the
-    /// stored set is kept, just not applied. Set by the app from persisted settings.
+    /// When true (the default), ignoring an item also records it in `ignoredItemsStore`, and stored
+    /// ignores apply to every scan. Off makes ignores session-only; the stored set is kept, just
+    /// not applied. Set by the app from persisted settings.
     @Published public var rememberIgnoredItems: Bool = true {
         didSet {
             guard rememberIgnoredItems != oldValue else { return }
@@ -1980,19 +1684,18 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// Mirrors a user edit of the session ignore set into the durable store, translating
-    /// focus-relative paths to root-relative ones under the current left focus.
+    /// focus-relative paths to root-relative ones.
     ///
     /// Only while both panes share one focus: with divergent foci a focus-relative path names
-    /// DIFFERENT items on the two sides, and the left-focus translation would store an entry
-    /// that later hides an unrelated pair (e.g. right pane in Docs, left at root: ignoring
-    /// that row must not durably hide the root-level pair of the same name). Divergent-foci
-    /// ignores stay session-only — exactly the pre-durable-layer behavior.
+    /// different items on the two sides, and the stored entry would later hide an unrelated pair
+    /// (right pane in Docs, left at root: ignoring that row must not durably hide the root-level
+    /// pair of the same name). Divergent-foci ignores stay session-only.
     private func persistIgnoredPathsDelta(from oldValue: Set<String>, to newValue: Set<String>) {
         guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore,
               panesShareAPosition else { return }
-        // The ANCHOR pane's focus, not the left pane's — see `ignoreAnchorIsLeft`. The two differ
-        // only for a pair whose sources land at different depths, which is precisely the pair a
-        // swap would otherwise re-read in the wrong coordinates.
+        // The anchor pane's focus, not the left pane's (`ignoreAnchorIsLeft`). They differ only for
+        // a pair whose sources land at different depths, exactly the pair a swap would re-read in
+        // the wrong coordinates.
         let focus = ignoreAnchorFocus
         let added = newValue.subtracting(oldValue)
         let removed = oldValue.subtracting(newValue)
@@ -2018,15 +1721,14 @@ public class FileSyncManager: ObservableObject {
                                                           focus: ignoreAnchorFocus))
     }
 
-    /// Toggles the ignore state of focus-relative paths against the EFFECTIVE set — what the
-    /// user actually sees — so a durably ignored node (hidden by the store, absent from the
-    /// session set) un-ignores instead of being "ignored" a second time. When every target is
-    /// already ignored the action un-ignores them all, otherwise it ignores them all.
+    /// Toggles the ignore state of focus-relative paths against the effective set, what the user
+    /// sees, so a durably ignored node (in the store, not the session set) un-ignores instead of
+    /// being ignored twice. When every target is already ignored it un-ignores them all, otherwise
+    /// it ignores them all.
     ///
-    /// Un-ignoring removes each target's exact entry AND any covering ancestor entry ("docs"
-    /// ignored, target "docs/report.txt") from both layers: the menu label says "Include", so
-    /// the clicked item must actually become visible — inserting or keeping a covered state
-    /// would leave the row struck through with the toggle silently doing nothing.
+    /// Un-ignoring removes each target's exact entry and any covering ancestor entry ("docs"
+    /// ignored, target "docs/report.txt") from both layers: the menu says "Include", so the item
+    /// must become visible, not stay struck through with the toggle doing nothing.
     public func toggleIgnored(focusRelativePaths targets: Set<String>) {
         guard !targets.isEmpty else { return }
         let effective = effectiveIgnoredPaths
@@ -2081,9 +1783,9 @@ public class FileSyncManager: ObservableObject {
         clearSessionIgnoredPaths()
     }
 
-    /// Root-relative identity of a focus-relative path (`focus` empty = pane root). The LEFT
-    /// focus is used as the identity's coordinate system; in the dominant workflow both panes
-    /// navigate together, so the identity reads the same from either side.
+    /// Root-relative identity of a focus-relative path (`focus` empty = pane root). Callers pass
+    /// the anchor pane's focus (`ignoreAnchorFocus`); when both panes navigate together, the
+    /// identity reads the same from either side.
     nonisolated static func rootRelativePath(_ path: String, focus: String) -> String {
         focus.isEmpty ? path : focus + "/" + path
     }
@@ -2112,34 +1814,27 @@ public class FileSyncManager: ObservableObject {
     /// Provider type of the right pane from the last scan; used with ignoreGoogleDriveNewerDateOnly to filter differences.
     internal var lastRightProviderType: CloudProvider.ProviderType?
 
-    /// Monotonic token for `applyFilters()` passes: each pass claims the next value on entry.
-    /// A pass publishes only while no newer pass has published (see
-    /// `lastPublishedFilterGeneration`), so overlapping off-main filter computations can never
-    /// publish out of order — yet an awaited pass still publishes when it's the freshest done.
-    /// Readable inside the module so a test can tell a pass that has not STARTED from one
-    /// suspended inside its detached compute: this moves in `applyFilters()`'s synchronous
-    /// prologue, `lastPublishedFilterGeneration` only when it commits.
+    /// Monotonic token for `applyFilters()` passes: each claims the next value on entry. A pass
+    /// publishes only while no newer pass has published (`lastPublishedFilterGeneration`), so
+    /// overlapping off-main passes never publish out of order, yet an awaited pass still publishes
+    /// when it's the freshest done. Readable in the module so a test can tell a pass that hasn't
+    /// started from one suspended in its detached compute: this moves in `applyFilters()`'s
+    /// synchronous prologue, `lastPublishedFilterGeneration` only at commit.
     internal private(set) var filterGeneration = 0
     /// Generation of the most recent `applyFilters()` pass that published its results.
     ///
-    /// Readable (not writable) outside this file as a test seam: it moves at the exact moment a
-    /// pass commits, which is the only observable a pass that publishes NOTHING leaves behind.
-    /// Every *published-property* assignment that follows it in `applyFilters` is guarded by
-    /// "assign only what changed", so a pass over already cleared state —
-    /// `invalidateDifferencesForPaneRetarget`'s insurance pass — touches none of them. A test
-    /// waiting for that pass has nothing else to wait on, and waiting a guessed number of
-    /// milliseconds instead is how it silently stops waiting for anything (docs/flaky-tests.md,
-    /// mechanism 2).
+    /// Readable outside this file as a test seam: it moves the moment a pass commits, the only
+    /// trace a pass that publishes nothing leaves. Every published assignment after it is "assign
+    /// only what changed", so a pass over cleared state (`invalidateDifferencesForPaneRetarget`'s
+    /// insurance pass) touches none of them. A test must wait on this, not a guessed delay
+    /// (docs/flaky-tests.md, "Fixed pumps and fixed sleeps").
     private(set) var lastPublishedFilterGeneration = 0
-    /// Bumped by `didSet` on EVERY write to its pane's published tree — no writer can forget
-    /// it, including `swap(&leftTree, &rightTree)` and tests assigning the public property
-    /// directly. A filter pass compares its freshly computed trees against the published ones
-    /// OFF the main actor (the deep equality walk is O(total nodes) and hitched the UI on
-    /// large panes); a verdict is only valid while nothing wrote that pane's published tree
-    /// mid-flight, which its version detects. Per pane, so one pane's publish doesn't
-    /// invalidate an overlapping pass's verdict for the OTHER pane — during a dual-pane load
-    /// passes routinely overlap, and a shared version sent every other pass back to the
-    /// main-actor fallback compare.
+    /// Bumped by `didSet` on every write to its pane's published tree, so no writer can forget it,
+    /// including `swap(&leftTree, &rightTree)` and tests assigning directly. A filter pass compares
+    /// its new trees against the published ones off the main actor (the deep equality walk is
+    /// O(nodes) and hitches the UI on large panes); the verdict holds only while nothing wrote that
+    /// pane mid-flight, which this detects. Per pane, because passes overlap during a dual-pane
+    /// load, and a shared version would send every other pass to the main-actor fallback compare.
     internal private(set) var publishedLeftTreeVersion = 0
     /// Right-pane counterpart of `publishedLeftTreeVersion`.
     internal private(set) var publishedRightTreeVersion = 0
@@ -2148,50 +1843,40 @@ public class FileSyncManager: ObservableObject {
     /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
     internal var rawTreeGeneration = 0
 
-    /// A deferred column listing, identified by the pane that asked as well as the folder.
-    ///
-    /// **The side is part of the key**, and leaving it out was a real defect: keyed by path alone,
-    /// two panes on the SAME source — comparing a folder against itself, an ordinary thing to do
-    /// here — meant the left pane's request suppressed the right's as a duplicate. The right column
-    /// then never filled, because its `onAppear` had already fired and nothing re-asks.
+    /// A deferred column listing, keyed by the pane that asked as well as the folder. Keyed by path
+    /// alone, two panes on the same source (comparing a folder with itself) would have the left
+    /// pane's request suppress the right's as a duplicate, and the right column would never fill:
+    /// its `onAppear` has fired and nothing re-asks.
     internal struct ColumnGraftKey: Hashable {
         let isLeft: Bool
         let path: String
     }
 
-    /// The listings running right now — see `loadColumnChildren`. Deduping on this is what stops a
-    /// column re-rendering mid-walk from queueing a second listing of the same directory, and
-    /// publishing it is what lets that column say "being read" rather than "can't be read".
+    /// The listings running right now (`loadColumnChildren`). Deduping on it stops a column
+    /// re-rendering mid-walk from queueing a second listing of the same folder; publishing it lets
+    /// the column say "being read" rather than "can't be read".
     ///
-    /// **Cleared by `swapPanes`, because every key in it names a side.** After a swap the tree a
-    /// key's `isLeft` points at belongs to the other pane, so the set would claim the pane that is
-    /// NOT loading is being read and leave the one that is saying "Can't be read" — the precise
-    /// distinction this is published to make, inverted. `paneOrientationGeneration` is what stops
-    /// the listings themselves landing on the wrong side.
+    /// Cleared by `swapPanes`, because every key names a side: after a swap the set would mark the
+    /// wrong pane as loading. `paneOrientationGeneration` keeps the listings themselves from
+    /// landing on the wrong side.
     @Published internal var columnGraftsInFlight: Set<ColumnGraftKey> = []
 
-    /// **Listings that came back unreadable**, so they are not asked for again on every appear.
+    /// Listings that came back unreadable, so they aren't asked for again on every appear. A tree
+    /// row's "Can’t be read" placeholder asks on `.onAppear`, and scrolling would restart the same
+    /// doomed listing each time, flickering a spinner. Remembered until this side's tree is walked
+    /// afresh (`adoptRawTree`): ⌘R, or navigating back in.
     ///
-    /// A tree row's "Can’t be read" placeholder asks on `.onAppear`, and scrolling brings it into
-    /// view over and over: without this each appearance started the same doomed listing and drew
-    /// a spinner for its length, so the row flickered between the spinner and the caption. The
-    /// outcome is remembered until this side's tree is walked afresh (`adoptRawTree`) — ⌘R, or
-    /// navigating back in. **It holds back only that passive ask**: an explicit open always
-    /// retries, because "unreadable" can be a slow dataless folder the deadline deferred, and
-    /// opening it again is the retry (`loadColumnChildren`'s `passive`). Cleared by `swapPanes`
-    /// for the reason the in-flight set is.
+    /// It holds back only that passive ask. An explicit open always retries, since "unreadable" can
+    /// be a slow dataless folder the deadline deferred (`loadColumnChildren`'s `passive`). Cleared
+    /// by `swapPanes`, as the in-flight set is.
     internal var columnGraftsUnreadable: Set<ColumnGraftKey> = []
 
-    /// **Bumped when the panes change sides**, and nothing else.
+    /// Bumped when the panes change sides, and nothing else. A column listing lands on the main
+    /// actor holding an `isLeft` captured before its await; a swap in between makes that name the
+    /// other pane, and grafting there would write one pane's listing into the other's tree.
     ///
-    /// A column listing is started for a side and lands on the main actor some time later, holding
-    /// an `isLeft` captured before the await. A swap in that window makes that capture name the
-    /// other pane's tree — the answer is about a folder that is now on the other side, and grafting
-    /// it where the key says would write one pane's listing into the other's tree.
-    ///
-    /// Its own counter rather than `rawTreeGeneration`, which bumps on every raw-tree publish
-    /// INCLUDING each successful graft: guarding on that would make two columns filling at once
-    /// cancel each other, which is the ordinary case rather than the exceptional one.
+    /// Its own counter, not `rawTreeGeneration`, which bumps on every raw-tree publish including
+    /// each graft: guarding on that would make two columns filling at once cancel each other.
     internal var paneOrientationGeneration = 0
 
     /// Raw file tree for the left pane (before hidden/ignored filtering).
@@ -2259,11 +1944,11 @@ public class FileSyncManager: ObservableObject {
         return index
     }
 
-    /// Path → children a drill or crumb mirrored ONTO this pane is pruned against: the tree before
+    /// Path → children a drill or crumb mirrored onto this pane is pruned against: the tree before
     /// its type filter. A folder that pane's filter hides is still there, so the linked drill walks
-    /// into it — and once it is open the filter keeps it in place (GQ) — instead of stopping at the
-    /// parent as if it were missing. With no filter on it is the cached index. With one, it is
-    /// built here, which is a walk of that pane's tree; only a mirrored click asks.
+    /// into it (and once open the filter keeps it) instead of stopping at the parent as if it were
+    /// missing. With no filter on it is the cached index; with one it is built here, a walk of that
+    /// pane's tree that only a mirrored click asks for.
     public func mirrorChildrenIndex(isLeft: Bool, treeRoot: String) -> PaneChildrenIndex {
         guard (isLeft ? leftTypeFilter : rightTypeFilter) != nil else {
             return isLeft ? leftChildrenIndex(treeRoot: treeRoot) : rightChildrenIndex(treeRoot: treeRoot)
@@ -2287,13 +1972,11 @@ public class FileSyncManager: ObservableObject {
         return PaneTree(side: .right, version: version, nodes: rightTree, rows: rows)
     }
 
-    /// True when the left pane's folder has entries but filtering (hidden files) removed all
-    /// of them — lets the empty-pane placeholder point at the Hidden toggle. Not `@Published`:
-    /// read during renders that `leftTree` (always published after the raw tree is set)
-    /// already triggers.
-    ///
-    /// Read off the tree BEFORE the type filter: a folder the type filter emptied is not one that
-    /// only holds hidden items, and saying so would send the user to the wrong button (TE274).
+    /// True when the left pane's folder has entries but the Hidden filter removed all of them, so
+    /// the empty-pane placeholder can point at the Hidden toggle. Not `@Published`: read during
+    /// renders `leftTree` already triggers. Read off the tree before the type filter: a folder the
+    /// type filter emptied doesn't hold only hidden items, and saying so would send the user to the
+    /// wrong button.
     public var leftTreeHasOnlyHiddenEntries: Bool { leftTreeBeforeTypeFilter.isEmpty && !rawLeftTree.isEmpty }
     /// Right-pane counterpart of `leftTreeHasOnlyHiddenEntries`.
     public var rightTreeHasOnlyHiddenEntries: Bool { rightTreeBeforeTypeFilter.isEmpty && !rawRightTree.isEmpty }
@@ -2315,24 +1998,21 @@ public class FileSyncManager: ObservableObject {
     /// Total number of files and folders in the right pane tree (recursive).
     @Published public var rightItemCount = 0
 
-    /// When the walk behind each pane's published tree read the disk, or nil when the pane has
-    /// never loaded one. What Browse's status bar puts through `ScanFreshness`.
+    /// When the walk behind each pane's published tree read the disk, or nil if the pane never
+    /// loaded one. What Browse's status bar puts through `ScanFreshness`.
     ///
-    /// **Not `lastScanDate`**, which is the *comparison* scan's clock — a pair of folders diffed
-    /// against each other. A Browse pane runs no comparison, so on that surface `lastScanDate` is
-    /// either nil or a fact about two folders the user is not looking at. This is the walk that
-    /// produced the rows on screen, which is the question "how current is this listing?" actually
-    /// asks. Written by `adoptRawTree`, so every publish path — cold walk, shallow first paint and
-    /// cache hit alike — stamps exactly once, and the cache hit stamps the walk's time rather than
-    /// its own (see `prefetchedTreeReadAt`).
+    /// Not `lastScanDate`, the comparison scan's clock: a Browse pane runs no comparison, and this
+    /// is the walk that produced the rows on screen. Written by `adoptRawTree`, so every publish
+    /// path (cold walk, shallow first paint, cache hit) stamps once, and a cache hit stamps the
+    /// walk's time, not its own (`prefetchedTreeReadAt`).
     @Published public internal(set) var leftTreeReadAt: Date?
     /// Right-pane counterpart of `leftTreeReadAt`.
     @Published public internal(set) var rightTreeReadAt: Date?
 
     /// Whether the folder watcher has seen the left pane's folder change since the walk behind its
-    /// listing started — "changed since you looked" (ROADMAP item 5). Always false while nothing is
-    /// watching (``enableFolderWatching(history:latency:quiet:maxDelay:)``). It only ever ADDS a
-    /// warning: false says no event arrived, never that the folder is current.
+    /// listing started: "changed since you looked". Always false while nothing watches
+    /// (``enableFolderWatching(history:latency:quiet:maxDelay:)``). It only ever adds a warning:
+    /// false means no event arrived, not that the folder is current.
     @Published public internal(set) var leftChangedOnDisk = false
     /// Right-pane counterpart of `leftChangedOnDisk`.
     @Published public internal(set) var rightChangedOnDisk = false
@@ -2340,8 +2020,8 @@ public class FileSyncManager: ObservableObject {
     var leftWatch = PaneWatchState()
     /// Right-pane counterpart of `leftWatch`.
     var rightWatch = PaneWatchState()
-    /// The watcher behind the two flags above; nil until the app enables it, and in every test and
-    /// the CLI, which then behave exactly as they did before it existed.
+    /// The watcher behind the two flags above; nil until the app enables it, and always nil in
+    /// tests and the CLI.
     var folderWatcher: FolderWatcher?
     /// Told, on the main actor, which panes a batch of changes left showing a stale listing — the
     /// app's hook for its opt-in rescan. Never told about this process's own writes.
@@ -2361,10 +2041,10 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: - Selection resolution index
 
-    /// Path→node maps for resolving a selection to nodes in O(selection) instead of walking the
-    /// ~40k-node tree on every render — that walk was the pane action bar's "fraction of a second"
-    /// appearance lag. Built lazily on first lookup after a tree change and cached against the
-    /// published tree version, so a scan/navigation invalidates it without any eager cost.
+    /// Path → node maps that resolve a selection in O(selection) instead of walking the ~40k-node
+    /// tree on every render, which made the pane action bar appear late. Built lazily on first
+    /// lookup after a tree change and cached against the published tree version, so a scan or
+    /// navigation invalidates it at no eager cost.
     private var leftNodeIndexCache: (version: Int, index: [String: FileNode])?
     private var rightNodeIndexCache: (version: Int, index: [String: FileNode])?
 
@@ -2410,36 +2090,29 @@ public class FileSyncManager: ObservableObject {
         return rightNodeIndexCache!.index
     }
 
-    /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
-    /// Not `@Published`: no view renders from it, and it is cleared after every file operation —
-    /// publishing it forced whole-window re-renders per operation.
     /// Deep trees by focused-folder path (pane roots and any folder visited since the last
-    /// invalidation). Never holds shallow trees — consumers (navigation fast path, the
-    /// in-memory diff scan) rely on cached trees being fully walked. The one exception is a
-    /// cycle- or depth-capped directory inside a deep tree: it carries `isUnexplored: true`,
-    /// and `subtree(atPath:under:in:)` treats it as a miss so a drill-down re-walks from that path
-    /// instead of serving its artificial empty children. Cleared by file operations, sort
-    /// changes, and force refresh — and, only the walks listing one folder, by a file Edit writes
-    /// itself (`prepareReread(afterWritingAt:)`).
+    /// invalidation), walked ahead so switching providers doesn't block. Never holds shallow trees:
+    /// the navigation fast path and the in-memory diff scan rely on cached trees being fully
+    /// walked. The exception is a cycle- or depth-capped folder inside a deep tree: it carries
+    /// `isUnexplored: true`, and `subtree(atPath:under:in:)` treats it as a miss so a drill-down
+    /// re-walks from there instead of serving its empty children.
+    ///
+    /// Cleared by file operations, sort changes and force refresh, and, for only the walks listing
+    /// one folder, by a file Edit writes itself (`prepareReread(afterWritingAt:)`). Not
+    /// `@Published`: no view renders from it, and publishing it would re-render the whole window on
+    /// every file operation.
     public var prefetchedTrees: [String: [FileNode]] = [:]
-    /// The cache entries whose deep walk `paneNodeBudget` STOPPED — provenance the trees
-    /// themselves cannot carry, because a budget-stopped directory and a permission-denied one
-    /// wear the same `isUnexplored` mark. Read by the warm scan branch, which must banner a
-    /// comparison over a truncated tree (`PartialComparison.of`'s walk-stopped overload) even
-    /// though its per-directory suppression stays precise. Written only beside a cache write;
-    /// a bit is never read without its `prefetchedTrees` entry, so a cleared cache cannot leak
-    /// a stale bit into a verdict.
+    /// The cache entries whose deep walk `paneNodeBudget` stopped: provenance the trees can't
+    /// carry, since a budget-stopped folder and a permission-denied one wear the same
+    /// `isUnexplored` mark. The warm scan branch reads it to banner a comparison over a truncated
+    /// tree (`PartialComparison.of`'s walk-stopped overload). Written only beside a cache write and
+    /// never read without its `prefetchedTrees` entry, so a cleared cache can't leak a stale bit.
     public var prefetchedTreeWalkStopped: Set<String> = []
 
-    /// When the walk that produced each cache entry actually read the disk.
-    ///
-    /// **Provenance the tree cannot carry, and the reason the status bar's freshness is honest.**
-    /// A cache hit republishes a tree that was walked minutes ago — navigate away, navigate back,
-    /// nothing mutated in between — so stamping "read just now" at the moment it is *served* would
-    /// make the freshness segment say `Scanned just now` over a listing nobody has re-read. The stamp
-    /// travels with the entry instead, exactly as `prefetchedTreeWalkStopped` does, and a slice
-    /// inherits its root's stamp for the same reason it inherits the root's stopped bit: the slice
-    /// is part of that walk, not a walk of its own.
+    /// When the walk that produced each cache entry read the disk. A cache hit republishes a tree
+    /// walked minutes ago, so stamping the moment it is served would have the status bar say
+    /// `Scanned just now` over a listing nobody re-read. The stamp travels with the entry, like
+    /// `prefetchedTreeWalkStopped`, and a slice inherits its root's: it is part of that walk.
     public var prefetchedTreeReadAt: [String: Date] = [:]
 
     /// The FSEvents id read when the walk behind each cache entry started
@@ -2448,36 +2121,32 @@ public class FileSyncManager: ObservableObject {
     /// exactly as the read time does, and a slice inherits its root's.
     public var prefetchedTreeReadMark: [String: UInt64] = [:]
 
-    /// Where the walk behind each cache entry read through a folder link — the resolved targets
-    /// of the folder symlinks it listed outside its root (`FollowedLinks`). Absent for the walks
-    /// that followed none, which is nearly all of them.
+    /// Where the walk behind each cache entry read through a folder link: the resolved targets of
+    /// the folder symlinks it listed outside its root (`FollowedLinks`). Absent for walks that
+    /// followed none, nearly all of them.
     ///
-    /// **Provenance the drop cannot derive from paths.** Below such a link the walk's ids name the
-    /// target, not the root, so a write spelled the way a pane row names it is under no prefix of
-    /// the entry's key; `dropPrefetchedTrees(holding:)` reads this to see it. Written beside every
-    /// cache write and cleared by every drop verb, exactly as `prefetchedTreeWalkStopped` is, and
-    /// a slice inherits its root's for the same reason: it is part of that walk.
+    /// Below such a link the walk's ids name the target, so a write spelled as a pane row names it
+    /// is under no prefix of the entry's key; `dropPrefetchedTrees(holding:)` reads this to see it.
+    /// Written beside every cache write and cleared by every drop, like
+    /// `prefetchedTreeWalkStopped`; a slice inherits its root's.
     public var prefetchedTreeLinkTargets: [String: Set<String>] = [:]
-    /// The same record for the walk behind each pane's published tree — what the app asks when it
-    /// decides which pane holds a file it just wrote (`ContentView.panesHolding`).
+    /// The same record for the walk behind each pane's published tree, which the app asks when
+    /// deciding which pane holds a file it just wrote (`ContentView.panesHolding`).
     ///
-    /// **The pane's, not the cache's**, because the app asks after the write: by then
-    /// `prepareReread(afterWritingAt:)` has dropped the entry, and its record with it. Set by every
-    /// publish (`adoptRawTree`), widened by a column's graft, moved by a swap and cleared with the
-    /// pane's tree (`invalidatePaneTree`). While a moved pane's deep walk is still out it describes
-    /// the shallow first paint, which lists no link below the root — the walk cannot know what it
-    /// follows before it has walked. Not `@Published`: no view draws it.
+    /// The pane's, not the cache's, because the app asks after the write, when
+    /// `prepareReread(afterWritingAt:)` has dropped the entry. Set by every publish
+    /// (`adoptRawTree`), widened by a column's graft, moved by a swap and cleared with the pane's
+    /// tree (`invalidatePaneTree`). While a moved pane's deep walk is out it describes the shallow
+    /// first paint, which lists no link below the root. Not `@Published`: no view draws it.
     public internal(set) var leftTreeLinkTargets: Set<String> = []
     /// Right-pane counterpart of `leftTreeLinkTargets`.
     public internal(set) var rightTreeLinkTargets: Set<String> = []
 
-    /// The link table a pane load and the comparison after it compose their paths through —
-    /// this Mac's own (`PathBoundary.discoveredLinkedFolders`) everywhere but a test.
-    ///
-    /// One value for every step because the steps have to agree: a pane caches a linked folder
-    /// under the path this table composes, and the scan finds that entry only if it composes its
-    /// own path the same way. A test injects a table of its own, so nothing it asserts depends on
-    /// the iCloud links of the machine it runs on.
+    /// The link table pane loads and the comparison after them compose paths through: this Mac's
+    /// own (`PathBoundary.discoveredLinkedFolders`) except in tests. One value for every step
+    /// because they must agree: a pane caches a linked folder under the path this table composes,
+    /// and the scan finds that entry only if it composes the same way. Tests inject their own, so
+    /// nothing depends on the machine's iCloud links.
     var linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
 
     /// Where the pane loads, their columns' grafts and the comparison after them read a folder whose
@@ -2485,11 +2154,11 @@ public class FileSyncManager: ObservableObject {
     /// test, which injects one with a deadline it can wait out.
     var datalessFolderReads: DatalessFolderReads = .shared
 
-    /// Drops every cached pane tree AND its provenance — one verb, so the stores cannot part
-    /// company at an invalidation site. Every invalidation of `prefetchedTrees` goes
-    /// through here or through its one-folder forms, ``dropPrefetchedTrees(holding:)`` and
-    /// ``dropPrefetchedTrees(keeping:)``; a site that cleared the trees alone would leave
-    /// provenance bits to be re-read the next time the same focus path is cached by a slice.
+    /// Drops every cached pane tree and its provenance, in one verb so the stores can't part
+    /// company. Every invalidation of `prefetchedTrees` goes through here or its one-folder forms,
+    /// ``dropPrefetchedTrees(holding:)`` and ``dropPrefetchedTrees(keeping:)``; clearing the trees
+    /// alone would leave provenance bits to be re-read when the same path is next cached by a
+    /// slice.
     public func dropPrefetchedTrees() {
         prefetchedTrees.removeAll()
         prefetchedTreeWalkStopped.removeAll()
@@ -2498,27 +2167,21 @@ public class FileSyncManager: ObservableObject {
         prefetchedTreeReadMark.removeAll()
     }
 
-    /// Drops every cached walk but the one at `kept`, which stays with its provenance — or every
-    /// walk and record, exactly as ``dropPrefetchedTrees()`` does, when `kept` has no walk.
+    /// Drops every cached walk but the one at `kept`, which keeps its provenance; with no walk at
+    /// `kept`, drops everything, as ``dropPrefetchedTrees()`` does.
     ///
-    /// **For a source switch, a Location edit — anything that re-roots ONE pane — which leaves the
-    /// other showing a walk this cache holds.** The array on screen is normally that entry — every
-    /// writer hands the pane the array it caches — so dropping it freed nothing, and the Compare
-    /// after the switch reads cached trees only when both sides hit: without the still pane's entry
-    /// it walked both folders from disk, and at Home stopped at the node budget somewhere else than
-    /// the pane's walk did, so it answered differently too. Everything else goes, for memory: the
-    /// walks of the root the moved pane left, and of any other folder either pane visited — the
-    /// still pane's own root among them when it sits below it, so a folder above the kept one is
-    /// walked again when visited, as every folder was before.
+    /// For anything that re-roots one pane (a source switch, a Location edit) while the other still
+    /// shows a walk this cache holds. That entry is the array on screen, so dropping it frees
+    /// nothing, and the Compare after the switch reads cached trees only when both sides hit:
+    /// without it, it walks both folders from disk and, at the node budget, can stop somewhere
+    /// other than the pane's walk did and answer differently. Everything else goes, for memory.
     ///
-    /// **Not a walk that could not list its folder** (`isUnreadableRootWalk`): it knows nothing.
-    /// Kept, the Compare after the switch compared against it as a side with nothing to say, and a
-    /// pane switched onto the same folder was served it empty — and once access came back, nothing
-    /// read the folder again until Refresh. Measured in the app on 2026-10-03, after macOS's
-    /// Documents prompt: a switch and back found 0 differences, the refresh 917.
+    /// Never keeps a walk that couldn't list its folder (`isUnreadableRootWalk`): it knows nothing.
+    /// Kept, the next Compare would compare against an empty side, and a pane switched back onto
+    /// that folder would be served it empty until Refresh, even once access returned.
     ///
-    /// Logged either way, at DEBUG beside the `[load]` lines: whether the next Compare can read
-    /// the still pane's tree is decided here, and a miss is otherwise visible only as a slow scan.
+    /// Logged at DEBUG beside the `[load]` lines either way: a miss here is otherwise visible only
+    /// as a slow scan.
     public func dropPrefetchedTrees(keeping kept: String?) {
         let before = prefetchedTrees.count
         guard let kept, let tree = prefetchedTrees[kept], !Self.isUnreadableRootWalk(tree, at: kept) else {
@@ -2545,23 +2208,18 @@ public class FileSyncManager: ObservableObject {
                             + "dropped the other \(before - 1) cached walk(s)")
     }
 
-    /// Drops only the cached walks that list `folder` — its ancestor chain, and any walk that
-    /// reaches it through a linked folder or a folder symlink — with their provenance, and keeps
-    /// every other entry.
-    ///
-    /// **For a write that adds one file**, which makes exactly those entries stale: a walk of a
-    /// folder the file is not under still describes it truly. `dropPrefetchedTrees()` empties the
-    /// lot, which is right for a file operation (it can touch many folders on both sides) and a
-    /// sort change, and was paid by Edit's ⌘N and Export as PDF on every use — so the next
-    /// navigation anywhere, in either pane, was a cold walk.
+    /// Drops only the cached walks that list `folder` (its ancestor chain, and any walk reaching it
+    /// through a linked folder or a folder symlink) with their provenance, keeping every other
+    /// entry. For a write that adds one file, which makes exactly those entries stale.
+    /// `dropPrefetchedTrees()` empties the lot, right for a file operation (it can touch many
+    /// folders on both sides) and a sort change, but after Edit's ⌘N or Export as PDF it would make
+    /// the next navigation anywhere a cold walk.
     ///
     /// "Lists" is ``folder(_:holds:links:)``, links included: the iCloud container's walk lists
-    /// `~/Documents` under the link's name, and so does every walk rooted above the container, so
-    /// a file created in `~/Documents/Finance` makes their entries stale though no key of theirs is
-    /// a prefix of the file's path. Asked with `linkedFolders`, the table the walks were made with,
-    /// so the drop cannot disagree with them about what a walk lists — and with each entry's own
-    /// `prefetchedTreeLinkTargets`, for the folder symlinks it followed. Returns how many entries
-    /// went, for the caller's log line.
+    /// `~/Documents` under the link's name, as does every walk rooted above it, so a file created
+    /// in `~/Documents/Finance` makes their entries stale though no key of theirs prefixes its
+    /// path. Asked with `linkedFolders`, the table the walks were made with, and each entry's own
+    /// `prefetchedTreeLinkTargets`. Returns how many entries went, for the caller's log line.
     @discardableResult
     public func dropPrefetchedTrees(holding folder: String) -> Int {
         let links = linkedFolders
@@ -2572,22 +2230,21 @@ public class FileSyncManager: ObservableObject {
         return stale.count
     }
 
-    /// Drops the cached walks the folder watcher's changes have made stale: each walk that lists
-    /// one of a change's `paths` (string math only — ``listedRoots(of:links:linkTargets:)``), and
-    /// for a change marked `below`, each walk of a folder under one of them: a folder that was
-    /// removed or renamed takes the walks below it along, which no event of their own will name.
+    /// Drops the cached walks the folder watcher's changes made stale: each walk that lists one of
+    /// a change's `paths` (string math only, ``listedRoots(of:links:linkTargets:)``), and for a
+    /// change marked `below`, each walk of a folder under one of them, since a removed or renamed
+    /// folder takes the walks below it along and no event will name them.
     ///
-    /// **Only a walk older than the change.** A walk whose read mark is at or past the change's id
-    /// started after it and listed it; an entry with no mark predates the bookkeeping and goes.
-    /// Returns how many entries went.
+    /// Only walks older than the change: a walk whose read mark is at or past the change's id
+    /// started after it and listed it. An entry with no mark goes. Returns how many entries went.
     @discardableResult
     func dropPrefetchedTrees(changedBy changes: [(paths: [String], below: Bool, id: UInt64)]) -> Int {
         guard !changes.isEmpty, !prefetchedTrees.isEmpty else { return 0 }
-        // **Folded by folder first.** A walk lists a path strictly below one of its roots exactly
-        // when it lists that path's parent, so a burst of thousands of files in a handful of folders
-        // asks each cached walk about a handful of folders — not about every file, which at a first
-        // sync's 20,000 events and a few dozen cached walks was over a million comparisons on the
-        // main actor. A path that IS a walk's root is the other way in, looked up by name.
+        // Folded by folder first. A walk lists a path strictly below one of its roots exactly when
+        // it lists that path's parent, so a burst of thousands of files in a few folders asks each
+        // walk about a few folders, not every file; a first sync's 20,000 events against a few
+        // dozen walks would be over a million comparisons on the main actor. A path that is a
+        // walk's root is looked up by name.
         var parents: [String: UInt64] = [:]
         var exact: [String: UInt64] = [:]
         var below: [String: UInt64] = [:]
@@ -2623,39 +2280,32 @@ public class FileSyncManager: ObservableObject {
         prefetchedTreeReadMark[key] = nil
     }
 
-    /// Whether a deep walk of `folder` lists `path` — a pane's folder or a cached walk's root,
-    /// asked about a file the app just wrote: `path` is `folder` itself or under it, under a
-    /// folder linked in at `folder` or at any directory below it, or under a target in
-    /// `linkTargets`. `path` is also tried in its symlink-resolved spelling, for one handed over by
-    /// a save panel rather than composed by a pane (an iCloud link-side path resolves to the real
-    /// `~/Documents/…` one), and for the targets, which are recorded in that spelling.
+    /// Whether a deep walk of `folder` (a pane's folder or a cached walk's root) lists `path`, a
+    /// file the app just wrote: `path` is `folder` or under it, under a folder linked in at
+    /// `folder` or any folder below it, or under a target in `linkTargets`. `path` is also tried
+    /// symlink-resolved, for one handed over by a save panel rather than composed by a pane (an
+    /// iCloud link-side path resolves to the real `~/Documents/…`), and for the targets, which are
+    /// recorded resolved.
     ///
-    /// **Below it too, because the walk substitutes a link wherever it lists one** (`buildTree`'s
-    /// `childURLs`), not only at its root: a walk of `~/Library/Mobile Documents` lists iCloud
-    /// Drive's container and, through its link, `~/Documents`. Asked at the root alone, a write in
-    /// `~/Documents/Finance` left that walk cached, and the pane was served the tree from before
-    /// the write. One hop: a linked folder holding a container of its own would need a second, and
-    /// no table has one — the table names one container, whose links lead to `~/Desktop` and
-    /// `~/Documents`, and neither holds it.
+    /// Below `folder` too, because the walk substitutes a link wherever it lists one (`buildTree`'s
+    /// `childURLs`): a walk of `~/Library/Mobile Documents` lists iCloud Drive's container and,
+    /// through its link, `~/Documents`. Asked at the root alone, a write in `~/Documents/Finance`
+    /// would leave that walk cached and the pane served the old tree. One hop only: a second would
+    /// need a linked folder holding a container of its own, which no table has.
     ///
-    /// **And a folder symlink the table does not name, through `linkTargets`.** The walk follows
-    /// one and lists what it leads to: the link and its children keep the link's spelling, and
-    /// from two levels down the listing comes back resolved. So a walk of `R` holding
-    /// `R/link → T`, `T` outside `R`, carries ids spelled `T/…`, a file opened from one of those
-    /// rows is saved under that spelling, and no prefix of `R` names it — without the targets the
-    /// walk survived a new file there and a rewrite alike (measured, `OutOfQueueWriteRereadTests`).
-    /// Which walks hold such a link is a fact about their trees, not about two paths and a table:
-    /// finding it here would mean traversing every cached tree on every write, and an autosave
-    /// outside both panes asks this once per cached walk. So the walk records it
-    /// (`FollowedLinks`) and the caller passes the record in — a cache entry's
-    /// `prefetchedTreeLinkTargets`, or a pane's `leftTreeLinkTargets`. A container the table names
-    /// below a target is listed too: the walk substitutes its links there as anywhere.
+    /// A folder symlink the table doesn't name comes through `linkTargets`. The walk follows it:
+    /// the link and its children keep the link's spelling, and from two levels down the listing
+    /// comes back resolved. So a walk of `R` holding `R/link → T`, with `T` outside `R`, carries
+    /// ids spelled `T/…`, a file opened from those rows is saved under that spelling, and no prefix
+    /// of `R` names it (`OutOfQueueWriteRereadTests`). Finding such links here would mean
+    /// traversing every cached tree on every write, so the walk records them (`FollowedLinks`) and
+    /// the caller passes the record in: a cache entry's `prefetchedTreeLinkTargets`, or a pane's
+    /// `leftTreeLinkTargets`. A container the table names below a target is listed too.
     ///
-    /// **Not a FILE symlink, which can leave a walk stale both ways (measured).** `R/f.txt →
-    /// T/f.txt` lists no folder of `T`'s, but its node carries the target's size and date, so a
-    /// rewrite spelled `T/f.txt` leaves the walk of `R` describing the old file. And a rewrite
-    /// spelled through the link leaves a walk of `T` stale: the drop asks about the written file's
-    /// folder, `R`, whose resolution never passes through the file link. Closing either means
+    /// Not a file symlink, which can leave a walk stale both ways. `R/f.txt → T/f.txt` lists no
+    /// folder of `T`'s, but its node carries the target's size and date, so a rewrite spelled
+    /// `T/f.txt` leaves the walk of `R` describing the old file; and a rewrite spelled through the
+    /// link leaves a walk of `T` stale, since the drop asks about `R`. Closing either means
     /// matching the written file itself rather than its folder, which nothing here does yet.
     public nonisolated static func folder(_ folder: String, holds path: String,
                                           links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
@@ -2711,17 +2361,14 @@ public class FileSyncManager: ObservableObject {
     
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false
-    /// `NSPasteboard.general.changeCount` as it stood after the app's own last ⌘C/⌘X, or nil if it
-    /// has not written one this launch.
+    /// `NSPasteboard.general.changeCount` as it stood after the app's own last ⌘C or ⌘X, or nil if
+    /// it wrote none this launch.
     ///
-    /// The token that keeps two clipboards behaving as one: while this still equals the live count,
-    /// SyncCloud owns what is on the pasteboard and `clipboardNodes` — which carries `isCut`, and
-    /// so is the only path that can move rather than copy — is what a paste means. The moment
-    /// anything else writes, the count moves and the pasteboard becomes the answer. See
-    /// `ClipboardSource.resolve`.
-    ///
-    /// Held here rather than in `FileActionHandler` because it is part of the clipboard's state,
-    /// and the two lines above are already here.
+    /// It keeps two clipboards behaving as one: while it equals the live count, SyncCloud owns the
+    /// pasteboard, and `clipboardNodes` (which carries `isCut`, the only path that can move rather
+    /// than copy) is what a paste means. Once anything else writes, the count moves and the
+    /// pasteboard is the answer (`ClipboardSource.resolve`). Held here, beside the rest of the
+    /// clipboard's state.
     @Published public var clipboardPasteboardChangeCount: Int? = nil
     
     /// Global UndoManager injected from SwiftUI environment. Re-wires the did-undo/did-redo
@@ -2729,12 +2376,10 @@ public class FileSyncManager: ObservableObject {
     public var undoManager: UndoManager? {
         didSet {
             guard undoManager !== oldValue else { return }
-            // A DIFFERENT manager means a different stack: a pairing armed against the old
-            // instance must not be validated against the new one's identically-named groups
-            // (a window reopen swaps managers; the first unpaired registration on the fresh
-            // stack would otherwise resurrect the stale preview). The armed-this-session
-            // flag resets too: the old stack's runs are unreachable through the new one, so
-            // the "history changed" advice would point at nothing.
+            // A different manager is a different stack: a pairing armed against the old one must
+            // not be validated against the new one's identically named groups (a window reopen
+            // swaps managers). The armed-this-session flag resets too, since the old stack's runs
+            // are unreachable and the "history changed" advice would point at nothing.
             invalidateRunUndoPairing()
             hasArmedRunPairingThisSession = false
             undoStackObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -2789,29 +2434,26 @@ public class FileSyncManager: ObservableObject {
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
     /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
     internal var bulkApplyToAllResolution: CollisionResolution?
-    /// True while a bulk run — `syncAll` or the verified-copy bulk copy — is in flight. Both
-    /// write `bulkSyncProgress` and nil it in their defer, and syncAll's prepare phase suspends
-    /// (detached stat pass, keep-both probing) before the progress overlay can block input, so
-    /// without a shared guard two bulk runs could interleave there, reset
-    /// `bulkApplyToAllResolution` mid-prompt, interleave the shared progress counter, and tear
-    /// down `bulkSyncProgress` on exit while the other run is still using it. Internal (not
-    /// private) so tests can pin the refusal paths without racing a real run.
+    /// True while a bulk run (`syncAll` or the verified-copy bulk copy) is in flight. Both write
+    /// `bulkSyncProgress` and nil it in their defer, and syncAll's prepare phase suspends (detached
+    /// stat pass, keep-both probing) before the progress overlay blocks input. Without a shared
+    /// guard two runs could interleave there, reset `bulkApplyToAllResolution` mid-prompt, mix the
+    /// progress counter, and tear down `bulkSyncProgress` while the other still uses it. Internal
+    /// so tests can pin the refusals without racing a real run.
     var isBulkSyncRunning = false
-    /// True while a `verifyAllWithChecksum` run is in flight. Symmetric with
-    /// `isBulkSyncRunning`: each refuses to start while the other runs. Verify All hashes both
-    /// sides of every candidate, so overlapping a bulk sync — especially its prepare phase,
-    /// where `bulkSyncProgress` is still nil — would checksum files mid-overwrite and could
-    /// record bogus "identical" results in `verifiedIdenticalForCopy`. Internal (not private)
-    /// so tests can pin the syncAll-refuses-during-verify direction without racing a real run.
+    /// True while a `verifyAllWithChecksum` run is in flight; it and `isBulkSyncRunning` each
+    /// refuse to start while the other runs. Verify All hashes both sides of every candidate, so
+    /// overlapping a bulk sync (especially its prepare phase, where `bulkSyncProgress` is still
+    /// nil) would checksum files mid-overwrite and could record bogus "identical" results in
+    /// `verifiedIdenticalForCopy`. Internal so tests can pin the refusal without racing a real run.
     var isVerifyAllRunning = false
 
-    /// Current subfolder path relative to the left pane root (empty = root).
-    ///
-    /// This is the pane's comparison **scope**, not merely where it is looking: assigning it goes
-    /// through `focusOn` → `syncPathsFromHistory` → `refreshSubject`, reloading the tree and
-    /// re-running the scan. Where the pane is *browsing* inside that scope is `leftBrowsePath`.
+    /// Current subfolder path relative to the left pane root (empty = root). This is the pane's
+    /// comparison scope, not just where it's looking: assigning it goes through `focusOn` →
+    /// `syncPathsFromHistory` → `refreshSubject`, reloading the tree and rescanning. Where the pane
+    /// is browsing inside that scope is `leftBrowsePath`.
     @Published public var leftRelativePath: String = "" {
-        // What the pane just made is kept visible only until it leaves the folder (TE277).
+        // What the pane just made stays visible only until it leaves the folder.
         didSet { if leftRelativePath != oldValue { leftTypeFilterKeep = [] } }
     }
     /// Current subfolder path relative to the right pane root (empty = root).
@@ -2819,52 +2461,37 @@ public class FileSyncManager: ObservableObject {
         didSet { if rightRelativePath != oldValue { rightTypeFilterKeep = [] } }
     }
 
-    /// Where each pane's source **opens**, as a path relative to that pane's root — the origin its
-    /// positions are quoted against once you stop assuming both panes share one.
+    /// Where each pane's source opens, as a path relative to that pane's root: the origin its
+    /// positions are quoted against.
     ///
-    /// Supplied by the app because the pane → source mapping is its state, and a closure rather
-    /// than two stored strings so it is read at the moment of the decision: it is a preference
-    /// discovery republishes, and a cached copy would answer with the folder a source used to open
-    /// at. The default answers `""` for both, which reproduces exactly the pre-landing-folder
-    /// behaviour — every test that does not set it is asking the old question and still gets the
-    /// old answer.
+    /// Supplied by the app, which owns the pane → source mapping, as a closure so it is read at the
+    /// moment of decision: discovery republishes it, and a cached copy would answer with where a
+    /// source used to open. The default answers `""` for both, so a test that doesn't set it sees
+    /// both panes open at their roots.
     ///
-    /// Two things read it, and both were silently wrong without it. Linked navigation drove both
-    /// panes with ONE root-relative path, so an iCloud/OneDrive pair sent the sibling either into a
-    /// doubled `Documents` or into a real-but-unrelated folder at the top of the account. And the
-    /// durable ignore store's "both panes are showing the same thing" guard compared the two
-    /// root-relative paths directly, which for a mixed pair is permanently false — Ignore worked
-    /// for the session, wrote nothing, and the row was back after a relaunch with no diagnostic.
+    /// Linked navigation reads it, so a sibling pane isn't driven by one root-relative path into a
+    /// doubled `Documents` or an unrelated folder at the top of the account. So does the durable
+    /// ignore store's "both panes show the same thing" guard: compared raw, a mixed pair never
+    /// matches, and Ignore would silently write nothing.
     @MainActor public var paneOpenAt: (_ isLeft: Bool) -> String = { _ in "" }
 
-    /// Each pane's source id, supplied by the app for the same reason as `paneOpenAt` and read at
-    /// the same moment: the pane → source mapping is the app's state, and a cached copy answers
-    /// about the source a pane used to be on.
-    ///
-    /// Only the durable ignore store reads it, and only to decide WHICH pane's coordinates its
-    /// entries are quoted in — see `ignoreAnchorIsLeft`. The default answers `""` for both, which
-    /// makes that decision "the left pane", i.e. exactly what the store did before this existed.
+    /// Each pane's source id, supplied by the app and read at the moment of decision, as
+    /// `paneOpenAt` is. Only the durable ignore store reads it, to decide which pane's coordinates
+    /// its entries are quoted in (`ignoreAnchorIsLeft`). The default answers `""` for both, which
+    /// picks the left pane.
     @MainActor public var paneSourceId: (_ isLeft: Bool) -> String = { _ in "" }
 
-    /// Which pane's root the durable ignore set is measured from.
-    ///
-    /// **It cannot be "the left one", and that is the whole reason this exists.**
+    /// Which pane's root the durable ignore set is measured from. It can't simply be the left one.
     /// `IgnoredItemsStore.pairKey` sorts its two ids, so one key serves the pair in either
-    /// orientation — which was exact while both panes' roots were documents folders, because a
-    /// root-relative path then read the same from either side and a swap changed nothing. Sources
-    /// now land at `openAt`, so the same item is `Family/x` from an iCloud pane and
-    /// `Documents/Family/x` from a OneDrive one; quoting the store against whichever source
-    /// happens to be on the left means ⌘⇧S re-reads yesterday's entries in the other source's
-    /// coordinates, where they match nothing — the ignored rows come back, and the next Ignore
-    /// writes the same item a second time under its other spelling.
+    /// orientation, but sources land at `openAt`: one item is `Family/x` from an iCloud pane and
+    /// `Documents/Family/x` from a OneDrive one. Quoted against whichever source is on the left,
+    /// ⌘⇧S would re-read the entries in the other source's coordinates, where they match nothing:
+    /// ignored rows come back, and the next Ignore stores the item again under its other spelling.
     ///
-    /// So the pair key picks: entries are quoted against the source whose id sorts FIRST, which is
-    /// the id the key itself names first. That is stable under a swap by construction, and it is
-    /// the same choice `RootsMigration.rebaseIgnoredItems` makes when it moves the stored entries
-    /// into the new roots, so the two agree about what is on disk.
-    ///
-    /// Falls back to the left pane when either id is unknown — the pre-`paneSourceId` behaviour,
-    /// and the only answer available when there is nothing to sort.
+    /// So entries are quoted against the source whose id sorts first, the one the key names first.
+    /// That is stable under a swap, and it is the choice `RootsMigration.rebaseIgnoredItems` makes
+    /// when it moves stored entries, so the two agree. Falls back to the left pane when either id
+    /// is unknown and there is nothing to sort.
     @MainActor var ignoreAnchorIsLeft: Bool {
         let left = paneSourceId(true)
         let right = paneSourceId(false)
@@ -2879,13 +2506,10 @@ public class FileSyncManager: ObservableObject {
         ignoreAnchorIsLeft ? leftRelativePath : rightRelativePath
     }
 
-    /// Whether a focus-relative path names the SAME item in both panes — the condition the durable
-    /// ignore store's identity depends on.
-    ///
-    /// Anchor-relative, not a raw comparison of the two focus paths. Before sources had a landing
-    /// folder the two were the same test, because every root WAS a documents folder; now iCloud
-    /// lands at `""` and OneDrive at `Documents`, so two panes showing exactly the same thing
-    /// disagree by two components and the raw test never becomes true again.
+    /// Whether a focus-relative path names the same item in both panes, the condition the durable
+    /// ignore store's identity depends on. Anchor-relative, not a raw comparison of the two focus
+    /// paths: iCloud lands at `""` and OneDrive at `Documents`, so two panes showing the same thing
+    /// differ by the landing folder and the raw test never matches.
     @MainActor var panesShareAPosition: Bool {
         PathBoundary.reanchor(leftRelativePath, from: paneOpenAt(true), to: paneOpenAt(false))
             == rightRelativePath
@@ -2920,70 +2544,53 @@ public class FileSyncManager: ObservableObject {
     /// treats as pane-first — the panes are what a fresh window is looking at.
     @Published public var lastSelectionSurface: SelectionSurface? = nil
 
-    /// Which pane the pane-scoped chords act on, once something has said so explicitly — ⌃⇥, or a
-    /// click that selects in a pane. `nil` until then, which hands the question to the
-    /// selection-derived fallback in `PaneLogic.focusedPaneIsLeft`.
+    /// Which pane the pane-scoped chords act on, once something said so explicitly (⌃⇥, or a click
+    /// that selects in a pane). nil until then, which hands the question to
+    /// `PaneLogic.focusedPaneIsLeft`'s selection-derived fallback.
     ///
-    /// A second stored fact next to the selection was the thing to avoid, so this deliberately
-    /// does NOT feed the action bar: that bar is about a selection and draws where the selection
-    /// is, which `PaneLogic.activePane` still answers on its own and unchanged. This answers the
-    /// different question the chords ask — "which pane am I working in" — and it is the one the
-    /// selection cannot answer, because letting go of a selection does not mean leaving the pane.
-    ///
-    /// **Held here rather than on the view because `swapPanes` has to swap it.** It is a per-side
-    /// fact exactly like the selections, histories and browse paths beside it, and as view `@State`
-    /// it was one line in `swapPanesAction` away from being forgotten — with no test that could
-    /// reach the omission. Here it swaps with everything else, in the function whose whole job is
-    /// swapping per-side facts.
+    /// It does not feed the action bar, which is about a selection and draws where it is
+    /// (`PaneLogic.activePane`). This answers "which pane am I working in", which the selection
+    /// can't: letting go of a selection isn't leaving the pane. Held here, not in view state, so
+    /// `swapPanes` swaps it with the other per-side facts.
     @Published public var focusedPaneSide: PaneTree.Side?
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.
     public var activeFileOperationsCount = 0
-    /// Monotonic count of file operations ever STARTED, and never decremented, so a long async
-    /// pass can tell that an operation ran even when it started AND finished during the pass —
-    /// re-checking `activeFileOperationsCount == 0` alone cannot see that window.
-    ///
-    /// Three consumers, answering two different questions:
+    /// Monotonic count of file operations ever started, never decremented, so a long async pass can
+    /// tell an operation ran even when it started and finished during the pass, which
+    /// `activeFileOperationsCount == 0` can't see. It answers two questions:
     ///
     /// - `autoVerifySameSizePairs` and `verifyAllWithChecksum` capture it at entry and discard
-    ///   their batch if it moved by commit time — "did anything rewrite the bytes I hashed while
-    ///   I was hashing them?".
-    /// - `confirmVerifiedCopy` compares it against the epoch stamped into the standing offer —
-    ///   "have those verdicts been invalidated in the time the dialog has been up?".
+    ///   their batch if it moved by commit: did anything rewrite the bytes I hashed?
+    /// - `confirmVerifiedCopy` compares it against the epoch stamped into the standing offer: were
+    ///   those verdicts invalidated while the dialog was up?
     ///
-    /// The epoch answers both only for operations that have STARTED. It says nothing about one
-    /// that is claimed and imminent, because the bump happens at enqueue time (below) while the
-    /// claim happens earlier, at `preCountFileOperation()`. Whether that gap matters depends on
-    /// the consumer, so the two questions take different guards and MUST NOT be unified:
-    /// `confirmVerifiedCopy` pairs the epoch with `activeFileOperationsCount == 0` because it is
-    /// about to write and a pending write must stop it; the scan pass deliberately does not,
-    /// because a pre-counted operation the user then declines never runs, and voiding a whole
-    /// hashed batch for it cost real coverage. Each guard carries the reasoning at its site.
+    /// It covers only operations that have started: the bump is at enqueue time, the claim earlier
+    /// at `preCountFileOperation()`. So the two questions take different guards and must not be
+    /// unified. `confirmVerifiedCopy` also requires `activeFileOperationsCount == 0`, because it is
+    /// about to write and a pending write must stop it; the scan pass doesn't, because a
+    /// pre-counted operation the user declines never runs, and voiding a hashed batch for it costs
+    /// coverage. Each guard explains itself at its site.
     ///
-    /// Bumped in `enqueueFileOperation`, NOT alongside `activeFileOperationsCount` — the two
-    /// deliberately move at different moments. The count moves at PRE-count time because the
-    /// quit guard and the hashing exclusions must treat a pending transfer as in flight while
-    /// its confirmation prompt is up. The epoch may not: a declined prompt runs no I/O, yet the
-    /// bump cannot be taken back (that is the point of a monotonic counter), so bumping it there
-    /// voided the whole auto-verify batch for an operation that never happened — and since
-    /// nothing ran, nothing sent `refreshSubject`, so no rescan re-ran the pass and those rows
-    /// stayed listed as differences until a manual rescan.
+    /// Bumped in `enqueueFileOperation`, not with `activeFileOperationsCount`. The count moves at
+    /// pre-count, so the quit guard and the hashing exclusions treat a pending transfer as in
+    /// flight while its prompt is up. The epoch can't: a declined prompt runs no I/O, the bump
+    /// can't be taken back, and it would void the auto-verify batch with no rescan to re-run it,
+    /// leaving those rows listed as differences.
     internal private(set) var fileOperationsEpoch = 0
 
-    /// Records that a file operation is about to run (see `fileOperationsEpoch`). Called from
-    /// `enqueueFileOperation` only — that is the serial queue every user file operation is
-    /// routed through. (The orphaned-temp sweep is the one filesystem write that is not, and
-    /// deliberately so: it only ever REMOVES age-gated `.tmp_<UUID>` staging artifacts, and a
-    /// removal cannot make a differing pair hash identical, which is the whole failure this
-    /// counter exists to catch. `sweepOrphanedTempArtifacts` carries the full reasoning and the
-    /// cost of the naive fix.)
+    /// Records that a file operation is about to run (`fileOperationsEpoch`). Called only from
+    /// `enqueueFileOperation`, the serial queue every user file operation goes through. The
+    /// orphaned-temp sweep is the one write that isn't, by design: it only removes age-gated
+    /// `.tmp_<UUID>` staging artifacts, which can't make a differing pair hash identical
+    /// (`sweepOrphanedTempArtifacts` explains).
     private func noteFileOperationBegan() {
         fileOperationsEpoch += 1
     }
-    /// Real-time progress tracker for the currently active bulk file operation. While it is set
-    /// the window greys every action that writes to disk (decision BZ) — each publisher names its
-    /// run in ``Foundation/Progress/runLockReason`` for the tooltip that says why.
+    /// Real-time progress for the active bulk file operation. While it is set the window greys
+    /// every action that writes to disk; each publisher names its run in
+    /// ``Foundation/Progress/runLockReason`` for the tooltip that says why.
     @Published public var activeProgress: Progress? = nil {
         didSet {
             guard activeProgress !== oldValue else { return }
@@ -2994,32 +2601,28 @@ public class FileSyncManager: ObservableObject {
             activeProgressStartedAt = activeProgress.map { $0.firstPublished() }
         }
     }
-    /// When the run on ``activeProgress`` was published — what orders it among the window's other
-    /// runs, newest first, in the toolbar's capsule (TE218).
+    /// When the run on ``activeProgress`` was published, which orders it among the window's other
+    /// runs, newest first, in the toolbar's capsule.
     public private(set) var activeProgressStartedAt: Date?
-    /// The last run that ended — the minutes its log lines span, for its message's Show in Log in
-    /// Activity (Run Room R13).
-    /// Its title is the run's own — "Merging “Photos”" — which names a notification of its ending.
-    /// `cancelled` is whether it was stopped — its ending is then a stop, not a problem.
+    /// The last run that ended: the minutes its log lines span, for its message's Show in Log in
+    /// Activity. Its title is the run's own ("Merging “Photos”"), which names a notification of its
+    /// ending. `cancelled` says it was stopped, so its ending is a stop, not a problem.
     public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?, cancelled: Bool)?
-    /// The run whose records the last history-recorded operation wrote — its token changes with
-    /// each — for its message's Show in History (R13). `recordedAt` is when: a run that ended in an
-    /// alert, with no message, must not hand its records to the next message, minutes later.
+    /// The run whose records the last history-recorded operation wrote (its token changes with
+    /// each), for its message's Show in History. `recordedAt` matters: a run that ended in an
+    /// alert, with no message, must not hand its records to the next message minutes later.
     public var lastRecordedRun: (token: UUID, runId: UUID, recordedAt: Date)? {
         guard let token = lastRecordedRunToken, let runId = lastRecordedRunRecords.first?.runId,
               let recordedAt = lastRecordedRunAt else { return nil }
         return (token, runId, recordedAt)
     }
-    /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
-    /// icon, tint, and dismissal behavior.
+    /// Short-lived banner for operation completion toasts; its severity drives the icon, tint and
+    /// dismissal.
     ///
-    /// Every banner is also logged here, at the severity it wears, prefixed `[banner]`. This is
-    /// the choke point that keeps refusals findable after the fact: a dozen guards across this
-    /// class refuse an operation with nothing but a banner, and a banner is gone in seconds —
-    /// a report of "I clicked sync and nothing happened" was undiagnosable from the log alone.
-    /// Sites that also log their own richer line will produce a near-duplicate pair; that is
-    /// accepted, because the `[banner]` line records what the USER was shown, which the richer
-    /// line does not.
+    /// Every banner is also logged here at its severity, prefixed `[banner]`, so refusals stay
+    /// findable: many guards refuse with nothing but a banner, which is gone in seconds. Sites that
+    /// log a richer line too produce a near-duplicate pair; the `[banner]` line records what the
+    /// user was shown.
     @Published public var banner: OperationBanner? = nil {
         didSet {
             guard let banner, banner.id != oldValue?.id else { return }
@@ -3031,26 +2634,18 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
-    /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
+    /// Combine subject that asks for a tree refresh from anywhere, without closure retain cycles.
     ///
-    /// **It carries which panes to walk, and that is the whole point of the payload.** This was
-    /// `Void`, and a scopeless request can only be honoured as `.both` — so *navigating one pane*
-    /// re-walked the other pane's root as well, on a source and a focus that navigation had not
-    /// touched. The tab strip already knew better (`refreshForTabSwitch` names the moved pane and
-    /// measured 15–36ms of every switch spent re-walking a pane nobody moved), but navigation is far
-    /// commoner than a tab switch, and after any file operation or sort change the prefetch cache is
-    /// empty, so the untouched pane's "reload" is a full cold walk of its root — 37–39k nodes and
-    /// most of a second on a real pair.
+    /// It carries which panes to walk: navigating one pane must not re-walk the other's root, which
+    /// after any file operation or sort change (the prefetch cache is then empty) is a full cold
+    /// walk of tens of thousands of nodes. Senders that change what a walk would produce (a
+    /// finished file operation, a date-tolerance change, a sort needing fresh tags) send `.both`,
+    /// and must. The narrow scopes come from `syncPathsFromHistory`, which knows one pane moved,
+    /// through navigation or `retargetPane`.
     ///
-    /// Senders that genuinely change what a walk would produce — a finished file operation, a
-    /// date-tolerance change, a sort that needs fresh tags — still send `.both`, and must: their
-    /// change applies to both trees. The narrow scopes come from `syncPathsFromHistory`, the one
-    /// sender here that knows a pane moved and the other did not — through ordinary navigation, or
-    /// through `retargetPane`, which re-points a single pane at a new source.
-    ///
-    /// A narrow request is never a way to skip a load that is owed: `refreshTreesAndScan` unions a
-    /// one-pane scope with any wider refresh already in flight, so a `.leftOnly` arriving mid-launch
-    /// widens back to `.both` rather than stranding the right pane.
+    /// A narrow request never skips a load that is owed: `refreshTreesAndScan` unions a one-pane
+    /// scope with any wider refresh in flight, so a `.leftOnly` arriving mid-launch widens back to
+    /// `.both` rather than stranding the right pane.
     public let refreshSubject = PassthroughSubject<PaneReloadScope, Never>()
     
     /// Chains file operations so they run one after another (avoids concurrent copy/move/undo conflicts).
@@ -3072,14 +2667,13 @@ public class FileSyncManager: ObservableObject {
     internal var activeLoadLeftTask: Task<Void, Never>?
     internal var activeLoadRightTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
-    /// Target of the in-flight refresh (both providers + focused subpaths); nil when none is
-    /// running. Lets refreshTreesAndScan dedupe the identical refreshes the launch bootstrap
-    /// fires (explicit initial refresh + the provider-id onChange that resets navigation)
-    /// instead of cancel-restarting them, which raced and could strand a pane's load.
+    /// Target of the in-flight refresh (both providers and focused subpaths), or nil. Lets
+    /// refreshTreesAndScan dedupe the identical refreshes the launch bootstrap fires (the explicit
+    /// initial refresh, and the provider-id onChange that resets navigation) instead of
+    /// cancel-restarting them, which races and can strand a pane's load.
     var activeRefreshKey: RefreshKey?
-    /// A refresh is reading the panes' folders or comparing them: from the moment one starts,
-    /// where `isScanning` rises only once both folders are read (Ask Claude's Scan Again waits on
-    /// this, TE261).
+    /// A refresh is reading the panes' folders or comparing them, from the moment it starts;
+    /// `isScanning` rises only once both folders are read. Ask Claude's Scan Again waits on this.
     public var isRefreshing: Bool { activeRefreshKey != nil }
     /// Identity of a refresh target. Two concurrent refreshes with the same key would load the
     /// same thing, so the later one is skipped; a different key is real navigation and supersedes.
@@ -3090,18 +2684,15 @@ public class FileSyncManager: ObservableObject {
         let rightPath: String
         let leftRel: String
         let rightRel: String
-        /// `scanConfigGeneration` at key construction. Keying the target on the config epoch
-        /// means a refresh requested AFTER a scan-affecting change never reads as a duplicate
-        /// of one started before it — the dedupe otherwise swallowed the follow-up refresh a
-        /// config didSet requested while a same-target refresh was in flight (e.g. switching
-        /// to the Tags sort mid-scan left the panes tag-less and old-sorted).
+        /// `scanConfigGeneration` at key construction, so a refresh requested after a
+        /// scan-affecting change never reads as a duplicate of one started before it. Otherwise the
+        /// dedupe would swallow the follow-up refresh a config didSet requests while a same-target
+        /// refresh is in flight (switching to the Tags sort mid-scan would leave the panes tag-less
+        /// and old-sorted).
         let config: Int
-        /// Which panes this refresh will actually walk.
-        ///
-        /// Part of the key so a one-pane refresh and a two-pane one for the same target are never
-        /// mistaken for each other: without it, a tab switch's `.leftOnly` refresh in flight would
-        /// swallow a `.both` that arrived a moment later as a duplicate, and the right pane would
-        /// keep a tree nobody reloaded.
+        /// Which panes this refresh walks. In the key so a one-pane and a two-pane refresh of one
+        /// target aren't mistaken for each other: a tab switch's `.leftOnly` in flight would
+        /// otherwise swallow a later `.both`, and the right pane would keep a tree nobody reloaded.
         let reloading: PaneReloadScope
     }
 
@@ -3119,12 +2710,10 @@ public class FileSyncManager: ObservableObject {
         /// How this scope reads in `~/sync-cloud.log`, as the object of a sentence: "…re-walking
         /// \(scope.describedPanes)".
         ///
-        /// Here rather than as a `switch` at the call site because the one caller is a closure in
-        /// `ContentView.body`, where no test can reach it — the same reason `PaneSideChoice.name`
-        /// exists in the app target. `String(describing:)` is not a substitute: it yields
-        /// `leftOnly`, which is a case name, not something a person reading a log has been told the
-        /// meaning of. (The widening line deliberately keeps the case name: it is naming the
-        /// *request* it received, and matching the source is the point there.)
+        /// Here rather than a `switch` at the call site because the one caller is a closure in
+        /// `ContentView.body`, where no test can reach it. `String(describing:)` would yield
+        /// `leftOnly`, a case name a log reader hasn't been told the meaning of. (The widening line
+        /// deliberately keeps the case name: it names the request it received.)
         public var describedPanes: String {
             switch self {
             case .both: return "both panes"
@@ -3146,26 +2735,20 @@ public class FileSyncManager: ObservableObject {
         scanConfigGeneration += 1
     }
 
-    /// Prepares a user-initiated force refresh: drops the prefetch cache AND bumps the scan-config
-    /// epoch. The epoch bump is essential — `refreshTreesAndScan` dedupes on a `RefreshKey` that
-    /// includes `scanConfigGeneration`, so without it a forced rescan requested while a same-target
-    /// refresh is already in flight would produce a byte-identical key and be swallowed as a
-    /// duplicate, silently doing nothing. Bumping the epoch makes the forced refresh supersede the
-    /// in-flight one instead (matching the file-operation and setting-change supersede paths).
-    /// `noteScanConfigChanged` is `internal`, so the app can't do this itself — hence this entry.
+    /// Prepares a user-initiated force refresh: drops the prefetch cache and bumps the scan-config
+    /// epoch. The bump is essential: `refreshTreesAndScan` dedupes on a `RefreshKey` that includes
+    /// `scanConfigGeneration`, so a forced rescan during a same-target refresh would otherwise be
+    /// swallowed as a duplicate and do nothing. Here because `noteScanConfigChanged` is internal.
     public func prepareForcedRescan() {
         dropPrefetchedTrees()
         noteScanConfigChanged()
     }
 
-    /// Prepares the re-read after the app wrote ONE file itself, outside the file-operation queue
-    /// (Edit's ⌘N and Export as PDF): the cached walks that list its folder are dropped — only
-    /// those (``dropPrefetchedTrees(holding:)``) — and the epoch is bumped, for
-    /// `prepareForcedRescan`'s reason: a same-target refresh already in flight, walked before the
-    /// file existed, would otherwise swallow the re-read as a duplicate.
-    ///
-    /// Without the drop a pane that finished a deep walk is served that walk, taken before the file
-    /// existed — `OutOfQueueWriteRereadTests` measures it.
+    /// Prepares the re-read after the app wrote one file itself, outside the file-operation queue
+    /// (Edit's ⌘N, Export as PDF): drops only the cached walks that list its folder
+    /// (``dropPrefetchedTrees(holding:)``) and bumps the epoch, for `prepareForcedRescan`'s reason.
+    /// Without the drop, a pane that finished a deep walk would be served it, taken before the file
+    /// existed (`OutOfQueueWriteRereadTests`).
     public func prepareReread(afterWritingAt path: String) {
         let folder = (path as NSString).deletingLastPathComponent
         noteOwnWrite(atPath: path)
@@ -3201,60 +2784,50 @@ public class FileSyncManager: ObservableObject {
     /// `executeScan`, and `cancelScan`, which is the only reader.
     var scanDrainTask: Task<Void, Never>?
     
-    /// Synchronously counts a file operation that is committed but not yet queueable — today only
+    /// Synchronously counts a file operation that is committed but not yet queueable:
     /// `transferItems`, which counts before its confirmation modal so the quit guard and the
-    /// hashing exclusions treat a pending transfer as in flight while the dialog is up. Pair with
-    /// `enqueueFileOperation(alreadyCounted: true)`, or with `cancelPreCountedFileOperation()`
+    /// hashing exclusions treat a pending transfer as in flight while the dialog is up. Pair it
+    /// with `enqueueFileOperation(alreadyCounted: true)`, or with `cancelPreCountedFileOperation()`
     /// when the user declines; the completion decrement is shared and unconditional.
     ///
-    /// **Counts only — it does NOT claim a queue position, and for this caller must not.** The
-    /// modal can stay open for minutes, and a slot claimed in front of it would hold every later
-    /// operation for exactly that long. The undo/redo handlers, which have no such gap, use
-    /// `claimFileOperationSlot()` instead: it counts the same way and additionally fixes the
-    /// operation's position before the `Task` that runs it exists.
+    /// **It counts only, and must not claim a queue position here.** The modal can stay open for
+    /// minutes, and a slot claimed in front of it would hold every later operation that long. The
+    /// undo and redo handlers, which have no such gap, use `claimFileOperationSlot()`, which also
+    /// fixes the operation's position before its `Task` exists.
     public func preCountFileOperation() {
         activeFileOperationsCount += 1
     }
 
-    /// Reverts a `preCountFileOperation()` whose operation will never be enqueued — the user
-    /// declined its confirmation prompt. Only for that pairing: operations that DID enqueue
-    /// are decremented by `enqueueFileOperation`'s unconditional completion handler.
-    ///
-    /// There is nothing to revert on the epoch side, and that is the point: a monotonic counter
-    /// cannot be un-bumped, so the pre-count deliberately leaves it alone and the bump happens
-    /// at enqueue time instead. A declined prompt therefore leaves no trace at all, which is
-    /// correct — nothing was read and nothing was written.
+    /// Reverts a `preCountFileOperation()` whose operation will never be enqueued because the user
+    /// declined its prompt. Only for that pairing: enqueued operations are decremented by
+    /// `enqueueFileOperation`'s completion handler. The epoch needs no revert: the pre-count never
+    /// bumped it, so a declined prompt leaves no trace.
     public func cancelPreCountedFileOperation() {
         activeFileOperationsCount = max(0, activeFileOperationsCount - 1)
     }
 
-    /// Synchronously CLAIMS this operation's position in the serial file-operation queue, before
-    /// the `Task` that will run it exists.
+    /// Synchronously claims this operation's position in the serial file-operation queue, before
+    /// the `Task` that runs it exists.
     ///
-    /// **Why a claim and not just an ordering convention.** `enqueueFileOperation` reads and
-    /// writes `fileOperationTask` without a suspension in front of it, so two callers that are
-    /// ALREADY on the main actor claim in call order — but that rests on the caller's isolation
-    /// and, for callers that spawn a `Task` first, on equal-priority main-actor jobs being FIFO.
-    /// Neither is checkable at the call site: a future `Task.detached { await
-    /// manager.enqueueFileOperation { … } }` reinstates the hop and the race silently, and the
-    /// race is a ⌘Z that deletes the folded files out of a merge's keeper before restoring the
-    /// originals (measured at ~1 inversion in 300 undos of that pair before the hop was removed).
-    /// A slot moves the ordering decision to a point the caller controls — its own synchronous
-    /// main-actor stretch — so the queue order stops depending on task scheduling or on where
-    /// `enqueueFileOperation` is eventually called from.
+    /// A claim, not an ordering convention. `enqueueFileOperation` claims without a suspension, so
+    /// two callers already on the main actor claim in call order, but that rests on the caller's
+    /// isolation and, for callers that spawn a `Task` first, on main-actor jobs being FIFO. Neither
+    /// is checkable at the call site, and a future `Task.detached { await
+    /// manager.enqueueFileOperation { … } }` would bring the race back silently: a ⌘Z that deletes
+    /// the folded files out of a merge's keeper before restoring the originals. A slot fixes the
+    /// order in the caller's own synchronous main-actor stretch.
     ///
-    /// Everything `enqueueFileOperation`'s prologue does happens HERE instead: the count, the
-    /// epoch bump, and the chain claim. Pass the returned slot to exactly one
-    /// `enqueueFileOperation(slot:)`; do not also pass `alreadyCounted`.
+    /// It does everything `enqueueFileOperation`'s prologue does: the count, the epoch bump and the
+    /// chain claim. Pass the slot to exactly one `enqueueFileOperation(slot:)`, without
+    /// `alreadyCounted`.
     ///
-    /// **Claiming BLOCKS every later operation until this one finishes**, which is why the
-    /// confirmation-gated transfer path keeps `preCountFileOperation()` instead: it counts before
-    /// a modal that can stay open for minutes, and a slot claimed there would hold the whole queue
-    /// for the length of the dialog. The undo/redo handlers have no such gap — their `Task` starts
-    /// immediately — so they claim.
+    /// **Claiming blocks every later operation until this one finishes**, so the confirmation-gated
+    /// transfer path uses `preCountFileOperation()` instead: a slot claimed before its modal would
+    /// hold the queue for the length of the dialog. The undo and redo handlers start their `Task`
+    /// at once, so they claim.
     ///
-    /// Dropping a slot without enqueuing it is safe: the slot releases its position on
-    /// `deinit`, so a claim that is never used cannot wedge the queue.
+    /// Dropping a slot without enqueuing it is safe: it releases its position on `deinit`, so an
+    /// unused claim can't wedge the queue.
     public func claimFileOperationSlot() -> FileOperationSlot {
         claimFileOperationSlot(alreadyCounted: false)
     }
@@ -3264,96 +2837,72 @@ public class FileSyncManager: ObservableObject {
         noteFileOperationBegan()
         let predecessor = fileOperationTask
         let slot = FileOperationSlot(predecessor: predecessor)
-        // The successor's claim chains on THIS: it waits for our predecessor and then for our
-        // body's completion signal — the same total order the previous shape got by chaining on
-        // the operation's own task, just claimed earlier.
+        // The successor's claim chains on this: it waits for our predecessor, then for our body's
+        // completion signal, so operations run in claim order.
         //
-        // The chain captures the SIGNAL, never the slot. Holding the slot here would keep it
-        // alive for the whole chain and disarm the `deinit` release that stops an unused claim
-        // from wedging the queue.
+        // The chain captures the signal, never the slot: holding the slot would keep it alive for
+        // the whole chain and disarm the `deinit` release that stops an unused claim from wedging
+        // the queue.
         let released = slot.released
         fileOperationTask = Task { _ = await predecessor.result; await released.wait() }
         return slot
     }
 
-    /// Enqueues a file operation to be executed sequentially.
-    /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
-    /// - Parameter alreadyCounted: True when the caller already bumped the counter via
-    ///   `preCountFileOperation()`; skips the increment so the operation isn't double-counted.
-    /// - Parameter slot: A position already claimed by `claimFileOperationSlot()`, in the caller's
-    ///   own synchronous main-actor stretch. Pass one whenever this operation's order relative to
-    ///   another matters — with a slot the order is fixed at claim time and no longer depends on
-    ///   where or when this method is called. Mutually exclusive with `alreadyCounted`: the claim
-    ///   already counted the operation.
+    /// Enqueues a file operation to run after every earlier one. Manages
+    /// `activeFileOperationsCount`, and refreshes the UI and prunes the selection on completion.
+    /// - Parameter alreadyCounted: True when the caller already counted it with
+    ///   `preCountFileOperation()`, so it isn't counted twice.
+    /// - Parameter slot: A position claimed by `claimFileOperationSlot()` in the caller's own
+    ///   synchronous main-actor stretch. Pass one whenever this operation's order relative to
+    ///   another matters: the order is then fixed at claim time, wherever this is called from.
+    ///   Mutually exclusive with `alreadyCounted`, since the claim already counted it.
     @discardableResult
     public func enqueueFileOperation<T: Sendable>(
         alreadyCounted: Bool = false,
         slot: FileOperationSlot? = nil,
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
-        // The epoch moves HERE, unconditionally — this is the last point before the work is
-        // queued, and every user file operation (transfers, undo/redo, bulk sync, duplicates,
-        // name normalization, automations, filing) reaches the disk through this call. The
-        // count moves here only when the caller didn't already pre-count it (see
-        // `preCountFileOperation`, which deliberately runs earlier).
+        // The epoch moves here, unconditionally: this is the last point before the work is queued,
+        // and every user file operation (transfers, undo/redo, bulk sync, duplicates, name
+        // normalization, automations, filing) reaches the disk through this call. The count moves
+        // here only if the caller didn't pre-count (`preCountFileOperation`).
         //
-        // **Straight-line, and NOT `await MainActor.run` — that hop is what made the queue's
-        // order a race.** This method is already `@MainActor`, so the block was redundant for
-        // isolation; what it was not was free. `MainActor.run` is a *nonisolated* async
-        // function, so awaiting it from the main actor hops OFF to the generic executor and back
-        // (SE-0338) — two real suspensions between entering this method and claiming a slot in
-        // `fileOperationTask` below. Two callers that entered in a fixed order came back from
-        // that round trip in whatever order the pool released them, and the second could read
-        // `fileOperationTask` before the first had written it: the two operations then chained
-        // on the SAME predecessor and ran concurrently, or in the reverse of the order they were
-        // requested in.
+        // **Straight-line, never `await MainActor.run`: that hop makes the queue order a race.**
+        // `MainActor.run` is a nonisolated async function, so awaiting it from the main actor hops
+        // off to the generic executor and back (SE-0338): two suspensions before
+        // `fileOperationTask` is claimed below. Two callers could come back in either order, read
+        // the same predecessor, and run concurrently or reversed.
         //
-        // That is a correctness property, not a tidiness one, and undo is where it bites. A
-        // merge's ⌘Z pops two registrations in a deliberate order — restore the redundant copies
-        // from the Trash FIRST, delete the folded files out of the keeper SECOND — so a failed
-        // restore still leaves the folded files in the keeper rather than leaving the user with
-        // neither. Both handlers run synchronously inside `undo()` and each spawns a `Task` that
-        // calls this method; the registration order and the task-start order are both
-        // deterministic, and this hop threw the ordering away at the last step. Measured before
-        // the fix, on an IDLE machine: two operations requested in a fixed order from two
-        // main-actor tasks ran in the wrong order 8 and 12 times out of 300, while the
-        // task-start order inverted 0 times out of 300 — so the inversion was entirely inside
-        // this method, between entering it and claiming the slot. Driven through the merge's
-        // real pair (a `registerCopyUndo` and a `registerRestoreItems` in one group, then
-        // `undo()`) the rate is ~1 in 300 idle, which is why it read as a full-suite-only flake:
-        // `--filter` passed eight times out of eight and six whole idle package runs never hit
-        // it. After the fix, 0 in 900 through the same merge pair and 0 in 300 through the
-        // primitive.
+        // Undo is where that bites. A merge's ⌘Z pops two registrations in a deliberate order:
+        // restore the redundant copies from the Trash first, delete the folded files out of the
+        // keeper second, so a failed restore still leaves the folded files in the keeper rather
+        // than leaving neither. Both handlers spawn a `Task` that calls this method, and that order
+        // must survive to the claim.
         //
-        // **What the fix actually guarantees, stated precisely, because the unqualified version of
-        // this sentence was wrong.** With no suspension between entry and the claim, the
-        // read-modify-write of `fileOperationTask` happens in the caller's own main-actor turn —
-        // so the queue order is the call order FOR CALLERS ALREADY ON THE MAIN ACTOR, and, for
-        // callers that spawn a `Task` and call from inside it (the undo/redo handlers), only
-        // additionally because equal-priority main-actor jobs run FIFO. Every call site today
-        // satisfies the first condition; nothing here enforces it, and a future
-        // `Task.detached { await manager.enqueueFileOperation { … } }` would reinstate the hop
-        // and the race without a word.
+        // What this guarantees: with no suspension before the claim, the queue order is the call
+        // order for callers already on the main actor, and for callers that spawn a `Task` and call
+        // from it (the undo and redo handlers) only because equal-priority main-actor jobs run
+        // FIFO. Nothing enforces the first condition; a `Task.detached { await
+        // manager.enqueueFileOperation { … } }` would bring the race back silently.
         //
-        // `slot:` is what makes the ordering structural instead of conventional: the caller claims
-        // its position synchronously (`claimFileOperationSlot()`), before the Task that will run
-        // the operation exists, so neither this method's isolation nor the scheduler can reorder
-        // two claims. `FileOperationQueueOrderTests` pins both halves — the unslotted call order
-        // for main-actor callers, and slotted order held across deliberately inverted, off-main
-        // enqueues.
+        // `slot:` makes the order structural: the caller claims synchronously
+        // (`claimFileOperationSlot()`) before its Task exists, so neither this method's isolation
+        // nor the scheduler can reorder two claims. `FileOperationQueueOrderTests` pins both
+        // halves: unslotted call order for main-actor callers, and slotted order across
+        // deliberately inverted off-main enqueues.
         let claimed = slot ?? claimFileOperationSlot(alreadyCounted: alreadyCounted)
         let previousTask = claimed.predecessor
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
-            // A move whose original was parked and not put back is still a success (FR36): the
-            // sink collects it for this operation, and the leftover is presented below.
+            // A move whose original was parked and not put back still succeeds: the sink collects
+            // it for this operation, and the leftover is presented below.
             let leftovers = ParkedSourceLeftovers()
             let res = await ParkedSourceLeftovers.$current.withValue(leftovers) { await operation() }
             let parked = leftovers.recorded
             await MainActor.run { [weak self] in
                 if let first = parked.first {
                     for extra in parked.dropFirst() {
-                        // An undo's leftover is the item it moved back FROM, not an original (L5).
+                        // An undo's leftover is the item it moved back from, not an original.
                         Logger.shared.error(extra.undoing
                             ? "Moved back, but the item it moved back from, \(extra.original.path), is still in its folder as \(extra.parked.lastPathComponent)"
                             : "Moved, but the original \(extra.original.path) is still in its folder as \(extra.parked.lastPathComponent)")
@@ -3375,9 +2924,9 @@ public class FileSyncManager: ObservableObject {
                 self?.scheduleSelectionPrune()
                 self?.refreshSubject.send(.both)
             }
-            // Hands the queue on, AFTER the cleanup above — the successor's claim is waiting on
-            // exactly this. Holding `claimed` strongly here is what keeps its `deinit` release
-            // (the unused-claim valve) from firing while the operation is still running.
+            // Hands the queue on after the cleanup above: the successor's claim waits on exactly
+            // this. Holding `claimed` strongly here keeps its `deinit` release (the unused-claim
+            // valve) from firing while the operation runs.
             claimed.release()
             return res
         }
@@ -3385,40 +2934,36 @@ public class FileSyncManager: ObservableObject {
     }
     
     public func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
-        // Strip currentPath only at a path-component boundary (PathBoundary's exact semantics —
-        // this method was its reference implementation) so a pane rooted at "/root/ab" never
-        // claims "/root/abc/x" via a bare string prefix. A node outside the pane root keeps its
-        // absolute path, exactly as the hand-rolled fall-through did.
+        // Strip currentPath only at a path-component boundary (PathBoundary's semantics), so a pane
+        // rooted at "/root/ab" never claims "/root/abc/x" by a bare string prefix. A node outside
+        // the pane root keeps its absolute path.
         let rPath = PathBoundary.relativize(node.id, under: currentPath) ?? node.id
-        // Deliberately path-layers only, NO pattern matching: this predicate drives the pane
-        // rows' ignored look AND the context menu's Ignore/Include label, whose click lands in
-        // `toggleIgnored` — which can only edit the path layers. Counting pattern matches here
-        // made the label promise an "Include" the toggle cannot deliver (a pattern can't be
-        // excepted per item), and the resulting formUnion mirrored a phantom entry into the
-        // durable store. Pattern-hidden items are managed in Settings, not per row.
+        // Path layers only, no pattern matching: this predicate drives the rows' ignored look and
+        // the context menu's Ignore/Include label, whose click lands in `toggleIgnored`, which can
+        // edit only the path layers. Counting pattern matches would promise an "Include" the toggle
+        // can't deliver and mirror a phantom entry into the durable store. Pattern-hidden items are
+        // managed in Settings, not per row.
         return Self.isIgnoredPath(rPath, ignored: effectiveIgnoredPaths)
     }
     
-    /// Removes resolved differences from both the published list and the raw backing list.
-    /// `applyFilters()` rebuilds `differences` from `rawDifferences`, so removing from the
-    /// published list alone lets any pre-rescan filter change (hidden toggle, sort, the post-sync
-    /// refresh itself) resurrect items that were already synced.
-    /// Records which rows a bulk transfer could not move, or clears the record on a clean run.
-    ///
-    /// Called by BOTH bulk paths, unconditionally, at the same point each removes its successes —
-    /// including when `failures` is empty. That is the half worth stating: a clean run has to
-    /// *clear* the previous run's failures, or the Failed filter keeps offering rows that have
-    /// since gone through, and the count in the menu becomes a number nobody can reconcile.
+    /// Records which rows a bulk transfer couldn't move, or clears the record after a clean run.
+    /// Called by both bulk paths, unconditionally, where each removes its successes, empty
+    /// `failures` included: a clean run must clear the previous run's failures, or the Failed
+    /// filter keeps offering rows that have since gone through.
     internal func recordTransferFailures(_ failures: [(FileDifference, Error)]) {
         guard !failures.isEmpty else {
-            // Assigning nil over nil would republish for no reason on every clean run; the manager
-            // has ~56 published properties and every write re-evaluates the window's body.
+            // Assigning nil over nil would republish on every clean run, and every published write
+            // on the manager re-evaluates the window's body.
             if lastTransferFailures != nil { lastTransferFailures = nil }
             return
         }
         lastTransferFailures = TransferFailures(ids: Set(failures.map { $0.0.id }))
     }
 
+    /// Removes resolved differences from both the published list and the raw backing list.
+    /// `applyFilters()` rebuilds `differences` from `rawDifferences`, so removing from the
+    /// published list alone would let any filter change before the next rescan resurrect rows
+    /// that were already synced.
     internal func removeResolvedDifferences(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         differences.removeAll { ids.contains($0.id) }
@@ -3428,13 +2973,12 @@ public class FileSyncManager: ObservableObject {
         syncingDifferenceIds.subtract(ids)
     }
 
-    /// Removes resolved differences by id AND by pending-copy identity. Sync callers that
-    /// operate on captured values (guided review's frozen queue, a Copy Remaining subset) can
-    /// outlive a rescan, which regenerates every row UUID — an id-only removal then no-ops and
-    /// the just-resolved row ghosts in the list until the next rescan lands. Matching a row
-    /// this way is safe for replace/plain copies (the operation just equalized the two sides);
-    /// a keep-both leaves the destination differing, but its row was removed under fresh ids
-    /// too, and the operation's own triggered rescan re-adds whatever still differs.
+    /// Removes resolved differences by id and by pending-copy identity. Callers working on captured
+    /// values (guided review's frozen queue, a Copy Remaining subset) can outlive a rescan, which
+    /// regenerates every row UUID, so an id-only removal would no-op and the resolved row would
+    /// linger until the next rescan. Matching this way is safe for replace and plain copies, which
+    /// equalized the two sides; a keep-both leaves the destination differing, but the operation's
+    /// own rescan re-adds whatever still differs.
     internal func removeResolvedDifferences(matching resolved: [FileDifference]) {
         guard !resolved.isEmpty else { return }
         let keys = Set(resolved.map(Self.pendingCopyKey))
@@ -3475,33 +3019,15 @@ public class FileSyncManager: ObservableObject {
         stampSyncing(false, on: ids)
     }
 
-    /// Stamps `isSyncing` on the published rows in ONE write.
-    ///
-    /// **`differences` is `@Published`, so `differences[i].isSyncing = x` is not an in-place edit.**
-    /// The wrapper exposes only a getter and a setter — no `_modify` — so each element write reads
-    /// the whole array out, mutates a copy while the original still holds a reference (a full COW
-    /// copy of every row), writes it back, and publishes. Per row. Marking m of n rows was
-    /// therefore O(n·m) copying plus m `objectWillChange` sends, all on the main actor.
-    ///
-    /// Measured on 29,000 rows, marking all of them — the "Sync All" shape, where the id set is
-    /// every row: **11,144 ms before, 7.9 ms after**, and 11,107 ms → 7.1 ms to clear them again.
-    /// A bulk sync spent ~22 s of main-thread time doing nothing but setting a flag, and sent
-    /// 58,000 `objectWillChange`s where 2 will do. Reading the rows out once is the entire fix;
-    /// the loop below is unchanged apart from where it writes.
+    /// Stamps `isSyncing` on the published rows in one write. `differences` is `@Published`, whose
+    /// wrapper has a getter and a setter but no `_modify`, so `differences[i].isSyncing = x` copies
+    /// the whole array, writes it back and publishes, per row: marking m of n rows is O(n·m)
+    /// copying plus m `objectWillChange` sends on the main actor. For Sync All over ~29,000 rows
+    /// that is seconds of main-thread time; one read-out and one write-back take milliseconds.
     ///
     /// The `!= value` test makes a redundant stamp free, and the `changed` guard keeps a no-op from
-    /// republishing at all — the same reason `applyFilters()` compares before assigning, since
-    /// republishing an unchanged list rebuilds the whole pane `List` and can eat a click.
-    ///
-    /// **This was the only instance, and that was checked rather than assumed.** All 100
-    /// `@Published` properties across `Modules`, `MacApp` and `SyncCloudCLI` were scanned for a
-    /// subscript write or a mutating call inside a loop over the same collection: the other
-    /// element writes (`PeopleStore.update`, `PersonTagStore`, `SettingsManager.folderSources`,
-    /// `filingSuggestions`, `automationRules`) are all single writes guarded by a `firstIndex`,
-    /// which costs one COW copy per call, not one per element. `duplicateGroups` is written inside
-    /// a loop, but only for the one or two groups that contain the path, over a collection
-    /// measured at 722–977 here. The shape that hurts is m writes into a list of n where m scales
-    /// with n, and `differences` at ~29,000 rows was the only place it occurred.
+    /// republishing at all, as in `applyFilters()`: republishing an unchanged list rebuilds the
+    /// whole pane `List` and can eat a click.
     private func stampSyncing(_ value: Bool, on ids: Set<UUID>) {
         var rows = differences
         var changed = false
@@ -3528,12 +3054,11 @@ public class FileSyncManager: ObservableObject {
         var rightTypeFilterFacts: PaneTypeFilterFacts? = nil
     }
 
-    /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating
-    /// published state. The filtering itself — full walks of both pane trees plus a pass over
-    /// every raw difference — runs off the main actor: with tens of thousands of nodes it takes
-    /// long enough to freeze every window in the app (the Settings hitches were exactly this,
-    /// landing on the main thread several times per progressive load + scan cycle).
-    /// Overlapping passes are safe: the last-started pass wins; earlier results are discarded.
+    /// Reapplies `showHiddenFiles` and `ignoredPaths` to the raw trees and differences, and
+    /// publishes. The filtering (full walks of both trees plus a pass over every raw difference)
+    /// runs off the main actor: with tens of thousands of nodes it would freeze every window.
+    /// Overlapping passes are safe: the last-started pass wins, and stale results never overwrite
+    /// fresher ones.
     public func applyFilters() async {
         filterGeneration += 1
         let generation = filterGeneration
@@ -3550,9 +3075,9 @@ public class FileSyncManager: ObservableObject {
         let verifiedSame = verifiedSameDifferenceIds
         let syncingIds = syncingDifferenceIds
         let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && lastRightProviderType == .googleDrive
-        // Snapshot the published trees so the tree-changed comparisons run in the detached
-        // compute: deep equality is a full O(nodes) walk, and doing it on the main actor
-        // (twice per pass, several passes per load+scan cycle) hitched the UI on large panes.
+        // Snapshot the published trees so the tree-changed comparisons run in the detached compute:
+        // deep equality is an O(nodes) walk, and on the main actor it hitches the UI on large
+        // panes.
         let publishedLeft = leftTree
         let publishedRight = rightTree
         let leftVersion = publishedLeftTreeVersion
@@ -3592,25 +3117,20 @@ public class FileSyncManager: ObservableObject {
         // finish out of entry order, and stale state must never overwrite fresher state.
         guard generation > lastPublishedFilterGeneration else { return }
         lastPublishedFilterGeneration = generation
-        // The snapshot above is stale if a sync resolved rows (`removeResolvedDifferences`)
-        // or marked/cleared in-flight state while the detached compute ran; publishing it
-        // verbatim would resurrect resolved rows and re-install a stale `isSyncing` flag.
-        // Reconcile against the live authoritative state: keep only rows still present in
-        // `rawDifferences`, and re-stamp `isSyncing` from `syncingDifferenceIds` — in both
-        // directions, so a row marked after the snapshot keeps its spinner and one cleared
-        // after it doesn't get the spinner back.
+        // The snapshot is stale if a sync resolved rows (`removeResolvedDifferences`) or marked or
+        // cleared in-flight state while the detached compute ran; publishing it verbatim would
+        // resurrect resolved rows and reinstall a stale `isSyncing`. Reconcile against live state:
+        // keep only rows still in `rawDifferences`, and re-stamp `isSyncing` from
+        // `syncingDifferenceIds` in both directions.
         //
-        // **Skipped entirely when neither input moved, which is the ordinary case.** Both halves
-        // are then provably no-ops: every row in `state.differences` was filtered FROM the same
-        // `rawDifferences`, so none can be missing from it, and `computeFilteredState`'s
-        // postcondition is that every row it returns already carries the flag this loop would
-        // stamp — unconditionally, the empty set included, which is the half that had to be made
-        // true rather than assumed. Measured over 29,000 differences, the two together are ~5 ms
-        // of MAIN-ACTOR time per pass, on a function reached from sixteen call sites.
+        // Skipped when neither input moved, the ordinary case. Both halves are then no-ops: every
+        // row in `state.differences` was filtered from the same `rawDifferences`, and
+        // `computeFilteredState` guarantees every row already carries the flag this loop would
+        // stamp. Over ~29,000 differences that saves ~5 ms of main-actor time per pass.
         //
-        // Whether the skip was taken, kept rather than re-derived: the publish gate below needs
-        // the same answer, and two spellings of one condition is a thing that drifts the day a
-        // third input joins the reconcile pass.
+        // The skip decision is kept in one variable because the publish gate below needs the same
+        // answer; two spellings of one condition would drift when a third input joins the reconcile
+        // pass.
         let reconcileWasSkipped = rawDifferencesVersion == entryRawDifferencesVersion
             && syncingDifferenceIdsVersion == entrySyncingVersion
         filterPassesReachingPublish += 1
@@ -3627,14 +3147,12 @@ public class FileSyncManager: ObservableObject {
             }
             reconciledDifferences = reconciled
         }
-        // Assign only what actually changed. A load+scan cycle runs several filter passes and
-        // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
-        // tear down and rebuild the whole pane List — and a rebuild landing between an
-        // NSTableView mouse-down and mouse-up drops the click ("dead clicks"). The tree
-        // comparisons ran off-main against entry-time snapshots; each is trusted only while
-        // nothing wrote THAT pane's published tree since (its `published*TreeVersion`, bumped
-        // by the property's own didSet) — on the rare mid-flight write, fall back to a live
-        // compare for just that pane.
+        // Assign only what changed. A load+scan cycle runs several filter passes, and republishing
+        // an unchanged tree makes SwiftUI rebuild the whole pane List; a rebuild landing between an
+        // NSTableView mouse-down and mouse-up drops the click. The off-main tree comparisons are
+        // trusted only while nothing wrote that pane's published tree since (its
+        // `published*TreeVersion`); after a mid-flight write, fall back to a live compare for that
+        // pane.
         if leftVersion == publishedLeftTreeVersion ? leftTreeChanged : (self.leftTree != state.leftTree) {
             self.leftTree = state.leftTree
         }
@@ -3647,11 +3165,10 @@ public class FileSyncManager: ObservableObject {
         self.rightTreeBeforeTypeFilter = state.rightTreeBeforeTypeFilter
         if self.leftTypeFilterFacts != state.leftTypeFilterFacts { self.leftTypeFilterFacts = state.leftTypeFilterFacts }
         if self.rightTypeFilterFacts != state.rightTypeFilterFacts { self.rightTypeFilterFacts = state.rightTypeFilterFacts }
-        // The rows' deep compare, trusted from the detached pass on the same terms as the trees':
-        // only while nothing wrote the published list since entry, AND while the reconcile pass
-        // was skipped — because it is the skip that makes `reconciledDifferences` and
-        // `state.differences`, which is what was compared off-main, the same value. Either
-        // condition failing drops to the live compare, which is what this line always did.
+        // The rows' deep compare is trusted on the same terms as the trees': only while nothing
+        // wrote the published list since entry, and only when the reconcile pass was skipped, which
+        // is what makes `reconciledDifferences` the same value as the `state.differences` compared
+        // off-main. Otherwise, compare live.
         let differencesNeedPublishing = reconcileWasSkipped
             && publishedDifferencesVersion == entryDifferencesVersion
             ? differencesChanged
@@ -3659,25 +3176,15 @@ public class FileSyncManager: ObservableObject {
         if differencesNeedPublishing { self.differences = reconciledDifferences }
     }
 
-    /// One line's worth of "is the filter gate actually skipping anything?", for the scan
-    /// breadcrumb in `~/sync-cloud.log`.
+    /// One line on whether the filter gate is skipping anything, for the scan breadcrumb in
+    /// `~/sync-cloud.log`. `applyFilters()` skips its reconcile pass whenever neither input moved
+    /// mid-compute, saving ~5 ms of main-actor time a pass; without this, nothing outside the tests
+    /// shows whether that fast path fires on a real tree.
     ///
-    /// `applyFilters()` skips its reconcile pass whenever neither input moved mid-compute — the
-    /// ordinary case, and ~5 ms of main-actor time a pass. **Nothing outside the tests could see
-    /// whether that fires on a real tree**, and a gate that never takes its fast path leaves the
-    /// cost exactly where it was with every test still green. The fixture that pins the fast path
-    /// holds three rows; the question this answers is what happens at 29,000.
-    ///
-    /// Once per scan rather than once per pass: there are sixteen call sites and a load+scan cycle
-    /// runs several, so a per-pass line would bury the log it is written into. Counts are since
-    /// launch, which is what makes the ratio worth reading — a single scan's passes are too few.
-    ///
-    /// Split out from the logging call so the numbers can be asserted directly, without a scan
-    /// fixture and without racing the logger's async handoff (`info` returns a `Task`, so
-    /// `entries` lags the call that filled it).
-    ///
-    /// Worded for a reader, not for a profiler, because it lands in the Activity Log beside
-    /// `[scan] … completed` rather than only in the file.
+    /// Once per scan, not per pass, so it doesn't bury the log; counts are since launch, since one
+    /// scan's passes are too few for a ratio. Split from the logging call so tests can assert the
+    /// numbers without a scan fixture or racing the logger's async handoff. Worded for a reader: it
+    /// lands in the Activity Log beside `[scan] … completed`.
     internal func filterGateSummary(rawDifferenceCount: Int) -> String {
         "\(reconcilePassesRun) of \(filterPassesReachingPublish) list rebuilds needed a reconcile"
             + " pass since launch (\(rawDifferenceCount) raw differences)"
@@ -3701,8 +3208,8 @@ public class FileSyncManager: ObservableObject {
     ) -> FilteredState {
         let leftBeforeType = filterTree(rawLeftTree, showHidden: showHidden)
         let rightBeforeType = filterTree(rawRightTree, showHidden: showHidden)
-        // The type filter narrows what each pane SHOWS, and nothing else: it runs after Hidden, on
-        // each pane's tree alone, and never touches `differences` below (TE282). No filter, no pass.
+        // The type filter narrows only what each pane shows: it runs after Hidden, on each pane's
+        // tree alone, and never touches `differences` below. No filter, no pass.
         let leftTyped = leftTypeFilter.map { PaneTypeFilterPass.apply($0, to: leftBeforeType, keep: leftTypeFilterKeep) }
         let rightTyped = rightTypeFilter.map { PaneTypeFilterPass.apply($0, to: rightBeforeType, keep: rightTypeFilterKeep) }
         let leftTree = leftTyped?.tree ?? leftBeforeType
@@ -3738,17 +3245,15 @@ public class FileSyncManager: ObservableObject {
             }
         }
         // Re-stamp the in-flight flag from the authoritative set: raw differences never carry
-        // `isSyncing`, so a rebuild mid-operation would otherwise strip it from every row.
+        // `isSyncing`, so a rebuild mid-operation would strip it from every row.
         //
-        // **The postcondition is unconditional: every returned row satisfies
-        // `isSyncing == syncingDifferenceIds.contains(id)`, the empty set included.**
-        // `applyFilters()` skips its own reconcile pass when nothing moved mid-compute, and that
-        // skip is sound only because of this. Leaving the flag alone on the empty set — which is
-        // what the guard used to do — would rest it instead on "nothing ever writes `isSyncing`
-        // into `rawDifferences`": true today, enforced nowhere, and its failure is a spinner on a
-        // row with no operation behind it, which no test would see. So the guard now asks exactly
-        // "is this loop provably a no-op?", and the added half is an O(n) read that short-circuits
-        // on the first flag, off the main actor, standing in for an O(n) write.
+        // **The postcondition is unconditional: every returned row has `isSyncing ==
+        // syncingDifferenceIds.contains(id)`, the empty set included.** `applyFilters()` skips its
+        // reconcile pass on the strength of it. Skipping this loop on an empty set would instead
+        // rest on nothing ever writing `isSyncing` into `rawDifferences`, which nothing enforces,
+        // and a break would show a spinner with no operation behind it. So the guard asks only
+        // whether the loop is provably a no-op; the extra check is a short-circuiting read, off the
+        // main actor.
         if !syncingDifferenceIds.isEmpty || filteredDifferences.contains(where: \.isSyncing) {
             for i in filteredDifferences.indices {
                 filteredDifferences[i].isSyncing = syncingDifferenceIds.contains(filteredDifferences[i].id)
@@ -3768,52 +3273,35 @@ public class FileSyncManager: ObservableObject {
         )
     }
 
-    /// How many times `resortTreesAndRefilter` has taken a snapshot and sorted it.
-    ///
-    /// Test-only observability, in the same spirit as `publishedLeftTreeVersion`: a retry that
-    /// happens is indistinguishable from one that was never needed, so a test for the retry has no
-    /// way to tell "the interleaving I set up occurred and the retry saved it" from "the
-    /// interleaving never happened and the first pass was fine". Both end with correctly-sorted
-    /// trees, and the second is a test that proves nothing. See
-    /// `aSupersededResortTriesAgainInsteadOfLeavingAPaneOnTheOldOrder`.
+    /// How many times `resortTreesAndRefilter` has taken a snapshot and sorted it. Test-only, like
+    /// `publishedLeftTreeVersion`: a retry that happened looks the same as one that was never
+    /// needed, so without the count a test can't tell the interleaving it set up from one that
+    /// never occurred. See `aSupersededResortTriesAgainInsteadOfLeavingAPaneOnTheOldOrder`.
     internal private(set) var resortPasses = 0
 
-    /// Called on the main actor by `resortTreesAndRefilter` **after** it has snapshotted the trees
-    /// and **before** it suspends into the off-main sort. `nil` in the app; nothing production
-    /// installs it.
-    ///
-    /// A test seam, in the same shape as `paneSearchSnapshot`, and it exists because the bug the
-    /// retry fixes lives entirely inside that suspension: the supersede has to land after the
-    /// snapshot, and there is no way to ask for that from outside. Driving it with `Task.yield()`
-    /// was tried and did not hold — the resort had not taken its turn, the first pass was never
-    /// superseded, and the test measured nothing (which its pass-count assertion said, loudly, and
-    /// is why the seam is here rather than a wider timing window that would say it only sometimes).
+    /// Called on the main actor by `resortTreesAndRefilter` after it snapshots the trees and before
+    /// it suspends into the off-main sort. nil in the app. A test seam, like `paneSearchSnapshot`:
+    /// the supersede the retry handles has to land inside that suspension, and `Task.yield()` can't
+    /// reliably put it there.
     internal var resortDidSnapshot: (() -> Void)?
 
     /// Re-sorts both raw trees off the main actor, then refilters.
     ///
-    /// **A pass that is superseded mid-sort tries again rather than giving up**, and the difference
-    /// is a pane silently left on the previous sort order.
+    /// **A pass superseded mid-sort tries again rather than giving up**, or a pane is silently left
+    /// on the previous sort order. `rawTreeGeneration` moves when a fresh tree is adopted (already
+    /// sorted by the current option), but also for `supersedeInFlightPaneWork`, which doesn't hand
+    /// every pane a fresh tree: a source or browse-tab switch re-walks only the moving pane, and
+    /// the sibling's raw tree keeps the old order with nothing to re-sort it.
     ///
-    /// The original reasoning for giving up was sound as far as it went: `rawTreeGeneration` moves
-    /// when a fresh tree is adopted, and a fresh tree is built with the current option already
-    /// applied — so the stale snapshot would clobber newer, correctly-ordered data. But the
-    /// generation also moves for `supersedeInFlightPaneWork`, which does **not** hand every pane a
-    /// fresh tree. Since pane-scoped invalidation arrived, a source switch or a browse-tab switch
-    /// drops only the moving pane's tree and re-walks only that pane: the sibling's raw tree
-    /// survives, still ordered by the option the discarded sort was replacing. Nothing re-sorts it,
-    /// nothing says so, and it self-heals only on that pane's next reload.
-    ///
-    /// Retrying is safe for exactly the reason the bail was: each pass publishes only when the
-    /// generation held still across its own await, so it can never overwrite a newer tree. A retry
-    /// re-snapshots whatever is current — including a freshly adopted tree, which it sorts again
-    /// idempotently — so it is correct regardless of *why* the generation moved, which is the part
-    /// this function cannot see. Passes stop as soon as one publishes.
+    /// Retrying is safe because each pass publishes only when the generation held still across its
+    /// own await, so it never overwrites a newer tree. A retry re-snapshots whatever is current,
+    /// sorting an already-sorted tree idempotently, so it is correct whatever moved the generation.
+    /// Passes stop once one publishes.
     ///
     /// - Parameter attempts: how many snapshots to try before giving up. Bounded because each pass
-    ///   is a full sort of both trees; a progressive load publishes shallow-then-deep, so two
-    ///   supersedes in a row is ordinary and three passes clears it. Giving up leaves exactly the
-    ///   state this method used to leave, plus a line saying so.
+    ///   sorts both trees; a progressive load publishes shallow then deep, so two supersedes in a
+    ///   row is ordinary and three passes clears it. Giving up leaves the pane on the old order and
+    ///   logs a warning.
     func resortTreesAndRefilter(attempts: Int = 3) async {
         for _ in 0..<max(1, attempts) {
             let option = sortOption
@@ -3875,44 +3363,25 @@ public class FileSyncManager: ObservableObject {
         return false
     }
     
-    /// Whether any component of `path` begins with a dot.
+    /// Whether any component of `path` begins with a dot. The one filter in
+    /// ``computeFilteredState`` that is on by default (`showHiddenFiles` starts false), so it runs
+    /// over the whole difference list on every rebuild. `components(separatedBy:)` allocates an
+    /// array and a String per component per call: over ~29,000 differences that is ~37 ms a pass,
+    /// against ~2 ms for the byte scan below. Most scans find far fewer differences, where both
+    /// costs round to nothing, but the large ones recur.
     ///
-    /// **The scan exists because this is the one filter in ``computeFilteredState`` that runs in
-    /// the default configuration.** All five are behind an `if`, but the other four's conditions
-    /// are empty or false until something turns them on, whereas this one's — `showHiddenFiles`,
-    /// the ⇧⌘. toggle — starts `false`, so hiding hidden files is what a fresh session does. It
-    /// therefore runs over the whole difference list on every rebuild.
+    /// **The scan can only prove the answer is false, which is what makes it safe.** A component
+    /// satisfying `hasPrefix(".")` starts with the byte `0x2E`, so if no component starts with it,
+    /// `false` is certain. When the scan finds a candidate the original expression decides, because
+    /// the two disagree there: `hasPrefix` compares grapheme clusters, so `"." + U+0301` is one
+    /// cluster that isn't `"."` and reads as visible, while a byte scan would call it hidden.
+    /// `theScanAgreesWithTheOriginalExpression` pins the equivalence; change the fallback and it
+    /// fails.
     ///
-    /// `components(separatedBy:)` allocates an array AND a String per path component per call;
-    /// measured over 29,000 differences that is ~37 ms a pass against ~2 ms for the scan below.
-    ///
-    /// **29,000 is the top of the range, not the middle of it — counted, because this whole family
-    /// of changes was justified by that number.** Over 1,721 scans in `~/sync-cloud.log`
-    /// (2026-07-05 to 2026-08-26) the median scan finds **123** differences and 96% find fewer
-    /// than 1,000; the ~29,000 case is one specific pair, compared repeatedly — 47 scans, 2.7%,
-    /// clustered at 28,843 and 28,883, with a single 39,489. So this is a real recurring
-    /// comparison and worth optimising for, and at the same time the ordinary scan sees a list two
-    /// orders of magnitude smaller, where all of these costs round to nothing. Both halves are the
-    /// finding: quoting only the first is how "measured" turns into "typical".
-    ///
-    /// **The scan can only ever prove the answer is FALSE, and that is what makes it safe.** A
-    /// component satisfying `hasPrefix(".")` starts with the grapheme `"."`, which in UTF-8 is the
-    /// single byte `0x2E`; so if no component start carries that byte, no component can be hidden
-    /// and `false` is certain. When the scan does find a candidate the original expression decides,
-    /// because the two do NOT agree there: `hasPrefix` compares grapheme clusters under canonical
-    /// equivalence, so a component beginning `"." + U+0301` is one cluster that is not `"."` and
-    /// reads as visible, while a byte scan sees the dot and would call it hidden. That is arguably
-    /// the better answer — the kernel sees a leading dot — but it is a different answer, and this
-    /// change is a performance change. `theScanAgreesWithTheOriginalExpression` pins the equivalence
-    /// over an exhaustive sweep of that alphabet; change the fallback and it fails.
-    ///
-    /// The fallback is also what keeps the two hidden-file deciders in one window agreeing:
-    /// ``filterTree`` filters the pane trees on `node.name.hasPrefix(".")`, this same grapheme
-    /// comparison, so a byte-only answer here would drop such a name from the difference list
-    /// while the pane beside it still listed the file. Same window, same name, two answers.
-    ///
-    /// Reading UTF-8 rather than Characters is safe for the same reason in reverse: UTF-8 is
-    /// self-synchronising, so the bytes for `.` and `/` never occur inside a multi-byte scalar.
+    /// The fallback also keeps this agreeing with ``filterTree``, which hides pane rows by
+    /// `node.name.hasPrefix(".")`: a byte-only answer would drop such a name from the difference
+    /// list while the pane beside it still listed it. Reading UTF-8 is safe because it is
+    /// self-synchronising: the bytes for `.` and `/` never occur inside a multi-byte scalar.
     public nonisolated static func isHiddenPath(_ path: String) -> Bool {
         var atComponentStart = true
         var sawCandidate = false
@@ -3929,51 +3398,46 @@ public class FileSyncManager: ObservableObject {
     /// Back/forward stack for the right pane; independent of the left pane's.
     @Published public var rightHistory = PaneNavigationHistory()
 
-    /// The left pane's tabs. Browse's strip is this one; so is the Organize/Storage rail's, which
-    /// is the same pane at 220pt. Seeded with a single tab whose provider id is a placeholder the
-    /// host replaces on launch — `FileSyncManager` has never known which providers exist, and this
-    /// is not the place to start.
+    /// The left pane's tabs: Browse's strip, and the Organize/Storage rail's, which is the same
+    /// pane at 220pt. Seeded with one tab whose provider id is a placeholder the host replaces on
+    /// launch; `FileSyncManager` doesn't know which providers exist.
     ///
-    /// See `PaneTab` for why the ACTIVE entry here is a stale snapshot by construction: the live
+    /// See `PaneTab` for why the active entry here is a stale snapshot by construction: the live
     /// position is `leftRelativePath` and friends, and this list holds only what is parked.
     @Published public var leftPaneTabs = PaneTabList(single: PaneTab(providerId: ""))
     /// The right pane's tabs — Compare's right-hand side. Independent of the left list; ⇄ swaps
     /// the two wholesale, exactly as it swaps the paths they are lists of.
     @Published public var rightPaneTabs = PaneTabList(single: PaneTab(providerId: ""))
 
-    /// What a pane's search field currently holds, asked of the host when a tab is parked.
-    ///
-    /// A tab owns its query (v4.x roadmap companion §1) and the field is the host's `@State` — `Sync` cannot
-    /// see `PaneSearchFieldState`, which also carries a walk index and a reveal nonce derived from
-    /// a tree the parked tab is not showing. So the one direction that has to cross the boundary
-    /// does it here, and the other direction needs nothing: every tab verb RETURNS the tab it
-    /// applied, and the host reads the query off that.
-    ///
-    /// Unset outside the app — every test of the tab verbs then parks an empty query, which is
-    /// exactly what a pane with no search field would hold.
+    /// What a pane's search field holds, asked of the host when a tab is parked. A tab owns its
+    /// query, but the field is the host's `@State`, and `Sync` can't see `PaneSearchFieldState`
+    /// (which also carries a walk index and a reveal nonce derived from a tree the parked tab isn't
+    /// showing). So that direction crosses here; the other needs nothing, since every tab verb
+    /// returns the tab it applied and the host reads the query off it. Unset outside the app, so
+    /// tests of the tab verbs park an empty query.
     public var paneSearchSnapshot: (@MainActor (Bool) -> (query: String, isExpanded: Bool))?
     
-    // Navigation and Scanning methods moved to extensions
+    // Navigation and scanning live in the FileSyncManager+Navigation and +Scanning extensions.
     
-    /// Resolves one difference by copying or moving the file between the two panes — the
-    /// single-row sync action. On failure it presents a retryable error (`present(retry:)`)
-    /// that re-invokes this exact call; bulk syncs go through `syncAll`, which owns the
-    /// "Apply to all" collision flow and the progress overlay.
-    /// If the destination already exists, prompts for Replace / Keep Both / Skip before overwriting.
+    /// Resolves one difference by copying or moving the file between the panes: the single-row
+    /// sync. On failure it presents a retryable error (`present(retry:)`) that re-invokes this
+    /// exact call; bulk syncs go through `syncAll`, which owns the "Apply to all" collision flow
+    /// and the progress overlay. An existing destination prompts Replace / Keep Both / Skip before
+    /// it is overwritten.
     /// - Parameters:
-    ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
+    ///   - difference: The discrepancy to resolve (from/to paths follow its `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
-    ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
-    ///     for this exact transfer (a Retry click on its failure alert, a review-card accept)
-    ///     — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
-    /// - Returns: Whether the operation ran (Replace/Keep Both/plain copy); false when the user
-    ///   skipped at a collision prompt or the operation failed. This is the only reliable
-    ///   "did it happen" signal — inferring from the differences list breaks the moment the
-    ///   post-operation rescan regenerates row UUIDs (guided review records outcomes from it).
+    ///   - confirmed: True when the calling UI already is the user's confirmation for this transfer
+    ///     (a Retry click on its failure alert, a review-card accept), so `transferConfirmer` is
+    ///     skipped and one gesture never asks twice.
+    /// - Returns: Whether the operation ran (Replace, Keep Both or a plain copy); false when the
+    ///   user skipped at a collision prompt or it failed. The only reliable "did it happen" signal:
+    ///   the post-operation rescan regenerates row UUIDs, so the differences list can't tell
+    ///   (guided review records outcomes from this).
     @discardableResult
-    /// - Parameter newerDestinationNote: said in the confirmation and the collision prompt — a
-    ///   copy sent against the engine's suggestion overwrites the NEWER file (review E4).
+    /// - Parameter newerDestinationNote: said in the confirmation and the collision prompt: a copy
+    ///   sent against the engine's suggestion overwrites the newer file.
     public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil, confirmed: Bool = false,
                          newerDestinationNote: String? = nil) async -> Bool {
         let activeFM = fileManager ?? self.fileManager
@@ -3988,12 +3452,11 @@ public class FileSyncManager: ObservableObject {
         // making the parked sync invisible to Verify All's exclusion guard.
         guard !syncingDifferenceIds.contains(difference.id) else { return false }
 
-        // **A row that copies FROM a link is refused even one at a time (FR8).** The comparison
-        // reads the link as what it points to — a folder of 300 items — but the copy writes the
-        // link itself, so "Copy" finished instantly with one small link at the original, the next
-        // scan read both sides through it as in sync, and edits in "the copy" changed the
-        // originals. No choice of the user's makes that copy right, which is why this one reason,
-        // unlike the other `HeldBack` cases, is refused here too and not only in bulk.
+        // A row that copies from a link is refused even one at a time. The comparison reads the
+        // link as what it points to (a folder of 300 items, say), but the copy writes the link
+        // itself: the next scan reads both sides through it as in sync, and edits in "the copy"
+        // change the originals. No choice of the user's makes that copy right, so unlike the other
+        // `HeldBack` cases this one is refused here too, not only in bulk.
         if difference.heldBack == .sourceIsSymbolicLink {
             Logger.shared.info("Sync of \(difference.relativePath) refused: \(fromURL.path) is a symbolic link")
             banner = .warning("“\(fromURL.lastPathComponent)” is a link, so a copy would be a link too, not what it points to — nothing was \(isMove ? "moved" : "copied")")
@@ -4009,28 +3472,24 @@ public class FileSyncManager: ObservableObject {
             return false
         }
 
-        // The other half of syncAll's own "a single row may be mid-flight" guard, which was
-        // written in one direction only. syncAll latches `isBulkSyncRunning` BEFORE its
-        // confirmation prompt, and that prompt's modal spins the run loop — so between the latch
-        // and `markSyncing(toSyncIDs)` a queued syncFile aimed at a row in the bulk set passes
-        // both guards above (the row is not marked yet) and both flows handle the same
-        // difference. `syncingDifferenceIds` is a set, not a refcount, so whichever defer runs
-        // first releases the id the other still owns, and a syncFile parked at its own prompt
-        // becomes invisible to Verify All's exclusion guard — the hashed-mid-overwrite window
-        // these guards exist to close.
+        // The other half of syncAll's "a single row may be mid-flight" guard. syncAll latches
+        // `isBulkSyncRunning` before its confirmation prompt, whose modal spins the run loop, so
+        // between the latch and `markSyncing(toSyncIDs)` a queued syncFile for a row in the bulk
+        // set would pass the guards above and both flows would handle it. `syncingDifferenceIds` is
+        // a set, not a refcount, so whichever defer runs first releases the id the other still
+        // owns, and a syncFile parked at its prompt becomes invisible to Verify All's exclusion
+        // guard.
         guard !isBulkSyncRunning else {
             banner = .warning("Wait for the current operation to finish before syncing")
             return false
         }
 
-        // Mark the difference as syncing BEFORE any prompt can hold this call, not after:
-        // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a
-        // syncFile parked at a prompt is visible to it — a prompt's modal spins the run loop,
-        // so a queued Verify All would otherwise start hashing the very file this sync is
-        // about to overwrite. The defer releases the mark structurally on every exit — no
-        // early return can leak an id (which would refuse Verify All and pane swaps for the
-        // session). On the success path the row was already removed wholesale by
-        // removeResolvedDifferences; clearSyncing on a removed row is a documented no-op.
+        // Mark the row as syncing before any prompt can hold this call: Verify All's exclusion
+        // guard reads `syncingDifferenceIds` so a syncFile parked at a prompt is visible to it (a
+        // modal spins the run loop, and a queued Verify All could hash the file this sync is about
+        // to overwrite). The defer releases the mark on every exit, so no early return leaks an id,
+        // which would refuse Verify All and pane swaps for the session. On success the row is
+        // already removed, and clearSyncing on a removed row is a no-op.
         markSyncing(ids: [difference.id])
         defer { clearSyncing(ids: [difference.id]) }
 
@@ -4105,14 +3564,12 @@ public class FileSyncManager: ObservableObject {
             toURL = resolvedURL
         }
 
-        // The stat above is stale by the time the operation runs: the collision prompt holds
-        // this call for an unbounded time, and the serial operation queue can add more. A file
-        // that appears at a destination the stat saw as missing (cloud placeholder hydration,
-        // another sync client) would be replaced without its overwrite prompt — the same gap
-        // syncAll's promptShownSinceStatPass loop closes. Re-stat once right before enqueueing
-        // and run the collision flow if a destination newly appeared. The residual window
-        // between this stat and the queued operation executing is accepted: the operation runs
-        // detached, where no prompt is possible.
+        // The stat above is stale by the time the operation runs: the collision prompt holds this
+        // call indefinitely, and the queue can add more. A file that appears at a destination the
+        // stat saw as missing (placeholder hydration, another sync client) would be replaced
+        // without its prompt; syncAll's promptShownSinceStatPass loop closes the same gap. So
+        // re-stat once right before enqueueing. The window between this stat and the queued
+        // operation running is accepted: the operation runs detached, where no prompt is possible.
         if !replaceSanctioned {
             let (newlyAppeared, newlyAppearedIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             if newlyAppeared {
@@ -4164,10 +3621,10 @@ public class FileSyncManager: ObservableObject {
                 // walk (see `registerCopyUndo(items:)`), so the sync does not report done
                 // until its undo is fully armed. One file, so the walk is one stat.
                 let identityWalk = isMove ? nil : self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
-                // Durable Sync History (X2). Size is free from the difference (source side);
-                // checksum is left nil at op time (see the bulk path's checksum note). In the
-                // registration's own turn, before the await, so the pairing names this sync's
-                // group and nothing that lands on the stack during the walk (FR26).
+                // Durable Sync History. Size comes free from the difference (source side); checksum
+                // is nil at op time (see the bulk path's note). Recorded in the registration's own
+                // turn, before the await, so the pairing names this sync's group and nothing that
+                // lands on the stack during the walk.
                 let size = difference.action == .copyToRight ? difference.leftFileSize : difference.rightFileSize
                 self.recordSyncHistory([SyncHistoryRecord(
                     runId: UUID(),
@@ -4186,15 +3643,13 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Removes selected paths that no longer exist in the trees (e.g. after move/delete) to avoid
-    /// ghost selection. A pane whose tree is still loading is skipped: progressive loading
-    /// publishes a shallow (root-children-only) tree before the deep walk finishes, and pruning
-    /// against it would wipe a still-valid deeper selection.
+    /// Removes selected paths that no longer exist in the trees (after a move or delete, say) to
+    /// avoid ghost selections. A pane whose tree is still loading is skipped: progressive loading
+    /// publishes a shallow tree before the deep walk finishes, and pruning against it would wipe a
+    /// valid deeper selection.
     ///
-    /// Looked up in the same per-version path index the action bar resolves the selection
-    /// through, so a publish walks each tree once for both rather than once each (speed audit
-    /// item 8). Skipped outright when the pane has no selection
-    /// (the common case, e.g. the post-scan prune during launch churn).
+    /// Looked up in the per-version path index the action bar uses, so a publish walks each tree
+    /// once for both. Skipped outright when the pane has no selection, the common case.
     public func pruneSelection() {
         if !isLoadingLeftTree, !selectedLeftPaths.isEmpty {
             let index = leftNodeIndex()
@@ -4223,7 +3678,7 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    // Implementations moved to FileOperations.swift
+    // File operations live in FileOperations.swift.
 
-    // Diff algorithms moved to FileDiffEngine.swift
+    // Diff algorithms live in FileDiffEngine.swift.
 }

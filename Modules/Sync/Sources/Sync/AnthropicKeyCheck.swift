@@ -14,9 +14,9 @@ extension URLSession: HTTPTransport {
     }
 }
 
-/// Validates an Anthropic API key with a single free, zero-token request (`GET /v1/models`) — so the
-/// user can confirm the key works before relying on it during a scan. Lives in Sync (Foundation
-/// only) so Settings can call it without importing the app.
+/// Validates an Anthropic API key with one free, zero-token request (`GET /v1/models`), so the user
+/// can confirm it works before a scan relies on it. In Sync (Foundation only) so Settings can call
+/// it without importing the app.
 public enum AnthropicKeyCheck {
     public enum Result: Equatable, Sendable {
         case valid

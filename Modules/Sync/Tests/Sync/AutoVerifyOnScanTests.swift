@@ -63,9 +63,9 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
-    /// The scan-time pass keeps the 100 MB limit the hasher dropped: it runs unasked after every
-    /// scan, so a pair over it is left listed for Verify All. Judged on the scan's recorded size —
-    /// the same identical files, recorded one byte over, stay listed; recorded at the limit, hidden.
+    /// The scan-time pass keeps a 100 MB limit the hasher itself doesn't have: it runs unasked
+    /// after every scan, so a pair over it stays listed for Verify All. Judged on the scan's
+    /// recorded size: identical files recorded one byte over stay listed; at the limit, hidden.
     @MainActor
     @Test func pairsOverTheScanTimeLimitAreLeftForVerifyAll() async throws {
         let fixture = try makeFixture()
@@ -145,12 +145,11 @@ import Foundation
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
     }
 
-    /// A file operation that starts — and even FINISHES — while the pass is hashing must void
-    /// the whole batch: the pre-operation "identical" verdicts describe bytes the operation may
-    /// have rewritten, and if the hash drains before the operation's rescan bumps
-    /// `scanRequestGeneration`, folding them into `verifiedSameDifferenceIds` would silently
-    /// show a real difference as in-sync until the next scan. The entry guard can't see this
-    /// (`activeFileOperationsCount` is back to 0 by commit time) — only the operations epoch can.
+    /// A file operation that starts, and even finishes, while the pass is hashing must void the
+    /// batch: its "identical" verdicts describe bytes the operation may have rewritten, and if the
+    /// hash drains before the rescan bumps `scanRequestGeneration` a real difference would show as
+    /// in-sync. `activeFileOperationsCount` is back to 0 by commit time; only the operations epoch
+    /// sees it.
     @MainActor
     @Test(.parksAThread) func testOperationRunningMidHashDiscardsTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
@@ -165,7 +164,7 @@ import Foundation
         await awaitSignal(gate.entered)
 
         // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
-        // moves, and — the exact race — `scanRequestGeneration` has NOT been bumped yet.
+        // moves, and `scanRequestGeneration` has not been bumped yet.
         let generationBefore = manager.scanRequestGeneration
         let epochBefore = manager.fileOperationsEpoch
         await manager.enqueueFileOperation { }
@@ -181,10 +180,9 @@ import Foundation
         #expect(manager.fileOperationsEpoch > epochBefore, "the operation must have moved the epoch")
     }
 
-    /// The positive control for the test above, on the SAME gated fixture. `isEmpty` is also
-    /// what you see if the gate broke hashing outright or the candidate filter matched nothing,
-    /// so without this the discard assertion could pass vacuously: park the pass, run NO
-    /// operation, release, and the identical pair must be hidden exactly as on a plain fixture.
+    /// The positive control for the test above, on the same gated fixture, so its `isEmpty` can't
+    /// pass vacuously (a broken gate or an empty candidate filter): park the pass, run no
+    /// operation, release, and the identical pair must be hidden as on a plain fixture.
     @MainActor
     @Test(.parksAThread) func testGatedFixtureStillVerifiesWhenNoOperationRuns() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
@@ -207,14 +205,10 @@ import Foundation
         #expect(manager.fileOperationsEpoch == epochBefore)
     }
 
-    /// A DECLINED confirmation must not void the batch. `preCountFileOperation()` runs before
-    /// the transfer confirmer so the quit guard and the hashing exclusions see the pending
-    /// transfer, and `cancelPreCountedFileOperation()` puts the count back when the user says
-    /// no — but a monotonic epoch cannot be un-bumped. Bumping it at pre-count time therefore
-    /// discarded a whole pass's verdicts for an operation that never touched the disk, and
-    /// because nothing ran, nothing sent `refreshSubject`: no rescan re-ran the pass, so those
-    /// rows stayed listed as differences until the user rescanned by hand. The epoch moves at
-    /// enqueue time instead, so a decline leaves the batch alone.
+    /// A declined confirmation must not void the batch. `cancelPreCountedFileOperation()` puts the
+    /// count back, but a monotonic epoch can't be un-bumped, and with nothing run no rescan would
+    /// re-run the pass, leaving rows listed until a manual rescan. So the epoch moves at enqueue
+    /// time, not at `preCountFileOperation()`.
     @MainActor
     @Test(.parksAThread) func testDeclinedConfirmationDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
@@ -255,18 +249,15 @@ import Foundation
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
-    /// The counterpart to the test above, and the pin on a deliberate asymmetry: the orphaned-temp
-    /// sweep writes to the filesystem mid-hash without going through `enqueueFileOperation` and
-    /// without moving the epoch, and the batch must still commit. That is not an oversight —
-    /// `sweepOrphanedTempArtifacts` only ever REMOVES age-gated `.tmp_<UUID>` artifacts, and a
-    /// removal cannot make a differing pair hash identical (it can only fail the read). Making it
-    /// bump the epoch would void the checksum batch on essentially every refresh, since the sweep
-    /// runs at the tail of the same refresh that spawned the pass. This test fails if someone
-    /// "fixes" the sweep into the epoch blind.
+    /// A deliberate asymmetry: the orphaned-temp sweep writes mid-hash without
+    /// `enqueueFileOperation` or the epoch, and the batch must still commit.
+    /// `sweepOrphanedTempArtifacts` only removes age-gated `.tmp_<UUID>` artifacts, which can't
+    /// make a differing pair hash identical, and it runs in the same refresh that spawned the
+    /// pass, so bumping the epoch would void nearly every batch. Fails if the sweep moves the epoch.
     @MainActor
     @Test(.parksAThread) func testOrphanSweepDuringTheHashDoesNotDiscardTheBatch() async throws {
-        // A real orphaned staging artifact, old enough to reap, under its own root — so the thing
-        // the sweep trashes is never one of the files being hashed.
+        // A real orphaned staging artifact, old enough to reap, under its own root, so the sweep
+        // never trashes one of the files being hashed.
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "AutoVerifySweep")
         defer { try? fm.removeItem(at: root) }
@@ -294,9 +285,8 @@ import Foundation
         let epochBefore = manager.fileOperationsEpoch
         #expect(manager.sweepOrphanedTempArtifacts(), "the sweep must have been allowed to look")
 
-        // Bounded premise-wait: the removal is detached, and the whole point of the test is that it
-        // lands INSIDE the hash window. Require it rather than carrying on against a maybe — an
-        // un-required wait would leave the assertions below passing for the wrong reason forever.
+        // Bounded premise-wait: the removal is detached, and the test needs it inside the hash
+        // window. Required, or the assertions below could pass for the wrong reason.
         var trashed = false
         for _ in 0..<200 {
             if !fm.fileExists(atPath: orphan.path) { trashed = true; break }
@@ -319,14 +309,11 @@ import Foundation
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
-    /// A transfer whose confirmation modal is STILL PENDING at commit time (pre-counted, epoch
-    /// unmoved) must not void the batch. No I/O has run — the epoch bump in
-    /// `enqueueFileOperation` still stands between the prompt and the first byte written — so
-    /// the verdicts are sound; and if the user then DECLINES, nothing runs, nothing refreshes,
-    /// and a discarded batch would leave hashed-identical rows listed until a manual rescan
-    /// (the stuck-rows symptom the commit-time count term re-admitted). If the user ACCEPTS,
-    /// the operation's own completion rescan clears `verifiedSameDifferenceIds` and regenerates
-    /// every row id, superseding whatever committed here.
+    /// A transfer whose confirmation is still pending at commit time (pre-counted, epoch unmoved)
+    /// must not void the batch. No I/O has run (the epoch bump in `enqueueFileOperation` comes
+    /// before the first byte), so the verdicts are sound, and a decline would refresh nothing and
+    /// leave rows listed until a manual rescan. An accept's completion rescan clears
+    /// `verifiedSameDifferenceIds` and regenerates every row id, superseding this commit.
     @MainActor
     @Test(.parksAThread) func testPendingPreCountedPromptAtCommitDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
@@ -357,11 +344,10 @@ import Foundation
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
-    /// Same shape for `syncAll`'s prepare phase: the bulk flag is latched before the batch
-    /// stat pass and the collision prompts, all read-only — every write goes through the
-    /// single `enqueueFileOperation` afterwards, which bumps the epoch first. A commit that
-    /// beats that bump commits sound pre-write verdicts (and the run's completion rescan
-    /// supersedes them); a commit after it is discarded on the epoch.
+    /// Same shape for `syncAll`'s prepare phase: the bulk flag is latched before the read-only
+    /// stat pass and collision prompts, and every write goes through one `enqueueFileOperation`
+    /// afterwards, which bumps the epoch first. A commit before that bump keeps sound verdicts (the
+    /// run's rescan supersedes them); one after it is discarded on the epoch.
     @MainActor
     @Test(.parksAThread) func testBulkSyncPreparePhaseAtCommitDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)

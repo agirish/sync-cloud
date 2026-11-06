@@ -2,20 +2,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A comparison whose walk was stopped must never say anything is missing.**
-///
-/// The scan's cold (disk-walk) branch was unbounded, and it is the branch a first switch to a
-/// source takes — so it is the one that ran during the ten-minute hang reported on 2026-08-24. The
-/// budget stops it; these pin what a stopped walk is then allowed to claim.
-///
-/// The safety direction is the whole point and it is asymmetric. A truncated side has seen some
-/// entries for real, so differences among entries BOTH sides hold are still true, and so is
-/// "present here, absent from the complete other side". What it cannot know is absence on its own
-/// side — and a Missing row there would offer to copy into, or "restore" from, a folder the walk
-/// simply never reached.
+/// A comparison whose walk was stopped must never say anything is missing. The cold (disk-walk)
+/// branch, which a first switch to a source takes, is bounded by a budget; these pin what a stopped
+/// walk may then claim. The rule is asymmetric: a truncated side's entries are real, so differences
+/// among entries both sides hold stay true, and so does "present here, absent from the complete
+/// other side". Absence on its own side it can't know, and a Missing row there would offer to copy
+/// into, or restore from, a folder the walk never reached.
 @Suite struct ScanWalkBudgetTests {
 
-    /// A real directory tree on disk — the enumerator is the subject, so a mock would be testing
+    /// A real directory tree on disk: the enumerator is the subject, so a mock would test
     /// something else.
     private func makeTree(files: Int) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -45,8 +40,8 @@ import Testing
         let some = try FileDiffEngine.getFilesInDirectory(root, maxEntries: 10)
         #expect(some[""]?.isUnexplored == true,
                 "the truncated walk did not mark the root unexplored — the diff will mint Missing rows for everything it never reached")
-        // The root record is synthetic and added after the walk, so the entries it actually read
-        // are one fewer than the map holds.
+        // The root record is synthetic and added after the walk, so the walk read one fewer entry
+        // than the map holds.
         #expect(some.count <= 12, "the walk ran well past its budget: \(some.count) entries against 10")
         #expect(some.count > 1, "the walk recorded nothing — the budget stopped it before it started")
     }
@@ -64,9 +59,6 @@ import Testing
 
     // MARK: - What the diff then does with it, which is the part that matters
 
-    /// **The safety property.** With the left walk truncated, nothing on the left may be reported
-    /// missing — the right holds files the left never got to, and offering to copy them in would
-    /// be acting on an observation nobody made.
     private var leftProvider: CloudProvider {
         CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/l", type: .iCloud)
     }
@@ -74,6 +66,9 @@ import Testing
         CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/r", type: .iCloud)
     }
 
+    /// The safety property: with the left walk truncated, nothing on the left may be reported
+    /// missing. The right holds files the left never reached, and offering to copy them in would
+    /// act on an observation nobody made.
     @Test func aTruncatedSideNeverGetsMissingRows() {
         let complete: [String: FileDiffEngine.FileInfo] = [
             "a.txt": .init(url: URL(fileURLWithPath: "/r/a.txt"), modificationDate: nil, fileSize: 1, isDirectory: false),
@@ -93,16 +88,11 @@ import Testing
 
     // MARK: - The warm branch, where the maps alone cannot say the walk was stopped
 
-    /// **A warm scan of a budget-stopped tree must banner its side.** The warm branch derives its
-    /// maps from the cached pane trees, and a stopped walk's root was READABLE — so no `""` record
-    /// exists, and the truncation lives only in per-directory `isUnexplored` marks an ordinary
-    /// locked folder also wears. `prefetchedTreeWalkStopped` is the provenance that separates them,
-    /// and before it was read here a warm scan of a truncated tree published `.complete` with no
-    /// banner while the cold branch of the very same pair bannered.
-    ///
-    /// Premise-guarded on the branch actually taken: the mock records every directory listing, and
-    /// the warm branch's whole identity is that it makes none. A test that fell through to the
-    /// cold branch would be asserting the OTHER overload.
+    /// A warm scan of a budget-stopped tree must banner its side. The warm branch builds its maps
+    /// from the cached pane trees, and a stopped walk's root was readable, so there is no `""`
+    /// record; the truncation shows only as `isUnexplored` marks, which an ordinary locked folder
+    /// also wears. `prefetchedTreeWalkStopped` is what tells them apart. Premise-guarded on the
+    /// branch: the warm branch lists no directories, so any listing means the cold one ran.
     @MainActor
     @Test func aWarmScanOverATruncatedCachedTreeBannersItsSide() async throws {
         let mockFM = MockFileManager()
@@ -133,10 +123,9 @@ import Testing
                 "a warm scan of a truncated left tree published \(manager.lastScanCoverage) — the banner stays down over a comparison that is quietly a floor")
     }
 
-    /// The same warm pair WITHOUT the provenance bit is complete: the left's unexplored directory
-    /// is then an ordinary locked folder, whose rows `compare` already suppresses precisely. The
-    /// bit — not the mark — is what changes the verdict, which is the conjunction's other half at
-    /// this call site.
+    /// The same warm pair without the walk-stopped bit is complete: the unexplored directory is
+    /// then an ordinary locked folder, whose rows `compare` already suppresses. The bit, not the
+    /// mark, changes the verdict.
     @MainActor
     @Test func aWarmScanWithoutTheStoppedBitStaysComplete() async throws {
         let mockFM = MockFileManager()
@@ -161,10 +150,9 @@ import Testing
                 "an ordinary locked folder bannered a warm scan — the warning people learn to stop reading")
     }
 
-    /// **One verb drops the trees AND their provenance.** Every invalidation site goes through
-    /// `dropPrefetchedTrees`; a site clearing the trees alone would leave a stale bit to be re-read
-    /// the next time the same focus path is cached by a slice, and the banner would outlive the
-    /// truncation it described.
+    /// One call drops the trees and their provenance. Every invalidation goes through
+    /// `dropPrefetchedTrees`; clearing the trees alone would leave a stale bit for the next slice
+    /// that caches the same focus path, and the banner would outlive the truncation.
     @MainActor
     @Test func droppingThePrefetchedTreesDropsTheirProvenanceWithThem() {
         let manager = FileSyncManager()
@@ -178,9 +166,9 @@ import Testing
                 "the trees were dropped and their walk-stopped provenance survived them")
     }
 
-    /// The other direction stays live: what the truncated side DID see, it saw. Absence on the
-    /// complete side is a real observation, so those rows must survive — a budget that silenced
-    /// them would turn a slow comparison into a quietly empty one.
+    /// The other direction stays live: what the truncated side did see, it saw. Absence on the
+    /// complete side is a real observation, so those rows must survive, or a slow comparison turns
+    /// quietly empty.
     @Test func whatTheTruncatedSideDidSeeIsStillCompared() {
         let truncated: [String: FileDiffEngine.FileInfo] = [
             "": .init(url: URL(fileURLWithPath: "/l"), modificationDate: nil, fileSize: nil,

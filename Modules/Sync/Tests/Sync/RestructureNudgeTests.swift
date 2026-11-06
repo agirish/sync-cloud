@@ -2,10 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.6's "say it the month it happens", as the rule that decides (proposal O15).
-///
-/// Every date here is injected. The one thing this feature must never do is behave differently in
-/// December than in the January it was written in, and a rule reading `Date()` could not be asked.
+/// The restructure nudge, "say it the month it happens", as the rule that decides. Every date here
+/// is injected: the feature must behave the same in December as in January, and a rule reading
+/// `Date()` couldn't be asked.
 @Suite struct RestructureNudgeTests {
 
     private static func backlog(_ subject: String, scaffold: [String] = ["Claims"])
@@ -41,9 +40,8 @@ import Testing
         #expect(next.isEmpty, "nothing in this tree is about 2027 yet")
     }
 
-    /// **It is the year, not the month.** The proposal's name says January; the rule says "this
-    /// year", because a gap noticed in March is still this year's gap and a rule that only spoke
-    /// in January would be silent for eleven months about a folder that never got made.
+    /// It is the year, not the month: a gap noticed in March is still this year's gap, and a rule
+    /// that only spoke in January would be silent for eleven months about a folder never made.
     @Test func aGapNoticedInMarchIsStillDue() {
         let due = RestructureNudge.due(in: [Self.backlog("Health/Dental/2026")],
                                        now: Self.date("2026-03-20T10:00:00Z"),
@@ -81,9 +79,8 @@ import Testing
 
     // MARK: Acknowledgement, and why it carries a year
 
-    /// **Dismissing silences this year and not the next one.** A flag would have made the first
-    /// dismissal permanent, which is the opposite of a feature whose whole argument is that the
-    /// gap recurs.
+    /// Dismissing silences this year and not the next. A flag would make the first dismissal
+    /// permanent, the opposite of a feature whose whole argument is that the gap recurs.
     @Test func anAcknowledgementIsForOneYearOnly() {
         let finding = Self.backlog("Health/Dental/2026")
         let key = RestructureKey(kind: .backlog, path: "Health/Dental/2026")

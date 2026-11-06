@@ -42,8 +42,8 @@ import Testing
         return check
     }
 
-    /// A copy Dropbox refuses after the deadline is heard at the next sync (31 Oct): it leaves the
-    /// synced files, is listed as skipped, and isn't written again until it changes in iCloud.
+    /// A copy Dropbox refuses after the deadline is heard at the next sync: it leaves the synced
+    /// files, is listed as skipped, and isn't written again until it changes in iCloud.
     @Test func aCopyRefusedAfterTheDeadlineIsSkippedNextSync() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
@@ -124,7 +124,7 @@ import Testing
     }
 
     /// Match iCloud on a pair recorded as identical but dated apart only puts the name back:
-    /// nothing is replaced, and nothing goes to SyncCloud Removed (31 Oct).
+    /// nothing is replaced, and nothing goes to SyncCloud Removed.
     @Test func matchICloudOnAPairDatedApartOnlyRenames() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
@@ -466,7 +466,7 @@ import Testing
         try await sync.run()
         #expect(world.read(.dropbox, "Finance/2025 Taxes/a.pdf") == "a")
         #expect(sync.file("Finance/2025 Taxes/a.pdf")?.dropboxPath == "Finance/2025 Taxes/a.pdf")
-        // The folder it left, empty now and gone from iCloud, goes too (31 Oct).
+        // The folder it left, empty now and gone from iCloud, goes too.
         #expect(OneWaySyncDisk.kind(at: world.dropbox.appendingPathComponent("Finance/2025").path) == nil)
         #expect(OneWaySyncDisk.kind(at: world.dropbox.appendingPathComponent("Finance").path) == .folder)
     }
@@ -615,7 +615,7 @@ import Testing
 
     // MARK: History
 
-    /// DJ: an eighth kept version of one file sends the oldest to Dropbox's deleted files, and
+    /// An eighth kept version of one file sends the oldest to Dropbox's deleted files, and
     /// History's step says which.
     @Test func anEighthKeptVersionIsNamedInHistory() async throws {
         let world = try OneWayDiskWorld()

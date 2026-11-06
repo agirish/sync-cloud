@@ -1,13 +1,11 @@
 import Foundation
 
 /// The words of the names on screen, for the transcriber on this Mac to listen for when a question
-/// is spoken (TE311). Names are where dictation misses most: "Ally" came back as "Ellie", "Abhishek"
-/// as "Hishake", and the voice spike (2026-11-02, his voice) found these hints raised the name words
-/// heard right from 83% to 88%.
+/// is spoken. Names are where dictation misses most ("Ally" heard as "Ellie"), and these hints
+/// raised the name words heard right from 83% to 88%.
 ///
-/// **Words, not whole names.** Given "Ally Statements" the transcriber still heard "Ellie"; given
-/// "Ally" it heard "Ally" (measured 2026-11-02, streaming and batch alike). The spike's hints were
-/// single words too.
+/// Words, not whole names: given "Ally Statements" the transcriber still hears "Ellie"; given
+/// "Ally" it hears "Ally", streaming and batch alike.
 ///
 /// Only what the screen card already shows Claude, so nothing on the Never show Claude list is
 /// ever a hint: its rows and its folder are left out of the screen, and the caller passes only the

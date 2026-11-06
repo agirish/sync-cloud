@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **FV: the change count Sync Now's pill suggests a sync with.** Scratch parents on disk, a record
-/// that matches them, and watcher batches written out by hand — every flag and order here is one
-/// FSEvents can deliver. The live half, against real FSEvents, is `OneWaySyncChangeCountLiveTests`.
+/// The change count Sync Now's pill suggests a sync with. Scratch parents on disk, a record that
+/// matches them, and watcher batches written out by hand, every flag and order one FSEvents can
+/// deliver. The live half, against real FSEvents, is `OneWaySyncChangeCountLiveTests`.
 @Suite struct OneWaySyncChangeCountTests {
 
     final class World {
@@ -85,7 +85,7 @@ import Testing
     }
 
     /// The record decides: a recorded file reported changed but the same size and date as synced
-    /// — iCloud downloading or offloading it, Dropbox marking its upload — isn't a change.
+    /// (iCloud downloading or offloading it, Dropbox marking its upload) isn't a change.
     @Test func aReportedFileTheSameAsRecordedDoesNotCount() throws {
         let world = try World()
         let count = world.count()
@@ -94,8 +94,8 @@ import Testing
         #expect(count.tally == .init())
     }
 
-    /// FU: an opened stamp, quarantine or tag (extended attributes alone) isn't a change, even on a
-    /// file the record doesn't have — a new file whose only event is that would otherwise count.
+    /// An opened stamp, quarantine or tag (extended attributes alone) isn't a change, even on a file
+    /// the record doesn't have: a new file whose only event is that would otherwise count.
     @Test func attributesAloneDoNotCount() throws {
         let world = try World()
         let count = world.count()
@@ -111,8 +111,8 @@ import Testing
         #expect(count.tally == .init(count: 1))
     }
 
-    /// FU where the record can't tell: a file left differing from the record by the last pass (an
-    /// edit made in Dropbox, waiting for you in Now) isn't a new change because you opened it.
+    /// Where the record can't tell: a file left differing from the record by the last pass (an edit
+    /// made in Dropbox, waiting for you in Now) isn't a new change because you opened it.
     @Test func openingAFileThatStillWaitsDoesNotCountAgain() throws {
         let world = try World()
         let count = world.count()
@@ -205,8 +205,8 @@ import Testing
         #expect(count.tally == .init())
     }
 
-    /// This process's own changes are yours — an edit or a copy made in SyncCloud's panes — and
-    /// count on either side, except on the side the sync or Reverse is writing to, while it does.
+    /// This process's own changes are yours (an edit or a copy made in SyncCloud's panes) and count
+    /// on either side, except on the side the sync or Reverse is writing to, while it does.
     @Test func ownWritesCountExceptWhereTheSyncIsWriting() throws {
         let world = try World()
         let count = world.count()
@@ -393,8 +393,8 @@ import Testing
         #expect(count.tally == .init())
     }
 
-    /// What a completed pass left for a later one — a deletion inside its 30 minutes, a step that
-    /// didn't go through, a folder not fully listed — still counts after it, while it differs.
+    /// What a completed pass left for a later one (a deletion inside its 30 minutes, a step that
+    /// didn't go through, a folder not fully listed) still counts after it, while it differs.
     @Test func whatAPassLeftForLaterStillCounts() throws {
         let world = try World()
         try world.synced("Legal/Old.pdf", "old")
@@ -464,8 +464,8 @@ import Testing
 
     // MARK: Across a relaunch
 
-    /// The count is saved: a relaunch starts from it, and the watcher's replay — whose events
-    /// FSEvents no longer marks as this process's — adds only what really differs.
+    /// The count is saved: a relaunch starts from it, and the watcher's replay (whose events
+    /// FSEvents no longer marks as this process's) adds only what really differs.
     @Test func aRelaunchKeepsTheCountAndJudgesTheReplay() throws {
         let world = try World()
         let file = URL(fileURLWithPath: world.root + "/store/changes.json")
@@ -495,9 +495,9 @@ import Testing
     }
 }
 
-/// **FV against real FSEvents**: the watcher on both sides, the count judging what it delivers.
-/// Every wait is bounded, and each "doesn't count" waits for the event itself first, so it can't
-/// pass by asking too early.
+/// The change count against real FSEvents: the watcher on both sides, the count judging what it
+/// delivers. Every wait is bounded, and each "doesn't count" waits for the event itself first, so
+/// it can't pass by asking too early.
 @Suite(.serialized) struct OneWaySyncChangeCountLiveTests {
     typealias World = OneWaySyncChangeCountTests.World
     typealias Inbox = FolderWatcherLiveTests.Inbox
@@ -522,8 +522,8 @@ import Testing
         return watcher
     }
 
-    /// The brief's case: an edit in an iCloud synced folder raises the count; the sync's own write
-    /// into Dropbox doesn't, though nothing in the record matches it yet.
+    /// The main case: an edit in an iCloud synced folder raises the count; the sync's own write into
+    /// Dropbox doesn't, though nothing in the record matches it yet.
     @MainActor
     @Test func anICloudEditRaisesTheCountAndTheSyncsOwnWriteDoesNot() async throws {
         let world = try World()

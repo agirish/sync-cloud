@@ -3,11 +3,10 @@ import Foundation
 
 /// One thing Restructure remembers, named by what noticed it and where.
 ///
-/// `kind × path` is the identity everything in ``RestructureStore`` shares — a suppression, an
-/// answer, and (from §5.4/§5.5) a draft and a ledger entry all key on it, which is what lets one
-/// decision serve four sections (ROADMAP v5 §5.0). The path is the finding's **subject** — the most
-/// specific folder it is about — for the same reason ``StructureFinding/id`` is: the family alone
-/// is not unique for every kind.
+/// `kind × path` is the identity everything in ``RestructureStore`` shares: a suppression, an
+/// answer, a draft and a ledger entry all key on it, so one decision serves every section. The path
+/// is the finding's subject (the most specific folder it is about), for the same reason as
+/// ``StructureFinding/id``: the family alone isn't unique for every kind.
 public struct RestructureKey: Hashable, Codable, Sendable {
     /// Which detector's observation this remembers.
     public let kind: FindingKind
@@ -24,58 +23,54 @@ public struct RestructureKey: Hashable, Codable, Sendable {
         self.init(kind: finding.kind, path: finding.subject)
     }
 
-    /// The ``StructureFinding/id`` this key corresponds to — the one spelling of the composite
+    /// The ``StructureFinding/id`` this key corresponds to: the one spelling of the composite
     /// identity, so a caller joining store sections to rendered findings never re-derives the
-    /// format by hand (two spellings of `kind|path` is how they drift apart).
+    /// `kind|path` format by hand.
     public var findingId: String { "\(kind.rawValue)|\(path)" }
 }
 
-/// Everything Restructure remembers, in one app-owned file — `restructure.json`, beside
+/// Everything Restructure remembers, in one app-owned file: `restructure.json`, beside
 /// `people.json`.
 ///
-/// **One store, not four** (ROADMAP v5 §5.0, decisions block): suppressions, Ask answers, drafted
-/// plans and the applied ledger share the `kind × path` identity, so they share a file — all four
-/// sections are modelled now. The decoder still carries any section it does not model across a
-/// save rather than deleting it, the same discipline ``PeopleStore`` has for hand-added keys.
+/// One store, not four: suppressions, Ask answers, drafted plans and the applied ledger share the
+/// `kind × path` identity, so they share a file. Any section the decoder doesn't model is carried
+/// across a save rather than deleted, as ``PeopleStore`` does for hand-added keys.
 ///
 /// Writes are whole-file and atomic, like every store beside it (`PeopleStore`, `PersonTagStore`,
-/// `StorageLensStore`, `FilingVerdictCache`): the file is small, a rewrite costs nothing, and a
-/// partial write would be worse than none.
+/// `StorageLensStore`, `FilingVerdictCache`): the file is small, and a partial write would be worse
+/// than none.
 ///
-/// **What survives what** is the design (ROADMAP v5 §5.0): every section survives a re-survey,
-/// because the keys are paths and the profile can be replaced underneath them. What a section does
-/// *not* survive is its path moving — an Apply replays its manifest onto these keys through
-/// ``rekey(renames:)``, exactly as §5.5 replays it onto the corpus and the memory.
+/// Every section survives a re-survey, because the keys are paths and the profile can be replaced
+/// underneath them. What a section doesn't survive is its path moving, so an Apply replays its
+/// manifest onto these keys through ``rekey(renames:context:)``, as it does onto the corpus and the
+/// memory.
 @MainActor
 public final class RestructureStore: ObservableObject {
 
-    /// Findings the user said never to suggest again. Read by the lens before rendering and by
-    /// the rail badge; written by *Never suggest this again* on any card.
+    /// Findings the user said never to suggest again. Read by the lens before rendering and by the
+    /// rail badge; written by Never suggest this again on any card.
     @Published public private(set) var suppressed: Set<RestructureKey> = []
 
-    /// Chosen options for Ask findings, so the detector that asked never asks twice (§5.3).
+    /// Chosen options for Ask findings, so the detector that asked never asks twice.
     @Published public private(set) var answers: [RestructureKey: String] = [:]
 
-    /// Drafted plans, keyed on `kind × family` — §5.7's *Planned, not applied*: a draft survives
-    /// the sheet closing, the app quitting, and a re-survey, because the key is a path and the
-    /// profile can be replaced underneath it. What it does not survive is its family ceasing to
-    /// exist, which the card says.
+    /// Drafted plans, keyed on `kind × family`: Planned, not applied. A draft survives the sheet
+    /// closing, the app quitting, and a re-survey, because the key is a path and the profile can be
+    /// replaced underneath it. It doesn't survive its family ceasing to exist, which the card says.
     @Published public private(set) var drafts: [RestructureKey: DraftRecord] = [:]
 
     public struct DraftRecord: Codable, Equatable, Sendable {
-        /// The plan as derived when the sheet last saved — mapping rows in its header, actions
+        /// The plan as derived when the sheet last saved: mapping rows in its header, actions
         /// ordered as they would run.
         public var manifest: RestructureManifest
         /// When the draft was saved, injected by the writer.
         public var savedAt: String
-        /// The file `Export plan` wrote, relative to the profile folder — nil for a draft that
-        /// was saved without exporting.
+        /// The file `Export plan` wrote, relative to the profile folder; nil for a draft saved
+        /// without exporting.
         public var exportedTo: String?
-        /// The sheet's full picker vocabulary when the draft was saved — the chosen scheme's
-        /// names plus any typed ones, INCLUDING names no row currently uses. Without it a
-        /// reopened draft could only rebuild the vocabulary from the rows' targets, so every
-        /// unused choice vanished and "reopens the plan as it was left" was false. Optional:
-        /// a draft saved by an earlier build reopens with the rows' targets alone, as before.
+        /// The sheet's full picker vocabulary when the draft was saved: the chosen scheme's names
+        /// plus any typed ones, including names no row uses, so a reopened draft keeps its unused
+        /// choices. Optional: an older draft reopens with the rows' targets alone.
         public var vocabulary: [String]?
 
         public init(manifest: RestructureManifest, savedAt: String, exportedTo: String? = nil,
@@ -87,30 +82,27 @@ public final class RestructureStore: ObservableObject {
         }
     }
 
-    /// One point per survey: how many findings of each kind the detectors produced (proposal
-    /// O16). Append-only, oldest dropped past ``trendCap``.
+    /// One point per survey: how many findings of each kind the detectors produced. Append-only,
+    /// oldest dropped past ``trendCap``. Only counts the detectors produced, each one a lens
+    /// displayed when it was stamped; nothing invented.
     ///
-    /// **Counts the detectors produced, and nothing invented.** The question "is the tree getting
-    /// better?" has no honest answer from a single survey, and every number here is one a lens
-    /// already displayed at the time it was stamped.
-    ///
-    /// Stamped when the profile the findings were derived from CHANGES — first load, a re-derive,
-    /// a landing — never on every memo drop. A survey is not re-run between those, so a point per
-    /// drop would be the same number repeated at whatever rate the memo happened to churn.
+    /// Stamped when the profile the findings come from changes (first load, a re-derive, a
+    /// landing), never on every memo drop. A survey isn't re-run between those, so a point per drop
+    /// would repeat the same number at whatever rate the memo churns.
     @Published public private(set) var trend: [TrendPoint] = []
 
     /// A survey's findings, counted by kind.
     public struct TrendPoint: Codable, Equatable, Sendable {
-        /// When it was stamped, `FilingProfileStore.stamp` format.
+        /// When it was stamped, in `FilingProfileStore.stamp` format.
         public let at: String
-        /// The profile directory the counts were derived from — also the dedupe key, since a
-        /// survey does not change without the profile changing.
+        /// The profile directory the counts were derived from; also the dedupe key, since a survey
+        /// doesn't change without the profile changing.
         public let profileId: String
         /// Findings per kind. Kinds with none are absent rather than zero, the rule every badge
         /// here follows; the total is the values' sum.
         public let countsByKind: [String: Int]
-        /// True when this point was stamped by a landing rather than an ordinary survey — the
-        /// dots on the line, and the only way to read cause into the shape.
+        /// True when a landing stamped this point rather than an ordinary survey: the dots on the
+        /// line, and the only way to read cause into the shape.
         public let landing: Bool
 
         public init(at: String, profileId: String, countsByKind: [String: Int],
@@ -124,67 +116,62 @@ public final class RestructureStore: ObservableObject {
         public var total: Int { countsByKind.values.reduce(0, +) }
     }
 
-    /// How many points are kept. Two hundred surveys is years of them at this rate, and the file
-    /// is read whole at construction — a trend that grew without bound would make every launch
-    /// pay for history nothing reads.
+    /// How many points are kept: years of surveys. The file is read whole at construction, so an
+    /// unbounded trend would make every launch pay for history nothing reads.
     public static let trendCap = 200
 
-    /// Which backlog nudges have been dismissed, and **for which year** (§5.6; proposal O15).
-    ///
-    /// A year rather than a flag, because §5.6's whole point is recurrence: dismissing the 2026
-    /// gap in Health/Dental must not silence the 2027 one, which is a fresh fact about a fresh
-    /// year. A fifth section keyed like the other three, so `rekey` moves it with a rename and a
-    /// store written before it existed decodes with it absent.
+    /// Which backlog nudges have been dismissed, and for which year. A year rather than a flag,
+    /// because the nudge recurs: dismissing the 2026 gap in Health/Dental must not silence 2027's.
+    /// Keyed like the other sections, so `rekey` moves it with a rename, and an older store decodes
+    /// with it absent.
     @Published public private(set) var nudgesAcknowledged: [RestructureKey: String] = [:]
 
-    /// The applied ledger — one record per landing, in the order they landed (§5.0's `applied`
-    /// section, §5.5's step 2 home). The inverse is ON DISK from the moment a landing starts,
-    /// which is what makes a reorganisation undoable after a quit, from here, not only with ⌘Z.
+    /// The applied ledger: one record per landing, in the order they landed. The inverse is on disk
+    /// from the moment a landing starts, so a reorganisation is undoable after a quit, from here,
+    /// not only with ⌘Z.
     ///
-    /// **Keyed by manifest id and never re-keyed**: unlike the sections above, a ledger entry is
-    /// a record of what happened at the time it happened — replaying a later manifest onto its
-    /// paths would rewrite history to say the earlier landing touched folders it never saw.
+    /// Keyed by manifest id and never re-keyed: a ledger entry records what happened when it
+    /// happened, and replaying a later manifest onto its paths would make the earlier landing claim
+    /// folders it never saw.
     @Published public private(set) var applied: [AppliedRecord] = []
 
     public struct AppliedRecord: Codable, Equatable, Sendable {
-        /// `var`, not `let`, since §5.5: a landing finalises the manifest with what actually
-        /// happened — collision names, bytes, digests — and the inverse is recomputed from that,
-        /// because the inverse of the PLAN would move files back from names they never landed at.
+        /// `var`, not `let`: a landing finalises the manifest with what actually happened
+        /// (collision names, bytes, file numbers), and the inverse is recomputed from that, because
+        /// the inverse of the plan would move files back from names they never landed at.
         public var manifest: RestructureManifest
         public var inverse: RestructureManifest
         /// The landing's stamp, injected by the writer.
         public let at: String
-        /// Outcome counts — what actually happened, against what the manifest predicted.
+        /// Outcome counts: what actually happened, against what the manifest predicted.
         public var created: Int
         public var skipped: Int
-        /// §5.5 step 6's ids — nil until a landing re-derives the profile (the scaffold records
-        /// without one; a plan apply always fills both, or says why in `summary`).
+        /// Ids set when a landing re-derives the profile. nil on a scaffold record; a plan apply
+        /// always fills both, or says why in `summary`.
         public var appliedUnderProfileId: String?
         public var producedProfileId: String?
-        /// The landing's one-line ledger sentence — what the Applied card renders.
+        /// The landing's one-line ledger sentence: what the Applied card renders.
         public var summary: String?
-        /// Stamped when *Undo this reorganisation* ran this record's inverse — the Undone state's
+        /// Stamped when Undo this reorganisation ran this record's inverse: the Undone state's
         /// evidence, and the guard against running it twice.
         public var undoneAt: String?
-        /// What the undo run did — the Undone card's sentence, which never pretends the tree was
-        /// untouched: a file that had moved on and was skipped is in this line's skip count and
-        /// named in the log (§5.7).
+        /// What the undo run did: the Undone card's sentence, which never pretends the tree was
+        /// untouched. A file that had moved on and was skipped is in its skip count and named in
+        /// the log.
         public var undoSummary: String?
-        /// Step 4's independent verifier: did the tree it re-listed match what the performed
-        /// actions claim? **Optional, and nil is not "no"** — every record written before this
-        /// field existed decodes with it absent, and a landing that never reached the verifier
-        /// has nothing to report either. The card says nothing at all in that case.
+        /// The independent verifier's answer: did the re-listed tree match what the performed
+        /// actions claim? nil is not "no": older records decode without it, and a landing that
+        /// never reached the verifier has nothing to report. The card then says nothing.
         public var verifiedOK: Bool?
-        /// What the verifier disagreed about, in one sentence — nil when it agreed, or when it
-        /// did not run.
+        /// What the verifier disagreed about, in one sentence; nil when it agreed or didn't run.
         public var verifierNote: String?
-        /// The Setup folder whose landing has reshaped this one's tree since the user left it —
-        /// set when a walk back took this history up and withheld the Undo (review R7), so the
-        /// card can say why there is none. Nil on every other record.
+        /// The Setup folder whose landing has reshaped this one's tree since the user left it, set
+        /// when a walk back took this history up and withheld the Undo, so the card can say why
+        /// there is none. Nil on every other record.
         public var undoWithheldBy: String?
-        /// True when the Undo was withheld because a landing there COULD have come later — its
-        /// ledger would not read, it carries no id, or the history predates the record of what
-        /// was seen (review C9) — rather than because one did. The card's words differ.
+        /// True when the Undo was withheld because a landing there could have come later (its
+        /// ledger wouldn't read, it carries no id, or the history predates the record of what was
+        /// seen) rather than because one did. The card's words differ.
         public var undoWithheldUnsure: Bool?
 
         public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
@@ -209,26 +196,24 @@ public final class RestructureStore: ObservableObject {
         }
     }
 
-    /// Whether something sits at `restructure.json`'s path that this build could not read — a
-    /// syntax error, an I/O failure, or a schema newer than this build writes.
+    /// Whether something sits at `restructure.json`'s path that this build couldn't read: a syntax
+    /// error, an I/O failure, or a newer schema.
     ///
-    /// **A file this build could not read is a file it must not rewrite.** Every save below is a
-    /// whole-file atomic write of the state now in memory, and when the load failed that state is
-    /// empty — writing it would replace the real file with nothing. The store stays usable in
-    /// memory for the session; the refusal is only about the disk.
+    /// A file this build couldn't read is a file it must not rewrite. Every save is a whole-file
+    /// atomic write of the state in memory, which is empty after a failed load, so writing would
+    /// replace the real file with nothing. The store stays usable in memory; only the disk refuses.
     @Published public private(set) var isUnreadable = false
 
-    /// Where the file was read from and is written to — the profiles directory and the folder
-    /// inside it, both as handed over at construction, for the reason ``PeopleStore/directory``
-    /// documents: the id inside a profile file and the folder it was read from can disagree.
+    /// Where the file is read from and written to: the profiles directory and the folder inside it,
+    /// both as handed over at construction, for the reason ``PeopleStore/directory`` documents (the
+    /// id inside a profile file and the folder it was read from can disagree).
     let directory: URL
     let profileId: String
     private let fileManager: FileManager
 
-    /// Top-level keys in the file this build does not model — a future build's sections, and
-    /// anything hand-added — carried across every save untouched. (All four planned sections
-    /// are modelled now; this is what let `drafts` and `applied` arrive without a migration,
-    /// and what lets the next section do the same.)
+    /// Top-level keys in the file this build doesn't model (a future build's sections, anything
+    /// hand-added), carried across every save untouched, so a new section arrives without a
+    /// migration.
     private var carriedKeys: [String: Any] = [:]
 
     /// `restructure.json` for the active profile.
@@ -236,10 +221,10 @@ public final class RestructureStore: ObservableObject {
         directory.appendingPathComponent("\(profileId)/restructure.json")
     }
 
-    /// Writes an empty ledger for `profileId` when its folder has none — for a Setup walk of a
-    /// folder with no history of its own, which must not inherit the old folder's path-keyed
-    /// state but must hold a ledger, or the retire sweep's "only copy" rule keeps every old folder
-    /// forever (FR4, follow-up). Leaves an existing file alone. False when the write failed.
+    /// Writes an empty ledger for `profileId` when its folder has none: a Setup walk of a folder
+    /// with no history of its own must not inherit the old folder's path-keyed state, but must hold
+    /// a ledger, or the retire sweep's "only copy" rule keeps every old folder forever. Leaves an
+    /// existing file alone. False when the write failed.
     @discardableResult
     public static func startEmptyLedger(in directory: URL, profileId: String) -> Bool {
         let store = RestructureStore(directory: directory, profileId: profileId)
@@ -261,8 +246,8 @@ public final class RestructureStore: ObservableObject {
     public func suppress(_ key: RestructureKey) {
         guard !suppressed.contains(key) else { return }
         suppressed.insert(key)
-        // Each of these mutators logs: "never suggest this again" and its kin are consequential,
-        // persistent decisions, and the log is the only place they can be dated later.
+        // Each mutator logs: these are consequential, persistent decisions, and the log is the only
+        // place they can be dated later.
         Logger.shared.info("Restructure: suppressed \(key.findingId)")
         save()
     }
@@ -274,8 +259,8 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    /// These *Never suggest this again* keys at once, in one write — the lens's *Show them again*
-    /// for the findings in its scope. Keys not in the set, stale ones included, stay.
+    /// These Never suggest this again keys at once, in one write: the lens's Show them again for
+    /// the findings in its scope. Keys not in the set, stale ones included, stay.
     public func unsuppress(_ keys: Set<RestructureKey>) {
         let present = suppressed.intersection(keys)
         guard !present.isEmpty else { return }
@@ -284,7 +269,7 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    /// Every *Never suggest this again* at once.
+    /// Every Never suggest this again at once.
     public func unsuppressAll() {
         guard !suppressed.isEmpty else { return }
         Logger.shared.info("Restructure: unsuppressed all \(suppressed.count) finding(s)")
@@ -329,21 +314,17 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    /// Drops the draft a landing consumed — **through the landing's own renames.**
+    /// Drops the draft a landing consumed, through the landing's own renames.
     ///
-    /// A plan can rename the finding's own subject: a shadow-axis finding with no bare-year
-    /// sibling derives `rename-dir IRS Docs - 2024 → 2024`, and the draft is keyed on
-    /// `kind × subject`. `applyPlan` calls ``rekey(renames:)`` before it returns, so by the time
-    /// the caller drops its draft the key has already moved and removing the pre-landing one is a
-    /// miss — the draft survives forever, holding a manifest derived against a tree that no
-    /// longer exists, and its card offers *Review N operations* over it.
+    /// A plan can rename the finding's own subject (`rename-dir IRS Docs - 2024 → 2024`), and the
+    /// draft is keyed on `kind × subject`. `applyPlan` calls ``rekey(renames:context:)`` before it
+    /// returns, so the pre-landing key may already have moved; removing only that one would leave a
+    /// draft derived against a tree that no longer exists, still offering Review N operations. Both
+    /// keys are dropped, since which is present depends on whether the rekey ran.
     ///
-    /// Both keys are dropped because which one is present depends on whether the rekey ran, and
-    /// a draft is consumed either way.
-    ///
-    /// **Pass the LANDED manifest** (`RestructureApplyOutcome.landedManifest`), not the planned
-    /// one: `rekey` moved the keys through the renames that actually performed, and a plan whose
-    /// rename was skipped would otherwise compute a key the store never held.
+    /// Pass the landed manifest (`RestructureApplyOutcome.landedManifest`), not the planned one:
+    /// `rekey` moved the keys through the renames that performed, and a skipped rename would
+    /// compute a key the store never held.
     public func removeDraft(for key: RestructureKey, consumedBy manifest: RestructureManifest) {
         removeDraft(for: key)
         var landedKey = key
@@ -354,30 +335,18 @@ public final class RestructureStore: ObservableObject {
         removeDraft(for: landedKey)
     }
 
-    /// Writes `manifest` beside the profile as `restructure-<date>-<family>.json` — reviewable
-    /// in a text editor with nothing at risk (§5.4 step 5). Returns the file name it chose.
+    /// What distinguishes two plans over one family on one day in an export's filename. Empty for a
+    /// `shape` plan, which is unique per family.
     ///
-    /// This is a NEW file, not `restructure.json`, so it is written even when the store itself is
-    /// refusing writes — the refusal protects the one file this build could not read. The name
-    /// is date + family, so a SAME-DAY re-export for the family replaces the earlier file even
-    /// when the plan was edited in between — deliberate: the newest reviewed plan is the one
-    /// worth keeping, and two same-day files differing only in a suffix would leave a reader
-    /// guessing which one was reviewed last. (An older draft's `exportedTo` can therefore name
-    /// a file whose content is the newer plan.)
-    /// What distinguishes two plans over one family on one day — empty for a `shape` plan, which
-    /// is unique per family and whose filename shipped without it.
-    ///
-    /// The subject is the first operation's own folder, so two shadow-axis findings under one
+    /// The subject is the folder the operations come out of, so two shadow-axis findings under one
     /// parent (`IRS Docs - 2023`, `IRS Docs - 2024`) land in two files, and re-exporting either
     /// still replaces only itself.
     static func exportSubject(of manifest: RestructureManifest) -> String {
         guard manifest.kind != .shape else { return "" }
-        // **The folder every operation comes out of, not the first action's own name.** A rename
-        // plan's first action names the folder, but a MERGE's first action is a `move-file`, so
-        // this used to name the first FILE — and two shadow-axis findings under one parent whose
-        // first file happened to share a name (`Summary.pdf`) wrote one filename and silently
-        // replaced each other. The common ancestor of the sources answers both shapes with the
-        // same folder, and it is stable when a file is added or removed.
+        // The common ancestor of the sources, not the first action's name: a merge's first action
+        // is a `move-file`, so two plans whose first files shared a name would write one filename
+        // and silently replace each other. The ancestor is the same for rename and merge shapes,
+        // and stable when a file is added or removed.
         let sources = manifest.actions.filter { $0.action != .keep }.compactMap { $0.src ?? $0.dst }
         let subject = (RestructurePaths.commonAncestor(of: sources) as NSString).lastPathComponent
         let cleaned = subject == "." ? "" : subject.replacingOccurrences(of: "/", with: "-")
@@ -385,15 +354,19 @@ public final class RestructureStore: ObservableObject {
                                : "-\(manifest.kind.rawValue)-\(cleaned)"
     }
 
+    /// Writes `manifest` beside the profile as `restructure-<date>-<family><subject>.json`, to
+    /// review in a text editor with nothing at risk. Returns the file name it chose.
+    ///
+    /// A new file, not `restructure.json`, so it is written even while the store refuses writes.
+    /// A same-day re-export of the same plan replaces the earlier file even if the plan was edited,
+    /// so the newest reviewed plan is the one kept; an older draft's `exportedTo` can therefore name
+    /// a file holding the newer plan.
     @discardableResult
     public func exportPlan(_ manifest: RestructureManifest) throws -> String {
         let date = manifest.createdAt.prefix(while: { $0 != "T" })
-        // **Date plus family stopped being unique.** Until the pair routes existed only `shape`
-        // could export, and a family has at most one shape finding; now six kinds can, and one
-        // parent can carry two shadow-axis findings — which wrote the same filename and silently
-        // replaced each other, leaving the first draft's `exportedTo` naming a different plan. A
-        // root-level family ("" or ".") has no name at all, and two unrelated plans can both be
-        // root-level. Same-day replacement stays sanctioned WITHIN one plan, because the subject
+        // Date plus family alone isn't unique: one parent can carry two shadow-axis findings, and
+        // two unrelated plans can both be root-level ("" or "."), so they would silently replace
+        // each other. Same-day replacement stays sanctioned within one plan, because the subject
         // below is the finding's own folder.
         let family = manifest.family.isEmpty || manifest.family == "."
             ? "tree"
@@ -405,8 +378,8 @@ public final class RestructureStore: ObservableObject {
         try fileManager.createDirectory(at: url.deletingLastPathComponent(),
                                         withIntermediateDirectories: true)
         try encoder.encode(manifest).write(to: url, options: .atomic)
-        // One greppable line, the scaffold's discipline: the export is an act a later reader
-        // may need to date and locate without the app open.
+        // One greppable line: the export is an act a later reader may need to date and locate
+        // without the app open.
         Logger.shared.info("Restructure plan exported — \(name): "
                            + "\(manifest.actions.count) action(s) for \(manifest.family), "
                            + "beside profile \(profileId)")
@@ -415,41 +388,36 @@ public final class RestructureStore: ObservableObject {
 
     // MARK: - The ledger
 
-    /// Appends one landing's record. The write is immediate and whole-file, like every mutation
-    /// here — §5.5 step 2 calls this with outcome *in progress* semantics folded into the counts
-    /// the caller passes, and a crash after this call leaves a reversible record on disk.
+    /// Appends one landing's record, written at once and whole-file, so a crash after this call
+    /// leaves a reversible record on disk.
     ///
-    /// Returns whether the record REACHED the disk — the one mutation where the caller must
-    /// know: §5.5's invariant is "inverse on disk before the first operation", and a swallowed
-    /// write failure here would let a full reorganisation run with no record anywhere once the
-    /// app quits. Every other mutator can shrug a failed save off as in-memory-only; this one
-    /// is the licence to move files.
+    /// Returns whether the record reached the disk. The caller must know: the inverse has to be on
+    /// disk before the first operation, and a swallowed write failure would let a whole
+    /// reorganisation run with no record once the app quits. Other mutators can shrug off a failed
+    /// save as in-memory only; this one is the licence to move files.
     @discardableResult
     public func recordApplied(_ record: AppliedRecord) -> Bool {
         applied.append(record)
-        // **`writeFile()`, not `save()`, and that is the whole contract of this method.** An open
-        // `batchingSaves` would make `save()` answer `true` for a record still only in memory,
-        // and the caller reads that answer as "the inverse is on disk — start moving files".
+        // `writeFile()`, not `save()`: that is this method's contract. Inside `batchingSaves`,
+        // `save()` answers `true` for a record still only in memory, and the caller reads that as
+        // "the inverse is on disk, start moving files".
         guard writeFile() else {
             // The record never reached the disk, so it must not survive in memory either: the
-            // caller refuses the landing on `false`, and a phantom in-memory entry would make
-            // the RETRY refuse too — through the lands-once guard, with a sentence claiming a
-            // landing that never happened.
+            // caller refuses the landing on `false`, and a phantom entry would make the retry
+            // refuse too, through the lands-once guard, claiming a landing that never happened.
             applied.removeLast()
             return false
         }
         return true
     }
 
-    /// §5.5's undo chain, in one spelling — the ONE landing *Undo this reorganisation* may run,
-    /// or nil. A reorganisation is a record `applyPlan` wrote (`appliedUnderProfileId` is set at
-    /// its step 2; scaffold records never carry one). Only the newest not-undone reorganisation
-    /// is offered, because an older record's inverse describes a tree a later landing reshaped.
-    /// It must have finished recording (`summary` is set when a landing finalises; a record
-    /// without one is a landing the app quit in the middle of, whose stored inverse may not
-    /// match what actually moved), and the survey must still be where the landing left it — the
-    /// produced directory when the re-derive landed, or the applied-under directory when step 6
-    /// failed before it could re-point.
+    /// The one landing Undo this reorganisation may run, or nil. A reorganisation is a record
+    /// `applyPlan` wrote (`appliedUnderProfileId` set; scaffold records never carry one). Only the
+    /// newest not-undone one is offered, because an older inverse describes a tree a later landing
+    /// reshaped. It must have finished recording (`summary` set; without one the app quit
+    /// mid-landing and the stored inverse may not match what moved), and the survey must still be
+    /// where the landing left it: the produced directory, or the applied-under one when the
+    /// re-derive failed before it could re-point.
     public func undoableReorganisation(currentProfileId: String?) -> AppliedRecord? {
         guard let record = applied.last(where: {
             $0.appliedUnderProfileId != nil && $0.undoneAt == nil
@@ -460,16 +428,14 @@ public final class RestructureStore: ObservableObject {
         return record
     }
 
-    /// Moves every live landing's produced-profile id onto `to`, for a re-derive that **moved no
-    /// files**.
+    /// Moves every live landing's produced-profile id onto `to`, for a re-derive that moved no
+    /// files.
     ///
-    /// The undo chain is keyed on a landing's produced profile still being the current one
-    /// (``undoableReorganisation``), and that contract assumed only a landing ever mints a profile
-    /// directory. A survey refresh mints one too — and without this, pressing "Update the survey
-    /// now" silently and permanently withdrew the Undo of a landing that had not been undone,
-    /// with no sentence anywhere saying why. The tree is byte-for-byte as that landing left it and
-    /// `appliedUnderProfileId` still names a live directory, so the landing is exactly as
-    /// reversible as it was; only the bookkeeping moved.
+    /// The undo chain needs a landing's produced profile to be the current one
+    /// (``undoableReorganisation(currentProfileId:)``), but a survey refresh mints a profile
+    /// directory too. Without this, Update the survey now would silently withdraw the Undo of a
+    /// landing that is exactly as reversible as before: the tree is as it left it, and
+    /// `appliedUnderProfileId` still names a live directory. Only the bookkeeping moves.
     ///
     /// Undone records are left alone: their chain is finished, and moving them would make an old
     /// landing look current.
@@ -477,12 +443,10 @@ public final class RestructureStore: ObservableObject {
         guard from != to else { return }
         var changed = false
         for index in applied.indices where applied[index].undoneAt == nil {
-            // **The fallback, matched exactly as `undoableReorganisation` reads it.** A landing
-            // whose step 6 failed never got a `producedProfileId`, and is offered its undo
-            // through `?? appliedUnderProfileId` — so comparing only the produced id skipped
-            // precisely the records most in need of moving, and left them permanently
-            // un-undoable the first time a survey refresh minted a new directory. That is the
-            // defect this function was written to fix, reintroduced one field over.
+            // Matched exactly as `undoableReorganisation` reads it, with its fallback: a landing
+            // whose re-derive failed has no `producedProfileId` and is offered its undo through
+            // `?? appliedUnderProfileId`, so comparing only the produced id would leave exactly
+            // those records un-undoable after a refresh.
             guard (applied[index].producedProfileId
                     ?? applied[index].appliedUnderProfileId) == from else { continue }
             applied[index].producedProfileId = to
@@ -494,8 +458,8 @@ public final class RestructureStore: ObservableObject {
     }
 
     /// Marks every live landing that produced `from` as one whose Undo is withheld because a
-    /// landing in `root` has reshaped the tree since (review R7) — the records
-    /// ``repointProduced(from:to:)`` would have moved, matched the same way.
+    /// landing in `root` has reshaped the tree since: the records ``repointProduced(from:to:)``
+    /// would have moved, matched the same way.
     public func withholdUndo(producedBy from: String, because root: String,
                              unsure: Bool = false) {
         var changed = false
@@ -509,13 +473,12 @@ public final class RestructureStore: ObservableObject {
         if changed { save() }
     }
 
-    /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.
+    /// Replaces the record with `manifestId`'s manifest: how a landing finalises its counts.
     ///
-    /// - Returns: whether the record as changed is written — false when there is no such record
-    ///   or the write failed (the change then lives in memory only, and is gone at relaunch).
-    ///   A change that changes nothing answers true: there was nothing to write. Inside a
-    ///   `batchingSaves` it answers true for a change only in memory, as `save()` does there.
-    ///   A landing reads it before throwing its journal away (FR16).
+    /// - Returns: whether the changed record is written. False when there is no such record or the
+    ///   write failed (the change then lives in memory only, gone at relaunch). A change that
+    ///   changes nothing answers true. Inside `batchingSaves` it answers true for a change only in
+    ///   memory, as `save()` does there. A landing reads it before throwing its journal away.
     @discardableResult
     public func updateApplied(manifestId: String,
                               _ change: (inout AppliedRecord) -> Void) -> Bool {
@@ -535,14 +498,14 @@ public final class RestructureStore: ObservableObject {
     // MARK: - Lineage
 
     /// The stores whose state this one was opened on, oldest first: each hop's file, and the
-    /// renames its keys went through on the way here. In memory only — it answers questions about
-    /// this session's swaps (an undo registered before one), and nothing outlives the session
-    /// that could ask.
+    /// renames its keys went through on the way here. In memory only: it answers questions about
+    /// this session's swaps (an undo registered before one), and nothing outlives the session to
+    /// ask.
     private(set) var lineage: [(directory: URL, profileId: String,
                                 renames: [(from: String, to: String)])] = []
 
     /// Records that this store was opened on `predecessor`'s carried state, its keys moved through
-    /// `renames` — what a landing's or a survey refresh's re-derive does when it swaps stores.
+    /// `renames`: what a landing's or a survey refresh's re-derive does when it swaps stores.
     func adoptLineage(from predecessor: RestructureStore, renames: [(from: String, to: String)]) {
         lineage = predecessor.lineage
             + [(predecessor.directory, predecessor.profileId, renames)]
@@ -553,9 +516,9 @@ public final class RestructureStore: ObservableObject {
         fileURL.standardizedFileURL.path == other.fileURL.standardizedFileURL.path
     }
 
-    /// `key`, as it was in `ancestor`, spelled the way this store holds it — nil when this store's
-    /// state was not carried from `ancestor`'s (another profile's store, say, after a provider
-    /// switch, which may hold the same kind and path about a different tree).
+    /// `key`, as it was in `ancestor`, spelled the way this store holds it. nil when this store's
+    /// state wasn't carried from `ancestor`'s (say another profile's store after a provider switch,
+    /// which may hold the same kind and path about a different tree).
     func carriedKey(_ key: RestructureKey, from ancestor: RestructureStore) -> RestructureKey? {
         let file = ancestor.fileURL.standardizedFileURL.path
         guard let start = lineage.lastIndex(where: {
@@ -573,11 +536,11 @@ public final class RestructureStore: ObservableObject {
 
     /// Re-keys every section for a landed manifest's renames, in manifest order.
     ///
-    /// A rename maps its own path and everything beneath it — `A/B → A/C` moves the key `A/B` and
-    /// re-prefixes `A/B/…` — and **must not touch a sibling that merely shares a name prefix**:
-    /// `A/BB` names a different folder. Applied sequentially because a manifest's operations are
-    /// ordered (a folder is vacated before its name is filled, §5.4), so a later rename may
-    /// legitimately act on the product of an earlier one.
+    /// A rename maps its own path and everything beneath it (`A/B → A/C` moves `A/B` and
+    /// re-prefixes `A/B/…`) and must not touch a sibling that merely shares a name prefix: `A/BB`
+    /// is a different folder. Applied in order, because a manifest's operations are ordered (a
+    /// folder is vacated before its name is filled), so a later rename may act on the product of an
+    /// earlier one.
     public func rekey(renames: [(from: String, to: String)], context: String? = nil) {
         guard !renames.isEmpty else { return }
         var newSuppressed = suppressed
@@ -587,14 +550,12 @@ public final class RestructureStore: ObservableObject {
         for rename in renames {
             newSuppressed = Set(newSuppressed.map { $0.rekeyed(rename) })
             newAnswers = Self.rekeyedMap(newAnswers, through: rename)
-            // A backlog subject IS a folder path, so a landing that renames it moves this key
-            // with everything else — otherwise the nudge would re-fire for a year already
-            // dismissed, under the folder's new name.
+            // A backlog subject is a folder path, so a landing that renames it moves this key too,
+            // or the nudge would re-fire under the new name for a year already dismissed.
             newNudges = Self.rekeyedMap(newNudges, through: rename)
-            // The draft's KEY moves with the family; the manifest inside it keeps the paths it
-            // was derived against — §5.5's Apply re-validates a draft against the tree as it
-            // stands, and a stale path there is a card sentence, not a silent rewrite of a plan
-            // the user reviewed.
+            // The draft's key moves with the family; the manifest inside keeps the paths it was
+            // derived against. Apply re-validates a draft against the tree, and a stale path there
+            // is a card sentence, not a silent rewrite of a plan the user reviewed.
             newDrafts = Self.rekeyedMap(newDrafts, through: rename)
         }
         guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts
@@ -612,11 +573,9 @@ public final class RestructureStore: ObservableObject {
 
     // MARK: - Nudges
 
-    /// Record that the nudge for this finding has been seen for `year` (proposal O15).
-    ///
-    /// Not a suppression: suppression is "never suggest this again" and hides the finding from
-    /// every surface, while this hides one overview line for the remainder of one year. The lens
-    /// keeps saying it either way.
+    /// Records that the nudge for this finding has been seen for `year`. Not a suppression, which
+    /// hides the finding from every surface: this hides one overview line for the rest of one year.
+    /// The lens keeps showing it either way.
     public func acknowledgeNudge(_ key: RestructureKey, year: String) {
         guard nudgesAcknowledged[key] != year else { return }
         nudgesAcknowledged[key] = year
@@ -626,12 +585,9 @@ public final class RestructureStore: ObservableObject {
 
     // MARK: - Trend
 
-    /// Stamp one survey's finding counts (proposal O16).
-    ///
-    /// **Deduped on `profileId`.** The findings are a pure function of the profile, so two stamps
-    /// under one id are the same survey counted twice — which would flatten the line's shape by
-    /// however often the memo happened to drop. A landing stamp replaces an ordinary one for the
-    /// same profile, because "this point is a landing" is the more informative of the two.
+    /// Stamps one survey's finding counts. Deduped on `profileId`: findings are a pure function of
+    /// the profile, so two stamps under one id are one survey counted twice. A landing stamp
+    /// replaces an ordinary one for the same profile, because "this point is a landing" says more.
     @discardableResult
     public func recordTrend(_ point: TrendPoint) -> Bool {
         if let index = trend.lastIndex(where: { $0.profileId == point.profileId }) {
@@ -684,21 +640,21 @@ public final class RestructureStore: ObservableObject {
         let trend: [TrendPoint]
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
-        /// does not model yet and is carried across a save — see `carriedKeys`. Spelled out rather
-        /// than derived, for ``PeopleStore``'s stated reason.
+        /// doesn't model and is carried across a save (see `carriedKeys`). Spelled out rather than
+        /// derived, for ``PeopleStore``'s stated reason.
         static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers",
                                                 "drafts", "applied", "nudgesAcknowledged",
                                                 "trend"]
     }
 
-    /// The schema this build writes. A file carrying a **newer** number is treated as unreadable
-    /// for writing: it may hold sections in shapes this build would flatten, and "absent",
-    /// "unreadable" and "newer than me" are three different claims — only the first is writable.
+    /// The schema this build writes. A file with a newer number is unreadable for writing: it may
+    /// hold sections this build would flatten. "Absent", "unreadable" and "newer than me" are three
+    /// different claims, and only the first is writable.
     static let currentSchema = 1
 
     private func load() {
-        // lstat semantics on purpose: a broken symlink or an unreadable file is *something at the
-        // path*, and must land in "unreadable, refuse writes" rather than "fresh, feel free".
+        // lstat semantics on purpose: a broken symlink or an unreadable file is something at the
+        // path, and must land in "unreadable, refuse writes" rather than "fresh, feel free".
         let somethingAtPath = (try? fileManager.attributesOfItem(atPath: fileURL.path)) != nil
         guard somethingAtPath else { return }
         guard let data = try? Data(contentsOf: fileURL),
@@ -720,9 +676,8 @@ public final class RestructureStore: ObservableObject {
                                   + "the newer schema carries. File: \(fileURL.path)")
         }
         suppressed = Set(decoded.suppressed ?? [])
-        // `uniquingKeysWith`: a hand-edited file with a duplicated row is imperfect input, not a
-        // reason to crash at store construction — the whole philosophy here is that unreadable
-        // input gets a refusal, never a trap. Last row wins, matching JSON's own object rule.
+        // `uniquingKeysWith`: a hand-edited file with a duplicated row gets no crash at store
+        // construction; unreadable input gets a refusal, never a trap. Last row wins, as in JSON.
         answers = Dictionary((decoded.answers ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.choice)
         }, uniquingKeysWith: { _, new in new })
@@ -743,23 +698,18 @@ public final class RestructureStore: ObservableObject {
     /// Whether anything asked to be saved while a batch was open.
     private var batchDirty = false
 
-    /// Runs `body` with the per-mutation writes coalesced into ONE at the end.
+    /// Runs `body` with the per-mutation writes coalesced into one at the end. A landing would
+    /// otherwise rewrite this file several times, each a whole-file encode of a ledger whose
+    /// records carry a manifest and its inverse, inside the window where the landing refuses every
+    /// other scan.
     ///
-    /// **A landing rewrote this file five times.** `recordApplied`, the finalising
-    /// `updateApplied`, the new store's `rekey`, the `producedProfileId` update on each of the two
-    /// stores, and the trend stamp — each a whole-file encode of an append-only ledger where every
-    /// record carries a manifest AND its inverse with an evidence sentence per action. For a
-    /// thousand-action merge that is five encodes of several megabytes, inside the window where
-    /// the landing refuses every other scan.
+    /// ``recordApplied(_:)`` is deliberately not coalesced, even inside a batch: its return value
+    /// is the licence to start moving files, and a `true` that meant "queued" would break the rule
+    /// that the inverse is on disk before the first operation. The rest of a landing is bookkeeping
+    /// about moves that already happened, which may wait.
     ///
-    /// **``recordApplied(_:)`` is deliberately NOT coalesced**, even inside a batch: its return
-    /// value is the licence to start moving files ("the inverse is on disk before the first
-    /// operation"), and a `true` that meant "queued" would be that invariant lost in one word.
-    /// Everything else in a landing is bookkeeping ABOUT moves that already happened, which is
-    /// exactly what may wait for the end of the batch.
-    ///
-    /// Nesting-safe, and the flush is reported: the outermost call returns whether the write
-    /// reached the disk, or `true` when nothing needed writing.
+    /// Nesting-safe. The outermost call returns whether the write reached the disk, or `true` when
+    /// nothing needed writing.
     @discardableResult
     func batchingSaves<T>(_ body: () -> T) -> (value: T, saved: Bool) {
         batchDepth += 1
@@ -779,8 +729,8 @@ public final class RestructureStore: ObservableObject {
         return writeFile()
     }
 
-    /// The write itself — what `save()` does when no batch is open, and what a batch's flush does
-    /// at its end.
+    /// The write itself: what `save()` does when no batch is open, and what a batch's flush does at
+    /// its end.
     @discardableResult
     private func writeFile() -> Bool {
         guard !isUnreadable else {
@@ -793,17 +743,10 @@ public final class RestructureStore: ObservableObject {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
             let encoder = JSONEncoder()
-            // **`.sortedKeys` stays, `.prettyPrinted` goes.** Sorted keys are what make the bytes
-            // a function of the state alone — a file that reshuffles on every write is one nobody
-            // can diff — and that reason does not apply to the whitespace. Pretty-printing an
-            // append-only ledger whose every record carries a manifest and its inverse, with an
-            // evidence sentence per action, roughly doubles the bytes encoded and written on each
-            // of a landing's saves. The file stays valid JSON and every reader is a parser; the
-            // one human who opens it has `jq` and every editor's reformat command.
-            //
-            // Not a format change: `load()` reads it with `JSONSerialization` and `JSONDecoder`,
-            // neither of which can tell, so a file written by an older build reads unchanged and
-            // one written by this build reads in an older one.
+            // `.sortedKeys` makes the bytes a function of the state alone, so the file can be
+            // diffed. No `.prettyPrinted`: it roughly doubles the bytes of a large ledger on every
+            // save, and every reader is a parser. Not a format change: `JSONSerialization` and
+            // `JSONDecoder` read both, in this build and older ones.
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             let out = FileOut(
                 schemaVersion: Self.currentSchema,
@@ -818,7 +761,7 @@ public final class RestructureStore: ObservableObject {
                 nudgesAcknowledged: nudgesAcknowledged
                     .map { NudgeRecord(kind: $0.key.kind, path: $0.key.path, year: $0.value) }
                     .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
-                // Stored order, which is stamp order — the line is drawn in it.
+                // Stored order, which is stamp order: the line is drawn in it.
                 trend: trend)
             var data = try encoder.encode(out)
             if !carriedKeys.isEmpty,
@@ -838,13 +781,12 @@ public final class RestructureStore: ObservableObject {
 }
 
 extension RestructureStore {
-    /// One rename applied to a keyed section, collision-safe: a rename's destination can equal a
-    /// key recorded before the folder it named was hand-deleted, and two keys mapping onto one
-    /// is a fact about the tree's history, not a programming error — the first spelling trapped
-    /// (`Dictionary(uniqueKeysWithValues:)`) at the tail of a successful apply. The key that
-    /// actually MOVED through the rename wins over the one already sitting at the destination:
-    /// the moved claim is the one whose folder exists. (Within one rename the mapping is
-    /// injective, so a collision is always exactly one moved key against one stale one.)
+    /// One rename applied to a keyed section, collision-safe. A rename's destination can equal a
+    /// key recorded before the folder it named was hand-deleted; two keys mapping onto one is a
+    /// fact about the tree's history, so `Dictionary(uniqueKeysWithValues:)` would trap. The key
+    /// that moved through the rename wins over the stale one, since its folder exists. Within one
+    /// rename the mapping is injective, so a collision is always one moved key against one stale
+    /// one.
     static func rekeyedMap<Value>(_ map: [RestructureKey: Value],
                                   through rename: (from: String, to: String))
         -> [RestructureKey: Value] {
@@ -861,7 +803,7 @@ extension RestructureStore {
 }
 
 private extension RestructureKey {
-    /// This key with one rename applied — itself when the rename does not touch it.
+    /// This key with one rename applied; itself when the rename doesn't touch it.
     func rekeyed(_ rename: (from: String, to: String)) -> RestructureKey {
         if path == rename.from {
             return RestructureKey(kind: kind, path: rename.to)

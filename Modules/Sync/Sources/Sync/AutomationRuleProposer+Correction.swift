@@ -1,12 +1,12 @@
 import Foundation
 
-/// A rule taught by a correction in Ask Claude's chat (TE286): "no, JAL tickets go in
-/// Travel/Trips". Claude generalizes from the one file to its kind — JAL is an airline, so the
-/// words are every airline's (decision HF) — and this turns those words into a free rule on the Mac
-/// (HG), checked against the file it was taught on, and never saved without his click.
+/// A rule taught by a correction in Ask Claude's chat: "no, JAL tickets go in Travel/Trips".
+/// Claude generalizes from the one file to its kind (JAL is an airline, so the words are every
+/// airline's), and this turns those words into a free rule on the Mac, checked against the file it
+/// was taught on, and never saved without his click.
 ///
-/// **One rule per kind, kept up to date (HG, HH).** A later correction looks for the closest rule
-/// already saved — one sharing words, or filing into the same folder:
+/// One rule per kind, kept up to date. A later correction looks for the closest rule already
+/// saved, one sharing words or filing into the same folder:
 /// - its folder fits this file too: the new words are added to it (Singapore Airlines joins
 ///   Airline tickets);
 /// - its folder doesn't (a Singapore trip): a sibling rule with the same words, plus the words
@@ -23,7 +23,7 @@ extension AutomationRuleProposer {
         }
 
         public let kind: Kind
-        /// The rule as it would be saved — for `addWords`, the existing rule with the words added.
+        /// The rule as it would be saved: for `addWords`, the existing rule with the words added.
         public let rule: AutomationRule
         /// Where the file it was taught on goes, relative: "Travel/Trips/IN-US/2026/Sep".
         public let example: String
@@ -139,8 +139,8 @@ extension AutomationRuleProposer {
         return .success(Correction(kind: .new, rule: rule, example: dest, checkedDate: checked))
     }
 
-    /// The file as a scan sees it: its name, and page 1 as the scan reads it — the whole sample, as
-    /// the scan's rule pass uses it, not the router's first 400 characters.
+    /// The file as a scan sees it: its name, and page 1 as the scan's rule pass reads it (the whole
+    /// sample, not the router's first 400 characters).
     static func correctionFacts(fileName: String, destination: String, pageSample: String?,
                                 modificationDate: Date?) -> AutomationFileFacts {
         AutomationFileFacts(path: destination + "/" + fileName, name: fileName,
@@ -151,7 +151,7 @@ extension AutomationRuleProposer {
     }
 
     /// `Travel/Trips/IN-US/2026/Sep` → `Travel/Trips/IN-US/{travel-year}/{travel-month}` when
-    /// 2026 and Sep are the trip's (decision HI). Page 1 unread, a year folder followed by a month
+    /// 2026 and Sep are the trip's. Page 1 unread, a year folder followed by a month
     /// folder at the end is taken as the trip's all the same, and the card says it wasn't checked.
     /// A year folder alone at the end is Organize's own `{year}`, from the name or the file's date.
     static func generalizing(_ dest: String, travel day: AutomationTravelDate.Day?, fileName: String,

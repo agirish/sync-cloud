@@ -5,11 +5,8 @@
 
 import Foundation
 
-/// How completely a directory could be read.
-///
-/// The three cases exist because two of them are currently the same value everywhere in this
-/// codebase, and the wrong one wins. Callers switch over this exhaustively, so a fourth case
-/// would fail to compile rather than being absorbed by a `default:`.
+/// How completely a directory could be read. Callers switch over this exhaustively, never with
+/// `default:`, so a new case fails to compile rather than being silently absorbed.
 public enum DirectoryListingOutcome: Equatable, Sendable {
     /// The directory was read and `urls` is its complete contents. It may legitimately be empty.
     case listed
@@ -21,32 +18,18 @@ public enum DirectoryListingOutcome: Equatable, Sendable {
     case unreadable
 }
 
-/// The result of listing one directory, keeping "could not be listed" distinguishable from
-/// "listed, and it is empty".
+/// The result of listing one directory, keeping "could not be listed" apart from "listed, and
+/// empty".
 ///
-/// Those two arrive identically through `FileManager.enumerator(at:)`, and the `guard let` idiom
-/// wrapped around it does not separate them — **the enumerator is not nil for a directory it
-/// cannot read.** Measured on this machine:
+/// **`FileManager.enumerator(at:)` is not nil for a directory it can't read**: a locked, missing
+/// or empty directory all give a non-nil enumerator with no entries. An unreadable folder read as
+/// empty can make a folder-replace confirmation say "0 items will be removed" before removing them
+/// all. The `errorHandler:` tells them apart: it fires with the root's URL when the root can't be
+/// listed, with a descendant's URL when a subdirectory can't be entered (that subdirectory is still
+/// yielded), and never for an empty directory.
 ///
-///     directory, mode 000, 3 files   enumerator: NON-NIL, 0 entries   contentsOfDirectory: THROWS
-///     directory that does not exist  enumerator: NON-NIL, 0 entries   contentsOfDirectory: THROWS
-///     directory, genuinely empty     enumerator: NON-NIL, 0 entries   contentsOfDirectory: 0
-///
-/// So every `guard let enumerator = fm.enumerator(at:…) else { report failure }` in this repo has
-/// an else-branch the filesystem never reaches, and an unreadable folder arrives at the caller
-/// indistinguishable from an empty one. That is not a theoretical shape: it is why a folder-replace
-/// confirmation can say "0 items will be removed" immediately before removing all of them.
-///
-/// The separator is the `errorHandler:`, also measured. It fires exactly once with the ROOT's own
-/// URL when the root cannot be listed; it fires with the DESCENDANT's URL when a subdirectory
-/// below it cannot be descended into (the root is not among them, and the unreadable subdirectory
-/// is still yielded as an entry); and it never fires for a directory that is genuinely empty.
-///
-/// `FileDiffEngine`'s cold walk already does this by hand and is the strongest instance in the
-/// repo — it aggregates unreadable directories and re-marks them `isUnexplored`. This type is that
-/// reasoning made reusable for the call sites that list one directory eagerly. It deliberately
-/// does NOT replace the diff engine's streaming walk: this drains the enumerator into an array,
-/// which is right for a single directory of children and wrong for a 39,000-entry tree.
+/// For listing one directory eagerly. It drains the enumerator into an array, so it doesn't
+/// replace `FileDiffEngine`'s streaming walk of a whole tree.
 public struct DirectoryListing: Sendable {
     /// The entries read. Empty and meaningless when `outcome == .unreadable`; empty and
     /// authoritative when `outcome == .listed`.
@@ -59,29 +42,20 @@ public struct DirectoryListing: Sendable {
     /// `.listedWithUnreadableDescendants`. Empty otherwise.
     public let unreadableDescendants: [URL]
 
-    /// True only when `urls` is the complete, trustworthy contents. Provided so a call site that
-    /// genuinely has one honest answer for both failure shapes can say so in one word — a call
-    /// site that needs to tell them apart switches on `outcome` instead.
+    /// True only when `urls` is the complete contents. For a call site with one answer for both
+    /// failure shapes; one that must tell them apart switches on `outcome`.
     public var isComplete: Bool { outcome == .listed }
 
-    /// True when the folder's contents are not on this Mac and the app that syncs it did not answer
-    /// in time — see `FileSyncManager.DatalessFolderReads`. `outcome` is then `.unreadable`, so
-    /// nothing changes for a caller that only switches on it; this is for one that has to say WHY,
-    /// and must not send someone to check a folder's permissions over a cloud app that is not running.
+    /// True when the folder's contents aren't on this Mac and the app that syncs it didn't answer in
+    /// time (`FileSyncManager.DatalessFolderReads`). `outcome` is then `.unreadable`; this lets a
+    /// caller say why, rather than send someone to check permissions over a cloud app not running.
     public let isUnanswered: Bool
 
-    /// The paths among `urls` that are symbolic links, or `nil` when the question was not asked —
-    /// it is asked by listing with `.isSymbolicLinkKey` among the keys.
-    ///
-    /// **The enumerator's own word, so it costs no `stat` per entry.** A link to a folder lists with
-    /// `hasDirectoryPath` false, so a caller that wants the folders a pane shows must know which
-    /// entries are links — and asking each URL afterwards is an `lstat` apiece, because `urls` are
-    /// re-spelled and the re-spelled URL has no cache. Prefetched and read off the enumerator's URL,
-    /// it is a cache hit: measured over 30,000 entries, 0.8 µs an entry against 4.9 µs for the
-    /// `lstat`, plus 10 ms for the prefetch.
-    ///
-    /// Empty, not `nil`, for an injected `FileManaging` asked the question: a mock disk holds no
-    /// links, and asking its URLs would ask the real disk.
+    /// The paths among `urls` that are symbolic links, or `nil` when not asked (ask by listing with
+    /// `.isSymbolicLinkKey` among the keys). A link to a folder lists with `hasDirectoryPath` false,
+    /// so a caller listing a pane's folders needs this. Read from the enumerator's prefetched URL,
+    /// so it costs no `lstat` per entry, which the re-spelled `urls` would. Empty, not `nil`, for an
+    /// injected `FileManaging`: a mock holds no links, and asking its URLs would ask the real disk.
     public let symbolicLinkPaths: Set<String>?
 
     public init(urls: [URL], outcome: DirectoryListingOutcome, unreadableDescendants: [URL] = [],
@@ -101,48 +75,27 @@ public extension FileManaging {
 
     /// Lists what is under `url`, reporting whether the listing can be trusted.
     ///
-    /// Defaults to a shallow listing — `urls` is then exactly the immediate children, which is what
-    /// every call site converted to this reads. Pass `options: []` for a recursive listing, where
-    /// `urls` is every descendant rather than the children, and which is the only way to reach
-    /// `.listedWithUnreadableDescendants`.
+    /// Shallow by default, so `urls` is the immediate children. Pass `options: []` for a recursive
+    /// listing of every descendant, the only way to get `.listedWithUnreadableDescendants`.
     ///
-    /// - Parameter isWanted: decides which entries `urls` holds on to. Every entry is still
-    ///   *visited* — the outcome is unchanged by it — but only the ones this keeps are retained,
-    ///   so a caller that wants the subdirectories of a folder holding thirty thousand loose files
-    ///   pays for the folders rather than for the files. Defaults to keeping everything.
+    /// - Parameter isWanted: which entries `urls` keeps. Every entry is still visited and the
+    ///   outcome is unchanged, but a caller wanting the subfolders of a folder full of loose files
+    ///   pays only for the folders. Defaults to keeping everything.
     ///
-    /// - Important: `url` must be a directory. Handing this a regular file answers `.unreadable`,
-    ///   measured — the enumerator yields nothing and reports the file through the error handler,
-    ///   which is indistinguishable here from a locked directory. That is the safe direction for
-    ///   every current caller, but it is a conflation: a caller that needs to tell "not a folder"
-    ///   from "locked folder" must ask `fileExists(atPath:isDirectory:)` first rather than reading
-    ///   it out of this answer.
+    /// - Important: `url` must be a directory. A regular file answers `.unreadable`, the same as a
+    ///   locked directory; a caller that must tell them apart asks `fileExists(atPath:isDirectory:)`
+    ///   first.
     ///
-    /// - Important: a SYMLINKED directory is the other shape the enumerator cannot tell apart from
-    ///   a locked one, and unlike the regular-file case it is not the safe direction — so it is
-    ///   handled rather than documented. See ``DirectoryListingSupport/traversableTarget(of:using:)``.
+    /// - Important: the enumerator also can't traverse a symlinked directory, which is handled by a
+    ///   retry; see ``DirectoryListingSupport/traversableTarget(of:using:)``.
     ///
-    /// - Important: `urls` is always spelled under the path the CALLER asked about, on both the
-    ///   direct walk and the retry, because a picker's breadcrumbs, its highlighted destination and
-    ///   its recents are all keyed on the path it browsed through. That promise used to hold on the
-    ///   retry alone, which made it hold for exactly one level: the retry fires only when the FINAL
-    ///   component is the link, so drilling one level *into* a symlinked folder succeeded directly
-    ///   and answered in the target's canonical spelling. Measured:
+    /// - Important: `urls` is always spelled under the path the caller asked about, at every depth
+    ///   and on the retry too, because a picker's breadcrumbs, highlight and recents are keyed on
+    ///   the path it browsed through. `unreadableDescendants` is not re-spelled: the error handler
+    ///   reports absolute paths in the OS's spelling.
     ///
-    ///       listing(of: <base>/link)        → <base>/link/Health          ✓ re-spelled
-    ///       listing(of: <base>/link/Health) → <base>/real/Health/Medical  ✗ the target's spelling
-    ///
-    ///   The second line is not under the root the picker is browsing, so the footer read
-    ///   `Dropbox › private › var › folders › … › real › Health › Medical`.
-    ///
-    ///   `unreadableDescendants` is the one thing that is not re-spelled: those URLs come from the
-    ///   error handler, which reports absolute paths with no relative base to re-spell from, so
-    ///   they carry whatever spelling the OS reported.
-    ///
-    /// - Note: a nil enumerator is treated as `.unreadable` for completeness, but neither the real
-    ///   filesystem nor `MockFileManager` produces one — the real one because that is the whole
-    ///   finding behind this type, the mock because it models the real one faithfully. The failure
-    ///   detection that matters happens through the error handler.
+    /// - Note: a nil enumerator is treated as `.unreadable`, though neither the real filesystem nor
+    ///   `MockFileManager` produces one; the error handler is what detects failures.
     func listing(
         of url: URL,
         includingPropertiesForKeys keys: [URLResourceKey]? = nil,
@@ -153,10 +106,9 @@ public extension FileManaging {
                 askingThrough: datalessFolderReads)
     }
 
-    /// ``listing(of:includingPropertiesForKeys:options:keeping:)``, with the reads it asks a dataless
-    /// folder through spelled out — `nil` for the one caller that must not ask: the body of a read
-    /// itself (``listingForARead(of:)``), which would otherwise join its own read and wait out the
-    /// deadline on itself.
+    /// ``listing(of:includingPropertiesForKeys:options:keeping:)`` with the reads for a dataless
+    /// folder passed explicitly. `nil` only for the body of a read itself
+    /// (``listingForARead(of:)``), which would otherwise join its own read and wait out the deadline.
     internal func listing(
         of url: URL,
         includingPropertiesForKeys keys: [URLResourceKey]?,
@@ -164,24 +116,17 @@ public extension FileManaging {
         keeping isWanted: (URL) -> Bool,
         askingThrough reads: FileSyncManager.DatalessFolderReads?
     ) -> DirectoryListing {
-        // **A folder whose contents are not on this Mac is asked for through the reads** — off the
-        // cooperative pool, for at most their deadline, one read per folder. Listing it is what
-        // materializes it, so an answer means the walk below reads it from disk; no answer is
-        // `.unanswered`. The caller's thread waits here, at most the deadline and only the first
-        // time a folder goes unanswered; after that the answer is immediate. A folder that is not
-        // dataless costs one `stat` here and nothing else.
+        // A folder whose contents aren't on this Mac is asked for through the reads, off the pool
+        // and bounded. An answer materializes it, so the walk below reads it from disk; no answer
+        // is `.unanswered`. The caller blocks at most the deadline, only the first time. A folder
+        // that isn't dataless costs one `stat`.
         if let reads, isDataless(at: url),
            reads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) == nil {
             return .unanswered
         }
-        // `.producesRelativePathURLs` rather than prefix arithmetic on the paths: measured, the
-        // enumerator yields children under `/private/var/…` while `resolvingSymlinksInPath` hands
-        // back `/var/…`, so `hasPrefix(target.path)` matches nothing. The relative path is exact
-        // at any depth and needs no canonicalisation on either side.
-        //
-        // On BOTH walks, not just the retry — see the re-spelling note above. Measured on a
-        // 30,003-entry directory: 0.075s plain against 0.127s re-spelled, of which the option
-        // itself is 0.030s. That is the whole extra cost, and it buys the promise at every depth.
+        // `.producesRelativePathURLs`, not prefix arithmetic: the enumerator yields `/private/var/…`
+        // where `resolvingSymlinksInPath` gives `/var/…`, so a prefix test matches nothing. Used on
+        // both walks, so `urls` keeps the caller's spelling at every depth.
         let walked = options.union(.producesRelativePathURLs)
         let direct = drainListing(of: url, keys: keys, options: walked,
                                   respellingUnder: url, keeping: isWanted, askingThrough: reads)
@@ -189,47 +134,34 @@ public extension FileManaging {
               let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
         else { return direct }
 
-        // A link to a locked directory, a broken link and a link to a regular file all land here
-        // and all stay unreadable — but that is `classify` running on the RETRIED walk, not a
-        // choice made here. A ternary preferring `direct` used to sit on this line claiming to
-        // enforce it; it could not, because a `.unreadable` listing is `([], .unreadable, [])`
-        // whichever walk produced it, so the two branches were the same value. What actually holds
-        // the line is `aSymlinkThatLeadsNowhereReadableIsStillUnreadable`, which asks all four
-        // shapes and pairs them with a readable control.
+        // A link to a locked directory, a broken link and a link to a file all stay unreadable,
+        // because `classify` says so on the retried walk. Pinned by
+        // `aSymlinkThatLeadsNowhereReadableIsStillUnreadable`.
         return drainListing(of: target, keys: keys, options: walked,
                             respellingUnder: url, keeping: isWanted, askingThrough: reads)
     }
 
-    /// For a caller that can SUSPEND: asks the provider of a folder whose contents are not on this
-    /// Mac for them, through the same reads `listing` uses, without holding a thread while it waits.
-    /// True when the folder can now be listed without asking — it was never dataless, or it
-    /// answered and is on disk now; false when it did not answer, or the task was cancelled.
-    ///
-    /// Call it before a synchronous listing of the folder and that listing never waits: an answered
-    /// folder lists inline, and one that went unanswered is refused at once — the registry remembers
-    /// it. That is how an async caller keeps the synchronous `listing` it already has.
+    /// For a caller that can suspend: asks the provider for a dataless folder's contents through the
+    /// reads `listing` uses, holding no thread. True when the folder can now be listed without
+    /// asking; false when it didn't answer or the task was cancelled. Call it before a synchronous
+    /// listing and that listing never waits, since the registry remembers an unanswered folder.
     func waitForContents(of url: URL) async -> Bool {
         guard isDataless(at: url) else { return true }
         return await datalessFolderReads.read(url.path, { [self] in listingForARead(of: url).outcome }) != nil
     }
 
-    /// ``waitForContents(of:)`` for a caller that cannot suspend and lists with an API of its own —
-    /// Restructure's plan view (`contentsOfDirectory`, for its prefetched keys) and the landing's
-    /// "is it still empty?" walk (a recursive enumerator, for its `skipDescendants`). Neither is a
-    /// `listing(of:)`, so neither was asked through the reads, and a cloud-only folder whose app has
-    /// stopped hung the plan sheet on the main actor or wedged a landing on the file queue (FR21).
-    ///
-    /// Waits as `listing(of:)` waits — at most the deadline, only the first time a folder goes
-    /// unanswered, on the caller's own thread — and answers as `waitForContents` does: true when the
-    /// folder can now be listed without asking, false when it did not answer. A caller reads false
-    /// as UNREADABLE, never as empty. A folder that is not dataless costs one `stat`.
+    /// ``waitForContents(of:)`` for a caller that can't suspend and lists with its own API:
+    /// Restructure's plan view (`contentsOfDirectory`) and the landing's "is it still empty?" walk.
+    /// Without it a cloud-only folder whose app has stopped would hang the plan sheet on the main
+    /// actor or wedge a landing on the file queue. Blocks as `listing(of:)` does. A caller must
+    /// read false as unreadable, never as empty. A folder that isn't dataless costs one `stat`.
     func waitForContentsBlocking(of url: URL) -> Bool {
         guard isDataless(at: url) else { return true }
         return datalessFolderReads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) != nil
     }
 
-    /// The listing a `DatalessFolderReads` read runs: shallow, keeping nothing the read does not
-    /// need, and never asking through the reads itself — it IS the read.
+    /// The listing a `DatalessFolderReads` read runs: shallow, and never asking through the reads,
+    /// since it is the read.
     internal func listingForARead(of url: URL) -> DirectoryListing {
         listing(of: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants],
                 keeping: { _ in true }, askingThrough: nil)
@@ -237,11 +169,9 @@ public extension FileManaging {
 
     /// One pass of the enumerator, with no fallback of its own.
     ///
-    /// - Parameter base: every entry is re-spelled as `base` + the entry's relative path before the
-    ///   caller's filter sees it, so a predicate about the path is asked the same question on the
-    ///   direct and the retried walk. On the direct walk `base` is the URL being enumerated, which
-    ///   is what keeps a caller's own spelling of an already-symlinked path from being canonicalised
-    ///   out from under it.
+    /// - Parameter base: each entry is re-spelled as `base` + its relative path before the filter
+    ///   sees it, so the direct and retried walks ask the same question. On the direct walk `base`
+    ///   is the URL being enumerated, so the caller's spelling is never canonicalised away.
     fileprivate func drainListing(
         of url: URL,
         keys: [URLResourceKey]?,
@@ -252,8 +182,7 @@ public extension FileManaging {
     ) -> DirectoryListing {
         var failures: [URL] = []
 
-        // Returning true keeps the walk going: one locked folder must not abort the whole listing,
-        // which is the same call FileDiffEngine's handler makes for the same reason.
+        // Returning true keeps the walk going: one locked folder must not abort the whole listing.
         let record: (URL, Error) -> Bool = { failedURL, _ in
             failures.append(failedURL)
             return true
@@ -270,16 +199,12 @@ public extension FileManaging {
         let asksLinks = links != nil && self is FileManager
         var entryCount = 0
         for case let child as URL in enumerator {
-            // Counted before it is filtered, and the two must never be the same number. A zero
-            // ENTRY count is precisely what tells `classify` the root itself failed; a filter that
-            // happens to reject everything is a folder with nothing the caller wanted in it, which
-            // is a completely different statement.
+            // Counted before filtering: a zero entry count is what tells `classify` the root
+            // failed, and a filter that rejects everything must not look like that.
             entryCount += 1
-            // `isDirectory:` supplied rather than inferred: the no-argument overload STATS the path
-            // to decide the trailing slash, which measured 0.145s of pure syscall over 30,000
-            // entries. The enumerator already knows — checked over 30,003 entries, `hasDirectoryPath`
-            // disagreed with `fileExists(atPath:isDirectory:)` zero times — and `.path`, which is
-            // what every consumer reads, is identical either way.
+            // `isDirectory:` supplied, because the no-argument overload stats the path for the
+            // trailing slash. The enumerator's `hasDirectoryPath` already knows, and `.path` is the
+            // same either way.
             let spelled = base.appendingPathComponent(child.relativePath, isDirectory: child.hasDirectoryPath)
             if isWanted(spelled) {
                 kept.append(spelled)
@@ -288,11 +213,9 @@ public extension FileManaging {
                 }
             }
 
-            // **A recursive walk is not let into a dataless folder**: the enumerator reads a
-            // folder's contents on the call after the one that yielded it, and a provider that is
-            // not running never hands them over. Skipped here and listed by a nested walk instead,
-            // whose first step asks through the reads — the shape `FileDiffEngine`'s walk has.
-            // `hasDirectoryPath` is the enumerator's own word, so a file costs no `stat`.
+            // **A recursive walk must not enter a dataless folder**: the enumerator reads its
+            // contents on the next call, which never returns if the provider isn't running. A nested
+            // walk lists it instead, asking through the reads first. A file costs no `stat`.
             if let reads, !options.contains(.skipsSubdirectoryDescendants), child.hasDirectoryPath,
                isDataless(at: spelled) {
                 enumerator.skipDescendants()
@@ -320,28 +243,18 @@ public extension FileManaging {
     }
 
     /// How many entries sit under `url`, counted rather than collected, and whether the count can
-    /// be trusted.
+    /// be trusted. For a folder about to be replaced, which can be huge: it keeps nothing and stops
+    /// at `cap`, so the cost is bounded by the cap.
     ///
-    /// Separate from ``listing(of:includingPropertiesForKeys:options:keeping:)`` because the one
-    /// caller that needs this needs it on a folder about to be destroyed, which can hold a hundred
-    /// thousand entries: `listing` retains what it is asked to keep, and this caller wants only the
-    /// number. It stops at `cap` and says so, so the cost is bounded by the cap rather than by the
-    /// folder.
+    /// - Parameter options: required, unlike `listing(of:…)`'s shallow default, because `[]` here
+    ///   means a recursive walk and an omitted argument there means shallow.
     ///
-    /// - Parameter options: required rather than defaulted, and deliberately unlike its sibling's
-    ///   shallow default. `[]` here means a RECURSIVE walk, which is the opposite of what an
-    ///   omitted argument means one declaration away on `listing(of:…)`; a default that quiet is
-    ///   worth more read wrong than saved.
+    /// - Parameter cap: the most this counts to; reaching it sets `isCapped` ("at least this many").
+    ///   A non-positive cap stops on the first entry and answers "at least 1", never a claim about a
+    ///   directory it didn't open.
     ///
-    /// - Parameter cap: the highest number this will count to. On reaching it the walk stops and
-    ///   `isCapped` is true, which reads as "at least this many". A non-positive cap has no
-    ///   special case: the check runs after the increment, so counting stops on the first entry
-    ///   and the answer is "at least 1" — never a claim about a directory this did not open.
-    ///
-    /// - Important: when `isCapped` is true, `outcome` describes only the part that was read. A
-    ///   locked subdirectory beyond the cap is never met, so `.listed` there means "nothing
-    ///   unreadable in the first `cap` entries", not "nothing unreadable at all". `.unreadable` is
-    ///   unaffected: it requires a count of zero, which no capped walk can have.
+    /// - Important: when `isCapped`, `outcome` covers only what was read: `.listed` means nothing
+    ///   unreadable in the first `cap` entries. `.unreadable` needs a count of zero, so it is exact.
     func childCount(
         of url: URL,
         options: FileManager.DirectoryEnumerationOptions,
@@ -350,16 +263,14 @@ public extension FileManaging {
         childCount(of: url, options: options, cap: cap, askingThrough: datalessFolderReads)
     }
 
-    /// ``childCount(of:options:cap:)`` with its reads spelled out — see the `listing` overload of
-    /// the same shape for why one exists.
+    /// ``childCount(of:options:cap:)`` with its reads passed explicitly, like the `listing` overload.
     internal func childCount(
         of url: URL,
         options: FileManager.DirectoryEnumerationOptions,
         cap: Int,
         askingThrough reads: FileSyncManager.DatalessFolderReads?
     ) -> DirectoryChildCount {
-        // A folder whose contents are not on this Mac, asked for as `listing` asks — a count is a
-        // listing too, and it would wait on the provider the same way.
+        // A dataless folder is asked for as `listing` asks: a count would block on it just the same.
         if let reads, isDataless(at: url),
            reads.readBlocking(url.path, { [self] in listingForARead(of: url).outcome }) == nil {
             return DirectoryChildCount(count: 0, outcome: .unreadable, isCapped: false)
@@ -368,12 +279,9 @@ public extension FileManaging {
         guard direct.outcome == .unreadable,
               let target = DirectoryListingSupport.traversableTarget(of: url, using: self)
         else { return direct }
-        // No re-spelling to do: this hands back a number, and the number is the target's either
-        // way. A retry that also fails changes nothing — and, as in `listing`, that is `classify`
-        // running on the retried walk rather than a comparison made here: `.unreadable` forces a
-        // count of zero and an uncapped walk, so `direct` and a failed `retried` are the same
-        // value. `countingThroughASymlinkReachesTheRealNumber` and its locked-link control are
-        // what pin it.
+        // No re-spelling: a count is the same either way. A failed retry stays unreadable, as in
+        // `listing`. Pinned by `countingThroughASymlinkReachesTheRealNumber` and its locked-link
+        // control.
         return drainCount(of: target, options: options, cap: cap, askingThrough: reads)
     }
 
@@ -402,8 +310,8 @@ public extension FileManaging {
                 isCapped = true
                 break
             }
-            // Not let into a dataless folder, for `drainListing`'s reason: counted by a nested
-            // count whose first step asks through the reads, against what is left of the cap.
+            // Not let into a dataless folder, as in `drainListing`: a nested count asks through the
+            // reads first, against what is left of the cap.
             if let reads, !options.contains(.skipsSubdirectoryDescendants),
                let child = entry as? URL, child.hasDirectoryPath, isDataless(at: child) {
                 enumerator.skipDescendants()
@@ -436,13 +344,9 @@ public struct DirectoryChildCount: Equatable, Sendable {
     /// How much of the directory the count actually covers.
     public let outcome: DirectoryListingOutcome
 
-    /// True when counting stopped at the cap rather than at the end of the directory.
-    ///
-    /// A floor under the real number, as is `.listedWithUnreadableDescendants` — but the two are
-    /// deliberately NOT rolled into one "is this a floor?" property. The only consumer, the
-    /// folder-replace warning, has to word them differently ("1000+ items" for a floor we chose,
-    /// "at least 3 items" for one the disk imposed), so a combined flag would be answered and then
-    /// immediately re-split at its single call site.
+    /// True when counting stopped at the cap rather than at the end of the directory. A floor, as is
+    /// `.listedWithUnreadableDescendants`, but kept apart: the folder-replace warning words them
+    /// differently ("1000+ items" against "at least 3 items").
     public let isCapped: Bool
 
     public init(count: Int, outcome: DirectoryListingOutcome, isCapped: Bool) {
@@ -454,22 +358,15 @@ public struct DirectoryChildCount: Equatable, Sendable {
 
 public enum DirectoryListingSupport {
 
-    /// Turns "how many entries came back" plus "which URLs the error handler named" into an
-    /// outcome. The one place that rule is written down, so a call site that streams its own
-    /// enumerator — the folder-size walk in the details sidebar, which cannot afford to collect
-    /// what it counts — reaches the same verdict as ``FileManaging/listing(of:includingPropertiesForKeys:options:)``
-    /// rather than restating it slightly differently.
+    /// Turns the entry count and the URLs the error handler named into an outcome. The one place
+    /// that rule lives, so a call site streaming its own enumerator (the details sidebar's size
+    /// walk) reaches the same verdict as
+    /// ``FileManaging/listing(of:includingPropertiesForKeys:options:)``.
     ///
-    /// Whether the ROOT failed is decided by the entry count, not by comparing the reported URL
-    /// against the one we asked for. That comparison looks like the direct signal and is the
-    /// trap: measured on this machine, asking for `/var/…/locked` gets the failure reported as
-    /// `/private/var/…/locked`, and `standardizedFileURL` does not close that gap — the match
-    /// failed in two of three constructions of the same directory.
-    ///
-    /// The count is exact instead. A DESCENDANT failure can only be reported after the root was
-    /// listed successfully, and the unreadable descendant is itself yielded as an entry (a
-    /// listable root holding one locked subdirectory yields 2 entries, not 0). So a handler that
-    /// fired with nothing to show for it can only mean the root itself could not be read.
+    /// Whether the root failed is decided by the entry count, never by matching the reported URL:
+    /// asking for `/var/…/locked` reports `/private/var/…/locked`, which `standardizedFileURL`
+    /// doesn't fix. The count is exact, because an unreadable descendant is itself yielded as an
+    /// entry, so failures with zero entries can only mean the root itself couldn't be read.
     public static func classify(
         entryCount: Int, failures: [URL], root: URL
     ) -> (outcome: DirectoryListingOutcome, unreadableDescendants: [URL]) {
@@ -483,30 +380,18 @@ public enum DirectoryListingSupport {
 
     /// The URL a refused listing should be retried against, or nil when there is nothing to retry.
     ///
-    /// `FileManager.enumerator(at:)` **does not traverse a symlinked directory.** Measured on this
-    /// machine, against a symlink pointing at a perfectly readable folder:
+    /// **`FileManager.enumerator(at:)` doesn't traverse a symlinked directory**: on a link to a
+    /// readable folder it yields nothing and reports the link to the error handler, which
+    /// ``classify(entryCount:failures:root:)`` reads as `.unreadable`. Without this retry the picker
+    /// would say "Can't be read" about a folder Finder lists fine.
     ///
-    ///     enumerator(at: link)          NON-NIL, 0 entries, error handler fires with `link`
-    ///     contentsOfDirectory(atPath:)  ["note.txt", "Medical", "Dental"]
-    ///
-    /// The first line is byte for byte the signature ``classify(entryCount:failures:root:)`` reads
-    /// as `.unreadable` — so without this, the destination picker says "Can't be read" about a
-    /// folder Finder lists fine, and a search that walked the whole tree reports itself truncated.
-    /// That is the same unearned claim the rest of this file exists to stop, pointing the other
-    /// way. The repo already knew the quirk: `FileSyncManager+Scanning`'s cold walk falls back to
-    /// the path-based listing for exactly this reason, and this is that fallback made reusable.
-    ///
-    /// Three things it deliberately does not do:
-    ///
-    /// - **It does not run for an injected `FileManaging`.** A mock's paths are not on this disk,
-    ///   and `resourceValues` would consult the real one regardless — `/var` is itself a symlink,
-    ///   so a mock directory named `/var` would otherwise be retried against the machine's own.
-    ///   Mock disks contain no symlinks, so there is nothing there to rescue anyway.
-    /// - **It does not resolve a link that resolves to itself.** Measured, a broken link and a
-    ///   self-referential one both come back equal to the original, and retrying them would only
-    ///   repeat the same refusal; both are genuinely unreadable and must stay that way.
-    /// - **It does not decide anything.** It offers a second URL to ask; the caller re-runs the
-    ///   same walk and keeps the failure if the second ask fails too.
+    /// - Not run for an injected `FileManaging`: a mock's paths aren't on this disk, and
+    ///   `resourceValues` would consult the real one (`/var` is itself a symlink). Mocks hold no
+    ///   symlinks anyway.
+    /// - nil for a link that resolves to itself (a broken or self-referential one), which must
+    ///   stay unreadable.
+    /// - It decides nothing: the caller re-runs the walk on the target and keeps the failure if
+    ///   that fails too.
     public static func traversableTarget(of url: URL, using fileManager: FileManaging) -> URL? {
         guard fileManager is FileManager else { return nil }
         guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true else { return nil }
@@ -514,13 +399,10 @@ public enum DirectoryListingSupport {
         return resolved.path == url.path ? nil : resolved
     }
 
-    /// A comparable form of a directory URL, used only to keep the root out of the descendant
-    /// list — never to decide whether the root failed, which the entry count settles exactly.
-    ///
-    /// `resolvingSymlinksInPath` is applied to BOTH sides rather than `standardizedFileURL`,
-    /// because the gap this has to close is `/var` vs `/private/var`: resolving maps both to the
-    /// same form, and standardizing maps neither. That it also resolves symlinks is harmless here
-    /// — a symlinked root and the failure reported for it are the same directory either way.
+    /// A comparable form of a directory URL: keeps the root out of the descendant list, and lets
+    /// `DestinationBrowser.search` spot a directory reached twice. Never used to decide whether the
+    /// root failed, which the entry count settles. `resolvingSymlinksInPath`, not
+    /// `standardizedFileURL`, because only resolving maps `/var` and `/private/var` to one form.
     static func identity(of url: URL) -> String {
         var path = url.resolvingSymlinksInPath().path
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }

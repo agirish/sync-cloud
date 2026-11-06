@@ -1,8 +1,7 @@
 import Testing
 @testable import Sync
 
-/// TE290 step 7: a message holding an API key is caught before it's sent, and only ever shown or
-/// saved masked.
+/// A message holding an API key is caught before it's sent, and only ever shown or saved masked.
 @Suite struct AskClaudeKeyCatchTests {
     private let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
 
@@ -20,8 +19,8 @@ import Testing
         #expect(AskClaudeKeyCatch.key(in: "sk-proj-abcdefghijklmnopqrstuvwxyz1234") == nil)
     }
 
-    /// TE290 review: a key a paste broke across lines is still caught, and a key with no kind
-    /// keeps nothing of its secret.
+    /// A key a paste broke across lines is still caught, and a key with no kind keeps nothing of
+    /// its secret.
     @Test func aBrokenKeyIsCaughtAndABareKeyKeepsNoSecret() {
         #expect(AskClaudeKeyCatch.key(in: "sk-ant-api03-abcdefghij\nklmnopqrstuvwxyz") != nil)
         #expect(AskClaudeKeyCatch.masked("sk-ant-" + String(repeating: "Q", count: 30)) == "sk-ant-••••••••••••")
@@ -30,8 +29,8 @@ import Testing
         #expect(AskClaudeKeyCatch.masked("a\nb", joiningLines: false) == "a\nb")
     }
 
-    /// v7.0 review: a key broken after its first 20 characters was caught by its first line alone,
-    /// so Save as API Key stored part of it and the masked card kept the rest in the clear.
+    /// A key broken after its first 20 characters is caught and masked whole, not by its first
+    /// line alone, or Save as API Key would store part of it and the card show the rest.
     @Test func aKeyBrokenLateIsCaughtWholeAndMaskedWhole() {
         let first = "sk-ant-api03-" + String(repeating: "aB3_-", count: 12)
         let rest = String(repeating: "Zq9x", count: 10)

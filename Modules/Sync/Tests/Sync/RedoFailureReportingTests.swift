@@ -4,26 +4,21 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Pins the redo/cleanup failure paths that used to be silent `try?` swallows in
-/// FileSyncManager+Undo:
-/// - copy-redo `safeCopyItem`, move-redo `safeMoveItem`, folder-redo `createDirectory`, and the
-///   copy-undo confirmed-permanent-delete `removeItem` all failed with no log line and no banner;
-/// - worse, the redo paths still registered the failed item in the NEXT undo state, so a
-///   subsequent undo operated on a phantom item — up to a confusing "permanently delete?" prompt
-///   for a file that is not on disk.
-/// These tests simulate the classic failure (the source vanishing between undo and redo, or a
-/// file squatting on a folder's path) and assert the failure is SURFACED (`.error` log +
-/// `.warning` banner) and that the following undo is a quiet no-op, never a phantom operation.
+/// The redo and cleanup failure paths in FileSyncManager+Undo: copy, move and folder redo, and the
+/// copy undo's confirmed permanent delete. Each failure (a source vanishing between undo and redo,
+/// or a file squatting on a folder's path) must be surfaced with an `.error` log and a `.warning`
+/// banner, and the failed item must stay out of the next undo state, so that undo is a quiet no-op
+/// rather than a phantom operation, such as a "permanently delete?" prompt for a missing file.
 @Suite struct RedoFailureReportingTests {
 
     /// True when `log` captured an `.error` entry containing `fragment`. A capture, not the shared
-    /// buffer, so the rest of the package logging past the line cannot take it away.
+    /// buffer, so the rest of the package logging past the line can't take it away.
     @MainActor
     private func loggerHasError(_ log: LogCapture, containing fragment: String) async -> Bool {
         await log.holds(.error, containing: fragment)
     }
 
-    /// A manager with every alert seam mocked so no test can ever pop a real NSAlert.
+    /// A manager with every alert seam mocked, so no test can pop a real NSAlert.
     @MainActor
     private func makeManager() -> FileSyncManager {
         let manager = FileSyncManager()
@@ -53,9 +48,8 @@ import EventsTestSupport
 
     // MARK: Copy redo — the source vanished between undo and redo
 
-    /// Undo of a copy trashes the destination; when the source is then deleted externally, the
-    /// redo's re-copy fails. That failure must be surfaced (error log + warning banner), and the
-    /// item must stay out of the next undo state — a subsequent undo must NOT try to trash the
+    /// Undo of a copy trashes the destination; with the source then deleted externally, the redo's
+    /// re-copy fails. The failure is surfaced, and the next undo must not try to trash the
     /// never-recreated destination and prompt to "permanently delete" a phantom file.
     @MainActor
     @Test func testCopyRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
@@ -86,8 +80,8 @@ import EventsTestSupport
         #expect(manager.banner?.message.contains("f.txt") == true)
         #expect(await loggerHasError(log, containing: "FAILED to redo \"f.txt\""))
 
-        // The failed item stayed out of the redo's freshly registered undo state: undoing now is
-        // a quiet no-op — in particular, no permanent-delete prompt for a file not on disk.
+        // The failed item stayed out of the redo's new undo state: undoing now is a quiet no-op,
+        // with no permanent-delete prompt for a file not on disk.
         let spy = ConfirmerSpy()
         manager.permanentDeleteConfirmer = spy.confirm(true)
         manager.banner = nil
@@ -99,9 +93,9 @@ import EventsTestSupport
 
     // MARK: Move redo — the source vanished between undo and redo
 
-    /// Undo of a move puts the file back at its source; when that file is then deleted
-    /// externally, the redo's re-move fails. The failure must be surfaced, and the next undo must
-    /// not attempt to "restore" from the destination the move never populated.
+    /// Undo of a move puts the file back at its source; with that file then deleted externally, the
+    /// redo's re-move fails. The failure is surfaced, and the next undo must not try to "restore"
+    /// from the destination the move never populated.
     @MainActor
     @Test func testMoveRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
         let log = LogCapture()
@@ -141,11 +135,9 @@ import EventsTestSupport
 
     // MARK: Move redo after a REFUSED undo — must not re-run the move the undo declined
 
-    /// Undo of a move refuses when a DIFFERENT file has appeared at the source (it won't clobber an
-    /// unrelated occupant). A subsequent redo must then do nothing — the move it would re-apply was
-    /// never actually reversed. Before the fix, the redo params were built from all items eagerly, so
-    /// the refused item was still redone: the occupant got moved over the real file at the
-    /// destination.
+    /// Undo of a move refuses when a different file has appeared at the source (it won't clobber an
+    /// unrelated occupant). The redo must then do nothing, since the move was never reversed. Redo
+    /// params built eagerly from every item would move the occupant over the real file.
     @MainActor
     @Test func testRedoAfterARefusedMoveUndoDoesNotClobberTheDestination() async throws {
         let manager = makeManager()
@@ -170,8 +162,8 @@ import EventsTestSupport
         manager.undoManager?.redo()   // must NOT re-run the move the undo refused
         await waitUntil("the redo settles") { manager.activeFileOperationsCount == 0 }
 
-        // The redo did nothing: S is untouched at the destination and Z stayed at the source.
-        // (Before the fix, the redo moved Z over S and backed the real file up to the Trash.)
+        // The redo did nothing: S is untouched at the destination and Z stayed at the source. A
+        // wrong redo would move Z over S and back the real file up to the Trash.
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         #expect(mockFM.virtualDisk["/src/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 55)
         #expect(mockFM.trashedPaths.isEmpty)   // S was never displaced to the Trash
@@ -179,9 +171,9 @@ import EventsTestSupport
 
     // MARK: Folder redo — a file has taken the folder's path
 
-    /// Redo of New Folder fails when a file now occupies the path. The failure must be surfaced,
-    /// and the subsequent undo must not touch the interloper: it is not the folder this undo
-    /// created, so it must neither be trashed nor trigger a permanent-delete prompt.
+    /// Redo of New Folder fails when a file now occupies the path. The failure is surfaced, and the
+    /// next undo must not touch the interloper: it isn't the folder this undo created, so it is
+    /// neither trashed nor offered for permanent delete.
     @MainActor
     @Test func testFolderRedoFailureIsSurfacedAndNextUndoSparesTheInterloper() async throws {
         let log = LogCapture()
@@ -208,8 +200,8 @@ import EventsTestSupport
         #expect(await loggerHasError(log, containing: "FAILED to redo \"New Folder\""))
         #expect(mockFM.virtualDisk["/dst/New Folder"]?.isDirectory == false)
 
-        // The undo registered by the failed redo skips anything that is not a directory at the
-        // registered path — the squatting file survives untouched, with no prompt.
+        // The undo registered by the failed redo skips anything not a directory at the registered
+        // path: the squatting file survives untouched, with no prompt.
         let spy = ConfirmerSpy()
         manager.permanentDeleteConfirmer = spy.confirm(true)
         manager.banner = nil
@@ -223,9 +215,8 @@ import EventsTestSupport
     // MARK: Copy undo — confirmed permanent delete fails
 
     /// On a trash-less volume, the copy undo falls back to a confirmed permanent removeItem. When
-    /// that removal fails, the copy survives on disk: the failure must be surfaced, and the
-    /// overwritten original's in-place backup must stay put — restoring it over the surviving
-    /// copy would collide (the old code silently attempted exactly that).
+    /// that fails, the copy survives: the failure is surfaced, and the overwritten original's
+    /// in-place backup stays put, since restoring it over the surviving copy would collide.
     @MainActor
     @Test func testCopyUndoConfirmedRemoveFailureIsSurfacedAndLeavesBackupInPlace() async throws {
         let log = LogCapture()
@@ -256,7 +247,7 @@ import EventsTestSupport
         #expect(manager.banner?.message.contains("f.txt") == true)
         #expect(await loggerHasError(log, containing: "FAILED to permanently delete \"f.txt\""))
 
-        // No state was changed: the copy survives, and the backup was NOT restored over it.
+        // No state changed: the copy survives, and the backup was not restored over it.
         await waitUntil("the failed undo settles") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         #expect(mockFM.virtualDisk[backupPath] != nil)

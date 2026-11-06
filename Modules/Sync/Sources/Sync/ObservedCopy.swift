@@ -3,12 +3,10 @@ import Foundation
 
 /// What a copy can be asked while its bytes move: whether to keep going, and how far it has got.
 ///
-/// **Why this exists (RD24).** `FileManager.copyItem` cannot be interrupted, so cancellation was
-/// observed only between items — one 12 GB file, or one large folder, ran to the end once started.
-/// A copy handed an observer checks `shouldContinue` per chunk and per entry instead; a `false`
-/// abandons the copy, removes what it had written, and throws `CocoaError(.userCancelled)`. The
-/// callers only ever copy into a `.tmp_` staging name, so an abandoned copy never touches the
-/// destination: the atomicity guarantee is the staging file's, and it is unchanged.
+/// `FileManager.copyItem` can't be interrupted, so a large file or folder would run to the end
+/// once started. A copy handed an observer checks `shouldContinue` per chunk and per entry; `false`
+/// abandons it, removes what it wrote, and throws `CocoaError(.userCancelled)`. Callers copy only
+/// into a `.tmp_` staging name, so an abandoned copy never touches the destination.
 public struct CopyObserver: Sendable {
     /// Polled per data chunk and per tree entry. Return false to abandon the copy.
     public let shouldContinue: @Sendable () -> Bool
@@ -21,8 +19,7 @@ public struct CopyObserver: Sendable {
         self.bytesCopied = bytesCopied
     }
 
-    /// True when `error` is the abandonment this observer asked for — not a failure, and never
-    /// something to put in an alert.
+    /// True when `error` is the abandonment this observer asked for: not a failure, never an alert.
     public static func isCancellation(_ error: Error) -> Bool {
         (error as? CocoaError)?.code == .userCancelled
     }
@@ -31,22 +28,14 @@ public struct CopyObserver: Sendable {
 extension FileManager {
     /// `copyItem(at:to:)` through `copyfile(3)`, with a progress callback that can stop it mid-file.
     ///
-    /// **Measured equivalent to `copyItem` on 2026-09-15**, on a fixture holding an xattr, a Finder
-    /// tag, a 0600 file with a 2020 mtime, a relative and a dangling symlink, a hard link, an ACL, a
-    /// `hidden`-flagged folder, a package, an empty folder, a dotfile and a 300 MB file: every entry's
-    /// mode, flags, size, link count, owner, symlink target, xattrs, ACL, birth time and mtime to the
-    /// nanosecond compared equal, root included — with ONE correction applied below, without which
-    /// they did not. `copyfile`'s recursive copy leaves a folder's mtime at the time of the copy
-    /// whenever that folder holds a symlink (reproduced alone: one symlink in one folder), where
-    /// `copyItem` preserves it. So folder times are re-applied from the source once the tree is down.
+    /// Matches `copyItem` on modes, flags, links, owners, xattrs, ACLs and times, with one fix:
+    /// `copyfile` leaves a folder's mtime at copy time whenever the folder holds a symlink, so folder
+    /// times are re-applied from the source once the tree is down. `COPYFILE_CLONE` keeps the
+    /// same-volume APFS clone; a clone writes no data, so it is instant and never cancelled mid-file.
     ///
-    /// `COPYFILE_CLONE` keeps the same-volume APFS clone `copyItem` makes; a clone writes no data, so
-    /// it is also never observed mid-file — it is instant, and there is nothing to cancel.
-    ///
-    /// Failures other than cancellation go back through `copyItem` itself, after removing what this
-    /// copy wrote, so the error an alert shows is the one it always showed ("…couldn't be copied
-    /// because you don't have permission…"), not a bare POSIX code. Out-of-space is the exception: a
-    /// second attempt would fill the disk again before failing the same way, so it is thrown directly.
+    /// Other failures retry through `copyItem` after removing this copy's output, so the alert shows
+    /// Foundation's usual error rather than a bare POSIX code. Out-of-space is thrown directly: a
+    /// retry would fill the disk again first.
     func observedCopyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver, allowClone: Bool = true) throws {
         // An occupied destination is copyItem's own error to raise, and the cleanup below must never
         // be able to remove something this copy did not write.
@@ -145,17 +134,13 @@ private final class ObservedCopyContext {
 }
 
 extension FileSyncManager {
-    /// The observer a pane transfer hands its item's copy: stop when `progress` is cancelled, and —
-    /// once the item has been copying for a second — say how far it has got on the dialog's item
-    /// line, where the name alone used to sit unchanged for the whole of a 12 GB file.
-    ///
-    /// The second's grace is what keeps an ordinary batch looking exactly as it did: most items
-    /// finish (or clone, which reports no bytes at all) well inside it, so their line never flickers.
+    /// The observer a pane transfer hands its item's copy: stop when `progress` is cancelled and,
+    /// once the item has copied for a second, show how far it has got on the dialog's item line.
+    /// The second's grace keeps an ordinary batch from flickering: most items finish or clone first.
     nonisolated static func transferCopyObserver(progress: Progress, itemName: String, sourceURL: URL, fileManager: FileManaging) -> CopyObserver {
-        // The total is read once, and only when the line is first shown: most items never reach a
-        // second, and a stat per item on a slow provider is a cost for a line nobody sees. Folders
-        // have no cheap total, and a guessed one would make the estimate a number the app invented;
-        // they report bytes copied without an "of".
+        // The total is read once, only when the line is first shown, to spare a stat per item on a
+        // slow provider. Folders have no cheap total, so they report bytes copied without an "of"
+        // rather than an invented estimate.
         let clock = ByteProgressClock()
         return CopyObserver(
             shouldContinue: { !progress.isCancelled },
@@ -173,8 +158,8 @@ extension FileSyncManager {
     }
 
     /// "Archive 2019.zip — 4.2 GB of 12.8 GB · about 3 min left". Pure so the wording is testable.
-    /// The estimate waits for three seconds of rate — an estimate from the first chunk is noise —
-    /// and is left off entirely when there is no total to estimate against.
+    /// The estimate waits for three seconds of rate, since one from the first chunk is noise, and is
+    /// left off when there is no total.
     nonisolated static func byteProgressText(itemName: String, copied: Int64, total: Int64?, elapsed: TimeInterval) -> String {
         let format = { (bytes: Int64) in ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
         guard let total, total > 0 else { return "\(itemName) — \(format(copied)) copied" }

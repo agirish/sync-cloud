@@ -2,17 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// What `people.json` keeps when the app writes it back.
-///
-/// **The file is hand-written as much as it is app-written.** The real roster carries a `_note`
-/// explaining why Uncle is on it, why listing a full name is what makes a shared surname
-/// attributable, and why `Fath` and `Shwe` are recorded as name forms rather than nicknames — all
-/// of it prose no survey can regenerate. `PeopleFileOut` writes four keys (the fourth, `order`, only once the list is hand-arranged) and the save is a
-/// whole-file atomic replace, so before this the first edit in Settings ▸ People deleted every
-/// other key in the file without saying so.
-///
-/// This suite exists because there were **no persistence tests for this store at all**: the roster
-/// is the one filing artifact the app writes, and nothing checked what it wrote.
+/// What `people.json` keeps when the app writes it back. The file is hand-written as much as
+/// app-written: notes and extra keys, on the file or on a person, are prose no survey can
+/// regenerate. `PeopleFileOut` writes four keys and the save replaces the whole file, so anything
+/// else must be carried across, and a roster this build can't read faithfully must never be
+/// overwritten.
 @MainActor
 @Suite struct PeopleStorePersistenceTests {
 
@@ -77,8 +71,7 @@ import Foundation
                 "a key a newer build wrote must survive a round trip through this one")
     }
 
-    /// **Non-vacuity: the edit has to have actually landed.** Everything above would also pass if
-    /// `save()` had quietly done nothing and left the original file in place.
+    /// Non-vacuity: the edit itself lands. The test above would also pass if `save()` did nothing.
     @Test func theEditItselfIsWritten() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -94,12 +87,9 @@ import Foundation
         #expect(saved["schemaVersion"] as? Int == FilingProfileStore.currentSchema)
     }
 
-    /// **A carried key can never shadow one the app owns.**
-    ///
-    /// The keys are captured at load and re-applied at save, so a `people` array captured then
-    /// would be the *old* roster — merging it back would silently undo the edit being saved. It
-    /// cannot happen, because the modelled keys are excluded when they are captured rather than
-    /// when they are written, and this is the test that says so.
+    /// A carried key can never shadow one the app owns. Keys are captured at load and re-applied at
+    /// save, so a captured `people` would be the old roster and undo the edit. Modelled keys are
+    /// excluded when captured.
     @Test func aStaleRosterInTheFileCannotOverwriteTheEditBeingSaved() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -131,10 +121,10 @@ import Foundation
     @Test func aFirstEverSaveWritesACleanFile() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // No people.json at all — the seeded-roster case, where the file appears on first edit.
+        // No people.json at all: the seeded-roster case, where the file appears on first edit.
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        // Genuinely absent must stay indistinguishable from a first launch: no protection, no
-        // load-time warning (the init warns exactly when this flag is set), and the save lands.
+        // An absent file is a first launch: no protection, no load-time warning (the init warns
+        // exactly when this flag is set), and the save lands.
         #expect(store.rosterIsUnreadable == false,
                 "an absent file was mistaken for one that exists but cannot be read")
         store.add(displayName: "Daughter")
@@ -144,9 +134,8 @@ import Foundation
                 "a fresh file should carry nothing but what the app writes: \(saved.keys)")
     }
 
-    /// A file that is not JSON at all costs the carry, never the edit. The roster is what the file
-    /// is *for*, and losing a change to it because a comment could not be re-attached would be the
-    /// worse trade.
+    /// A file that isn't JSON at all costs the carry, never the edit: bytes that parse as nothing
+    /// hold no roster to protect.
     @Test func anUnreadableFileDoesNotBlockTheSave() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -163,10 +152,9 @@ import Foundation
 
     // MARK: - A roster this build cannot decode is never overwritten
 
-    /// **The other half of the carry, and the one that loses the household.** `carriedKeys` keeps
-    /// the keys this build does not model; `people` is one it *does*, so when the decode fails the
-    /// roster is precisely what a carry cannot save. The load falls back to a folder-name seed, the
-    /// list looks ordinary in Settings, and the first edit atomically replaces the real file.
+    /// `carriedKeys` keeps only keys this build doesn't model, so a `people` that fails to decode
+    /// can't be carried. The load falls back to a folder-name seed that looks ordinary in Settings,
+    /// and an edit would replace the real household with it.
     @Test func aRosterWithOneBadEntryIsNotOverwrittenByAnEdit() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -191,9 +179,8 @@ import Foundation
         #expect(after == before, "the household was overwritten by a roster the app guessed")
     }
 
-    /// A file a NEWER build wrote. The schema probe rejects it wholesale — which is right — but that
-    /// makes it exactly the shape above: real data, not decodable here, and rewriting it downgrades
-    /// the user's roster to whatever this build could guess.
+    /// A file a newer build wrote. The schema probe rightly rejects it, which makes it the case
+    /// above: real data this build can't decode, and rewriting it would downgrade the roster.
     @Test func aRosterFromANewerSchemaIsNotOverwritten() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -212,32 +199,17 @@ import Foundation
         #expect(after == before, "a newer build's file was downgraded by this one")
     }
 
-    /// **Non-vacuity, and the direction that would hide a permanent lockout.** If the guard read
     // MARK: - A roster this build REINTERPRETED is never overwritten either
 
-    /// **A repeated id decodes perfectly, and that is exactly why it slipped past the guard above.**
-    ///
-    /// `rosterIsUnreadable` asks "did this decode", and a person block copy-pasted without changing
-    /// its `id` decodes fine — so the protection that covers a typo did not cover this. The registry
-    /// collapses the repeat to one record (last wins, deliberately: see
-    /// ``PersonRegistry/uniqueById(_:)``), and the store's `people` is that collapsed roster. Every
-    /// edit path then writes the whole file from it — `add`, `update`, `remove` and even dismissing
-    /// a single name suggestion — so **an edit to a completely unrelated person deletes the
-    /// duplicated block from disk**, with no prompt, no backup, and nothing in the log: `save()`'s
-    /// only loss warning covers unmodelled top-level keys, and those are carried faithfully, so the
-    /// rewrite looks clean.
-    ///
-    /// The advice in the load-time warning — "give each person a unique id in this file" — is what
-    /// makes it worst: by the time the user opens the file to do that, the record they needed to
-    /// reconcile can already be gone, and it will never warn again, because the file is now clean.
-    ///
-    /// So a reinterpreted roster is treated like an unreadable one for WRITES. The collapse still
-    /// happens in memory — one id has to mean one person for the app to work at all — but the file
-    /// is left alone until the person who wrote it decides which record they meant.
+    /// A person block copy-pasted without changing its `id` decodes fine, so `rosterIsUnreadable`
+    /// doesn't catch it. The registry collapses the repeat (last wins, see
+    /// ``PersonRegistry/uniqueById(_:)``), and any whole-file write from that roster, even one for
+    /// an unrelated person, would silently delete a block the user still has to reconcile. So the
+    /// collapse happens in memory only, and the file is left alone for writes until they choose.
     @Test func aRosterWithARepeatedIdIsNotOverwrittenByAnEdit() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // Two blocks, one id, differing in every other field — the copy-paste this protects.
+        // Two blocks, one id, differing in every other field: the copy-paste this protects.
         try write("""
             {
               "schemaVersion": 1,
@@ -253,14 +225,14 @@ import Foundation
         let before = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        // The premise, both halves. The file decoded (so the unreadable guard is NOT what saves it
-        // here), and the roster really was collapsed (so there is something to lose).
+        // The premise: the file decoded (so the unreadable guard isn't what saves it), and the
+        // roster really was collapsed (so there is something to lose).
         #expect(store.rosterIsUnreadable == false,
                 "a repeated id is valid JSON — if this reads as unreadable the test proves nothing")
         #expect(store.people.count == 2, "the repeat was not collapsed, so no record is at risk")
         #expect(store.repeatedRosterIds == ["elder"], "the store does not know the roster repeats an id")
 
-        // An edit to somebody else entirely — the trigger does not have to touch the duplicate.
+        // An edit to somebody else entirely: the trigger needn't touch the duplicate.
         store.add(displayName: "Mother")
 
         let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
@@ -269,12 +241,10 @@ import Foundation
 
     // MARK: - A roster the process cannot even READ is never overwritten
 
-    /// **The read layer has the same two states as the parse layer, and it lost them.** A file
-    /// that exists but cannot be opened — mode 000, an ACL, an I/O error — came back from
-    /// `contents(atPath:)` as nil, exactly like no file at all, so the unreadable guard never
-    /// armed. The save's atomic rename needs permission on the *directory*, not the file, so the
-    /// first edit then succeeded precisely where the read had failed and replaced the household
-    /// with the folder-name seed.
+    /// A file that exists but can't be opened (mode 000, an ACL, an I/O error) must count as
+    /// unreadable, not as no file. `contents(atPath:)` answers nil for both, and the save's atomic
+    /// rename needs permission only on the directory, so an edit would replace the household with
+    /// the folder-name seed.
     @Test func aRosterTheProcessCannotOpenIsNotOverwrittenByAnEdit() throws {
         let dir = try makeDirectory()
         let url = dir.appendingPathComponent("p/people.json")
@@ -299,9 +269,9 @@ import Foundation
                 "the household was overwritten because a failed read was mistaken for no file")
     }
 
-    /// The same hole through the other door: `people.json` symlinked somewhere that does not
-    /// resolve right now — a volume that is not mounted. The read fails, and the atomic write
-    /// would replace the *link itself* with a plain file, orphaning the roster it points at.
+    /// The same hole through a symlink: `people.json` linked to an unmounted volume. The read
+    /// fails, and the atomic write would replace the link itself with a plain file, orphaning the
+    /// roster it points at.
     @Test func aDanglingSymlinkAtTheRosterPathIsNotReplacedByAnEdit() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -319,8 +289,8 @@ import Foundation
         #expect(dest == target, "the symlink was replaced by a plain file the app wrote")
     }
 
-    /// "any file at all", every ordinary edit would stop saving and the two tests above would still
-    /// pass. A readable roster must save exactly as before.
+    /// Non-vacuity: if the guard read "any file at all", every edit would stop saving and the two
+    /// tests above would still pass. A readable roster must save exactly as before.
     @Test func aReadableRosterStillSavesEveryEdit() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -338,13 +308,9 @@ import Foundation
 
     // MARK: - The same failure inside a person record
 
-    /// **A key written ON a person is destroyed by the first edit to ANYBODY.**
-    ///
-    /// `carriedKeys` reads the top-level object and filters it against `PeopleFileOut.modelledKeys`
-    /// — so `_note` beside `people` survives, and `nickname` on Father does not. `Person` models
-    /// exactly five keys and `init(from:)` ignores the rest, so the record re-encodes without them
-    /// and the whole-file write puts that on disk. Nothing fails: the file is well-formed and looks
-    /// complete, which is why this needed a test rather than a bug report.
+    /// A key written on a person must survive an edit to anybody. `Person` models five keys and
+    /// `init(from:)` ignores the rest, so without a per-person carry the whole-file write would
+    /// drop them, leaving a well-formed file that looks complete.
     @Test func anEditKeepsKeysWrittenInsideAPersonRecord() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -364,7 +330,7 @@ import Foundation
         #expect(father["fullNames"] as? [String] == ["Father Elder"])
     }
 
-    /// A person with no extras gains none, and the new person is written normally — the merge must
+    /// A person with no extras gains none, and the new person is written normally: the merge must
     /// not invent keys or skip records it has nothing for.
     @Test func recordsWithNothingCarriedAreUntouched() throws {
         let dir = try makeDirectory()
@@ -381,12 +347,8 @@ import Foundation
         #expect(Set(mother.keys) == ["id", "displayName"])
     }
 
-    /// **Deleting a person takes their carried keys with them.**
-    ///
-    /// The merge is driven by the records being written, not by the carried map, so a person the
-    /// user just removed has nothing to merge into. Driving it the other way would put a record
-    /// back that was deliberately deleted — a whole-file write is the one place that mistake is
-    /// invisible.
+    /// Deleting a person takes their carried keys with them. The merge is driven by the records
+    /// being written, not by the carried map, which would put a deleted record back.
     @Test func aRemovedPersonIsNotResurrectedByTheirCarriedKeys() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -401,9 +363,8 @@ import Foundation
         #expect(people.contains { $0["id"] as? String == "granny" })
     }
 
-    /// A field this build DOES model is this build's to write, even if the file had it too —
-    /// the same rule the top-level merge follows, checked because preferring the carried copy
-    /// would pin a value the user can no longer change from the UI.
+    /// A field this build models is this build's to write, as at the top level. Preferring the
+    /// carried copy would pin a value the user can no longer change from the UI.
     @Test func aModelledFieldIsNotShadowedByTheCarriedCopy() throws {
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }

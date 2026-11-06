@@ -1,78 +1,45 @@
 import Foundation
 
-/// Turns a single "the user filed THIS file into THAT folder" example into a proposed
-/// ``AutomationRule`` — the deterministic, learn-by-example complement to the AI filing backend.
+/// Turns one "the user filed THIS file into THAT folder" example into a proposed
+/// ``AutomationRule``: the deterministic, learn-by-example complement to the AI filing backend.
 ///
-/// **What a proposal keys on is the same evidence Organize's own suggestions key on.** This used to
-/// pick ONE word: a token the file name shared with the destination's name, or failing that the
-/// longest word in the name. That is precisely the signal ``FilingRouter`` measured at **12.6%
-/// top-1** — a file name against a bare folder list — and every rule learned from it inherited that
-/// accuracy. `*Statement*` → `Finance/US/Chase` is not a rule about Chase statements; it is a rule
-/// about the word "statement", and the next payslip, lease and utility bill carrying that word go
-/// to Chase too.
+/// A proposal keys on what the destination has actually *received* (``FilingMemory`` and
+/// ``FolderProfile``), not on a word the file name shares with the folder's name, which routes
+/// only about one file in eight correctly; `*Statement*` → `Finance/US/Chase` would take every
+/// payslip and lease carrying "statement".
 ///
-/// So a proposal is built from ``FilingMemory`` and ``FolderProfile`` — what the destination has
-/// actually *received* — which took the same routing decision to **58.2%**:
+/// - Several words, not one: a conjunction (``AutomationCondition/mentionsAll``), so `mobile` ∧
+///   `autopay` names T-Mobile bills rather than everything mentioning either.
+/// - Words that come back, ranked by how well they discriminate, in that order. Recurrence is a
+///   filter (``recurrenceFloor``) and rarity the ranking inside it: rarity alone prefers one-off
+///   words like a marketing campaign's `awesome` over `autopay`, which is in every bill.
+/// - The pair is chosen, not two independent words (``discriminatingPair(_:index:)``). Replayed
+///   over 1,428 real filings, this gives 67% recall at 54% precision, and only 1.3% of rules
+///   never fire again.
+/// - Refused when a word anchors so many folders it can route nothing.
+/// - Content counts, not just the name, so `Scan 2026-03-02.pdf` can still seed a real rule.
+/// - Inherited from the parent when the folder is cold (an empty `…/T-Mobile/{year}` bucket in
+///   January), as ``FilingRouter/rank`` inherits evidence.
+/// - Verified against its own example through ``AutomationEvaluator``. The memory's anchors come
+///   from ``FilingRouter/tokenize`` but `mentionsAll` matches on ``FilingEngine/nameTokens``, so a
+///   word only the first produces would make a rule that never fires.
 ///
-/// - **Several words, not one.** A rule keys on a conjunction (``AutomationCondition/mentionsAll``),
-///   so `mobile` ∧ `autopay` names T-Mobile bills rather than everything mentioning either.
-/// - **Words that COME BACK, ranked by how well they discriminate — in that order.** The first cut
-///   ranked candidates by the memory's weight, which is rarity, which is a direct measure of *least
-///   likely to be seen again*: `Home/Utilities/T-Mobile/2025` weighs `awesome` (0.67 of its bills,
-///   one marketing campaign) and `appreciation` (0.33) above `autopay` and `paying`, which are in
-///   **every** bill it has ever held. So recurrence is a *filter* (``recurrenceFloor``) and rarity
-///   is the *ranking* inside it — the conjunction, not the individual word, supplies specificity.
-/// - **The pair is chosen, not two independent words** — see ``discriminatingPair(_:index:)``.
-///
-/// Measured end-to-end by replaying **1,428 real filings** from a 10,411-document tree, each rule
-/// evaluated against every other document in it (leave-one-out; the shipping Swift, not a model of
-/// it — they agree to 0.1 of a point):
-///
-/// | | recall | precision | matches nothing, ever |
-/// |---|---|---|---|
-/// | ranked by weight (before) | 44.9% | 53.1% | **7.8%** |
-/// | recurrence floor ＋ chosen pair | **67.2%** | **54.4%** | **1.3%** |
-///
-/// Recall is "will it ever fire again for a file that belongs there"; precision is "of the files it
-/// takes, how many belong". The old rule bought its precision by keying on words so rare that one
-/// rule in thirteen could never match anything again.
-/// - **Rejected when it is not discriminating at all.** A word carried as an anchor by hundreds of
-///   folders cannot route anything; the memory's posting list says how many, and that is the test.
-/// - **Content counts, not just the name.** The page the scan already read is a first-class source,
-///   so a file called `Scan 2026-03-02.pdf` can still seed a real rule.
-/// - **Inherited from the parent when the folder is cold.** A rule is learned for exactly the
-///   recurring document whose home is `…/T-Mobile/{year}` — a bucket that is empty in January and
-///   has no anchors of its own. Its parent's do the naming, the same way ``FilingRouter/rank``
-///   inherits evidence.
-/// - **Verified against its own example.** Every variant is run through ``AutomationEvaluator``
-///   against the file it was learned from; one that does not match is never offered. This is not
-///   ceremony: the memory's anchors were tokenized by ``FilingRouter/tokenize`` while `mentionsAll`
-///   matches on ``FilingEngine/nameTokens``, and a word only the first of those produces would mint
-///   a rule that is inert from birth.
-///
-/// With no profile loaded — the ordinary state, and every install that has never run the memory
-/// builder — the name/kind heuristics below are exactly what they always were.
-///
-/// Pure and framework-free so it's unit-testable and lives in Sync.
+/// With no profile loaded, the name/kind heuristics below apply. Pure and framework-free so it's
+/// unit-testable and lives in Sync.
 public enum AutomationRuleProposer {
 
     /// One way to phrase the rule, as a complete set of conditions (ALL of which must hold).
     ///
-    /// Variants replace the old "pick one of name / content / kind": a sophisticated rule is a
-    /// *conjunction*, and the choice a person actually wants to make is how tightly to draw it —
-    /// which the ordering below offers as narrower / balanced / broader rather than as three
-    /// unrelated conditions.
+    /// A rule is a *conjunction*, and the choice a person wants is how tightly to draw it, so the
+    /// variants are offered as narrower / balanced / broader.
     public struct Variant: Sendable, Equatable, Hashable, Identifiable {
         public let conditions: [AutomationCondition]
         /// Compact text for the picker chip, e.g. `“tmobile” + “autopay”`. The full sentence is
         /// ``summary``; the chip has to fit three-across in an inline prompt.
         public let chipLabel: String
-        /// A destination this phrasing needs instead of the proposal's.
-        ///
-        /// nil for every phrasing that files where the example went — which is all of them except
-        /// the `{person}` fan-out, whose whole point is that it files somewhere the example did
-        /// NOT: one rule that sends each person's copy to their own folder. A variant that changes
-        /// where files land has to say so, or picking it would silently keep the literal folder.
+        /// A destination this phrasing needs instead of the proposal's. nil for every phrasing but
+        /// the `{person}` fan-out, which sends each person's copy to their own folder. A variant
+        /// that changes where files land must say so, or picking it would keep the literal folder.
         public let destinationTemplate: String?
 
         public var id: [AutomationCondition] { conditions }
@@ -100,12 +67,12 @@ public enum AutomationRuleProposer {
         public var defaultVariant: Variant { variants[0] }
     }
 
-    /// What the scan already knows about this file and this tree. Every field is optional: a
-    /// proposal with none of it is the filename-and-extension heuristic this always had.
+    /// What the scan already knows about this file and this tree. Every field is optional: with
+    /// none of it, a proposal falls back to the filename-and-extension heuristic.
     public struct Evidence: Sendable {
-        /// The document's first page as the scan read it — the same text ``FilingRouter`` scores,
-        /// bounded to ``FilingRouter/contentSampleChars`` here so a caller handing over a whole
-        /// document cannot silently change which words a rule keys on.
+        /// The document's first page as the scan read it, the text ``FilingRouter`` scores. Bounded
+        /// to ``FilingRouter/contentSampleChars`` here, so a caller handing over a whole document
+        /// can't change which words a rule keys on.
         public var pageSample: String?
         /// The prepared profile + memory index for the tree being filed into.
         public var index: FilingRouter.Index?
@@ -122,10 +89,9 @@ public enum AutomationRuleProposer {
 
     /// English/tech stop-words and generic filing words that make useless match tokens on their own.
     ///
-    /// Retained for the no-memory path only. Where a memory exists this list is not the authority —
-    /// ``anchorBreadthCeiling`` is, because "generic" is a property of *this* tree ("insurance" is
-    /// a generic word in a tree with 40 insurance folders and a perfectly good key in one with a
-    /// single `Home/Insurance`), and a fixed list cannot know that.
+    /// For the no-memory path only. With a memory, ``anchorBreadthCeiling`` decides, because
+    /// "generic" depends on the tree: "insurance" is generic among 40 insurance folders and a good
+    /// key with a single `Home/Insurance`.
     private static let stopTokens: Set<String> = [
         "the", "and", "for", "with", "from", "copy", "final", "draft", "new", "old", "doc",
         "document", "file", "scan", "img", "image", "photo", "untitled", "report", "bill",
@@ -134,10 +100,8 @@ public enum AutomationRuleProposer {
 
     /// How many folders may carry a word as an anchor before it is refused as a rule key.
     ///
-    /// A word the memory records for 400 of 3,000 folders discriminates nothing — matching it is
-    /// close to matching every document — while a word recorded for two folders all but names one.
-    /// Scaled to the tree so it means the same thing in a 200-folder tree as in a 3,000-folder one,
-    /// with a floor so a small tree doesn't refuse every word it has.
+    /// A word recorded for 400 of 3,000 folders discriminates nothing; one recorded for two all but
+    /// names one. Scaled to the tree, with a floor so a small tree doesn't refuse every word.
     static func anchorBreadthCeiling(destinations: Int) -> Int {
         max(20, destinations / 50)
     }
@@ -153,30 +117,22 @@ public enum AutomationRuleProposer {
                                now: Date = Date()) -> Proposal? {
         let dest = destinationRelativePath.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
         guard !dest.isEmpty else { return nil }
-        // A relative destination is stored as a TEMPLATE, and the evaluator surfaces any leftover
-        // `{…}` as an unresolvable token — deliberately, so a user's typo'd `{yaer}` is reported
-        // rather than guessed at. But this path is not a template the user typed: it is the literal
-        // name of a folder they just filed into, and a real folder may legitimately be called
-        // "Q3 {final}". Proposing it would mint a rule that can never run — every dry run reporting
-        // it "needs {final}, which this file doesn't have" — with no way to express the real folder
-        // short of renaming it. `resolveDestination`'s carve-out only exempts ABSOLUTE literals, so
-        // decline instead of offering a rule that is inert from birth. Same call as the
-        // extension-less fallback below: no offer beats a bad one.
+        // A relative destination is stored as a template, and the evaluator reports any leftover
+        // `{…}` as unresolvable. A real folder called "Q3 {final}" would make a rule that can
+        // never run (only absolute literals are exempt), so decline: no offer beats a bad one.
         guard !dest.contains("{"), !dest.contains("}") else { return nil }
 
-        // Applied to the TEMPLATE only: the conditions below are derived from the folder's real
-        // name, and the brace guard above is about a folder literally called "Q3 {final}".
+        // Applied to the template only: the conditions below come from the folder's real name.
         let template = generalizingTrailingYear(in: dest, fileName: fileName,
                                                 modificationDate: modificationDate, now: now)
 
-        // The facts the offered rule is checked against — the same shape both surfaces evaluate,
-        // so "it matches its own example" means what it says.
+        // The facts the offered rule is checked against, in the shape both surfaces evaluate, so
+        // "it matches its own example" means what it says.
         let facts = exampleFacts(fileName: fileName, destination: dest, evidence: evidence,
                                  modificationDate: modificationDate)
 
-        // Already covered? A saved, runnable rule that matches this very file and lands it in this
-        // very folder has nothing to teach, and offering it again is how a user ends up with four
-        // rules that say the same thing.
+        // Already covered by a saved, runnable rule that files this file into this folder: offering
+        // it again would leave the user with duplicate rules.
         if AutomationRuleSet.eligible(evidence.existingRules).rules.contains(where: {
             $0.destinationTemplate == template
                 && AutomationEvaluator.matches($0, facts, now: now)
@@ -185,22 +141,20 @@ public enum AutomationRuleProposer {
         let keys = rankedKeys(dest: dest, evidence: evidence, facts: facts)
         let kind = FileKind.of(fileName: fileName)
         var variants = phrasings(keys: keys, kind: kind, fileName: fileName, index: evidence.index)
-        // Offered FIRST when they apply, because they are the better rule: a person bucket is the
-        // one destination whose defining axis a word-based rule cannot express.
+        // Offered first when they apply: a person's folder is the one destination a word-based rule
+        // can't express.
         variants = personVariants(dest: dest, template: template, facts: facts,
                                   keys: keys, evidence: evidence) + variants
 
-        // **Every variant has to match the file it was learned from.** The two tokenizers in play
-        // do not agree word for word (see the type doc), and a proposal that cannot match its own
-        // example is worse than no proposal: it is saved, reviewed, enabled, and silently never
-        // fires.
+        // Every variant has to match the file it was learned from. The two tokenizers don't agree
+        // word for word (see the type doc), and a rule that can't match its own example would be
+        // saved, enabled, and silently never fire.
         variants = variants.filter { variant in
             let probe = AutomationRule(name: "probe", matchMode: .all, conditions: variant.conditions,
                                        destinationTemplate: variant.destinationTemplate ?? template)
             guard AutomationEvaluator.matches(probe, facts, now: now) else { return false }
-            // A variant that redirects has to RESOLVE too, and to the folder the example actually
-            // went to. `{person}` reproducing `Immigration/OCI/Daughter` is the claim being made; if
-            // it resolved anywhere else the offer would quietly re-file the example.
+            // A variant that redirects must also resolve to the folder the example went to
+            // (`{person}` reproducing `Immigration/OCI/Daughter`), or it would re-file the example.
             guard let redirected = variant.destinationTemplate else { return true }
             guard case .resolved(let path) = AutomationEvaluator.resolveDestination(
                     redirected, for: facts, providerName: nil, now: now)
@@ -226,67 +180,43 @@ public enum AutomationRuleProposer {
     struct Key: Equatable {
         let token: String
         let score: Double
-        /// Share of the destination's filed documents that contain this word — see
-        /// ``recurrenceOf(_:dest:index:)``. 0 when there is no memory to ask.
+        /// Share of the destination's filed documents that contain this word
+        /// (``recurrenceOf(_:dest:index:)``). 0 when there is no memory to ask.
         var recurrence: Double = 0
 
-        /// Whether something in the tree actually vouches for this word — a memory anchor, the
-        /// folder's own name, or an identifier the folder has received before.
-        ///
-        /// **Only supported words may be conjoined.** The unsupported ones score on length alone
-        /// (the no-memory fallback), and pairing two of those produces a rule keyed on an incidental
-        /// word: `T-Mobile-bill-Mar.pdf` would learn `mentions “mobile” and “mar”`, which files
-        /// March and nothing else. One such word can carry a rule; two cannot.
+        /// Whether something in the tree vouches for this word: a memory anchor, the folder's own
+        /// name, or an identifier the folder has received. Only supported words may be conjoined:
+        /// unsupported ones score on length alone, and `T-Mobile-bill-Mar.pdf` would learn
+        /// `mentions “mobile” and “mar”`, which files March and nothing else.
         var isSupported: Bool { score >= supportFloor }
     }
 
     /// How much of the destination's filed documents a word must appear in before it may key a rule.
-    ///
-    /// **This is the difference between a rule and a souvenir.** Swept over 1,428 real filings,
-    /// F1 of the offered pair against the rest of the tree:
-    ///
-    /// | floor | 0 | 0.4 | 0.5 | **0.6** | 0.75 | 0.9 | 1.0 |
-    /// |---|---|---|---|---|---|---|---|
-    /// | F1 | 57.4 | 58.0 | 58.2 | **60.2** | 60.0 | 59.4 | 59.0 |
-    /// | never fires | 4.8% | 4.0% | 4.0% | **1.2%** | 1.3% | 1.8% | 1.8% |
-    ///
-    /// A real peak rather than a slope: below it the rare words come back, above it the pool thins
-    /// to words so common that precision starts paying for recall (71.2% / 50.4% at 1.0). Note that
-    /// even floor 0 beats the shipped 48.7 — most of that gain is the *pair* being chosen rather
-    /// than the words being filtered — but the floor is what takes "never fires again" from one
-    /// rule in twenty-one to one in eighty.
+    /// 0.6 is the peak of a sweep over 1,428 real filings (F1 60.2, with 1.2% of rules never firing
+    /// against 4.8% at 0): lower lets rare words back in, higher thins the pool to words so common
+    /// that precision pays for recall.
     static let recurrenceFloor = 0.6
 
-    /// The score below which a key is a guess rather than evidence — see ``Key/isSupported``.
-    ///
-    /// Naming the folder scores 2.0 and a known identifier 4.0, so both clear it outright; the
-    /// length fallback lands at 0.0x by construction and never does. An anchor carries the weight
-    /// the memory recorded, which is a rarity score — one below 1.0 is a word this tree barely
-    /// distinguishes anything by, and belongs on the guess side of the line with the fallback.
+    /// The score below which a key is a guess rather than evidence (``Key/isSupported``). Naming the
+    /// folder scores 2.0 and the length fallback 0.0x, so one always clears it and the other never
+    /// does. An anchor below 1.0 is a word this tree barely tells anything apart by.
     static let supportFloor = 1.0
 
     /// The words worth keying a rule on, strongest first.
     ///
-    /// Candidates come from the domain that will do the *matching* — `FilingEngine.fileTokens` for
-    /// the name and `FilingEngine.nameTokens` for the page — and are scored from the domain that
-    /// has the *weights*, the memory's anchors. Picking from the scoring domain instead was the
-    /// available shortcut and the wrong one: it yields words the evaluator never produces.
+    /// Candidates come from the tokenizers that do the *matching* (`FilingEngine.fileTokens` for the
+    /// name, `FilingEngine.nameTokens` for the page) and are scored by the memory's anchors. Picking
+    /// from the anchors instead would yield words the evaluator never produces.
     ///
-    /// **`score` ranks how well a word DISCRIMINATES, which is not the same question as whether it
-    /// will ever be seen again.** An anchor's weight is its rarity, so ranking by it ranks by
-    /// *least likely to recur*: `Home/Utilities/T-Mobile/2025`'s heaviest anchors are `awesome`
-    /// (5.95, one marketing campaign) and `unlimited` (5.25), while `autopay` and `mobile` — in
-    /// every bill the folder has ever received — rank below them. Measured over 1,432 real filings,
-    /// keying on the two heaviest words made a rule that matched **nothing else in the tree 7.8% of
-    /// the time** and recovered only 44.5% of the documents it should. So this is only half the
-    /// input: ``recurrenceOf(_:dest:index:)`` supplies the other half, and ``rankedKeys`` returns
-    /// both for the picker to weigh.
+    /// `score` ranks how well a word discriminates, not whether it will be seen again: an anchor's
+    /// weight is its rarity, so a one-off `awesome` outranks `autopay`, which is in every bill.
+    /// ``recurrenceOf(_:dest:index:)`` supplies the other half, and each key carries both.
     static func rankedKeys(dest: String, evidence: Evidence, facts: AutomationFileFacts) -> [Key] {
         let nameTokens = facts.nameTokens
         let bodyTokens = facts.contentTokens
         let index = evidence.index
-        // The folder's own name is a signal in its own right (it is the only one the no-memory path
-        // has), read the same way the router reads it so `H-1B` and `H1B` are one folder.
+        // The folder's own name is a signal too (the only one without a memory), read as the router
+        // reads it so `H-1B` and `H1B` are one folder.
         let destTokens = FilingRouter.pathTokens(of: dest)
         let anchors = anchorWeights(for: dest, index: index)
         let ceiling = anchorBreadthCeiling(destinations: index?.destinations.count ?? 0)
@@ -294,30 +224,25 @@ public enum AutomationRuleProposer {
         var keys: [Key] = []
         for token in nameTokens.union(bodyTokens) {
             // A year is what `{year}` is for. Keying on one freezes the rule to a single year's
-            // documents — the same defect `generalizingTrailingYear` exists to prevent, arriving
-            // through the condition instead of through the destination.
+            // documents, as a literal year folder would (`generalizingTrailingYear`).
             if FilingRouter.isYearToken(token) { continue }
             var score = 0.0
             if FilingRouter.isIdentifier(token) {
-                // A digit-bearing word is either the best key there is or the worst. A receipt
-                // number the destination's filed documents already carry names that folder alone;
-                // the same shape from an invoice number nothing has seen before makes a rule that
-                // matches exactly one file, forever. The memory decides which it is.
-                //
-                // A *bare* number never gets this far whatever the memory says — `fileTokens` keeps
-                // only years among pure digits, so `mentionsAll` could not answer it. The
-                // verification pass drops it if it ever does.
+                // A digit-bearing word is the best key or the worst: an account number the folder
+                // has received names it alone, while a fresh invoice number matches one file,
+                // forever. The memory decides which. A bare number can't be matched by `mentionsAll`
+                // (`fileTokens` keeps only years among pure digits); verification drops it.
                 guard let index, let weight = identifierWeight(token, dest: dest, index: index)
                 else { continue }
-                // Weighted exactly as `FilingRouter.rank` weights an identifier hit, so the word
-                // that most nearly names this folder on its own also ranks first here.
+                // Weighted as `FilingRouter.rank` weights an identifier hit, so the word that most
+                // nearly names this folder also ranks first here.
                 score += weight * FilingRouter.identifierBoost
             }
             if let weight = anchors[token] { score += weight }
             if destTokens.contains(token) { score += 2.0 }
             if score == 0 {
-                // Nothing in the tree vouches for this word. With a memory loaded that is a verdict;
-                // without one, fall back to the old shape — a long, non-generic word is all there is.
+                // Nothing in the tree vouches for this word. With a memory that is a verdict; without
+                // one, a long, non-generic word is all there is.
                 guard index == nil, token.count >= 3, !stopTokens.contains(token) else { continue }
                 score = Double(token.count) / 100.0        // longest-wins, below every real signal
             }
@@ -334,30 +259,22 @@ public enum AutomationRuleProposer {
     /// How often this word comes back: the share of the destination's already-filed documents whose
     /// first page contains it, and the answer to "will this rule ever fire again".
     ///
-    /// **Read from the memory when it records it, estimated from the family when it does not.** The
-    /// builder counts the documents a token appears in — that is where `weight`'s own term-frequency
-    /// half comes from — and now stores the share alongside it. An artifact built before that has no
-    /// `df`, so the fallback asks the folder's family instead: of the sibling folders that carry
-    /// anchors at all (`Home/Utilities/T-Mobile/2022…2025`), how many list this word? `autopay` is
-    /// in four of them and `awesome` in two, which separates a recurring word from a one-off without
-    /// any change to the file. Measured, the recorded share is worth ~9 points of F1 over the
-    /// estimate — enough to be worth rebuilding the memory for, and not enough to make an old
-    /// artifact useless.
+    /// Read from the memory when it records the share. An older artifact without `df` falls back
+    /// to the folder's family: of the related folders with anchors
+    /// (`Home/Utilities/T-Mobile/2022…2025`), how many list this word. The recorded share is worth
+    /// about 9 points of F1 over the estimate.
     static func recurrenceOf(_ token: String, dest: String, index: FilingRouter.Index?) -> Double {
         guard let index else { return 0 }
         let source = anchorSource(for: dest, index: index) ?? dest
         if let recorded = index.docFrequencyByFolder[source]?[token] { return recorded }
-        // A digit-bearing word is stored hashed, on the other list, and its share is recorded there.
-        // Without this it can never clear the floor — an account number is not an *anchor*, so the
-        // readable map has nothing to say about it, and the one class of word that most nearly names
-        // a folder on its own would be filtered out of every rule.
+        // A digit-bearing word is stored hashed, on the other list, with its share. Without this an
+        // account number, the word that most nearly names a folder, could never clear the floor.
         if FilingRouter.isIdentifier(token) {
             let hashed = FilingMemory.hash(token, salt: index.salt)
             if let recorded = index.idDocFrequencyByFolder[source]?[hashed] { return recorded }
-            // Recorded by an artifact that predates the share: reaching this line at all means the
-            // folder has already received this identifier (the caller checked), and the builder only
-            // records one that recurred in any folder big enough to say so. Treat that as evidence
-            // rather than dropping the strongest key a rule can have.
+            // An older artifact without the share: the folder has received this identifier, and the
+            // builder records only ones that recurred, so treat it as evidence rather than drop
+            // the strongest key a rule can have.
             if identifierWeight(token, dest: dest, index: index) != nil { return 1.0 }
         }
         // No recorded share: how much of this folder's family is known by the word?
@@ -371,19 +288,15 @@ public enum AutomationRuleProposer {
         return Double(known.filter { index.anchorsByFolder[$0]?[token] != nil }.count) / Double(known.count)
     }
 
-    /// The anchors that name `dest`, inherited from the nearest ancestor that has any.
-    ///
-    /// **A cold folder has no anchors of its own, and it is the folder rules are for.** The home of
-    /// a recurring document is `Home/Utilities/T-Mobile/{year}`, whose current-year bucket holds
-    /// nothing in January — so scoring it on its own content gives every candidate word zero and
-    /// the proposal falls back to the filename. Its parent holds twelve bills a year. Same rule,
-    /// and the same reason, as the inheritance in ``FilingRouter/rank``.
+    /// The anchors that name `dest`, inherited from the nearest ancestor that has any. A cold
+    /// folder, such as January's empty `Home/Utilities/T-Mobile/{year}` bucket, is exactly what
+    /// rules are for, and its parent holds the year's bills. As in ``FilingRouter/rank``.
     static func anchorWeights(for dest: String, index: FilingRouter.Index?) -> [String: Double] {
         guard let index, let source = anchorSource(for: dest, index: index) else { return [:] }
         return index.anchorsByFolder[source] ?? [:]
     }
 
-    /// The folder whose anchors describe `dest` — itself, or the nearest ancestor that has any.
+    /// The folder whose anchors describe `dest`: itself, or the nearest ancestor that has any.
     /// Recurrence has to be read from the same folder the weights came from, or a cold bucket
     /// scores its parent's words against its own (empty) document count.
     static func anchorSource(for dest: String, index: FilingRouter.Index) -> String? {
@@ -395,8 +308,8 @@ public enum AutomationRuleProposer {
         }
     }
 
-    /// How heavily the destination — or an ancestor, for the same cold-folder reason anchors are
-    /// inherited — is known by this identifier, or nil when it has never received one.
+    /// How heavily the destination, or an ancestor (as anchors are inherited), is known by this
+    /// identifier; nil when it has never received one.
     static func identifierWeight(_ token: String, dest: String, index: FilingRouter.Index) -> Double? {
         guard let postings = index.byIdHash[FilingMemory.hash(token, salt: index.salt)] else { return nil }
         return postings
@@ -409,40 +322,29 @@ public enum AutomationRuleProposer {
 
     /// The words that come back often enough to key a rule on, best first.
     ///
-    /// **Filter by recurrence, rank by discrimination — in that order.** The two questions a rule
-    /// has to answer are "will it fire again?" and "will it only take the right files?", and they
-    /// pull opposite ways: the rarest word discriminates best and recurs worst. Ranking on a blend
-    /// tries to serve both with one number and serves neither (measured: F1 50.9 against 48.6 for
-    /// the weight-only ranking, when the achievable figure is 63). Filtering first and ranking
-    /// second gets 57–60, because the conjunction — not the individual word — is what supplies the
-    /// specificity, and a word only has to survive the floor to be allowed to do its job.
+    /// Filter by recurrence, then rank by discrimination. "Will it fire again?" and "will it take
+    /// only the right files?" pull opposite ways, and a blended score serves neither (F1 about 51,
+    /// against 57–60 for filter-then-rank). The conjunction supplies the specificity, so a word only
+    /// has to clear the floor.
     static func recurringKeys(_ keys: [Key]) -> [Key] {
         let recurring = keys.filter { $0.recurrence >= recurrenceFloor }
         // No memory, or nothing clears the floor: fall back to the plain ranking rather than
-        // refusing to propose. An install with no profile has no recurrence to read at all.
+        // refusing to propose.
         return recurring.isEmpty ? keys : recurring
     }
 
     /// The two words to conjoin: the most recurring pair, and among equals the pair that reaches the
     /// fewest folders between them.
     ///
-    /// **A rule files on the conjunction, so the conjunction is what has to be chosen.** Picking the
-    /// two best words independently picks two words that often describe the same thing — `autopay`
-    /// and `paying` are anchors of the same fourteen folders, so requiring both narrows nothing.
-    /// The memory already says which folders each word is an anchor of, so the overlap of two
-    /// posting lists is a free estimate of how much the pair still lets through.
+    /// The conjunction is what files, so it is what is chosen: two words picked independently often
+    /// describe the same thing (`autopay` and `paying` anchor the same folders), and requiring both
+    /// narrows nothing. The overlap of their posting lists estimates what the pair lets through.
     ///
-    /// **Recurrence is compared in half-steps, and that ordering is the whole design.** Sorting on
-    /// raw overlap first is a second rarity ranking wearing a different hat — it re-prefers the
-    /// scarce word the floor was put there to demote (65.6% recall / 55.0% precision). Sorting on
-    /// raw recurrence first spends precision on differences of a twelfth of a folder's documents
-    /// (71.9% / 51.7%). Rounding to the nearest half treats 1.0 and 0.9 as the same answer and lets
-    /// overlap decide between them: **67.3% / 54.5%, the best of the three (F1 60.2 against 59.8
-    /// and 60.1)** — a small margin honestly, and the reason to prefer it over raw-recurrence is
-    /// that it is the one that does not systematically drift toward either failure.
+    /// Recurrence is compared in half-steps, then overlap breaks the tie. Overlap first re-prefers
+    /// the scarce words the floor demotes; raw recurrence first spends precision on tiny
+    /// differences. Half-steps scored best (F1 60.2) and drift toward neither failure.
     ///
-    /// Bounded to the strongest few candidates — this is quadratic, and a document's page routinely
-    /// offers a dozen words that clear the floor.
+    /// Bounded to the strongest few candidates, since this is quadratic.
     static func discriminatingPair(_ keys: [Key], index: FilingRouter.Index?) -> [String] {
         let pool = Array(keys.prefix(pairSearchPool))
         guard pool.count >= 2 else { return pool.map(\.token) }
@@ -454,8 +356,7 @@ public enum AutomationRuleProposer {
                 let a = pool[i], b = pool[j]
                 let fa = Set((index.byAnchor[a.token] ?? []).map(\.folder))
                 let fb = Set((index.byAnchor[b.token] ?? []).map(\.folder))
-                // Ties break on weight and then on the tokens — so the offer is the same on every
-                // run whatever order the candidates arrived in.
+                // Ties break on weight, then on the tokens, so the offer is the same on every run.
                 let key = (-(((a.recurrence + b.recurrence) * 2).rounded() / 2),
                            fa.intersection(fb).count,
                            -(a.score + b.score),
@@ -469,9 +370,8 @@ public enum AutomationRuleProposer {
         return best
     }
 
-    /// Lexicographic comparison of the pair-ranking key. Swift compares tuples of up to six
-    /// elements, but only when every element is `Comparable` in the same way — spelled out here so
-    /// the ordering is readable rather than inferred.
+    /// Lexicographic comparison of the pair-ranking key, spelled out so the ordering is readable
+    /// rather than inferred.
     private static func isLower(_ a: (Double, Int, Double, String, String),
                                 than b: (Double, Int, Double, String, String)) -> Bool {
         if a.0 != b.0 { return a.0 < b.0 }
@@ -481,19 +381,17 @@ public enum AutomationRuleProposer {
         return a.4 < b.4
     }
 
-    /// How many candidates the pair search considers. Quadratic, and the words below the top few
-    /// are there to be a third option rather than a serious pair.
+    /// How many candidates the pair search considers. Quadratic, and words below the top few serve
+    /// as a third option rather than a serious pair.
     static let pairSearchPool = 8
 
     // MARK: - Phrasing
 
     /// The ways to phrase the rule, from the keys, best first.
     ///
-    /// The ordering is deliberate: **two words is the default**, and the width sweep is not close —
-    /// one word takes 73.5% of the right files but only 34.7% of what it takes belongs (F1 47.2),
-    /// three takes 63.0% at 56.0% (F1 59.3), two takes 67.3% at 54.5% (**F1 60.2**). Narrower and
-    /// broader are offered either side of it because the trade is real and which way to lean is the
-    /// user's call, not this function's.
+    /// Two words is the default, by a clear margin (F1 60.2, against 59.3 for three and 47.2 for
+    /// one). Narrower and broader are offered either side because the trade is real and which way
+    /// to lean is the user's call.
     static func phrasings(keys allKeys: [Key], kind: FileKind?, fileName: String,
                           index: FilingRouter.Index?) -> [Variant] {
         var out: [Variant] = []
@@ -502,10 +400,8 @@ public enum AutomationRuleProposer {
         if keys.count >= 2, keys[0].isSupported, keys[1].isSupported {
             let pair = discriminatingPair(keys, index: index)
             out.append(Variant(conditions: [.mentionsAll(pair)], chipLabel: quoted(pair)))
-            // Narrower: a third recurring word if there is one — measured 53.0% precision against
-            // the pair's 54.1%, so it is a real alternative rather than a strictly worse one, and
-            // it is what a person reaches for when the pair took something it shouldn't. Only the
-            // kind when there is no third word left.
+            // Narrower: a third recurring word if there is one, for when the pair took something it
+            // shouldn't. The kind only when no third word is left.
             if let third = keys.first(where: { !pair.contains($0.token) })?.token {
                 let triple = pair + [third]
                 out.append(Variant(conditions: [.mentionsAll(triple)], chipLabel: quoted(triple)))
@@ -520,18 +416,15 @@ public enum AutomationRuleProposer {
                 out.append(Variant(conditions: [.mentionsAll([only]), .kindIs(kind)],
                                    chipLabel: "\(quoted([only])) + \(kind.label)"))
             }
-            // The old phrasing, kept as the loosest option: a glob matches a word inside a longer
-            // one (`*mobile*` catches `T-Mobile`), which is sometimes exactly what a person means.
+            // The loosest option: a glob matches a word inside a longer one (`*mobile*` catches
+            // `T-Mobile`), which is sometimes exactly what a person means.
             out.append(Variant(conditions: [.nameMatches("*\(only)*")], chipLabel: "name *\(only)*"))
         }
         if out.isEmpty, let kind {
             out.append(Variant(conditions: [.kindIs(kind)], chipLabel: kind.label))
         }
-        // Guarantee at least one condition — a name glob on the extension. With no distinctive
-        // word, no content match, AND no extension to anchor on, the only fallback would be
-        // `name matches *` — a match-EVERYTHING rule that files every loose file into this folder.
-        // One token-less, extension-less example (e.g. "ab", "2024") isn't enough signal to learn a
-        // rule from, so decline to propose rather than offer a dangerous universal glob.
+        // Fall back to a name glob on the extension. With no extension either, the only fallback
+        // would be `name matches *`, a rule that files every loose file here, so decline instead.
         if out.isEmpty {
             let ext = (fileName as NSString).pathExtension
             guard !ext.isEmpty else { return [] }
@@ -544,9 +437,8 @@ public enum AutomationRuleProposer {
         tokens.map { "“\($0)”" }.joined(separator: " + ")
     }
 
-    /// The rule's display name — the folder it files into, which is what a person calls the rule
-    /// ("T-Mobile"), falling back to the words it keys on. `{year}` and friends are skipped: a rule
-    /// called "{year}" names nothing.
+    /// The rule's display name: the folder it files into ("T-Mobile"), else the words it keys on.
+    /// `{year}` and friends are skipped: a rule called "{year}" names nothing.
     static func ruleName(keys: [Key], dest: String, template: String) -> String {
         let literal = template.split(separator: "/").map(String.init)
             .last(where: { !$0.contains("{") })
@@ -557,10 +449,9 @@ public enum AutomationRuleProposer {
 
     // MARK: - The example, as the evaluator sees it
 
-    /// The filed file as ``AutomationFileFacts`` — name, kind, and the page the scan read, reduced
-    /// to content tokens exactly as both live surfaces reduce them (`FilingEngine.nameTokens` over
-    /// the extracted text). A rule verified against these facts behaves the same way in the
-    /// Automations dry run and in the next Organize scan.
+    /// The filed file as ``AutomationFileFacts``: name, kind, and the page the scan read, reduced to
+    /// content tokens as both live surfaces reduce them, so a rule verified here behaves the same in
+    /// the Automations dry run and the next Organize scan.
     static func exampleFacts(fileName: String, destination: String, evidence: Evidence,
                              modificationDate: Date?) -> AutomationFileFacts {
         let sample = evidence.pageSample.map { String($0.prefix(FilingRouter.contentSampleChars)) }
@@ -574,40 +465,31 @@ public enum AutomationRuleProposer {
             isDirectory: false,
             snippet: sample?.lowercased(),
             contentTokens: sample.map { FilingEngine.nameTokens($0) } ?? [])
-            // **Attributed, or the self-match check below silently deletes every person variant.**
-            // The verification step asks whether the offered rule matches its own example; a
-            // `personIs` condition tested against facts with no people resolved is false for every
-            // file, so the offer would be built and then thrown away with no trace.
+            // Attributed, or the self-match check silently drops every person variant: `personIs`
+            // is false for facts with no people resolved.
             .attributing(evidence.index?.registry)
     }
 
-    /// The rules only a household can express — offered when the folder just filed into is one
-    /// person's, and the document says so.
+    /// The rules only a household can express, offered when the folder just filed into is one
+    /// person's and the document says so.
     ///
-    /// **Two offers, and the second is the point of the whole feature.** The first keys the rule on
-    /// the person (`is Daughter's document` + the topic word), which is worth having because
-    /// `mentionsAll(["daughter"])` is not the same claim — `father` is one person's given name and
-    /// three others' surname, so a word-keyed person rule is wrong for most of this household and
-    /// merely lucky for the rest.
+    /// The first keys on the person (`is Daughter's document` + the topic word), not on their name
+    /// as a word: a name can be one person's given name and others' surname.
     ///
-    /// The second replaces the person's own folder with `{person}` and drops the person condition
-    /// entirely: `Immigration/OCI/Daughter` becomes `Immigration/OCI/{person}`, so one rule files
-    /// **everybody's** OCI card into their own folder. That is the generalisation the roadmap
-    /// promised — one rule, seven people — and it is only safe to offer because the token resolves
-    /// to `.unresolved` rather than guessing when a document names nobody or names two.
+    /// The second replaces the person's folder with `{person}` and drops the person condition:
+    /// `Immigration/OCI/{person}` files everybody's OCI card into their own folder. Safe only
+    /// because the token is `.unresolved`, never a guess, when a document names nobody or two.
     static func personVariants(dest: String, template: String, facts: AutomationFileFacts,
                                keys: [Key], evidence: Evidence) -> [Variant] {
         guard let index = evidence.index, let registry = index.registry,
-              // The document has to be about exactly one person — two people name no single folder.
+              // The document has to be about exactly one person: two name no single folder.
               facts.personIds.count == 1, let personId = facts.personIds.first,
               let person = registry.people.first(where: { $0.id == personId }),
-              // …and the folder has to be THEIRS. Filing Daughter's document into a shared folder
-              // teaches nothing about people; it is an ordinary topic rule.
+              // …and the folder has to be theirs. A shared folder teaches nothing about people.
               index.folderPerson[dest] == personId else { return [] }
 
-        // The topic, from the ranked keys — but never the person's own name, which the condition
-        // now expresses properly. Without this the offer reads "is Daughter's document and mentions
-        // 'daughter'", which is the word-keyed rule wearing a costume.
+        // The topic, from the ranked keys, but never the person's own name, which the condition
+        // already expresses.
         let personWords = Set(PersonRegistry.words(person.displayName)
                               + person.fullNames.flatMap { PersonRegistry.words($0) }
                               + person.aliases.flatMap { PersonRegistry.words($0) })
@@ -622,8 +504,8 @@ public enum AutomationRuleProposer {
                                chipLabel: person.displayName))
         }
 
-        // The fan-out. Only when the folder is named for the person — `Immigration/OCI/Daughter` — so
-        // the substitution reproduces the path it was learned from rather than inventing one.
+        // The fan-out, only when the folder is named for the person (`Immigration/OCI/Daughter`), so
+        // the substitution reproduces the path it was learned from.
         let last = (dest as NSString).lastPathComponent
         if PersonRegistry.words(last) == PersonRegistry.words(person.displayName), let topic {
             let parent = (dest as NSString).deletingLastPathComponent
@@ -634,23 +516,15 @@ public enum AutomationRuleProposer {
         return out
     }
 
-    /// A destination ending in the example's own year becomes `{year}`.
+    /// A destination ending in the example's own year becomes `{year}`. A literal year would freeze
+    /// the one axis that varies: a rule learned in `Home/Utilities/T-Mobile/2025` would file every
+    /// future bill into 2025. Year folders are where recurring documents go, which is what learned
+    /// rules are for.
     ///
-    /// **A literal year freezes the one axis that varies.** A rule learned from a bill filed into
-    /// `Home/Utilities/T-Mobile/2025` files every future bill into 2025 — and a rule learned in
-    /// December misfiles everything from January. This is not a rare shape: the surveyed tree has
-    /// 738 year-bucket folders, and they are where recurring documents go, which is exactly the
-    /// kind of document a learned rule is for. Seen in the wild as a `DetailedBill` rule pinned to
-    /// `Home/Utilities/T-Mobile/2026` that sent an April 2025 statement to an empty 2026 folder.
-    ///
-    /// **Only when the literal is the year this example resolves to.** `{year}` reads the filename
-    /// first and the modification date second (see `AutomationEvaluator`), so substituting when
-    /// they agree is a rewrite that cannot change where THIS file goes — it only generalises to the
-    /// next one. When they disagree the user filed a 2025 document into 2026 on purpose, and that
-    /// intent is kept verbatim.
-    ///
-    /// Spans (`2024-2026`) are left alone: `{year}` cannot reproduce one, so there is nothing to
-    /// generalise to.
+    /// Only when the literal is the year this example resolves to (filename first, then
+    /// modification date, as `AutomationEvaluator` reads it), so this file goes where it went. When
+    /// they disagree the user filed it there on purpose, and the folder is kept. Spans
+    /// (`2024-2026`) are left alone: `{year}` can't reproduce one.
     static func generalizingTrailingYear(in dest: String, fileName: String,
                                          modificationDate: Date?, now: Date) -> String {
         let parts = dest.split(separator: "/").map(String.init)

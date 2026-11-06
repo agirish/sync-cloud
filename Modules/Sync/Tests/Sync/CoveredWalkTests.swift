@@ -2,26 +2,20 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **The walk half of `FileNode.isCoveredElsewhere`** — does the tree builder notice that a folder
-/// it linked in is one it also reaches directly, and does it decline to say so when it isn't?
-///
-/// Both directions matter and they pull opposite ways. Mark too little and a `~` scan counts
-/// `~/Documents` twice (Storage over by its whole size, Duplicates offering to Trash it as a copy
-/// of itself — both measured on a real machine 2026-09-08). Mark too much and a scan rooted AT the
-/// iCloud container loses that folder from its totals entirely, because there the link is the only
+/// The walk half of `FileNode.isCoveredElsewhere`: the tree builder marks a linked-in folder it
+/// also reaches directly, and only then. Mark too little and a `~` scan counts `~/Documents` twice
+/// (Storage over by its size, Duplicates offering to Trash it as a copy of itself). Mark too much
+/// and a scan rooted at the iCloud container loses the folder, since there the link is the only
 /// route to it.
 @Suite(.serialized) struct CoveredWalkTests {
 
-    /// A root holding `Documents/a.txt` and a container that links `Documents` back in — the shape
-    /// macOS's Desktop & Documents syncing really makes.
+    /// A root holding `Documents/a.txt` and a container that links `Documents` back in, the shape
+    /// macOS's Desktop & Documents syncing makes.
     ///
-    /// **The spelling is taken from the filesystem, not predicted.** Neither
+    /// The spelling is taken from the filesystem, not predicted. Neither
     /// `URL.resolvingSymlinksInPath()` nor `NSString`'s equivalent turns `/var/folders/…` into
-    /// `/private/var/folders/…` on this platform, but `contentsOfDirectory(at:)` returns the
-    /// resolved form — and a link table keyed on the other spelling silently never matches, so the
-    /// substitution under test never runs and the suite passes while measuring nothing. That
-    /// mistake produced two wrong conclusions before it was caught, including "no fixture can
-    /// reproduce this".
+    /// `/private/var/folders/…`, but `contentsOfDirectory(at:)` returns the resolved form, and a
+    /// link table keyed on the other spelling never matches, so the suite would measure nothing.
     static func fixture() throws -> (root: URL, real: URL, container: URL) {
         let fm = FileManager.default
         let raw = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -47,7 +41,7 @@ import Foundation
         for n in ns { if n.id == id { out.append(n) }; if n.isDirectory { nodes(n.children ?? [], id: id, into: &out) } }
     }
 
-    /// Walking the root reaches `Documents` twice, with ONE id — and only the second is marked.
+    /// Walking the root reaches `Documents` twice with one id, and only the second is marked.
     @Test func aFolderReachedTwiceIsMarkedOnceAndCountedOnce() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
@@ -56,15 +50,14 @@ import Foundation
         var hits: [FileNode] = []
         Self.nodes(tree, id: f.real.path, into: &hits)
 
-        // The premise the whole flag exists for: the substitution really does put the SAME path in
-        // the tree twice, and neither copy is a symlink — so `isSymbolicLink` could never have
-        // caught this.
+        // The premise: the substitution puts the same path in the tree twice, and neither copy is
+        // a symlink, so `isSymbolicLink` can't catch it.
         #expect(hits.count == 2, "the fixture did not reproduce the double reach (hits: \(hits.count)) — the link table probably never matched")
         #expect(hits.allSatisfy { $0.isSymbolicLink != true }, "a copy is flagged as a symlink; this case is defined by NOT being one")
         #expect(hits.filter { $0.isCoveredElsewhere == true }.count == 1,
                 "expected exactly one of the two reaches to be marked, got \(hits.map(\.isCoveredElsewhere))")
 
-        // And the direct one — the shorter route — is the copy left unmarked.
+        // The direct one, the shorter route, is the copy left unmarked.
         var direct: [FileNode] = []
         Self.nodes(tree, id: f.real.path, into: &direct)
         #expect(direct.first?.isCoveredElsewhere != true,
@@ -74,8 +67,8 @@ import Foundation
                 "Storage counted the 1000-byte file more than once")
     }
 
-    /// **Rooted at the container, the link is the ONLY route** — nothing may be marked, or that
-    /// source loses the folder from every total it reports.
+    /// Rooted at the container, the link is the only route: nothing may be marked, or that source
+    /// loses the folder from every total it reports.
     @Test func aFolderReachedOnlyThroughTheLinkIsNotMarked() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
@@ -90,7 +83,7 @@ import Foundation
                 "the container's own total lost the linked folder")
     }
 
-    /// A walk with no link table is untouched — the flag must never appear on an ordinary tree.
+    /// A walk with no link table is untouched: the flag never appears on an ordinary tree.
     @Test func anOrdinaryWalkMarksNothing() async throws {
         let f = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }

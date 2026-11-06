@@ -3,14 +3,11 @@ import Foundation
 
 /// The last Storage Lens report for each scanned root, kept across launches.
 ///
-/// **Storage is the only lens whose results are restored, and the reason is what its actions do.**
-/// Duplicates and Organize both attach a destructive apply to a row — trash this copy, move this
-/// file — so a restored row is an offer to act on a world that may have moved on since. Storage
-/// never mutates anything; its one action is Reveal in Finder. Restoring it therefore risks a
-/// stale *reading*, which the freshness marker states outright, rather than a stale *offer*.
-///
-/// The counterpart for the other two lenses is not restoring their results but making the rescan
-/// cheap — the verdict cache and the persisted hash index.
+/// Storage is the only lens whose results are restored. Duplicates and Organize attach a
+/// destructive apply to each row, so a restored row would offer to act on a world that may have
+/// moved on. Storage only offers Reveal in Finder, so the worst case is a stale reading, which the
+/// freshness marker states. The other lenses make the rescan cheap instead (the verdict cache and
+/// the hash index).
 public struct StorageLensSnapshot: Codable, Sendable, Equatable {
     /// Absolute path of the root this report describes.
     public let root: String
@@ -27,24 +24,21 @@ public struct StorageLensSnapshot: Codable, Sendable, Equatable {
 
 /// Reads and writes ``StorageLensSnapshot``s, keyed by root.
 ///
-/// Small by construction, unlike the other two on-disk caches: a report holds `topN` rows per list
-/// (20) and `treemapBuckets` areas (8), so one snapshot is tens of kilobytes however large the tree
-/// it describes. That is why this one loads synchronously and keeps every root, where the hash
-/// index needed a background load and an eviction policy.
+/// Small by construction: a report holds `topN` rows per list and `treemapBuckets` areas, so a
+/// snapshot is tens of kilobytes however large the tree. So it loads synchronously and needs no
+/// eviction beyond ``maxRoots``, unlike the hash index.
 public enum StorageLensStore {
 
-    /// Bumped when the snapshot shape changes; a foreign schema is discarded rather than migrated,
-    /// for the same reason as the other stores — the contents are a re-scan away.
+    /// Bumped when the snapshot shape changes. A foreign schema is never migrated (the contents
+    /// are a re-scan away); see ``Read/foreignSchema(_:)`` for how it is handled.
     public static let currentSchema = 1
 
-    /// How many roots to keep. Someone who points Storage at a dozen folders should not accumulate
-    /// snapshots forever, and the oldest is the least likely to be wanted.
+    /// How many roots to keep; the oldest snapshot is dropped first.
     public static let maxRoots = 12
 
     /// `~/Library/Application Support/SyncCloud/storage-lens.json`. Injected by the app, never
-    /// defaulted inside `Sync` — same rule as the verdict cache and the hash index, and for the
-    /// same reason: library code must not reach into the real home directory just because nobody
-    /// said otherwise.
+    /// defaulted inside `Sync`, like the verdict cache and hash index: library code must not reach
+    /// into the real home directory by default.
     public static func defaultURL(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }
@@ -56,37 +50,21 @@ public enum StorageLensStore {
         let snapshots: [StorageLensSnapshot]
     }
 
-    /// Just the version stamp, decoded on its own so a file this build cannot fully decode can
-    /// still say which build wrote it. See `read(from:)` for why that ordering is load-bearing.
+    /// Just the version stamp, decoded on its own so a file this build can't fully decode can
+    /// still say which schema wrote it. See `read(from:)` for why the order matters.
     private struct SchemaProbe: Codable {
         let schema: Int
     }
 
-    /// How a read of the snapshot file went.
+    /// How a read of the snapshot file went. Both writers read-modify-write, so they must tell
+    /// these apart: treating an unreadable file as empty would let one save replace every other
+    /// root's snapshot, and a forget empty the whole file (as
+    /// `FilingProfileStore.indexForAmending` refuses to amend what it couldn't read).
     ///
-    /// **Absent, unreadable and foreign-schema all answered `[]`, and both writers are
-    /// read-modify-writes over that answer.** So an unreadable file did not cost a re-scan, which
-    /// is what the doc claimed: the next analysis wrote a file holding ONE snapshot and the other
-    /// eleven roots were gone, and "Forget this root" filtered an empty list to an empty list,
-    /// which trips the delete-the-file guard below — forget one silently meaning forget all.
-    /// `FilingProfileStore.indexForAmending` is the sibling that gets this right: it refuses to
-    /// amend what it could not read.
-    ///
-    /// A schema this build does not know is neither empty nor unreadable, and that is the sharper
-    /// half: a NEWER build's file is perfectly good data, and overwriting it is not a recovery.
-    ///
-    /// **It is its own case, and not an "unreadable episode", because it REPEATS.** Corruption
-    /// and permission failures are self-clearing — the set-aside frees the path, the next launch
-    /// writes a fresh readable file, and that episode is over. A foreign schema is the steady
-    /// state of an old/new build ping-pong: this build sets the newer file aside and writes its
-    /// own, the newer build finds a schema IT does not know and does the same, and every launch
-    /// mints another dated file that nothing anywhere sweeps. Measured: five rounds, five
-    /// set-asides. For ``FilingVerdictStore`` each one is ~12 MB.
-    ///
-    /// So the file is left exactly where it is, this build works from memory, and the write is
-    /// refused. That costs an old build its persistence until the user moves the file — which the
-    /// log says — and it is the cheaper half of the trade against a directory that grows without
-    /// bound to protect a file that was never in danger.
+    /// A foreign schema is its own case, not an unreadable one: a newer build's file is good data,
+    /// and setting it aside would repeat on every launch of an old/new pair, minting a dated file
+    /// each time that nothing sweeps. So it is left in place, this build works from memory, and the
+    /// write is refused, as the log says.
     enum Read {
         /// No file. Nothing to lose, and a scan writes the first one.
         case absent
@@ -99,35 +77,23 @@ public enum StorageLensStore {
         case loaded([StorageLensSnapshot])
     }
 
-    /// `fileManager` is the presence probe's, and **the whole seam is only as wide as the probe**:
-    /// `Data(contentsOf:)` takes no `FileManager` and is not faked. That is deliberate — the
-    /// decision a caller's double exists to drive is present-vs-absent, and a half-wired version of
-    /// this (the manager forwarded to `setAsideUnreadable` while `read` reached
-    /// `FileManager.default`) meant a test got the double for the rename and the real filesystem
-    /// for the half that decides whether a rename is needed at all.
+    /// `fileManager` drives only the presence probe; `Data(contentsOf:)` takes none and is not
+    /// faked. A test's double decides present-vs-absent, which is what decides whether a set-aside
+    /// is needed.
     static func read(from url: URL, fileManager: FileManager = .default) -> Read {
         guard let data = try? Data(contentsOf: url) else {
-            // **"Absent" and "there but unreadable" are different answers**, and a `try?` alone
-            // conflates them — the same read-layer hole this file fixed at the parse layer. A
-            // file that exists but cannot be opened — mode 000, an ACL, an I/O error — read as a
-            // first scan, so `saveInBackground` merged into `[]` and overwrote one snapshot over
-            // up to twelve roots. `attributesOfItem` rather than `fileExists`, because only the
-            // former sees a symlink that does not resolve: `fileExists` follows links and answers
-            // false for one whose target is on an unmounted volume — and the write then replaces
-            // the link itself.
+            // Absent and "there but unreadable" are different answers: read as a first scan, a
+            // file that can't be opened would be overwritten with one snapshot. `attributesOfItem`,
+            // not `fileExists`, which follows links and answers false for a dangling one, so the
+            // write would replace the link itself.
             guard (try? fileManager.attributesOfItem(atPath: url.path)) == nil else {
                 return .unreadable
             }
             return .absent
         }
-        // **The schema is read BEFORE the payload, and the order is the whole point.** Asked after
-        // a successful full decode, the foreign-schema case only fires for a newer file this build
-        // can still decode — which is the easy half. The version that matters is a newer build that
-        // CHANGED `StorageLensSnapshot`: this build's `Payload` decode fails, the answer is
-        // `.unreadable`, and the file goes to the set-aside — the exact old/new ping-pong
-        // `UnreadableSetAside`'s doc says is prevented here, minting another dated file on every
-        // launch of either build. A two-field probe costs one extra decode of a small object on a
-        // path taken once per read, and it makes the claim true for the case it was written for.
+        // The schema is read before the payload. A newer build that changed `StorageLensSnapshot`
+        // fails this build's `Payload` decode, and read in the other order that file would be
+        // `.unreadable` and set aside on every launch, the ping-pong `Read` describes.
         guard let probe = try? JSONDecoder().decode(SchemaProbe.self, from: data) else {
             return .unreadable
         }
@@ -136,35 +102,18 @@ public enum StorageLensStore {
         return .loaded(payload.snapshots.sorted { $0.completedAt > $1.completedAt })
     }
 
-    /// Every stored snapshot, newest first. Absent and unreadable both read as empty here, which is
-    /// right for the DISPLAY callers this serves: a missing report costs a re-scan. A caller about
-    /// to WRITE must use ``read(from:)``, because for it the two are not the same fact at all.
+    /// Every stored snapshot, newest first. Absent and unreadable both read as empty, which suits
+    /// display: a missing report costs a re-scan. A caller about to write must use
+    /// ``read(from:fileManager:)``, for which the two are different facts.
     public static func load(from url: URL, fileManager: FileManager = .default) -> [StorageLensSnapshot] {
-        // **Memoised against the file's own modification stamp**, which turns a repeated read into
-        // one `stat`.
+        // Memoised against the file's modification date and size, so a repeated read is one
+        // `stat`. The app calls this on many triggers (workspace, appearance, root, lens, scope),
+        // and when a root has no snapshot nothing stops them, so each would decode every saved
+        // report on the main actor. Writes are `.atomic`, so a save gives the file a fresh date and
+        // invalidates the memo by itself. An absent file has a stamp too (both halves nil).
         //
-        // The app calls this — through `snapshot(for:from:)` — from six triggers: the workspace
-        // change, appearance, the scan root moving, the rail lens changing, and a scope change.
-        // `restoreStorageLens` refuses once a report is on screen, so the cost was thought bounded;
-        // it is not. When the current root has **no** saved snapshot nothing ever appears, that
-        // guard never engages, and every pane move and every workspace switch re-read the file and
-        // ran two `JSONDecoder` passes over every saved root's report — on the main actor, forever.
-        //
-        // **The stamp is the file, not a guess about it.** Modification date and size, read with
-        // one `attributesOfItem` — the same call `sizeOnDisk` already makes. Writes go through
-        // `write(_:to:)`, which is `.atomic`: the bytes arrive as a fresh file with a fresh
-        // modification date, so a background save invalidates this by construction rather than by
-        // anyone remembering to. That is what makes it a memo and not "a fourth piece of cache
-        // state to keep in step with a background writer", which is what the docstring on
-        // `restoreStorageLens` weighed this against and, at the time, correctly refused.
-        //
-        // An absent file has a stamp too (both halves nil), which is the case that mattered most:
-        // it is exactly the "no snapshot for this root" state that repeated forever.
-        //
-        // The WRITERS deliberately do not come through here — `saveInBackground` and
-        // `clearInBackground` call `read` directly, because for them absent, unreadable and
-        // foreign-schema are three different facts and a memo of "what to display" answers none of
-        // them.
+        // The writers call `read` directly: for them absent, unreadable and foreign-schema are
+        // different facts, which a display memo doesn't answer.
         let stamp = Stamp(of: url, fileManager: fileManager)
         if let memoised = decodeMemo.value(for: stamp) { return memoised }
         var snapshots: [StorageLensSnapshot] = []
@@ -174,8 +123,8 @@ public enum StorageLensStore {
     }
 
     /// What a file looked like when it was last decoded: which file, and the two attributes an
-    /// atomic replacement always changes. Absent is a stamp of its own — both halves nil — rather
-    /// than an absence of one, so "there is nothing saved" memoises like anything else.
+    /// atomic replacement always changes. Absent is a stamp too (both nil), so "nothing saved"
+    /// memoises like anything else.
     struct Stamp: Equatable {
         let path: String
         let modified: Date?
@@ -191,17 +140,10 @@ public enum StorageLensStore {
 
     /// The decoded files, each held against its own stamp.
     ///
-    /// Locked rather than actor-isolated: `load` is called from the main actor in the app and from
-    /// whatever thread a test is on, and giving it an isolation would make every caller `await` a
-    /// function whose whole point is that it is cheap.
-    ///
-    /// **Keyed by path rather than being a single slot**, which the app does not need — it has one
-    /// store URL for the life of the process — but the tests do: they run in parallel over their
-    /// own temporary files, and a one-slot memo would have each `load` evict the others, so a test
-    /// about the memo would pass or fail on which suites happened to be running beside it. Capped,
-    /// because a map with no bound is a leak wearing a cache's clothes; the app never reaches the
-    /// cap, and dropping everything at it is the honest behaviour for a memo — the next read costs
-    /// what it always cost.
+    /// Locked rather than actor-isolated, so callers on any thread needn't `await` a cheap call.
+    /// Keyed by path for the tests, which run in parallel over their own files: a single slot would
+    /// let them evict each other. Capped; the app (one store URL) never reaches the cap, and at it
+    /// the memo simply empties.
     private final class DecodeMemo: @unchecked Sendable {
         static let capacity = 16
 
@@ -231,13 +173,9 @@ public enum StorageLensStore {
 
     private static let decodeMemo = DecodeMemo()
 
-    /// Drops one file's memo. For a test that needs to prove the memo is what answered — nothing in
-    /// the app calls it, because nothing in the app needs to: the stamp invalidates on its own.
-    ///
-    /// **One path, not the whole map**, and that is not fastidiousness: swift-testing runs suites
-    /// in parallel, and a clear-everything version let one test's reset land between another test's
-    /// two reads — which turned that second test's memo assertion into a coin flip and let a
-    /// mutation of the memo key survive it.
+    /// Drops one file's memo, for a test proving the memo answered; the app never needs it. One
+    /// path, not the whole map: suites run in parallel, and clearing everything could land between
+    /// another test's two reads.
     static func forgetDecodeMemo(for url: URL) { decodeMemo.forget(path: url.path) }
 
     /// Says a newer build's file is in the way, once per call, naming what to do about it.
@@ -249,24 +187,13 @@ public enum StorageLensStore {
                             + "to start fresh on this build.")
     }
 
-    /// Moves an unreadable file aside so a fresh one can be written without destroying it, and
-    /// answers **where it went** — nil when the move failed.
+    /// Moves an unreadable file aside so nothing overwrites it, and answers where it went, or nil
+    /// when the move failed. **On nil the caller must not write**, or it lands on the bytes this
+    /// exists to keep.
     ///
-    /// A nil answer means the caller must not write: the whole point is that the bytes survive,
-    /// and a write that lands on top of them after a failed rename is the original defect with
-    /// extra steps. It is also the only thing that lets each caller say what actually happened —
-    /// `clearInBackground` used to discard the result entirely and report a rescue either way.
-    ///
-    /// **The kept name is unique PER EPISODE — see ``UnreadableSetAside``, and nothing here
-    /// deletes anything.** The old fixed slot plus its unconditional pre-move `removeItem` is the
-    /// shape the other two stores were fixed out of: a second episode destroyed the first
-    /// episode's kept file, and a move that then failed left neither it nor a protected current
-    /// file. Snapshots are re-scannable, so the stakes are lower here than in the verdict cache —
-    /// which is a reason to share the fix, not to keep a second spelling of the defect.
-    ///
-    /// This line claims only the set-aside itself. What happens NEXT differs by caller — a save
-    /// writes a fresh file beside the kept one, a forget writes nothing at all — so each says its
-    /// own half rather than this one promising a "fresh file" that a forget never produces.
+    /// The kept name is unique per episode (``UnreadableSetAside``), and nothing here deletes, so a
+    /// second episode can't destroy the first one's kept file. Its log line claims only the
+    /// set-aside; each caller says what it did next (a save writes a fresh file, a forget nothing).
     private static func setAsideUnreadable(_ url: URL,
                                            fileManager: FileManager = .default) -> URL? {
         let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: fileManager)
@@ -300,9 +227,8 @@ public enum StorageLensStore {
 
     /// Replaces the snapshot for `snapshot.root` and writes the file, off the calling thread.
     ///
-    /// Read-modify-write happens ON the queue rather than at the call site, so two roots analyzed
-    /// in quick succession cannot each read the same prior state and have the second write erase
-    /// the first's snapshot.
+    /// Read-modify-write happens on the queue, not at the call site, so two roots analyzed in quick
+    /// succession can't both read the same prior state and have the second erase the first.
     public static func saveInBackground(_ snapshot: StorageLensSnapshot, to url: URL,
                                         fileManager: FileManager = .default) {
         writeQueue.async {
@@ -315,8 +241,8 @@ public enum StorageLensStore {
                 refuseForeignSchema(url, schema, action: "this analysis was not saved")
                 return
             case .unreadable:
-                // The file is kept and a fresh one is written beside it. Merging into `[]` without
-                // this is what silently replaced eleven roots with one.
+                // Keep the file and write a fresh one beside it; merging into `[]` over it would
+                // replace every other root's snapshot.
                 guard setAsideUnreadable(url, fileManager: fileManager) != nil else {
                     Logger.shared.error("Storage snapshots: this analysis was not saved — the "
                                         + "unreadable file could not be moved out of its way.")
@@ -332,10 +258,8 @@ public enum StorageLensStore {
 
     /// Forgets the snapshot for `root`, or every one when `root` is nil.
     ///
-    /// **"Forget this root" may not empty the file it could not read.** Filtering `[]` yields `[]`,
-    /// and `write` reads an empty list as "delete the file" — so one unreadable byte turned a
-    /// request to forget ONE root into forgetting all twelve, with the request itself as the
-    /// trigger. Forget-all is unaffected: that is what the user asked for either way.
+    /// **"Forget this root" must not empty a file it couldn't read**: filtering `[]` yields `[]`,
+    /// which `write` takes as "delete the file", forgetting every root. Forget-all is unaffected.
     public static func clearInBackground(root: String?, from url: URL,
                                         fileManager: FileManager = .default) {
         writeQueue.async {
@@ -349,14 +273,8 @@ public enum StorageLensStore {
                 return
             case .unreadable:
                 // Kept rather than deleted, and the request is refused rather than applied to a
-                // list this build cannot see.
-                //
-                // **Both outcomes are said, and neither claims the other's facts.** This ignored
-                // the move's result and logged "It has been kept beside the fresh one" whatever
-                // happened: a failed move read as a successful rescue, sending a user to look for
-                // a kept file that was never written. The "fresh one" was wrong in the other
-                // direction too — forgetting a root writes no file at all, so on the success path
-                // the only thing beside the kept file is nothing.
+                // list this build can't see. Each branch logs only what happened: a failed move
+                // keeps nothing, and a forget never writes a fresh file.
                 if let kept = setAsideUnreadable(url, fileManager: fileManager) {
                     Logger.shared.error("Storage snapshots: “Forget this root” could not be applied "
                                         + "to \(url.lastPathComponent) because the file could not be "
@@ -378,11 +296,9 @@ public enum StorageLensStore {
     private static func write(_ snapshots: [StorageLensSnapshot], to url: URL,
                               fileManager: FileManager = .default) {
         do {
-            // Empty means DELETE, not "write an empty payload". `load` cannot tell the two apart —
-            // both answer `[]` — but anything asking what this store occupies on disk can, and a
-            // Clear that left 27 bytes of `{"schema":1,"snapshots":[]}` behind reads as a Clear
-            // that did not work. Nothing else writes an empty list: `saveInBackground` always
-            // inserts one.
+            // Empty means delete, not "write an empty payload": `load` can't tell them apart, but
+            // the size on disk can, and a Clear that left a file behind would look like it failed.
+            // Only a forget writes an empty list; `saveInBackground` always inserts one.
             guard !snapshots.isEmpty else {
                 do {
                     try fileManager.removeItem(at: url)

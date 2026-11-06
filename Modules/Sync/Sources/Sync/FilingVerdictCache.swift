@@ -3,33 +3,24 @@ import Foundation
 
 // MARK: - Key
 
-/// What a cached classifier verdict is keyed on.
+/// What a cached classifier verdict is keyed on. The cache's rule: an unchanged file, asked the
+/// same question, gets the same answer, so every input to that is in the key:
 ///
-/// The rule the whole cache rests on: **an unchanged file, asked the same question, gets the same
-/// answer.** Every input to that sentence is in this key —
+/// - `filePath`, `modifiedMillis`, `size`: the triple the sync engine trusts as "unchanged". Unlike
+///   ``ContentHashKey`` it lacks file number and status-change time, so an edit that restores the
+///   mtime and keeps the size is served the old verdict.
+/// - `model`: switching models misses every entry and re-pays, which is correct.
+/// - `promptVersion` (``CloudFilingProtocol/promptVersion``): new instructions or tool schema ask a
+///   different question.
+/// - `excludedRelativePaths`: a "Try another" re-ask is a different question. Sorted so ordering
+///   can't split an entry.
 ///
-/// - `filePath` + `modifiedMillis` + `size` identify the file — the (path, mtime, size) triple the
-///   sync engine trusts to mean "unchanged"; an edit bumps the mtime, so a stale entry is bypassed
-///   rather than served. ``ContentHashKey`` starts from the same triple and adds the file number
-///   and status-change time (FR59); this key does not, so an edit that restores the mtime and
-///   keeps the size is served the old verdict.
-/// - `model` — an Opus verdict is not a Haiku verdict. Switching models in Settings therefore
-///   misses every entry and re-pays, which is correct and is worth warning about in the UI.
-/// - `promptVersion` — see ``CloudFilingProtocol/promptVersion``. Editing the instructions or the
-///   tool schema changes the question being asked, so it must change the key.
-/// - `excludedRelativePaths` — a "Try another" re-ask says *"not there"*, which is a different
-///   question than the one whose answer is cached. Sorted here so ordering can't split an entry.
+/// Not keyed on the folder tree, or one new folder would re-pay every entry under its provider.
+/// ``FilingVerdictCache/verdict(for:providerRoot:existingRelative:)`` drops a hit whose destination
+/// lost its folders instead; gained folders leave entries valid ("Rescan (ignore cache)" asks anew).
 ///
-/// **Deliberately NOT keyed on the folder taxonomy.** Keying on the tree would mean one new folder
-/// anywhere invalidates every entry under that provider and the next scan re-pays in full — which
-/// defeats the point. The narrower guard lives in ``FilingVerdictCache/verdict(for:providerRoot:existingRelative:)``:
-/// a hit is dropped when the folders its destination hangs off have since gone away. Gaining
-/// folders leaves entries valid (the cached answer is still *an* answer, just possibly no longer
-/// the best one — "Rescan (ignore cache)" is the way to ask afresh).
-///
-/// `modifiedMillis` is an `Int` rather than the `TimeInterval` ``ContentHashKey`` carries because
-/// this key is persisted: a `Double` round-tripping through JSON is a needless way for a key to
-/// stop matching itself. Milliseconds is far finer than any mtime this cares about.
+/// `modifiedMillis` is an `Int` because the key is persisted, and a `Double` through JSON can stop
+/// matching itself.
 public struct FilingVerdictKey: Hashable, Codable, Sendable {
     public let filePath: String
     public let modifiedMillis: Int
@@ -37,46 +28,18 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     public let model: String
     public let promptVersion: Int
     public let excludedRelativePaths: [String]
-    /// Digest of the profile artifacts the question was composed against — see
-    /// ``FilingProfileStore/fingerprint(id:in:)``. Empty on an unsurveyed tree, and on entries
-    /// written before this existed, which is why it decodes with a default rather than failing:
-    /// a shape change that throws discards the whole cache file, and those entries are still
-    /// answers to the question a tree with no artifacts asks.
-    /// A digest of the filing artifacts the question was composed against — see
-    /// ``FilingProfileStore/fingerprint(id:in:)``.
-    ///
-    /// **Deliberately NOT defaulted.** It used to default to `""`, which meant the scan's
-    /// `artifacts: filingArtifactFingerprint` argument could be deleted and everything still
-    /// compiled — measured, and 2,246 Sync tests passed with it gone. What that costs is not
-    /// hypothetical: regenerate the profile, rescan, and every verdict composed against the OLD
-    /// tree is replayed until the cache is deleted by hand, and on the refine tier those are
-    /// answers that were paid for. A required argument turns that deletion into a build error,
-    /// which is the guard this repo prefers wherever a silent default can drop a fact.
+    /// Digest of the filing artifacts the question was composed against
+    /// (``FilingProfileStore/fingerprint(id:in:)``); empty on an unsurveyed tree. **A required init
+    /// argument, never defaulted**, so dropping it at the scan is a build error rather than old
+    /// verdicts replayed after the profile changes. Decoding does default it to empty, since a
+    /// throwing decode would discard the whole cache file.
     public let artifacts: String
 
-    /// **Fails when the file's own facts are unknown, rather than standing in a value for them.**
-    ///
-    /// `modifiedMillis` used to take `?? 0` for an unreadable mtime and the scan site passed
-    /// `f.fileSize ?? 0` for an unreadable size — so "we could not read this" was written into the
-    /// key as `1970-01-01` and `0 bytes`, two perfectly ordinary values a real file can have. Two
-    /// different states then shared one key, and the cache cannot tell a hit on a fact from a hit
-    /// on a placeholder: a file whose mtime stays unreadable while its contents change keeps the
-    /// same key at the same size and is served its old verdict, which on the refine tier is an
-    /// answer that was paid for.
-    ///
-    /// nil turns the cache off for that file, read and write both — exactly what
-    /// ``FileSyncManager/filingArtifactFingerprint`` being nil already does one field over, and for
-    /// the identical reason stated there: an unreadable component is an unknown, and a key minted
-    /// around it can be served against something it never described.
-    ///
-    /// **The cost is stated rather than glossed:** a file with an unreadable mtime is re-asked
-    /// every scan instead of being answered from cache, and on the paid tier that is money. It is
-    /// the trade this repo already made for the artifact digest, the population is small (the walk
-    /// reads both facts in one `resourceValues` and only a failed read yields nil), and the
-    /// alternative is serving a stale paid answer silently.
-    ///
-    /// Failable rather than defaulting, so every call site has to decide — the same reason
-    /// `artifacts` is a required argument above.
+    /// Fails when the file's mtime or size is unknown, rather than standing in a value: `0` would
+    /// be an ordinary-looking key, and a file whose contents change while its facts stay unreadable
+    /// would be served its old verdict. nil turns the cache off for that file, read and write, as a
+    /// nil ``FileSyncManager/filingArtifactFingerprint`` does. The cost is a re-ask, paid on the
+    /// cloud tier, every scan for such a file; it is rare, and serving a stale paid answer is worse.
     public init?(filePath: String, modificationDate: Date?, size: Int?, model: String,
                  promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String) {
         guard let modificationDate, let size else { return nil }
@@ -114,27 +77,16 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
     /// The staleness test compares this against the same count resolved from the live taxonomy —
     /// see ``FilingVerdictCache/verdict(for:providerRoot:existingRelative:)``.
     public let newSegmentCount: Int
-    /// Whether the backend DECLARED it was proposing a folder that does not exist — see
-    /// ``FilingVerdict/proposesNewFolder``. Stored, because the entry reconstructs the verdict and
-    /// a field dropped on the round trip comes back as "did not declare": every cached new-folder
-    /// proposal would be trimmed to its existing parent on replay, silently turning a served hit
-    /// into a different answer than the one that was cached. Decoded with a default so entries
-    /// written before this existed still load rather than discarding the whole file.
+    /// Whether the backend declared it was proposing a folder that doesn't exist
+    /// (``FilingVerdict/proposesNewFolder``). Stored, or every cached new-folder proposal would be
+    /// trimmed to its existing parent on replay. Decodes as false when missing, so the file still
+    /// loads.
     public let proposesNewFolder: Bool
-    /// **Where `relativePath` actually resolved to when this was recorded**, provider-relative —
-    /// the comparand for the staleness test below it, and nothing else.
-    ///
-    /// Separate from `relativePath` because that one is the *served answer*: the entry
-    /// reconstructs `verdict` from it, so overwriting it with the resolution would change what a
-    /// hit returns. And it has to exist, because the two differ for a whole class of verdicts —
-    /// exactly the class the sanitizer was written for. `Immigration/OCI/Son/eOCI.pdf` resolves
-    /// to `Immigration/OCI/Son` (the trailing file name is stripped); comparing the resolution
-    /// against the raw string therefore failed *every* time, with nothing changed and nothing
-    /// wrong, so those answers could never be served and were re-billed on every refine — the one
-    /// thing this cache exists to prevent.
-    ///
-    /// Optional: entries written before this field existed have only the raw string, and for them
-    /// the test below behaves exactly as it did. They heal on their next record.
+    /// Where `relativePath` resolved to when this was recorded, provider-relative: used only by the
+    /// staleness test. Kept apart from `relativePath`, the served answer, because the two differ
+    /// whenever the resolver sanitizes (`A/B/file.pdf` resolves to `A/B`), and comparing against the
+    /// raw string would miss and re-bill those every time. nil on older entries, which compare
+    /// against the raw string until they are recorded again.
     public let resolvedRelativePath: String?
     /// When this entry was written. Used only to decide eviction order; never to expire an entry.
     public let cachedAt: Date
@@ -172,33 +124,21 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
 
 // MARK: - Cache
 
-/// Classifier verdicts kept across scans and launches, so a folder whose files have not changed is
-/// never re-classified — and, when the backend is the paid cloud one, never re-paid for.
+/// Classifier verdicts kept across scans and launches, so unchanged files are never re-classified,
+/// or re-paid for on the cloud backend. Pure: no disk and no clock of its own;
+/// ``FilingVerdictStore`` is the disk half, so these decisions test without a temp directory.
 ///
-/// Pure: every operation here is a function of its inputs, with no disk access and no clock of its
-/// own. ``FilingVerdictStore`` is the half that touches the filesystem, so the decisions this type
-/// makes can be tested without a temp directory — the split ``DuplicateFinder`` and
-/// ``FileSyncManager`` already use.
-///
-/// **Entries never expire.** As long as the key matches, the answer stands: the key already
-/// contains everything the answer depended on, so an entry going stale with age would mean the key
-/// is wrong, not that time passed. The one bound is ``maxEntries``, which exists so the file cannot
-/// grow forever — and evicting is always safe, because the cost of a miss is a re-ask, never a
-/// wrong answer.
+/// Entries never expire: the key holds everything the answer depended on. ``maxEntries`` only
+/// bounds the file, and evicting is always safe, since a miss costs a re-ask, never a wrong answer.
 public struct FilingVerdictCache: Sendable, Equatable {
 
-    /// Bumped when the on-disk shape changes. A file written by a different schema is discarded
-    /// rather than migrated: the whole contents are reconstructible by re-asking, so a migration
-    /// would be code to maintain forever in exchange for one avoided re-scan.
+    /// Bumped when the on-disk shape changes. A file of another schema isn't migrated: re-asking
+    /// rebuilds it, and a migration is code to keep forever to save one scan.
     public static let currentSchema = 1
 
-    /// Upper bound on retained entries; the oldest-written are dropped once exceeded.
-    ///
-    /// Unlike ``ContentHashCache``'s cap this is not a cliff — that one evicts a working set that
-    /// is about to be re-read in the same pass, so overflowing it takes the hit rate to zero. Here
-    /// the working set is one folder's loose files (tens to low hundreds), and eviction is by age
-    /// across every folder ever scanned. At roughly 250 bytes an entry, 50 000 is about 12 MB and
-    /// far more files than a person accumulates loose.
+    /// Upper bound on retained entries; the oldest-written are dropped beyond it. Not a cliff like
+    /// ``ContentHashCache``'s: the working set is one folder's loose files, and eviction is by age
+    /// across every folder. At about 250 bytes an entry, 50 000 is about 12 MB.
     public static let maxEntries = 50_000
 
     public private(set) var entries: [FilingVerdictKey: FilingVerdictCacheEntry]
@@ -211,26 +151,14 @@ public struct FilingVerdictCache: Sendable, Equatable {
 
     // MARK: Lookup
 
-    /// The still-valid verdict for `key`, or nil for a miss.
+    /// The still-valid verdict for `key`, or nil for a miss. Two checks against the live tree:
     ///
-    /// Beyond the key matching, one thing is re-checked against the live folder tree: **the
-    /// destination must not have lost the folders it hangs off.** A verdict naming
-    /// `Documents/Vehicles/Tesla` when `Documents/Vehicles` existed proposed creating one folder;
-    /// if `Documents/Vehicles` has since been deleted the same verdict now proposes creating two,
-    /// and that is a different — and less likely to be wanted — offer than the one that was
-    /// cached. Resolving more new segments than were recorded is exactly that condition, so it is
-    /// treated as a miss and the file is re-classified.
-    ///
-    /// The inverse (resolving FEWER new segments, because someone created the folder in the
-    /// meantime) is a hit: the answer got better, not worse.
-    ///
-    /// **And the destination it resolves to must still be the destination that was cached.** The
-    /// segment count was a proxy for "the same offer", and it stopped being one when an undeclared
-    /// new folder started being trimmed to its existing parent (see
-    /// ``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``): a verdict for
-    /// `Documents/Family/Son` whose `Family` was deleted since now resolves to `Documents` — a
-    /// count of zero, matching the cached zero, and a completely different folder. Comparing the
-    /// path catches both that and anything else the resolver may learn to change.
+    /// - The destination must not have lost folders it hangs off: resolving more new segments than
+    ///   recorded is a different offer, so a miss. Fewer (someone made the folder) is a hit.
+    /// - It must still resolve to the cached destination. An undeclared new folder is trimmed to its
+    ///   existing parent
+    ///   (``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``), so a deleted
+    ///   parent can keep the count and land somewhere else entirely.
     public func verdict(for key: FilingVerdictKey, providerRoot: String,
                         existingRelative: Set<String>) -> FilingVerdict? {
         guard let entry = entries[key] else { return nil }
@@ -238,30 +166,22 @@ public struct FilingVerdictCache: Sendable, Equatable {
                                                       existingRelative: existingRelative)
         else { return nil }   // no longer resolves to a usable path at all
         guard resolved.newSegments.count <= entry.newSegmentCount else { return nil }
-        // Compared against **where it resolved when it was recorded**, not against the model's raw
-        // string. Those are the same for most answers and deliberately different for the ones the
-        // resolver sanitizes; comparing against the raw string made that whole class unservable.
-        // Legacy entries carry no resolution and fall back to the old comparand — no worse than
-        // before, and rewritten with one the next time they are recorded.
+        // Compared against where it resolved when recorded, not just the model's raw string, which
+        // differs for every answer the resolver sanitizes. Entries without a resolution use the raw
+        // string until recorded again.
         let now = FilingEngine.relative(resolved.path, under: providerRoot)
         let raw = entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        // **Either the resolution it was recorded with, or the answer itself.** Comparing only
-        // against the recorded resolution turned a case that used to hit into a miss: a verdict
-        // for `Documents/Family/Son` recorded while `Son` did not exist resolves to
-        // `Documents/Family` and is stored as such — then the user CREATES `Son`, the resolution
-        // becomes the model's actual answer, and a strict comparison called that stale. It is the
-        // opposite: the offer got better, which the paragraph above already promises is a hit.
-        // A verdict that now resolves somewhere neither of those names — `Family` deleted, so it
-        // trims to `Documents` — still misses, which is what the guard is for.
+        // Either the recorded resolution or the answer itself: once the user creates the trimmed
+        // folder, the resolution becomes the model's answer, a better offer and so a hit. Anywhere
+        // else (a parent deleted, so it trims higher) is a miss.
         guard now == entry.resolvedRelativePath || now == raw else { return nil }
         return entry.verdict
     }
 
     // MARK: Recording
 
-    /// Records `verdict` for `key`, capturing how much of its destination is new *now* so the
-    /// staleness test above has something to compare against later. A verdict that does not
-    /// resolve to a usable path is not stored — there would be nothing to serve.
+    /// Records `verdict` for `key` with how much of its destination is new now, for the staleness
+    /// test. A verdict that doesn't resolve to a usable path isn't stored.
     public mutating func record(_ verdict: FilingVerdict, for key: FilingVerdictKey,
                                 providerRoot: String, existingRelative: Set<String>, now: Date) {
         guard let resolved = FilingEngine.destination(from: verdict, providerRoot: providerRoot,
@@ -283,7 +203,7 @@ public struct FilingVerdictCache: Sendable, Equatable {
         entries = Dictionary(uniqueKeysWithValues: survivors.map { ($0.key, $0) })
     }
 
-    /// Forgets every entry for files under `root` — the per-provider clear.
+    /// Forgets every entry for files under `root`: the per-provider clear.
     public mutating func removeAll(under root: String) {
         entries = entries.filter { !PathBoundary.contains($0.key.filePath, under: root) }
     }
@@ -294,27 +214,21 @@ public struct FilingVerdictCache: Sendable, Equatable {
 extension FilingVerdictCache: Codable {
     private enum CodingKeys: String, CodingKey { case schema, entries }
 
-    /// Encoded as a flat ARRAY of entries, each carrying its own key, rather than as a dictionary.
-    /// A Swift `Dictionary` with a struct key encodes as an unkeyed run of alternating keys and
-    /// values, which is valid JSON but reads as corrupt to anything that opens the file; and a
-    /// String-keyed form would need the key's fields joined into one string, which a path
-    /// containing the separator could forge. The array keeps the on-disk form obvious and the
-    /// in-memory form a real dictionary.
+    /// Encoded as a flat array of entries, each carrying its key. A struct-keyed `Dictionary`
+    /// encodes as alternating keys and values, which reads as corrupt, and a joined string key
+    /// could be forged by a path containing the separator.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schema = try container.decode(Int.self, forKey: .schema)
-        // **A schema this build does not know is not an empty cache.** Answering one made
-        // `FilingVerdictStore.load`'s decode guard never fire: nothing was armed, nothing was set
-        // aside, and the next `save` wrote emptiness straight over a NEWER build's file. Measured
-        // before this threw — `bytes intact after save = false`, `set-asides = []`, over what this
-        // store's own doc calls ~10MB of paid answers. Thrown so the store can tell the case apart
-        // and refuse; see `FilingVerdictStore.foreignSchema(at:)`.
+        // **An unknown schema is not an empty cache.** Answering empty would let the next `save`
+        // overwrite a newer build's file of paid answers. Thrown so the store can tell the case
+        // apart and refuse to write (`FilingVerdictStore.load`).
         guard schema == Self.currentSchema else {
             throw ForeignSchema(found: schema, expected: Self.currentSchema)
         }
         let list = try container.decode([FilingVerdictCacheEntry].self, forKey: .entries)
-        // Last write wins on a duplicate key — impossible from `record`, but a hand-edited or
-        // concatenated file should not throw when simply keeping one of them is well defined.
+        // The newest wins on a duplicate key: impossible from `record`, but a hand-edited file
+        // shouldn't throw when keeping one is well defined.
         self.init(entries: Dictionary(list.map { ($0.key, $0) },
                                       uniquingKeysWith: { $0.cachedAt >= $1.cachedAt ? $0 : $1 }))
     }
@@ -334,42 +248,28 @@ struct ForeignSchema: Error {
 
 // MARK: - Store
 
-/// The disk half of the verdict cache: where the file lives, and reading/writing it.
-///
-/// This is the app's first use of Application Support — everything else it persists lives in
-/// UserDefaults or `~/sync-cloud.log`. Defaults is the wrong home for this one: it is read whole
-/// into memory by every process that touches the domain, and this store is sized by how many files
-/// the user has rather than by how many settings they have.
+/// The disk half of the verdict cache: where the file lives, and reading and writing it. In
+/// Application Support, not UserDefaults: defaults are read whole by every process that touches the
+/// domain, and this grows with the user's files, not their settings.
 public enum FilingVerdictStore {
 
-    /// `~/Library/Application Support/SyncCloud/filing-verdicts.json`.
-    ///
-    /// The app is not sandboxed, so this is an ordinary path with no container indirection.
+    /// `~/Library/Application Support/SyncCloud/filing-verdicts.json`. The app isn't sandboxed, so
+    /// there is no container indirection.
     public static func defaultURL(fileManager: FileManager = .default) -> URL? {
         guard let support = fileManager.urls(for: .applicationSupportDirectory,
                                              in: .userDomainMask).first else { return nil }
         return support.appendingPathComponent("SyncCloud/filing-verdicts.json")
     }
 
-    /// Reads the cache at `url`. **Every failure returns an empty cache** — the next scan re-asks
-    /// and pays, which is the same outcome as never having cached at all — **but a file that is
-    /// there and unreadable is moved aside first, not left for the next save to destroy.** The
-    /// "re-asks and pays" doc used to cover the destruction too, and it was written before the
-    /// absent-vs-unreadable law: at the entry cap this file holds ~10MB of PAID answers, and a
-    /// transient read failure — mode 000, an ACL, an I/O hiccup — emptied the in-memory cache,
-    /// whose next save then overwrote every one of them. Re-asking is acceptable; deleting the
-    /// bytes is not. Absent stays silent and empty: a first launch has nothing to protect.
-    ///
-    /// **A move that fails arms the guard rather than leaving a residual.** This doc used to say
-    /// that if the set-aside itself failed "the next save can still land on the file, and the log
-    /// says so" — an admission, not a justification: a log line does not keep the bytes. `save`
-    /// now refuses while the guard is armed and re-attempts the move on every save until one
-    /// lands, which is the discipline ``PersonTagStore`` keeps over the user's own judgements.
-    /// Same shape as ``StorageLensStore``'s set-aside, which refuses its write the same way.
+    /// Reads the cache at `url`. Every failure returns an empty cache, so the next scan re-asks.
+    /// **A file that is there but unreadable is moved aside first**, so the next save can't
+    /// overwrite its paid answers; re-asking is acceptable, deleting the bytes is not. Absent stays
+    /// silent: a first launch has nothing to protect. If the move fails the guard stays armed, and
+    /// `save` refuses and retries the move until it lands, as ``PersonTagStore`` and
+    /// ``StorageLensStore`` do.
     public static func load(from url: URL, fileManager: FileManager = .default) -> FilingVerdictCache {
         guard let data = try? Data(contentsOf: url) else {
-            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
-            // that does not resolve.
+            // `attributesOfItem`, not `fileExists`: only it sees a symlink that doesn't resolve.
             if (try? fileManager.attributesOfItem(atPath: url.path)) != nil {
                 arm(url, why: "could not be opened")
                 _ = setAsideUnreadable(url, fileManager: fileManager, next: loadWritesNothing)
@@ -379,13 +279,9 @@ public enum FilingVerdictStore {
         do {
             return try JSONDecoder().decode(FilingVerdictCache.self, from: data)
         } catch let foreign as ForeignSchema {
-            // **A newer build's cache is good data, and it is NOT an unreadable episode.** Routing
-            // it through the set-aside is what `StorageLensStore` used to do, and a foreign schema
-            // repeats: this build would move the newer file and write its own, the newer build
-            // would move THAT and write its own, and every launch of the ping-pong mints another
-            // dated file — ~12 MB apiece at the entry cap — that nothing anywhere sweeps. It is
-            // its own case: the file stays exactly where it is, this launch works from memory, and
-            // `save` refuses.
+            // **A newer build's cache is good data, not an unreadable file.** Setting it aside
+            // would ping-pong between builds, each launch minting another ~12 MB dated copy nothing
+            // sweeps. The file stays put, this launch works from memory, and `save` refuses.
             markForeignSchema(url, foreign)
             Logger.shared.error("The Filing verdict cache at \(url.lastPathComponent) was written "
                                 + "by a newer SyncCloud (schema \(foreign.found), this build reads "
@@ -401,13 +297,9 @@ public enum FilingVerdictStore {
         }
     }
 
-    /// Paths holding a file written under a schema this build does not know.
-    ///
-    /// Kept beside ``armedPaths`` and for the same reason: the thing being protected is a FILE and
-    /// the store is reached through static calls from two places. Distinct from the armed guard
-    /// because the remedy is different — an armed path is retried until the rescue lands, and this
-    /// one is never retried at all. Nothing clears it within a launch: the file cannot become
-    /// readable to this build, and `load` re-marks it on the next launch.
+    /// Paths holding a file of a schema this build doesn't know. Per path like ``armedPaths``, but
+    /// never retried: the file can't become readable to this build. Nothing clears it within a
+    /// launch, and `load` re-marks it on the next.
     nonisolated(unsafe) private static var foreignSchemaPaths: Set<String> = []
 
     private static func markForeignSchema(_ url: URL, _ foreign: ForeignSchema) {
@@ -421,22 +313,10 @@ public enum FilingVerdictStore {
     }
 
     /// Moves the unreadable cache aside so no queued snapshot write can land on the paid verdicts.
-    ///
-    /// **This line claims only the set-aside itself; `next` is the caller's half.** It used to end
-    /// "and a fresh cache starts beside it" from BOTH callers, and from `load` that is not true —
-    /// nothing is written then, and if the launch records no verdict nothing ever is. The user is
-    /// then sent to look beside the kept file for something that is not there, at the moment they
-    /// are trying to work out what happened to ~12 MB of paid answers. Same split, same reason, as
-    /// ``StorageLensStore``'s set-aside, whose forget path writes no file at all.
-    ///
-    /// **The kept name is unique PER EPISODE — see ``UnreadableSetAside``, and nothing here
-    /// deletes anything.** This used to move to one fixed slot (`filing-verdicts.json.unreadable`)
-    /// after an unconditional `removeItem` on it. An earlier episode's set-aside is the ONLY copy
-    /// of that episode's paid answers — it is never re-ingested — so that remove permanently
-    /// deleted up to ~10MB of verdicts the user had paid for the moment a second file went
-    /// unreadable. It also ran BEFORE the move, so a move that then failed left neither the
-    /// earlier rescue nor a protected current file: strictly worse than not attempting. With
-    /// per-episode names there is no collision to handle and no remove to justify.
+    /// The log line states only the set-aside; `next` is the caller's half, since `load` writes no
+    /// fresh file and must not send the user looking for one. **Nothing here deletes anything:** the
+    /// kept name is unique per episode (``UnreadableSetAside``), because an earlier set-aside is the
+    /// only copy of its paid answers.
     @discardableResult
     private static func setAsideUnreadable(_ url: URL, fileManager: FileManager,
                                            next: String) -> Bool {
@@ -451,14 +331,10 @@ public enum FilingVerdictStore {
                                   + "overwritten.")
             return true
         } catch {
-            // **A source that is no longer there is not an obstruction — it is the protection
-            // having arrived by other means.** The file being deleted (or moved) after the failed
-            // read makes every retry fail source-absent, and a guard that stayed armed on that
-            // would refuse every save for the rest of the launch and silently drop this scan's
-            // fresh verdicts. Nothing is left at the path to overwrite. Probed with
-            // `attributesOfItem` rather than matched on the error code, because the probe also
-            // keeps the dangling-symlink case refusing — the link is still a directory entry.
-            // Same arm, same reason, as `PersonTagStore.save`.
+            // A source that is gone (deleted or moved since the failed read) leaves nothing to
+            // overwrite, so disarm; staying armed would refuse every save this launch. Probed with
+            // `attributesOfItem`, not the error code, so a dangling symlink, still a directory
+            // entry, keeps refusing. As in `PersonTagStore.save`.
             if (try? fileManager.attributesOfItem(atPath: url.path)) == nil {
                 disarm(url)
                 Logger.shared.warning("The unreadable Filing verdict cache at "
@@ -475,34 +351,21 @@ public enum FilingVerdictStore {
         }
     }
 
-    /// What follows a set-aside made from ``load(from:fileManager:)``: nothing, yet.
-    ///
-    /// **A load writes no file**, and if this launch records no verdict none is ever written — so
-    /// the line must not send the user looking beside the kept file for a fresh cache. It says
-    /// where the answers went and when a replacement appears, which are the two things somebody
-    /// staring at a suddenly-empty cache needs.
+    /// What follows a set-aside made from ``load(from:fileManager:)``: nothing yet. A load writes no
+    /// file, so the line says when a replacement appears rather than pointing at one.
     private static let loadWritesNothing =
         "Nothing has been written in its place — this launch starts with an empty cache in memory, "
         + "and a file is written only once it records a verdict."
 
     // MARK: - The armed guard
 
-    /// Paths whose on-disk bytes could not be read and have NOT yet been moved aside, with why.
-    ///
-    /// **The state a static load/save pair had nowhere to keep, which is why the write was
-    /// ungated.** `load` answered an empty cache and `save` then wrote it — over paid verdicts
-    /// whose rescue had just failed. The in-code doc used to admit that ("the next save can still
-    /// land on the file"), which was the finding rather than a justification: `PersonTagStore`
-    /// keeps an instance flag armed until the move actually lands and refuses every save until
-    /// then, and this store owes the same promise over more valuable bytes.
-    ///
-    /// Keyed by path rather than held per instance because the thing being protected is a FILE,
-    /// not an object: `FileSyncManager` reaches this store through static calls from two places
-    /// (a detached load, the serial write queue), and both must see the same armed fact about the
-    /// same path. A lock rather than the write queue, because `load` does not run on it.
+    /// Paths whose bytes couldn't be read and are not yet moved aside, with why. While armed, `save`
+    /// refuses, so an empty cache never overwrites paid verdicts whose rescue failed. Keyed by path,
+    /// not instance, because the protected thing is a file reached through static calls from two
+    /// places (a detached load, the write queue). A lock, because `load` doesn't run on the queue.
     private static let armedLock = NSLock()
-    /// `nonisolated(unsafe)` because every access below is under `armedLock` — the
-    /// annotation states the invariant the compiler cannot see, it does not waive it.
+    /// `nonisolated(unsafe)` because every access is under `armedLock`, an invariant the compiler
+    /// can't see.
     nonisolated(unsafe) private static var armedPaths: [String: String] = [:]
 
     private static func arm(_ url: URL, why: String) {
@@ -520,35 +383,23 @@ public enum FilingVerdictStore {
         return armedPaths[url.path]
     }
 
-    /// Serializes writes. Every writer hands its whole snapshot of the memoized cache here, so the
-    /// LAST queued snapshot is always the current state — scans that grow it and Clears that empty
-    /// it alike — and writing them in order makes the file converge on the memo.
-    ///
-    /// That only holds if every writer goes through this queue. This doc used to justify ordering
-    /// with "the in-memory copy only grows", which `clearFilingVerdictCache` falsified the day it
-    /// was written — and clear then bypassed the queue with a synchronous `save`, racing any
-    /// queued scan write, whose PRE-clear snapshot could land last and resurrect everything on the
-    /// next launch. **New writers use ``saveInBackground(_:to:)``; the synchronous `save` is for
-    /// paths with no possible concurrent writer.**
+    /// Serializes writes. Every writer hands its whole snapshot here, so the last queued one is the
+    /// current state (scans and Clears alike) and the file converges on it. **Only if every writer
+    /// uses this queue:** a synchronous `save` racing a queued pre-clear snapshot could resurrect a
+    /// cleared cache. New writers use ``saveInBackground(_:to:)``; `save` is for paths with no
+    /// possible concurrent writer.
     private static let writeQueue = DispatchQueue(label: "com.synccloud.filing-verdict-store")
 
-    /// Writes `cache` off the calling thread, in order.
-    ///
-    /// The caller is `FileSyncManager`, which is `@MainActor`: at the entry cap this file is on the
-    /// order of ten megabytes, and encoding plus an atomic write of that on the main actor is a
-    /// visible hitch at the end of every scan — in an app whose main-thread stalls are already a
-    /// known sore point. Nothing waits on the result, so there is nothing to block for: the
-    /// in-memory copy is authoritative for this launch, and a write lost to a quit costs a re-ask.
+    /// Writes `cache` off the calling thread, in order. The caller is the `@MainActor`
+    /// `FileSyncManager`, and encoding and writing ~10 MB there would hitch every scan. Nothing
+    /// waits: the in-memory copy is authoritative, and a write lost to a quit costs a re-ask.
     public static func saveInBackground(_ cache: FilingVerdictCache, to url: URL) {
         writeQueue.async { _ = save(cache, to: url) }
     }
 
-    /// Blocks until every queued write has finished.
-    ///
-    /// For tests, and only tests: production never waits, because the in-memory copy is what the
-    /// current launch reads. A test that scans, builds a SECOND manager, and expects it to load the
-    /// first one's entries is racing the background write — the exact shape of flake this codebase
-    /// has paid for before. A barrier on the serial queue makes that wait exact rather than timed.
+    /// Blocks until every queued write has finished. For tests only: one that builds a second
+    /// manager to load the first's entries would otherwise race the background write. A barrier on
+    /// the serial queue makes the wait exact, not timed.
     public static func waitForPendingWrites() {
         writeQueue.sync {}
     }
@@ -559,18 +410,11 @@ public enum FilingVerdictStore {
     @discardableResult
     public static func save(_ cache: FilingVerdictCache, to url: URL,
                             fileManager: FileManager = .default) -> Bool {
-        // **The write is gated on the rescue having landed.** While the guard is armed the bytes
-        // at `url` are the user's paid verdicts, unread by this launch and not yet moved aside —
-        // an atomic write here (which needs permission on the DIRECTORY, not the file) would
-        // destroy them, which is the whole loss the set-aside exists to prevent. Retried on every
-        // save rather than attempted once, and it is safe to retry precisely because the armed
-        // flag is the invariant: while it is set, nothing has written `url`, so every attempt
-        // moves the user's bytes and never this build's. The cost is the honest state — the error
-        // line repeats once per save while the move keeps failing, and this launch's verdicts live
-        // in memory (`FileSyncManager` holds the authoritative copy) until it stops.
-        // A newer build's file is never written over and never moved — see `load`. Silent here
-        // because `load` already said it, once, with the remedy; repeating it per save would be
-        // the same line at every scan for the rest of the launch.
+        // **No write until the rescue has landed.** While armed, the bytes at `url` are unread paid
+        // verdicts, and an atomic write (which needs only directory permission) would destroy them.
+        // Retried each save; safe because nothing writes `url` while armed, so each attempt moves
+        // the user's bytes. Meanwhile verdicts live in memory and the error repeats per save.
+        // A newer build's file is never written or moved; silent here, since `load` already said so.
         guard !isForeignSchema(url) else { return false }
         if reasonArmed(url) != nil,
            !setAsideUnreadable(url, fileManager: fileManager,

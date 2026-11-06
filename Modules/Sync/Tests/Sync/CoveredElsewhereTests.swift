@@ -2,15 +2,12 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **A folder reached twice under one walk root must be counted once.**
-///
-/// The shape is not invented. Measured on a real machine 2026-09-08: iCloud Drive's container holds
-/// hidden `Desktop`/`Documents` symlinks back into `~`, the walk SUBSTITUTES them for the real
-/// folders, and the substituted node arrives carrying the real path with `isSymbolicLink == false`.
-/// Under a `~` scan the same folder is therefore present twice with one id — once directly, once
-/// through the container — and every guard in the app tested `isSymbolicLink`, so nothing saw it.
-/// Storage over-reported by 10.5 GB and Duplicates offered to Trash `~/Documents` as a copy of
-/// itself. `FileNode.isCoveredElsewhere` is what the guards can now ask.
+/// A folder reached twice under one walk root is counted once. iCloud Drive's container holds
+/// hidden `Desktop` and `Documents` symlinks back into `~`, and the walk substitutes the real
+/// folders, which carry the real path and `isSymbolicLink == false`. Under a `~` scan the folder
+/// appears twice with one id, which an `isSymbolicLink` check can't see: Storage over-reports by
+/// its whole size and Duplicates offers to Trash `~/Documents` as a copy of itself. The guards ask
+/// `FileNode.isCoveredElsewhere` instead.
 @Suite struct CoveredElsewhereTests {
 
     static let home = "/H"
@@ -38,10 +35,9 @@ import Foundation
 
     // MARK: Storage
 
-    /// **The defect, and the fix, in one pair.** Unmarked the total doubles; marked it is the truth.
-    /// Asserted as a pair rather than only the fixed value, because a `collectLeaves` that stopped
-    /// walking the container entirely would also pass the second assertion while being wrong for a
-    /// scan rooted AT the container.
+    /// Unmarked, the total doubles; marked, it is right. Asserted as a pair because a
+    /// `collectLeaves` that skipped the container entirely would pass the second assertion while
+    /// being wrong for a scan rooted at the container.
     @Test func storageCountsADoubleReachedFolderOnce() {
         let unmarked = StorageLensAnalyzer.analyze(tree: Self.doubledTree(marked: false), now: Date())
         #expect(unmarked.totalBytes == Self.size * 2,
@@ -52,7 +48,7 @@ import Foundation
                 "Storage still counts the double-reached copy: \(marked.totalBytes) for one \(Self.size)-byte file")
     }
 
-    /// The rolled-up size a treemap area draws is the same answer, and it is a separate code path.
+    /// The rolled-up size a treemap area draws must agree, and it is a separate code path.
     @Test func theRolledUpSizeSkipsItToo() {
         let library = Self.doubledTree(marked: true)[1]
         #expect(StorageLensAnalyzer.rolledUpBytes(library) == 0,
@@ -63,8 +59,8 @@ import Foundation
 
     // MARK: Duplicates
 
-    /// **The one that could lose data.** Unmarked, the finder builds an `identical` group whose two
-    /// copies are the SAME path and recommends trashing it — the user's real Documents folder.
+    /// The data-loss case: unmarked, the finder builds an `identical` group whose two copies are
+    /// the same path and recommends trashing it, the user's real Documents folder.
     @Test func duplicatesDoesNotPairADoubleReachedFolderWithItself() {
         let hashes = [Self.doc: "hash-A"]
         let unmarked = DuplicateFinder.findGroups(tree: Self.doubledTree(marked: false), fileHashes: hashes)

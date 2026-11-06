@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **An Ask Claude PDF card's saved shape** (TE294 step 3): it round-trips through the chat's
-/// JSON as it was, holds no field a password could be put in, and knows which card a newer one
-/// replaces.
+/// An Ask Claude PDF card's saved shape: it round-trips through the chat's JSON as it was, holds
+/// no field a password could be put in, and knows which card a newer one replaces.
 struct AskClaudePDFCardTests {
 
     private func card(_ action: AskClaudePDFCard.Action, _ paths: [String], state: AskClaudePDFCard.State = .offered)
@@ -22,15 +21,15 @@ struct AskClaudePDFCardTests {
            message: "Saved “A (compressed).pdf”")
     }
 
-    /// **Round-trips through the chat's JSON exactly**, every field set.
+    /// Round-trips through the chat's JSON exactly, every field set.
     @Test func roundTripsThroughTheChatsJSON() throws {
         let saved = card(.compress, ["/d/A.pdf", "/d/B.pdf"])
         let data = try JSONEncoder().encode(saved)
         #expect(try JSONDecoder().decode(AskClaudePDFCard.self, from: data) == saved)
     }
 
-    /// **No field of the saved card is a password's** — Protect's password lives in the card's
-    /// field and nowhere else. Pinned on the encoded keys, so a field added later is seen here.
+    /// No field of the saved card is a password's: Protect's password lives in the card's field
+    /// and nowhere else. Pinned on the encoded keys, so a field added later is seen here.
     @Test func savesNoPassword() throws {
         let data = try JSONEncoder().encode(card(.protect, ["/d/Return.pdf"]))
         let text = String(decoding: data, as: UTF8.self).lowercased()
@@ -39,8 +38,8 @@ struct AskClaudePDFCardTests {
         }
     }
 
-    /// **A newer card for the same tool on the same files replaces an open one** — never a card
-    /// already run, nor one for other files or another tool.
+    /// A newer card for the same tool on the same files replaces an open one, never a card already
+    /// run, nor one for other files or another tool.
     @Test func knowsWhichCardANewerOneReplaces() {
         let open = card(.compress, ["/d/A.pdf", "/d/B.pdf"])
         #expect(open.isReplaced(by: card(.compress, ["/d/B.pdf", "/d/A.pdf"])))

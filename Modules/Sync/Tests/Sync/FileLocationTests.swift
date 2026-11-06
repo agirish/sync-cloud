@@ -2,14 +2,13 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins `FileLocation` — the pure containment × materialization classifier behind the Info
+/// Pins `FileLocation`, the pure containment × materialization classifier behind the Info
 /// inspector's *Where it lives* row.
 ///
-/// **Every path in here is fabricated and none of them exist.** That is the point, not an
-/// economy: the containment half must reach the filesystem nowhere at all (the verdict's one
-/// syscall is the materialization `lstat`, and containment is kept free of it), and a
-/// fixture built on real files could not tell a pure answer from a statted one. See
-/// `containmentNamesNoFilesystemTouchingApi` for the second half of that proof.
+/// Every path here is fabricated and none exist, on purpose: containment must never touch the
+/// filesystem (the verdict's one syscall is the materialization `lstat`), and real files couldn't
+/// tell a pure answer from a statted one. `containmentNamesNoFilesystemTouchingApi` proves the
+/// other half.
 struct FileLocationTests {
 
     /// Whether `path` sits inside no cloud source's folder — the containment half of "This Mac only".
@@ -117,12 +116,9 @@ struct FileLocationTests {
                 == ["/users/u/cloudstorage/acme/docs"])
     }
 
-    /// **A root that already IS its account folder contributes one path, not the same one twice.**
-    ///
-    /// This is the ordinary case now — a source's root widened from its documents folder to the
-    /// account above it — so before the de-duplication every discovered source put its own root in
-    /// this list twice. Harmless to the containment test that consumes it, and exactly the kind of
-    /// thing that stops being harmless when someone counts the list or logs it.
+    /// A root that already is its account folder contributes one path, not the same one twice.
+    /// That is the ordinary shape for a discovered source; a duplicate is harmless to containment
+    /// but wrong for anything that counts or logs the list.
     @Test func anAccountRootIsNotListedTwice() {
         #expect(FileLocation.coveredPaths(ofRootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal")
                 == ["/users/u/library/cloudstorage/onedrive-personal"])
@@ -135,9 +131,9 @@ struct FileLocationTests {
 
     // MARK: The two ROADMAP rules
 
-    /// **Disabled providers still count as coverage.** Their folder is on disk whether or not the
-    /// source is switched on, so a file inside one still has a second copy. Mutation seam: make
-    /// `FileLocation.coverage` filter on `disabledProviderIds` and this fails.
+    /// Disabled providers still count as coverage: their folder is on disk whether or not the
+    /// source is on, so a file inside one still has a second copy. Fails if `FileLocation.coverage`
+    /// filters on `disabledProviderIds`.
     @Test func aDisabledProvidersFolderStillCounts() {
         let drive = Self.oneDrive()
         let c = Self.coverage([drive], disabled: [drive.id])
@@ -154,8 +150,8 @@ struct FileLocationTests {
         #expect(Self.coverage([drive], disabled: [drive.id]) == Self.coverage([drive]))
     }
 
-    /// **A folder source is never coverage** — it is the thing being asked about, not a cloud.
-    /// Mutation seam: drop the `isLocalFolder` guard and this fails.
+    /// A folder source is never coverage: it is the thing being asked about, not a cloud. Fails if
+    /// the `isLocalFolder` guard is dropped.
     @Test func aFolderSourceIsNeverCoverage() {
         let c = Self.coverage([Self.folderSource(path: "/Users/u/Projects")])
         #expect(c.roots.isEmpty)
@@ -251,16 +247,11 @@ struct FileLocationTests {
 
     // MARK: A dataless file is never "This Mac only"
 
-    /// ☁ on a row is drawn from `isCloudOnly`; the inspector's "This Mac only" is the
-    /// `.thisMacOnly` verdict. The two can never describe one file at once because **a dataless
-    /// file never verdicts `.thisMacOnly`** — asserted here over the whole cross, including the
-    /// account-folder path that is the one shape which would produce both without the widening.
-    ///
-    /// Stated this way rather than as `!(showsCloud && showsHome)` over locally derived flags:
-    /// that form recomputes the home answer as `!isCloudOnly && …` and so reduces to
-    /// `!(x && !x && …)`, a tautology that passes with every rule in `verdict` mutated away. This
-    /// form fails the moment the `isCloudOnly ? nil : .thisMacOnly` branch stops consulting
-    /// materialization.
+    /// ☁ on a row comes from `isCloudOnly`; the inspector's "This Mac only" is the `.thisMacOnly`
+    /// verdict. They can't both describe one file because a dataless file never verdicts
+    /// `.thisMacOnly`, checked over the whole cross, including the account-folder path that would
+    /// produce both without the widening. Asserted on `verdict` itself: the same check over locally
+    /// derived flags is a tautology that passes with every rule in `verdict` mutated away.
     @Test func aDatalessFileNeverVerdictsThisMacOnly() {
         let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
         let paths = [
@@ -325,17 +316,11 @@ struct FileLocationTests {
         #expect(FileLocation.folderLabel(forPath: "/Users/u/Movies", in: c) == "This Mac only")
     }
 
-    /// Every containment fixture above runs on paths that do not exist, which proves the ANSWER
-    /// does not depend on the disk. This closes the other half: that no filesystem-touching API is
-    /// named at all, so a future edit cannot quietly put a stat back in front of every visible row.
-    ///
-    /// `URL(fileURLWithPath:)` without an `isDirectory:` hint stats the path to decide whether to
-    /// append a trailing slash; `NSString.standardizingPath` resolves symlinks under `/tmp` and
-    /// `/var`. Both are the obvious way to normalize a path and both are wrong here.
-    ///
-    /// Scoped to ONE named file, and it asserts the file was actually read and that a string it is
-    /// known to contain is present — a source scan that silently finds nothing is the failure mode
-    /// this kind of test has.
+    /// The fixtures above use paths that don't exist, proving the answer doesn't depend on the
+    /// disk. This proves the other half: `FileLocation.swift` names no filesystem-touching API, so
+    /// an edit can't put a stat back in front of every visible row. `URL(fileURLWithPath:)` without
+    /// `isDirectory:` stats the path, and `NSString.standardizingPath` resolves symlinks under
+    /// `/tmp` and `/var`. It checks it read the right file, since a scan that finds nothing passes.
     @Test func containmentNamesNoFilesystemTouchingApi() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()          // Tests/Sync

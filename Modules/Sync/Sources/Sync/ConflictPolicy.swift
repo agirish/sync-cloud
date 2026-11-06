@@ -1,13 +1,12 @@
 import Foundation
 
 /// The user's standing answer to the file-collision prompt (Settings → Sync → Conflicts).
-/// `.ask` — the default — preserves the historical always-prompt behavior; the other cases
-/// resolve FILE collisions without a prompt. Folder collisions always prompt regardless:
-/// replacing a folder trashes its entire contents (including items that exist only in the
-/// destination), which is never a decision to automate away.
+/// `.ask`, the default, always prompts; the other cases resolve file collisions without one.
+/// Folder collisions always prompt: replacing a folder trashes its entire contents, including
+/// items only in the destination, which is never a decision to automate away.
 ///
-/// Lives in Sync because it answers with Sync's `CollisionResolution`; the app's alert layer
-/// consults `autoResolution(isDirectory:)` before showing its prompt.
+/// Lives in Sync because it answers with `CollisionResolution`; the app's alert layer consults
+/// `autoResolution(isDirectory:)` before showing its prompt.
 public enum ConflictPolicy: String, CaseIterable, Identifiable, Sendable {
     case ask
     case keepBoth

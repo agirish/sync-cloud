@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Characterization ("golden") test for `DuplicateFinder.findGroups`. Unlike the focused tests, this
-/// pins the ENTIRE grouping output of one broad fixture as a single snapshot string. Its job is to
-/// catch COLLATERAL changes: any edit that alters grouping, keeper choice, reclaim bytes, ordering,
-/// or the symlink handling flips the snapshot and must be consciously re-blessed. This directly
-/// targets the class of regression that repeatedly slipped through — a fix that changed grouping as
-/// a side effect while the narrow tests it shipped with stayed green (the DuplicateFinder symlink
-/// signature broke three different ways across three rounds; each would have reddened this snapshot).
+/// Golden test for `DuplicateFinder.findGroups`: pins the whole grouping output of one broad
+/// fixture as a single snapshot string, to catch collateral changes. Any edit that alters
+/// grouping, keeper choice, reclaim bytes, ordering or symlink handling flips the snapshot and must
+/// be re-blessed on purpose, even when the narrow tests stay green.
 @Suite struct DuplicateFinderGoldenTests {
 
     private func file(_ path: String, size: Int = 100_000, symlink: Bool = false, modified: Date? = nil) -> FileNode {
@@ -51,11 +48,10 @@ import Testing
             dir("/root/f2", [file("/root/f2/shared.bin"), file("/root/f2/only2.txt")]),
             // A symlink whose target hashes like shared.bin — must be EXCLUDED (group stays 2 copies).
             dir("/root/link", [file("/root/link/shared.bin", symlink: true), file("/root/link/lonly.txt")]),
-            // Folder WITH a symlink vs folder WITHOUT — must NOT group (b50f9dc regression class).
+            // Folder WITH a symlink vs folder WITHOUT — must NOT group.
             dir("/root/withlink", [file("/root/withlink/data.txt"), file("/root/withlink/ln.pdf", symlink: true)]),
             dir("/root/nolink", [file("/root/nolink/data.txt")]),
-            // Folder with a symlink vs folder with a REAL file of the same hash — must NOT group
-            // (a24c326 regression class).
+            // Folder with a symlink vs folder with a REAL file of the same hash — must NOT group.
             dir("/root/hassym", [file("/root/hassym/doc.txt"), file("/root/hassym/att.pdf", symlink: true)]),
             dir("/root/hasreal", [file("/root/hasreal/doc.txt"), file("/root/hasreal/att.pdf")]),
             // Drifted VERSIONS pair — a stripped marker ("-final") on one member justifies the
@@ -69,16 +65,15 @@ import Testing
             // Same stem+ext, DIFFERENT parents, NO marker on either name — must NOT group as
             // versions (the IMG_0001-in-two-year-folders false positive). The marker on
             // "/2023/IMG_0001 copy.jpg" vouches ONLY for its own parent: the /2023 pair groups,
-            // and the unrelated /2019 shot must never be pulled in (round-5 MAJOR — one marker
-            // used to license the whole cross-folder stem bucket).
+            // and the unrelated /2019 shot must never be pulled in. One marker must not license
+            // the whole cross-folder stem bucket.
             dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
             dir("/root/2023", [
                 file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
                 file("/root/2023/IMG_0001 copy.jpg", size: 52_000, modified: Date(timeIntervalSince1970: 1_000_000)),
             ]),
             // Two folders sharing a NAME and nothing else. They stand up no group at all: a name
-            // match is not evidence of duplication, and this pair is the shape of the 115 sets in
-            // his own tree that were (see the finder's folder pass).
+            // match is not evidence of duplication (see the finder's folder pass).
             dir("/root/x/Projects", [file("/root/x/Projects/p1.txt")]),
             dir("/root/y/Projects", [file("/root/y/Projects/p2.txt")]),
             // Keeper heuristic discrimination: identical file where the ARCHIVE copy is BOTH newer
@@ -204,10 +199,9 @@ import Testing
     }
 
     /// Pins the per-reason skip accounting behind `duplicateScanSkips` (`hashFilesCounting`): a
-    /// mixed batch must report EXACTLY how many candidates were skipped as cloud-only placeholders
-    /// vs unreadable, hash everything else, and never let a skip masquerade as a hash. Guards the
-    /// round-4 "count and surface what the duplicate scan skipped" surface: a change that drops a
-    /// reason, double-counts, or starts hashing cloud-only files flips this.
+    /// mixed batch reports exactly how many candidates were skipped as cloud-only or unreadable,
+    /// hashes everything else, and never passes a skip off as a hash. Dropping a reason,
+    /// double-counting, or hashing cloud-only files must fail this.
     @Test func hashBatchOutcomeCountsSkipsByReason() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-skips-\(UUID().uuidString)")
@@ -222,10 +216,9 @@ import Testing
         try Data(repeating: 0x41, count: 100).write(to: small2)      // same bytes → same hash
         try Data(repeating: 0x43, count: 100).write(to: cloud)       // flagged cloud-only via the seam
 
-        // No cache: this pins the SKIP classification, and the knob it varies is one a cache hit
-        // deliberately bypasses (the cache holds digests; cloud-only only decides whether
-        // computing one is possible). Sharing the session cache here would let a digest recorded
-        // by another test answer for a file this test wants reported as cloud-only.
+        // No cache: a cache hit bypasses the cloud-only check (the cache holds digests; cloud-only
+        // only decides whether one can be computed), so a digest another test recorded could
+        // answer for a file this test wants reported as cloud-only.
         let outcome = await FileSyncManager.hashFilesCounting(
             [small1.path, small2.path, gone.path, cloud.path],
             fileManager: FileManager.default,

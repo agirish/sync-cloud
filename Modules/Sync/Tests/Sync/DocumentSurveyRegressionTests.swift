@@ -2,13 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The defects an adversarial pass over RD11 turned up, each pinned by the shape that would have
-/// shipped without it.
-///
-/// **All four were silent.** Every suite was green, every module built, and nothing logged a
-/// complaint — the failures were a survey that would never read a document, a resume that could
-/// never resume, a card that lied about its own state, and a summary that understated the one
-/// number it exists to state plainly.
+/// Document-survey failures that would be silent: green suites, no log line. A survey that never
+/// reads a document, a resume that can never resume, a card wrong about its own state, a summary
+/// that understates the one number it exists to state, and a resume that skips work.
 @Suite struct DocumentSurveyRegressionTests {
 
     private func makeDir() throws -> URL {
@@ -32,20 +28,15 @@ import Testing
 
     // MARK: - 1. The survey must not stand aside for itself
 
-    /// **A deadlock, and a total one.** `runDocumentSurvey` takes `filingSurveyLifecycle` for its
-    /// whole duration — it *is* the survey's running flag — and the yield conditions listed that
-    /// same lifecycle among the scans to stand aside for. So the survey paused on its own flag at
-    /// the first poll, before opening a single document, and stayed there. The card would have read
-    /// "paused while folder memory runs" underneath the thing that was running.
-    ///
-    /// Asserted against the rule rather than the manager, because the rule is what was wrong: a set
-    /// of conditions naming no scan must not produce a pause, and the driver is what must not name
-    /// its own.
+    /// A deadlock: `runDocumentSurvey` holds `filingSurveyLifecycle` for its whole run (it is the
+    /// survey's running flag), so if the yield conditions named that lifecycle, the survey would
+    /// pause on its own flag at the first poll and never read a document. Asserted against the
+    /// rule: conditions naming no scan produce no pause, and the driver must not name its own.
     @Test func aSurveyDoesNotYieldToItsOwnLifecycle() {
-        // What the driver now hands over while it holds `filingSurveyLifecycle`: no scan at all.
+        // What the driver hands over while it holds `filingSurveyLifecycle`: no scan at all.
         #expect(DocumentSurveyYield.pause(for: .clear) == nil)
-        // And the shape that deadlocked, so the assertion above is not vacuous — if "folder memory"
-        // ever reappears in the driver's list, THIS is the value it would build.
+        // The deadlocking shape, so the assertion above isn't vacuous: if the driver's list named
+        // "folder memory", this is the value it would build.
         let deadlocking = DocumentSurveyConditions(runningScans: ["folder memory"])
         #expect(DocumentSurveyYield.pause(for: deadlocking) == .yielding(to: "folder memory"),
                 """
@@ -56,9 +47,9 @@ import Testing
 
     /// The driver's own list, read from source: it must not name the lifecycle it holds.
     ///
-    /// A source scan because the value is assembled inside a `@MainActor` method over six published
-    /// properties, and standing a `FileSyncManager` up in this package to read one array back would
-    /// be a great deal of machinery to assert one line.
+    /// A source scan because the list is built inside a `@MainActor` method over six published
+    /// properties, and standing up a `FileSyncManager` here to read it back is a lot of machinery
+    /// for one line.
     @Test func theDriverDoesNotNameTheLifecycleItHolds() throws {
         let file = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -81,14 +72,10 @@ import Testing
 
     // MARK: - 2. A resume has to be able to resume
 
-    /// **The salt made every resume impossible, on exactly the machines that run a first survey.**
-    /// With no corpus and no memory, the plan minted a fresh random salt, so the resume's salt
-    /// never matched the checkpoint's and `adoptCheckpoint` refused it as another run's — telling
-    /// the user their progress belonged to a different folder.
-    ///
-    /// Pinned at the level the bug lived: a checkpoint written under one salt is adopted when the
-    /// run carries that salt, and refused when it does not. The driver's half is that it now reads
-    /// the checkpoint's salt before minting one.
+    /// A first survey has no corpus or memory, so its plan mints a random salt. A resume that
+    /// minted a new one would never match the checkpoint, and `adoptCheckpoint` would refuse it as
+    /// another run's. A checkpoint is adopted when the run carries its salt and refused when it
+    /// doesn't; the driver's half is reading the checkpoint's salt before minting one.
     @Test func aRunCarryingTheCheckpointsSaltAdoptsIt() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -115,7 +102,7 @@ import Testing
                 """)
     }
 
-    /// The driver reads the checkpoint's salt before minting one — the other half of the fix.
+    /// The driver reads the checkpoint's salt before minting one: the other half of the rule.
     @Test func thePlanPrefersAResumableCheckpointsSalt() throws {
         let file = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -133,12 +120,9 @@ import Testing
 
     // MARK: - 3. A card that says paused under a survey that is reading
 
-    /// **Progress is published the instant a pause clears, ahead of the gate.**
-    ///
-    /// `ProgressPublishGate` admits on whole percent, so a resume published nothing until the count
-    /// crossed the next point — about 75 documents, over a minute, on a 7,558-document run. For
-    /// that whole minute the card said "paused — the display is asleep" over a survey that was
-    /// reading, which is the same class of failure as a frozen count and prompts the same response.
+    /// Progress is published the instant a pause clears, ahead of the gate. `ProgressPublishGate`
+    /// admits on whole percent, so otherwise a resume publishes nothing until the next point (over
+    /// a minute on a large run), and the card says "paused" over a survey that is reading.
     @Test func clearingAPausePublishesImmediately() async throws {
         final class Signal: @unchecked Sendable {
             let lock = NSLock(); var paused = true; var published: [DocumentSurveyProgress] = []
@@ -173,12 +157,9 @@ import Testing
                 """)
     }
 
-    /// A pause whose REASON changes republishes; one that stays the same does not.
-    ///
-    /// Without the first half the card would keep saying "paused while Duplicates runs" after
-    /// Duplicates finished and the display went to sleep — a true sentence about the wrong cause.
-    /// Without the second it would republish once a second for as long as the pause lasted, which
-    /// is a re-render of the window's root view once a second, all night.
+    /// A pause whose reason changes republishes; a steady one does not. Otherwise the card either
+    /// keeps naming a cause that has passed ("paused while Duplicates runs" after the display went
+    /// to sleep), or re-renders the window's root view on every poll, all night.
     @Test func aChangingPauseReasonRepublishesAndASteadyOneDoesNot() async {
         final class Signal: @unchecked Sendable {
             let lock = NSLock(); var ticks = 0; var published: [DocumentSurveyProgress] = []
@@ -216,9 +197,9 @@ import Testing
 
     // MARK: - 4. The count the summary promises to be honest about
 
-    /// **`read` survived a resume and `unavailable` did not**, so a survey stopped and carried on
-    /// reported every not-downloaded document from the first sitting as though it had never been
-    /// looked at — understating precisely the figure `DocumentSurveyReport.summary` exists to state.
+    /// The unavailable count survives a resume, as `read` does. Otherwise a resumed survey forgets
+    /// the first sitting's not-downloaded documents, understating the very figure
+    /// `DocumentSurveyReport.summary` exists to state.
     @Test func theUnavailableCountSurvivesAResume() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -244,17 +225,12 @@ import Testing
 
     // MARK: - 5. An index means nothing against a plan it was not counted in
 
-    /// **A resume across a changed tree skipped work and called itself complete.**
-    ///
-    /// `resumes(profileId:rootPath:salt:)` settles whose run a checkpoint is; it says nothing about
-    /// whether the tree still holds the same documents. Between sittings files are added, deleted
-    /// and renamed, so `documentsToRead` returns a different list — and the old index points at an
-    /// unrelated document in the new one, with everything before it never visited. The run then
-    /// reported itself complete having skipped documents it never opened.
-    ///
-    /// The read is always worth keeping; the index is not. So a changed plan restarts the index and
-    /// leans on the skip, and the assertion here is the one that matters: every document in the new
-    /// plan is read exactly once, across both sittings.
+    /// `resumes(profileId:rootPath:salt:)` says whose run a checkpoint is, not whether the tree
+    /// still holds the same documents. Between sittings files change, `documentsToRead` returns a
+    /// different list, and the old index would point into it at random, skipping everything before
+    /// and still reporting complete. The reads are worth keeping; the index is not. So a changed
+    /// plan restarts the index and relies on the skip: every document in the new plan is read
+    /// exactly once across both sittings.
     @Test func aChangedPlanRestartsTheIndexRatherThanTrustingIt() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -293,8 +269,8 @@ import Testing
         }
         #expect(readAgain.isEmpty, "a document read in the first sitting was opened a second time")
 
-        // ...and every document in the NEW plan is now in the corpus. This is the assertion that
-        // failed before: with the stale index, the first entries of the new plan were never visited.
+        // ...and every document in the new plan is now in the corpus. Trusting the stale index
+        // must make this fail: the new plan's first entries would never be visited.
         for path in after {
             #expect(report.read[path] != nil,
                     """
@@ -305,7 +281,7 @@ import Testing
         #expect(report.isComplete)
     }
 
-    /// An UNCHANGED plan still resumes by index — the cheap path is not lost to the fix above.
+    /// An unchanged plan still resumes by index: the cheap path survives the rule above.
     @Test func anUnchangedPlanStillResumesByIndex() async throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -325,8 +301,8 @@ import Testing
         #expect(await run.resumableProgress == (4, 10))
     }
 
-    /// A checkpoint written before the field existed still decodes — the default is a low count,
-    /// not a decode failure that would cost the whole survey.
+    /// A checkpoint without `documentsUnavailable` still decodes: the default is a low count, not a
+    /// decode failure that would cost the whole survey.
     @Test func aCheckpointWithoutTheFieldStillDecodes() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }

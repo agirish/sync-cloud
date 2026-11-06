@@ -3,18 +3,14 @@ import Foundation
 import Events
 @testable import Sync
 
-/// Two ways the duplicate removal path told the user something untrue about a destructive action.
+/// The duplicate removal path must tell the truth about a destructive action.
 ///
-/// **The undo promise.** `deleteItems` gets undoability right — it registers a restore-undo only
-/// for items that reached the Trash, and flags its own banner `undoable: false` otherwise — but it
-/// returned a bare `Int`, so the duplicates callers replaced that banner with an unconditional
-/// "press ⌘Z to undo". On a Trash-less volume (exFAT, most SMB shares) that promise is printed
-/// after files were destroyed permanently, and ⌘Z then reverses whatever was previously on top of
-/// the stack.
+/// The undo promise: `deleteItems` registers a restore-undo only for items that reached the Trash,
+/// and its `DeleteOutcome` says so. On a Trash-less volume (exFAT, most SMB shares) the files are
+/// destroyed permanently, so a banner promising ⌘Z would reverse whatever was on top of the stack.
 ///
-/// **The same-size rewrite.** The resolve-time drift check compared byte size alone, so any
-/// same-length edit — 2025 to 2026 — compared equal to the scanned copy and was trashed as
-/// redundant. The merge path in the same file had already rejected that reasoning.
+/// The same-size rewrite: the resolve-time drift check compares mtime as well as size, so a
+/// same-length edit (2025 to 2026) is not trashed as redundant.
 @Suite struct DuplicateRemovalHonestyTests {
 
     @MainActor
@@ -66,8 +62,7 @@ import Events
         #expect(manager.banner?.isUndoable != true)
     }
 
-    /// The other direction: a normal Trash removal still offers the undo it genuinely has, or the
-    /// fix would just have removed a working affordance.
+    /// The other direction: a normal Trash removal still offers the undo it really has.
     @MainActor
     @Test func aTrashedRemovalStillPromisesUndo() async throws {
         let mockFM = MockFileManager()
@@ -84,23 +79,19 @@ import Events
         #expect(manager.banner?.isUndoable == true)
     }
 
-    /// **A partial batch's offer has to EXPIRE like a whole one's.** The two sibling banners pass
-    /// `undoable:`; this one conditioned only its sentence on `outcome.isUndoable` and left the
-    /// flag at its default. `invalidateUndoableBanner` reads the flag, not the sentence, so the
-    /// offer survived the undo stack moving on — and once another operation registers, "Press ⌘Z
-    /// to undo" is an instruction to reverse the WRONG step. That is the same misdirected shortcut
-    /// `DeleteOutcome` exists to prevent, reached by a different route.
-    ///
-    /// Warnings are normally left standing, deliberately, so an error cannot be cleared by an
-    /// unrelated op — which is precisely why severity and undoability are separate parameters.
+    /// A partial batch's undo offer must expire like a whole one's, so its banner passes
+    /// `undoable:` as its siblings do. `invalidateUndoableBanner` reads the flag, not the sentence;
+    /// an offer kept only in prose would outlive the undo stack moving on and point ⌘Z at the
+    /// wrong step. Warnings are normally left standing so an unrelated op can't clear an error,
+    /// which is why severity and undoability are separate parameters.
     @MainActor
     @Test func aPartialBatchThatOffersUndoIsMarkedUndoableSoTheOfferCanExpire() async throws {
         let mockFM = MockFileManager()
         let manager = makeManager(mockFM)
         // Two eligible groups, one of whose keepers is gone: it is filtered out of `batch` while
         // staying in `eligible`, which is what takes the partial branch. The surviving group
-        // trashes normally, so the outcome genuinely IS undoable — without that this would be
-        // asserting about the no-offer case.
+        // trashes normally, so the outcome really is undoable; otherwise this would test the
+        // no-offer case.
         mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
         mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
         mockFM.virtualDisk["/b/y"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
@@ -115,8 +106,8 @@ import Events
         let message = try #require(manager.banner?.message)
         #expect(message.contains("of 2 groups"),
                 "not the partial branch — the banner reads “\(message)”, so the flag below is not the one under test")
-        // THE INVARIANT: an offer that is made must also be retractable. The flag IS the offer —
-        // it shows the Undo button — and `invalidateUndoableBanner` retires it by the same flag.
+        // The invariant: an offer that is made must be retractable. The flag is the offer (it
+        // shows the Undo button), and `invalidateUndoableBanner` retires it by the same flag.
         #expect(manager.banner?.isUndoable == true,
                 "the partial banner made no undo offer, so its Undo button is missing — or, offered by prose alone, invalidateUndoableBanner would leave it up after the stack moves on")
         #expect(!message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it (TE216)")
@@ -132,7 +123,7 @@ import Events
         #expect(!DeleteOutcome(trashed: 2, permanentlyDeleted: 1).isUndoable)
         #expect(DeleteOutcome(trashed: 2, permanentlyDeleted: 1).removed == 3)
         #expect(!DeleteOutcome(permanentlyDeleted: 2).isUndoable)
-        // A copy the Trash took without a location is outside the restore-undo too (L3).
+        // A copy the Trash took without a location is outside the restore-undo too.
         #expect(!DeleteOutcome(trashed: 2, trashedWithoutLocation: 1).isUndoable)
         #expect(DeleteOutcome(trashed: 2, trashedWithoutLocation: 1).removed == 3)
         #expect(!DeleteOutcome().isUndoable, "removing nothing is not something to undo")
@@ -142,8 +133,8 @@ import Events
 
     // MARK: The same-size rewrite
 
-    /// `2025` → `2026`: identical length, different bytes, later mtime. Size alone read this as
-    /// the copy the scan grouped and trashed it.
+    /// `2025` → `2026`: identical length, different bytes, later mtime. Size alone would read this
+    /// as the copy the scan grouped, and trash it.
     @MainActor
     @Test func aSameSizeRewriteOfACopyIsRefused() async throws {
         let mockFM = MockFileManager()
@@ -177,8 +168,8 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] == nil)
     }
 
-    /// A scan that recorded no date still resolves on size alone — the fallback that keeps every
-    /// pre-existing group working rather than refusing it for lack of a baseline.
+    /// A scan that recorded no date still resolves on size alone, rather than refusing the group
+    /// for lack of a baseline.
     @MainActor
     @Test func aPairWithNoRecordedDateStillResolvesOnSize() async throws {
         let mockFM = MockFileManager()
@@ -199,11 +190,9 @@ import Events
 
     // MARK: What the batch says when it removes nothing, and what it claims it freed
 
-    /// **"Nothing to remove" is not "something changed."** Every empty batch produced the same
-    /// warning — "These groups changed since they were scanned — rescan before removing copies" —
-    /// and drift is only one of the two ways to get one. A group whose every redundant copy is
-    /// PROTECTED contributes no paths while nothing about it has changed at all, so a rescan finds
-    /// exactly the same group and the advice sends the user around a loop.
+    /// "Nothing to remove" is not "something changed". Drift is only one way to get an empty
+    /// batch: a group whose every redundant copy is protected contributes no paths while nothing
+    /// changed, so "rescan before removing copies" would send the user round a loop.
     @MainActor
     @Test func aBatchOfProtectedCopiesIsNotReportedAsDrift() async throws {
         let mockFM = MockFileManager()
@@ -234,14 +223,10 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] != nil)
     }
 
-    /// **A banner that names a cause must have checked it.** The empty-batch message says every
-    /// copy is protected — but an empty removal list is equally what a group carrying no redundant
-    /// copies at all produces, and `applyRecommendedDuplicates` is `public` over a `DuplicateGroup`
-    /// initializer that validates nothing, so what counts as a "group" is the caller's to decide.
-    ///
-    /// Measured before the fix: a one-copy group, with nothing protected anywhere, was told that
-    /// every copy in it was protected — the same class of mistake as the drift wording it replaced,
-    /// one state over.
+    /// A banner that names a cause must have checked it. A group with no redundant copies also
+    /// gives an empty removal list, and `applyRecommendedDuplicates` is `public` over a
+    /// `DuplicateGroup` initializer that validates nothing, so a one-copy group must not be told
+    /// its copies are protected.
     @MainActor
     @Test func aGroupWithNothingToRemoveIsNotCalledProtected() async throws {
         let mockFM = MockFileManager()
@@ -268,8 +253,7 @@ import Events
         #expect(said.contains("Nothing to remove"), "the banner stopped saying nothing was removed: “\(said)”")
     }
 
-    /// …and the drift wording survives for the case it was written for, so the fix above is a
-    /// narrowing rather than a removal.
+    /// …and the drift wording still covers the case it is for.
     @MainActor
     @Test func aDriftedBatchStillSaysToRescan() async throws {
         let mockFM = MockFileManager()
@@ -287,19 +271,13 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] != nil, "a drifted copy was trashed")
     }
 
-    /// **Space the user never got back must not be reported as reclaimed.**
+    /// Space the user never got back must not be reported as reclaimed. A group whose redundant
+    /// copy vanished between the scan and the click still resolves and drops off the list, but
+    /// this run freed nothing for it.
     ///
-    /// A group whose redundant copy vanished externally between the scan and the click still
-    /// resolves — every removal path is gone, so it correctly drops off the list — but this run
-    /// freed nothing for it. Measured before the fix, two identical pairs with one copy already
-    /// removed by something else reported **"Reclaimed 5 KB from 2 groups — press ⌘Z to undo"** for
-    /// a run that trashed one 1 KB file.
-    ///
-    /// **The keeper of the vanished group has to match its recorded size**, or the fixture proves
-    /// nothing: `keeperStillExists` refuses a drifted keeper, so a keeper stubbed at a different
-    /// size drops the group at the batch filter and the accounting line is never reached. A first
-    /// draft of this test did exactly that, passed against the unfixed code, and read as evidence
-    /// the defect was unreachable.
+    /// The vanished group's keeper must match its recorded size, or the fixture proves nothing:
+    /// `keeperStillExists` refuses a drifted keeper, so the group would drop at the batch filter
+    /// before the accounting line.
     @MainActor
     @Test func bytesAreNotCreditedForCopiesThatVanishedExternally() async throws {
         let mockFM = MockFileManager()

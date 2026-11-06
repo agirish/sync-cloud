@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.6's wire shape and its two text rules — the payload is exactly what the sheet disclosed,
+/// The mapping refine's wire shape and text rules: the payload is exactly what the sheet disclosed,
 /// the parse never coerces a guess, and a reversal is labelled or a reviewer reads it as a bug.
 @Suite struct MappingRefineTests {
 
@@ -18,9 +18,9 @@ import Testing
 
     // MARK: The payload
 
-    /// The body carries what the disclosure names — paths, members, candidates, the user's rows —
-    /// and the sample file names ONLY when the request carries them. There is no field for file
-    /// contents at all, which is the strongest form of "never sent".
+    /// The body carries what the disclosure names (paths, members, candidates, the user's rows) and
+    /// the sample file names only when the request carries them. There is no field for file
+    /// contents at all.
     @Test func theBodyCarriesExactlyTheDisclosedPayload() throws {
         let bare = MappingRefineProtocol.requestBody(request: Self.request())
         let bareText = try #require(
@@ -50,8 +50,8 @@ import Testing
         ])
     }
 
-    /// The three verdicts round-trip; a hallucinated source, an unknown verdict and a propose
-    /// with no target are dropped rather than coerced — the parse never guesses.
+    /// The three verdicts round-trip; a hallucinated source, an unknown verdict and a propose with
+    /// no target are dropped rather than coerced.
     @Test func theParseKeepsTheAskedAndDropsTheInvented() throws {
         let rows = Self.request().rows
         let parsed = try #require(MappingRefineProtocol.parseProposals(
@@ -103,11 +103,10 @@ import Testing
             for: MappingRefineProposal(source: "X", verdict: .declined, why: "w"),
             among: all, rows: rows) == nil, "a declined row reverses nothing")
     }
-    /// Parse hygiene, three ways — a model working a long list answers a row twice (first
-    /// answer wins: two proposals sharing one id break the sheet's ForEach), answers `A → A`
-    /// because the tool schema makes `target` mandatory (normalised to keep, which also kills
-    /// the false "swaps places with itself" label), and answers with sloppy casing (mapped back
-    /// to the asked spelling rather than dropped as invented).
+    /// Parse hygiene for three model slips: a row answered twice (first answer wins, since two
+    /// proposals sharing an id break the sheet's ForEach); `A → A`, which the mandatory `target`
+    /// invites (normalised to keep, so no "swaps places with itself" label); and sloppy casing
+    /// (mapped back to the asked spelling rather than dropped as invented).
     @Test func theParseDedupesNormalisesSelfMapsAndForgivesCase() throws {
         let rows = [RestructureMapping.Row(source: "Petition"),
                     RestructureMapping.Row(source: "Claims")]
@@ -126,8 +125,8 @@ import Testing
         #expect(MappingRefineProtocol.reversalNote(for: parsed[1], among: parsed, rows: rows)
                 == nil)
     }
-    /// A malformed first answer for a row must not consume the row's dedupe slot — the model
-    /// stumbles (a propose with an empty target), then answers properly; the good answer wins.
+    /// A malformed first answer must not take the row's dedupe slot: after a propose with an empty
+    /// target, the model's proper answer wins.
     @Test func aMalformedFirstAnswerDoesNotSwallowTheValidSecond() throws {
         let rows = [RestructureMapping.Row(source: "Petition")]
         let parsed = try #require(MappingRefineProtocol.parseProposals(

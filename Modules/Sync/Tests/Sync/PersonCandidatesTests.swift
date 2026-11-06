@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The household proposer's rule, on trees small enough to reason about.
-///
-/// The measurement that decides whether the rule is any *good* is machine-pinned
-/// (`PersonCandidatesGroundTruthTests`); these pin what it means. Both are needed: a fixture cannot
-/// tell you a rule proposes 214 names on a real tree, and a real tree cannot tell you which clause
-/// did it.
+/// The household proposer's rule, on trees small enough to reason about. Whether the rule is any
+/// good is measured on a real tree (`PersonCandidatesGroundTruthTests`); these pin what each clause
+/// means, which a real tree can't isolate.
 @Suite struct PersonCandidatesTests {
 
     // MARK: - What qualifies
@@ -18,22 +15,19 @@ import Testing
         #expect(Set(proposals.map(\.name)) == ["Daughter", "Son"])
     }
 
-    /// **A descendant is not a child**, which is the clause that took the reference tree from 79
-    /// proposals to 28. `Family` says what its children are; it says nothing about its grandchildren.
+    /// A descendant is not a child: `Family` says what its children are, not its grandchildren.
+    /// This clause cuts a real tree's proposals by about two thirds.
     @Test func aDescendantOfAHouseholdFolderIsNotProposed() {
         let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Photos/Reference"]))
         #expect(!proposals.map(\.name).contains("Reference"),
                 "matching anywhere in the path is what proposed Reference(41) on the real tree")
-        // `Photos` IS a direct child of `Family`, so proposing it is the rule working — and it is
-        // the over-proposal the design accepts: one tick to refuse, with `Family` shown as the
-        // reason it was asked about.
+        // `Photos` is a direct child of `Family`, so proposing it is the rule working: the
+        // over-proposal the design accepts, one tick to refuse with `Family` shown as the reason.
         #expect(proposals.map(\.name) == ["Photos"])
     }
 
-    /// Repetition on its own is not evidence of a person.
-    ///
-    /// The rule this replaced proposed on it, and on a real document tree `Reference`, `Application`
-    /// and `Statements` outranked every member of the household.
+    /// Repetition on its own is not evidence of a person: on a real document tree, `Reference`,
+    /// `Application` and `Statements` repeat more than any member of the household.
     @Test func aNameRepeatedAcrossBranchesIsNotProposedOnThatAlone() {
         let proposals = PersonCandidates.propose(tree: FixtureTree.of([
             "Finance/Statements", "Immigration/Statements", "Legal/Statements",
@@ -84,8 +78,7 @@ import Testing
         #expect(proposals.map(\.name) == ["Son"], "offered a name the roster already has")
     }
 
-    /// A name nested under itself is one branch, not two — the correction
-    /// `JurisdictionCandidates` needed for the same reason.
+    /// A name nested under itself is one branch, not two, as in `JurisdictionCandidates`.
     @Test func aNameUnderItselfDoesNotCountTwice() {
         let proposals = PersonCandidates.propose(tree: FixtureTree.of(["Family/Daughter/Daughter"]))
         #expect(proposals.map(\.name) == ["Daughter"])
@@ -94,11 +87,9 @@ import Testing
 
     // MARK: - Order
 
-    /// Ranked by household evidence, and only then by size.
-    ///
-    /// **The count ordering put `Reference` above every real person on the reference tree.** This is
-    /// that fixture in miniature: a name under two household folders leads one under a single
-    /// household folder and forty other places.
+    /// Ranked by household evidence, and only then by size, or a big folder name like `Reference`
+    /// outranks every real person. A name under two household folders leads one under a single
+    /// household folder and a dozen other places.
     @Test func householdEvidenceOutranksFolderCount() {
         var paths = ["Family/Mother", "People/Mother", "Family/Reference"]
         paths += (1...12).map { "Work/Project\($0)/Reference" }
@@ -131,15 +122,9 @@ import Testing
         #expect(daughter.householdParents == 2)
     }
 
-    /// The three sort keys, in the order the documentation now claims — **and the `- Returns:` line
-    /// said something else for the whole of v4.2's development.**
-    ///
-    /// It read "ordered by `folderCount` descending, then by name", which is what the code did in
-    /// an earlier cut and is precisely the ordering the inline comment beside the sort explains was
-    /// wrong (it put `Reference` above every real person). Nothing failed, because every ordering
-    /// test in this file exercises fixtures where the two agree. This one is built so they cannot:
-    /// `Bulk` sits under ONE household folder and eight ordinary ones, `Nadia` under TWO and no
-    /// others — so evidence-first puts Nadia ahead and size-first puts Bulk ahead.
+    /// The three sort keys in their documented order, on a fixture where evidence and size
+    /// disagree: `Bulk` sits under one household folder and eight ordinary ones, `Nadia` under two
+    /// and no others. Evidence-first puts Nadia ahead; size-first would put Bulk ahead.
     @Test func theOrderIsEvidenceFirstNotSizeFirst() throws {
         let tree = FixtureTree.of(["Family/Nadia", "People/Nadia"]
                              + ["Family/Bulk"]
@@ -159,7 +144,7 @@ import Testing
                 "ordered \(proposals.map(\.name)) — size beat evidence, which is the ordering the comment beside the sort says was wrong")
     }
 
-    /// Ties on both evidence and size break by name, ascending — the third key, which the
+    /// Ties on both evidence and size break by name, ascending: the third key, which the
     /// comparator spells by swapping its operands rather than by negating.
     @Test func aTieBreaksByNameAscending() {
         let tree = FixtureTree.of(["Family/Zoya", "Family/Amara"])

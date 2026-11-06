@@ -11,7 +11,7 @@ import Foundation
 public struct OneWaySyncRemovedItem: Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         /// A version SyncCloud wrote, replaced by a newer one from iCloud. Only these count: one a
-        /// day per file is kept (DG), and at most seven per file (DJ).
+        /// day per file is kept, and at most seven per file.
         case replacedSyncCloudVersion
         /// A version made in Dropbox, replaced by iCloud's. Always kept, never counted.
         case replacedDropboxVersion
@@ -19,10 +19,10 @@ public struct OneWaySyncRemovedItem: Equatable, Sendable {
         case movedOutInICloud
         /// Made redundant when a Dropbox-only file with the same contents was adopted.
         case duplicateOfAdoptedFile
-        /// SyncCloud's copy that Dropbox refused, its iCloud file since gone (ES).
+        /// SyncCloud's copy that Dropbox refused, its iCloud file since gone.
         case refusedCopy
         /// iCloud's version, kept before SyncCloud wrote over it in iCloud (*Copy Dropbox’s into
-        /// iCloud*, *Reverse in iCloud*). Outside DG's and DJ's limits.
+        /// iCloud*, *Reverse in iCloud*). Outside the one-a-day and seven-per-file limits.
         case replacedICloudVersion
         /// Nothing on the item says where it came from; its place in the folder still does.
         case unrecorded
@@ -67,7 +67,7 @@ public struct OneWaySyncRemovedItem: Equatable, Sendable {
     }
 }
 
-/// **Dropbox ▸ SyncCloud Removed**: everything one-way sync takes out of Dropbox, filed by date
+/// Dropbox ▸ SyncCloud Removed: everything one-way sync takes out of Dropbox, filed by date
 /// under its Dropbox path, `SyncCloud Removed/<date>/<path in Dropbox>`.
 ///
 /// - It is inside Dropbox, so a move into it is a rename: nothing downloads or uploads again, and
@@ -75,18 +75,18 @@ public struct OneWaySyncRemovedItem: Equatable, Sendable {
 /// - Items never overwrite each other: a taken name gets " 2", " 3"…, and every move in is
 ///   `RENAME_EXCL`.
 /// - Each item says where it came from in an attribute of its own, which Turn Off leaves alone.
-/// - It is emptied only when the user chooses (DB), apart from DJ: an eighth version SyncCloud
+/// - It is emptied only when the user chooses, with one exception: an eighth version SyncCloud
 ///   wrote of one file sends the oldest to Dropbox's own deleted files. Nothing goes to the Mac's
 ///   Trash.
 public struct OneWaySyncRemovedStore: Sendable {
     public static let folderName = "SyncCloud Removed"
-    /// DJ: replaced versions SyncCloud wrote, kept per file.
+    /// Replaced versions SyncCloud wrote, kept per file.
     public static let versionsKeptPerFile = 7
     /// Holds each item's `Origin`, as JSON.
     public static let originAttribute = "com.abhishekgirish.SyncCloud.removedFrom"
 
     public let accountFolder: URL
-    /// Files the date folders, and decides what "a day" is for DG.
+    /// Files the date folders, and decides what "a day" is for the one-a-day rule.
     public var calendar: Calendar
 
     /// `accountFolder` is taken canonical (its symlinks resolved): every move refuses a symlink
@@ -157,7 +157,7 @@ public struct OneWaySyncRemovedStore: Sendable {
 
     // MARK: DG and DJ
 
-    /// DG: whether Dropbox's previous version of a file is kept when iCloud's replaces it. A version
+    /// Whether Dropbox's previous version of a file is kept when iCloud's replaces it. A version
     /// made in Dropbox always is; one SyncCloud wrote, only if none of that file's was kept today.
     public func keepsPreviousVersion(fileID: UInt64?, dropboxPath: String, previousIsDropboxEdit: Bool,
                                      at now: Date, in items: [OneWaySyncRemovedItem]) -> Bool {
@@ -168,7 +168,7 @@ public struct OneWaySyncRemovedStore: Sendable {
         }
     }
 
-    /// DJ: the versions SyncCloud wrote of this file beyond the newest seven, oldest first. The
+    /// The versions SyncCloud wrote of this file beyond the newest seven, oldest first. The
     /// one at `keeping` (the version just kept) is never among them, even when a clock set back
     /// dates it before the rest.
     public func versionsPastTheLimit(fileID: UInt64?, dropboxPath: String, keeping: String? = nil,

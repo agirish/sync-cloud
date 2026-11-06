@@ -34,8 +34,8 @@ public struct OneWaySyncPlaces: Sendable {
 /// What applying one step did.
 public enum OneWaySyncApplied: Equatable, Sendable {
     /// A file put in Dropbox, by a copy or a replace. `kept` is Dropbox's previous version, in
-    /// SyncCloud Removed; `emptied` are versions DJ sent to Dropbox's deleted files to make room,
-    /// which History logs.
+    /// SyncCloud Removed; `emptied` are versions past the seven kept, sent to Dropbox's deleted
+    /// files to make room, which History logs.
     case wrote(dropboxPath: String, kept: OneWaySyncRemovedItem?, emptied: [OneWaySyncRemovedItem])
     case removed(OneWaySyncRemovedItem)
     case moved(to: String)
@@ -44,20 +44,20 @@ public enum OneWaySyncApplied: Equatable, Sendable {
     case nothingToWrite
 }
 
-/// **Carries out a one-way sync plan's actions on disk**, one step at a time: RD67's file-writing
-/// layer. The plan comes from `OneWaySyncPlanner`; the record and History are the caller's.
+/// Carries out a one-way sync plan's actions on disk, one step at a time. The plan comes from
+/// `OneWaySyncPlanner`; the record and History are the caller's.
 ///
-/// - **Copies stage outside Dropbox.** iCloud's file is read inside a coordinated read with a
+/// - Copies stage outside Dropbox. iCloud's file is read inside a coordinated read with a
 ///   deadline, its size, date and change time checked unchanged across the copy, into
 ///   `places.staging`, then moved into Dropbox under a name nothing holds. No `.tmp_` or
 ///   `.rollback_` file is ever made inside Dropbox.
-/// - **Replace keeps the Dropbox item.** Dropbox's previous version is cloned (not moved) into
-///   SyncCloud Removed (DG, DJ), then the staged file is renamed over the old one: measured on this
-///   Mac, that keeps Dropbox's document ID, its item ID and the server's file ID. Nothing goes to
-///   the Mac's Trash.
-/// - **Dropbox's copy is re-checked just before** each write over it, move of it or removal of it,
+/// - Replace keeps the Dropbox item. Dropbox's previous version is cloned (not moved) into
+///   SyncCloud Removed, then the staged file is renamed over the old one: measured on this Mac,
+///   that keeps Dropbox's document ID, its item ID and the server's file ID. Nothing goes to the
+///   Mac's Trash.
+/// - Dropbox's copy is re-checked just before each write over it, move of it or removal of it,
 ///   against what the diff saw (`OneWaySyncExpectedState`); a change waits.
-/// - **Nothing follows a symlink**, and no copy carries Dropbox's attributes.
+/// - Nothing follows a symlink, and no copy carries Dropbox's attributes.
 ///
 /// Not thread-safe: one pass applies its steps in order from one task, off the main thread — every
 /// call blocks on the disk and on file coordination.
@@ -186,8 +186,8 @@ public final class OneWaySyncWriter {
     }
 
     /// Writes iCloud's file over Dropbox's, keeping the Dropbox item (its ID, links and history).
-    /// Dropbox's previous version is cloned into SyncCloud Removed first when DG keeps it, and
-    /// DJ then empties that file's oldest version past seven.
+    /// Dropbox's previous version is cloned into SyncCloud Removed first when
+    /// `keepsPreviousVersion` says so, then that file's oldest version past seven is emptied.
     ///
     /// A replace that stops after the clone takes the clone back out, so retrying never piles up
     /// copies: Dropbox's file was not touched. A file over a package or the other way round, and a
@@ -227,7 +227,8 @@ public final class OneWaySyncWriter {
             if let kept = result.kept { _ = removed.empty([kept]) }
             throw error
         }
-        // DJ only once the new version is in: a replace that stopped short empties nothing.
+        // Empty past seven only once the new version is in: a replace that stopped short empties
+        // nothing.
         if let kept = result.kept, kept.origin.kind == .replacedSyncCloudVersion {
             let past = removed.versionsPastTheLimit(fileID: fileID, dropboxPath: accountPath, keeping: kept.path, in: items + [kept])
             result.emptied = removed.empty(past).emptied
@@ -365,7 +366,7 @@ public enum OneWaySyncUploads {
     }
 
     /// Reads `path`'s upload: gone, carrying Dropbox's ignore mark (`com.dropbox.ignored`, which
-    /// Dropbox never uploads), or what RD68's reading says.
+    /// Dropbox never uploads), or what `CloudAppStatusModel.reading(at:)` says.
     public static func reading(at path: String) -> Reading {
         guard OneWaySyncDisk.kind(at: path) != nil else { return .gone }
         if OneWaySyncDisk.attribute("com.dropbox.ignored", at: path) != nil { return .ignoredByDropbox }
@@ -376,15 +377,15 @@ public enum OneWaySyncUploads {
         return .upload(reading)
     }
 
-    /// **Nothing counts as synced until Dropbox reports the upload** — measured: not uploaded,
-    /// uploading, then uploaded, 7–18 s after a file is put in place. Reads each file every
-    /// `interval` until it is uploaded, refused or gone, or `deadline` passes, then reads its
-    /// document ID again: an ID is only worth recording once Dropbox has the file. `settled` hears
-    /// each file as soon as its outcome is known.
+    /// Nothing counts as synced until Dropbox reports the upload, which comes 7–18 s after a file
+    /// is put in place (measured). Reads each file every `interval` until it is uploaded, refused
+    /// or gone, or `deadline` passes, then reads its document ID again: an ID is only worth
+    /// recording once Dropbox has the file. `settled` hears each file as soon as its outcome is
+    /// known.
     ///
-    /// The reads block on File Provider, which has hung before, so they run off the cooperative
-    /// pool, on one serial queue, and a round that hasn't answered when the deadline passes is
-    /// left to finish alone: a wedged File Provider holds one thread, however many passes ask.
+    /// The reads block on File Provider, which can hang, so they run off the cooperative pool, on
+    /// one serial queue, and a round that hasn't answered when the deadline passes is left to
+    /// finish alone: a wedged File Provider holds one thread, however many passes ask.
     public static func confirm(
         _ paths: [String], interval: Duration = .seconds(2), deadline: Duration = .seconds(CloudAppStatusModel.uploadDeadline),
         reading: @escaping @Sendable (String) -> Reading = OneWaySyncUploads.reading(at:),

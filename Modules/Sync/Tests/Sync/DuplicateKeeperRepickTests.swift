@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// FR10, after a keeper is picked by hand. The scan protects a folder that holds another group's
-/// keeper — but only the keepers IT chose. `Pics`, `P/Sub` and `Q/Sub` are identical and `P`, `Q`
-/// hold only `Sub`; the scan keeps `P/Sub` and, protecting `P`, removes `Q`. Pick `Q/Sub` as the
-/// first group's keeper instead and the second group still removes `Q`, which now holds it: one
-/// Apply recommended removed every copy. The last check before removal refuses that.
+/// No group removes the folder holding another group's keeper, even after a keeper is picked by
+/// hand. The scan protects only the keepers it chose. `Pics`, `P/Sub` and `Q/Sub` are identical
+/// and `P`, `Q` hold only `Sub`; the scan keeps `P/Sub` and, protecting `P`, removes `Q`. Pick
+/// `Q/Sub` instead and the second group still removes `Q`, which now holds it, so one Apply
+/// recommended would remove every copy. The last check before removal refuses that.
 @Suite struct DuplicateKeeperRepickTests {
 
     /// The scan of the fixture above, with `Q/Sub` picked by hand as the first group's keeper.
@@ -53,9 +53,8 @@ import Testing
         #expect(survivors.contains("Work/B/Q/Sub"), "the keeper picked by hand was removed")
     }
 
-    /// That refusal is not drift — nothing changed; the keepers moved under the copy — so the batch
-    /// must not report the refused group as having "changed since the scan" (it used to share the
-    /// `.drifted` kind, and every banner and log line that kind drives).
+    /// That refusal is not drift (nothing changed; the keepers moved under the copy), so the batch
+    /// must not report the refused group as "changed since the scan", the `.drifted` wording.
     @MainActor
     @Test func theBatchSaysTheRefusedCopyHoldsAKeeperNotThatItChanged() async throws {
         let root = try makeCanonicalTempRoot(prefix: "KeeperRepickBanner")
@@ -99,11 +98,10 @@ import Testing
                 "\(mixed)")
     }
 
-    /// The gate's FR10 check used to ask every keeper about every copy — `keeper == key ||
-    /// keeper.isInsideDirectory(anyOf: [key])` — which is O(copies × keepers) on the main actor.
-    /// It now builds one set up front. This pins that the set answers exactly what the old
-    /// predicate answered, over keepers that share prefixes, nest, repeat, and arrive in an order
-    /// where a shorter keeper follows a longer one (the early stop has to stay correct then).
+    /// The gate's keeper check builds one set up front instead of asking every keeper about every
+    /// copy, O(copies × keepers) on the main actor. The set must answer exactly what the per-keeper
+    /// predicate does, over keepers that share prefixes, nest, repeat, and arrive with a shorter
+    /// one after a longer one (where the early stop must stay correct).
     @Test func theKeeperSetAnswersWhatTheOldPerKeeperWalkAnswered() {
         let keepers = ["/r/Work/B/Q/Sub", "/r/Docs", "/r/Work/B/Q/Sub", "/r/Work/A/P",
                        "/r/Work", "/r/x/y/z/deep", "/r/x/y2"]

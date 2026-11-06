@@ -2,13 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The structure detector — and, more importantly, the four controls it has to stay quiet about.
-///
-/// **A detector like this is judged by its silence.** On the real profile 247 folder names appear
-/// under more than one parent and almost all of them are correct, so the interesting assertions
-/// here are the negative ones: the families that look divergent to a naive rule and are not. The
-/// three controls below (`Travel/Trips`, `Chase/Archive`, `Credit Accounts`) are the exact cases
-/// that a score-based first cut got wrong, and each is here with the shape that broke it.
+/// The structure detector, and the controls it must stay quiet about. A detector like this is
+/// judged by its silence: in a real profile hundreds of folder names appear under more than one
+/// parent and almost all are correct, so the important assertions are the negative ones. The
+/// controls (`Travel/Trips`, `Chase/Archive`, `Credit Accounts`) are families a naive
+/// similarity-score rule reports as divergent, each in the shape that fools it.
 @Suite struct StructureDivergenceTests {
 
     // MARK: Fixtures
@@ -54,16 +52,16 @@ import Foundation
         #expect(tax.memberCount == 7)
         // Largest era first, so the reading order matches "what this mostly looks like".
         #expect(tax.schemes[0].members == ["2016", "2017", "2018"])
-        // The scheme's vocabulary is the INTERSECTION: 2018's stray `Extras` is not advertised as
+        // The scheme's vocabulary is the intersection: 2018's stray `Extras` is not advertised as
         // part of a convention the other two never had.
         #expect(tax.schemes[0].vocabulary == ["forms", "reference", "refund", "transcripts"])
     }
 
     @Test func aStrayExtraDoesNotSplitAnEraIntoSingletons() {
-        // Single linkage, not complete: an era grows an extra folder in its later years and each
-        // year is still recognisably the same scheme as the one before it. Exact-shape matching
-        // shatters 2016–2023 into eight singletons over stray extras, and then the ≥2-members gate
-        // discards all of them and the finding disappears entirely.
+        // Single linkage, not complete: an era grows an extra folder in later years and each year
+        // still matches the one before. Exact-shape matching would shatter an era into singletons
+        // over stray extras, the ≥2-members gate would discard them all, and the finding would
+        // vanish.
         let findings = StructureDivergence.findings(in: Self.incomeTax)
         let tax = findings.first { $0.family == "Finance/US/Income Tax" }
         #expect(tax?.schemes.allSatisfy { $0.members.count >= 2 } == true)
@@ -73,9 +71,9 @@ import Foundation
 
     @Test func statesHoldingDifferentCitiesAreNotDivergent() {
         // `Travel/Trips/United States`: Arizona holds Phoenix, Nevada holds Las Vegas. Every
-        // sibling differs from every other, which a similarity score reads as maximum divergence
-        // — it rated this 1.00. The ≥2-groups-of-≥2 gate is what makes it silent: there is no
-        // group of two that agrees on anything, so there is no convention to have departed from.
+        // sibling differs from every other, which a similarity score reads as maximum divergence.
+        // The ≥2-groups-of-≥2 gate keeps it silent: no group of two agrees on anything, so there
+        // is no convention to depart from.
         let p = Self.profile([
             "Travel/Trips/United States/Arizona", "Travel/Trips/United States/Arizona/Phoenix",
             "Travel/Trips/United States/Nevada", "Travel/Trips/United States/Nevada/Las Vegas",
@@ -87,8 +85,8 @@ import Foundation
 
     @Test func accountsFoldByDifferentYearsWithoutDiverging() {
         // `Chase/Archive`: each account ran for different years, so their children differ
-        // completely — but a year is an axis value, not a role. Dropping them leaves every sibling
-        // with an empty vocabulary, and an empty vocabulary carries no evidence either way.
+        // completely, but a year is an axis value, not a role. Dropping them leaves every sibling
+        // with an empty vocabulary, and an empty vocabulary is no evidence either way.
         let p = Self.profile([
             "Finance/Chase/Archive/Checking", "Finance/Chase/Archive/Checking/2019",
             "Finance/Chase/Archive/Checking/2020",
@@ -101,8 +99,8 @@ import Foundation
     }
 
     @Test func twoOfFourHavingABacklogFolderIsDriftNotAnEra() {
-        // `Credit Accounts`: two of four carry a `TODO`, two do not. An inbox is an axis value —
-        // it recurs legitimately and its absence is not a different convention.
+        // `Credit Accounts`: two of four carry a `TODO`, two don't. An inbox is an axis value: it
+        // recurs legitimately and its absence is not a different convention.
         let p = Self.profile([
             "Finance/Credit Accounts/Amex", "Finance/Credit Accounts/Amex/Statements",
             "Finance/Credit Accounts/Amex/TODO",
@@ -127,8 +125,8 @@ import Foundation
     }
 
     @Test func identicalSiblingsAreHealthAndSaySoBySayingNothing() {
-        // Vanguard's Roth and Traditional IRAs, four Chase accounts foldered the same way: a
-        // *duplicated taxonomy* detector fires on these, which is why it is deliberately absent.
+        // Vanguard's Roth and Traditional IRAs, foldered the same way: a name-based
+        // duplicated-taxonomy rule would fire on these, which is why neither detector does.
         let p = Self.profile([
             "Finance/Vanguard/Roth IRA", "Finance/Vanguard/Roth IRA/Statements",
             "Finance/Vanguard/Roth IRA/Tax Forms",
@@ -141,9 +139,9 @@ import Foundation
     // MARK: The axis rules, directly
 
     @Test func anAxisValuedChildIsDroppedEvenWhenTheProfileIsTheOnlyThingThatKnows() {
-        // A person folder is an axis value whose name is not a year and not an inbox — the profile
-        // is the ONLY thing that can say so. Without reading `axes`, `Immigration/OCI` below reads
-        // as two siblings with completely different vocabularies.
+        // A person folder is an axis value whose name is neither a year nor an inbox, and only the
+        // profile can say so. Without reading `axes`, `Immigration/OCI` below reads as two siblings
+        // with completely different vocabularies.
         let p = Self.profile(
             ["Immigration/OCI/Daughter", "Immigration/OCI/Daughter/Son",
              "Immigration/OCI/Mother", "Immigration/OCI/Mother/Father"],
@@ -154,15 +152,12 @@ import Foundation
     }
 
     @Test func inheritedAxesDoNotSilenceEveryRoleFolderBeneathThem() {
-        // **The bug the real tree caught and twelve green tests could not.** The live profile
-        // propagates axes down a subtree: `Income Tax/2013/Federal Tax` carries `year: 2013` and
-        // `jurisdiction: US` exactly as its ancestors do. A "carries an axis key?" test therefore
-        // drops every role folder under a year, every vocabulary comes back empty, and the
-        // detector reports NOTHING across 3,013 folders — silently, because silence is also what
-        // a correct run looks like.
-        //
-        // Every fixture above puts the axis only on the folder that owns it, which is why none of
-        // them could see it. This one is shaped like the real file.
+        // A real profile propagates axes down a subtree: `Income Tax/2013/Federal Tax` carries
+        // `year: 2013` exactly as its ancestors do. A "carries an axis key?" test would drop every
+        // role folder under a year, every vocabulary would come back empty, and the detector would
+        // report nothing, silently, since silence is also what a correct run looks like. The
+        // fixtures above put each axis only on the folder that owns it; this one is shaped like the
+        // real file.
         let p = Self.profile(
             ["Tax/2013", "Tax/2013/Federal", "Tax/2013/State",
              "Tax/2014", "Tax/2014/Federal", "Tax/2014/State",
@@ -178,7 +173,7 @@ import Foundation
                 "Tax/2017": ["year": "2017"], "Tax/2017/Forms": ["year": "2017"],
                 "Tax/2017/Refund": ["year": "2017"],
             ])
-        // The role folders survive: they inherited the year, they did not introduce it.
+        // The role folders survive: they inherited the year, they didn't introduce it.
         #expect(StructureDivergence.vocabulary(of: "Tax/2013", in: p) == ["federal", "state"])
         let findings = StructureDivergence.findings(in: p)
         #expect(findings.count == 1)
@@ -196,7 +191,7 @@ import Foundation
     }
 
     @Test func onlyImmediateChildrenFormAFoldersVocabulary() {
-        // A grandchild is the CHILD's vocabulary. Counting it here would make every folder's
+        // A grandchild is the child's vocabulary. Counting it here would make every folder's
         // vocabulary its whole subtree, and two eras that differ three levels down would read as
         // differing at the top.
         let p = Self.profile(["A/B", "A/B/C", "A/B/C/D"])
@@ -206,8 +201,8 @@ import Foundation
     // MARK: Non-vacuity
 
     @Test func theDetectorCanActuallyFireOnTheFixture() {
-        // The controls above all assert emptiness, and a detector that returned `[]` unconditionally
-        // would pass every one of them. This is the half that makes them mean something.
+        // The controls above all assert emptiness, and a detector that always returned `[]` would
+        // pass every one of them. This is the half that makes them mean something.
         #expect(!StructureDivergence.findings(in: Self.incomeTax).isEmpty)
     }
 
@@ -218,21 +213,18 @@ import Foundation
 
     // MARK: Single linkage means single linkage
 
-    /// **A bridging sibling joins the two groups it bridges.**
-    ///
-    /// `cluster` joined the first group that would have an item and never merged, so A and B
-    /// seeded apart stayed apart even when C was close enough to both — and the finding reported
-    /// two schemes for a family that agrees transitively. Which grouping you got depended on the
-    /// order the children happened to be walked in.
+    /// A bridging sibling joins the two groups it bridges. If clustering never merged groups, A and
+    /// B seeded apart would stay apart even when C is close to both, the finding would report two
+    /// schemes for a family that agrees transitively, and the grouping would depend on walk order.
     @Test func aBridgingSiblingMergesTheGroupsItBridges() {
         // A and B share nothing; C shares heavily with each, so single linkage puts all three
-        // together. (`StructureDivergence.AgreementRule.similarity` is the threshold each pair is measured against.)
+        // together. (`StructureDivergence.AgreementRule.similarity` is the threshold for each pair.)
         let a = (name: "2019", words: Set(["statements", "notices"]))
         let b = (name: "2020", words: Set(["receipts", "invoices"]))
         let c = (name: "2021", words: Set(["statements", "notices", "receipts", "invoices"]))
 
-        // The premise, so this cannot pass by the thresholds having drifted apart: C really is
-        // close to both ends, and the ends really are not close to each other.
+        // The premise, so this can't pass by the thresholds drifting: C really is close to both
+        // ends, and the ends really are not close to each other.
         #expect(StructureDivergence.jaccard(a.words, c.words) >= StructureDivergence.AgreementRule.similarity)
         #expect(StructureDivergence.jaccard(b.words, c.words) >= StructureDivergence.AgreementRule.similarity)
         #expect(StructureDivergence.jaccard(a.words, b.words) < StructureDivergence.AgreementRule.similarity)
@@ -244,8 +236,8 @@ import Foundation
         #expect(groups.first?.count == 3)
     }
 
-    /// And membership no longer depends on the walk order — the same three folders in any order
-    /// give the same grouping.
+    /// Membership doesn't depend on walk order: the same three folders in any order give the same
+    /// grouping.
     @Test func theGroupingDoesNotDependOnTheOrderTheChildrenAreWalkedIn() {
         let a = (name: "2019", words: Set(["statements", "notices"]))
         let b = (name: "2020", words: Set(["receipts", "invoices"]))
@@ -257,15 +249,14 @@ import Foundation
         }
     }
 
-    /// **Three groups bridged at once**, which is the only shape that exercises the descending
-    /// removal. Every other fixture bridges exactly two, so `bridged.dropFirst()` has one element
-    /// and `.reversed()` is a no-op — delete it and nothing notices. With three, removing at
-    /// ascending indices shifts the ones still to be moved and either loses a group or traps.
+    /// Three groups bridged at once, the only shape that exercises the descending removal. With
+    /// two, `bridged.dropFirst()` has one element and `.reversed()` is a no-op; with three, removing
+    /// at ascending indices shifts the ones still to move and loses a group or traps.
     @Test func oneItemCanMergeThreeGroupsAtOnce() {
         // Each end shares exactly half of the bridge's vocabulary (0.5, the threshold) while no two
-        // ends reach it between themselves (0 and 0.33). A bridge cannot reach three ends that are
-        // mutually DISJOINT — each would need half the bridge and three halves do not fit — so the
-        // ends overlap each other a little, below the bar. The premise checks below prove both.
+        // ends reach it between themselves (0 and 0.33). A bridge can't reach three mutually
+        // disjoint ends (each needs half the bridge, and three halves don't fit), so the ends
+        // overlap a little, below the bar. The premise checks below prove both.
         let a = (name: "2019", words: Set(["statements", "notices"]))
         let b = (name: "2020", words: Set(["receipts", "invoices"]))
         let c = (name: "2021", words: Set(["notices", "receipts"]))
@@ -290,7 +281,7 @@ import Foundation
 
     /// Members come back in the order the survey walked them, which
     /// ``StructureFinding/Scheme/members`` documents and the scheme sort's tiebreaker reads.
-    /// Appending merged groups end to end gave `[A₀, A₂, B₁, B₃, C₄]` for two alternating schemes.
+    /// Appending merged groups end to end would give `[A₀, A₂, B₁, B₃, C₄]` here.
     @Test func mergedMembersKeepProfileOrder() {
         let items = [(name: "A0", words: Set(["alpha"])),
                      (name: "B1", words: Set(["beta"])),
@@ -302,8 +293,8 @@ import Foundation
         #expect(groups.first?.map(\.name) == ["A0", "B1", "A2", "B3", "C4"])
     }
 
-    /// The other direction, so the merge is not simply collapsing everything: two genuinely
-    /// unrelated schemes with nothing bridging them stay two.
+    /// The other direction, so the merge isn't simply collapsing everything: two unrelated schemes
+    /// with nothing bridging them stay two.
     @Test func twoSchemesWithNothingBetweenThemStayTwo() {
         let a = (name: "2019", words: Set(["statements", "notices"]))
         let b = (name: "2020", words: Set(["receipts", "invoices"]))
@@ -312,28 +303,15 @@ import Foundation
 
     // MARK: - The lens over a profile the app derived for itself
 
-    /// **`ROADMAP.md` v5 §4.2 claims this lens returns the identical finding from a derived profile
-    /// as from a hand-built one — asserted here rather than described.**
+    /// ROADMAP v5 §4.2 says this lens returns the same finding from a walk-derived profile as from
+    /// a hand-built one; this asserts it. The comparison is against the same profile given
+    /// `naming`, the one field a walk can't derive and a hand-built profile carries. If the lens
+    /// starts reading that field, the two stop matching.
     ///
-    /// That claim is what retired the planned degradation test ("there is no degradation left for
-    /// this lens to characterise, which settles that test by removing its subject"), and it was
-    /// measured once in a commit message and pinned nowhere: nothing outside
-    /// `FolderSurveyBuilder`'s own two test files ever fed a derived profile to anything. So the
-    /// claim's own subject — a walk-derived profile going through Restructure — had no test at all.
-    ///
-    /// The comparison is against the same profile enriched with `naming`, which is exactly what a
-    /// walk cannot re-derive and a hand-built profile carries. If this lens ever starts reading a
-    /// field only the offline survey produces, these two stop matching and the roadmap's claim stops
-    /// being true in the same commit.
-    ///
-    /// **What this does and does not pin, stated plainly**, because the roadmap points here: it pins
-    /// that the lens ignores `naming` — one field, the one a walk abstains from. It does not compare
-    /// a derived profile against the real hand-built one, which also differs in `axes` (up to 0.2%
-    /// on the measured tree) and in `anchors`, both of which the lens DOES read. That remains
-    /// measured rather than asserted, and the roadmap says so too.
-    ///
-    /// The first expectation is the non-vacuity guard: two profiles that both produce *no* findings
-    /// would compare equal and prove nothing.
+    /// What it doesn't pin: a derived profile against a real hand-built one, which also differs in
+    /// `axes` and `anchors`, both of which the lens does read. That stays measured, not asserted.
+    /// The first expectation is the non-vacuity guard: two profiles with no findings would compare
+    /// equal and prove nothing.
     @Test func theLensSeesTheSameThingInADerivedProfileAsInAHandBuiltOne() throws {
         func dir(_ name: String, _ children: [FileNode] = []) -> FileNode {
             FileNode(id: "/x/\(name)", name: name, isDirectory: true, children: children)
@@ -369,26 +347,23 @@ import Foundation
             personTokens: derived.personTokens, personAliases: derived.personAliases)
 
         let fromHandBuilt = StructureDivergence.findings(in: enriched)
-        // `StructureFinding` is Equatable, so compare it whole rather than two projections of it —
-        // family and member lists alone would miss a scheme whose `vocabulary` started depending on
-        // a field only a hand-built profile carries, which is the very thing being pinned.
+        // `StructureFinding` is Equatable, so compare it whole: family and member lists alone would
+        // miss a scheme whose `vocabulary` started depending on a field only a hand-built profile
+        // carries, which is the thing being pinned.
         #expect(fromDerived == fromHandBuilt,
                 "the lens read a field only a hand-built profile carries")
     }
 }
 
-/// The sibling map replaced a full walk of the profile per folder — the cost centre behind
-/// Organize's first-visit stall. What is pinned here is that it selects the **same children**.
-///
-/// `vocabulary` used to scan every folder in the profile and keep the ones whose path started with
-/// `path + "/"` and had no further `/`. It now reads one bucket of the map
-/// ``StructureDivergence/families(in:)`` builds, which keys on `deletingLastPathComponent`. Those
-/// are the same relation for ordinary paths and **not** for a few shapes NSString normalises —
-/// `"A/B/"` and `"A//C"` both bucket under `A` while the walk excluded them — which is why the
-/// remainder test stayed in the new code. This suite is the check that it did.
+/// `vocabulary` reads one bucket of the sibling map ``StructureDivergence/families(in:)`` builds
+/// instead of walking the whole profile per folder, which made Organize's first visit stall. This
+/// pins that it selects the same children as the full walk. The map keys on
+/// `deletingLastPathComponent`, which agrees with the walk for ordinary paths but not for shapes
+/// NSString normalises (`"A/B/"` and `"A//C"` both bucket under `A`, which the walk excluded), so
+/// the remainder test must stay in the map's code.
 @Suite struct StructureSiblingMapEquivalenceTests {
 
-    /// The rule as it was written before the map: a pass over the whole profile per call.
+    /// The rule without the map: a pass over the whole profile per call.
     private static func byFullWalk(of path: String, in profile: FolderProfile) -> Set<String> {
         var words: Set<String> = []
         let prefix = path + "/"
@@ -414,8 +389,8 @@ import Foundation
         return FolderProfile(profileId: "test", root: "/root", folders: folders, personTokens: [])
     }
 
-    /// Every folder in a profile, both ways — including the path shapes where the two relations
-    /// would part company if the remainder test were dropped for `lastPathComponent`.
+    /// Every folder in a profile, both ways, including the path shapes where the two would part
+    /// company if the remainder test were dropped for `lastPathComponent`.
     @Test func theMapSelectsExactlyTheChildrenTheWalkDid() {
         let awkward = Self.profile([
             // Ordinary.
@@ -425,7 +400,7 @@ import Foundation
             "A/B2/",
             // A doubled separator: buckets under `A` too; the walk saw the remainder `"/C2"`.
             "A//C2",
-            // A dot component, which NSString does NOT normalise — both agree it is not A's child.
+            // A dot component, which NSString does not normalise: both agree it isn't A's child.
             "A/./E",
             // A year, an inbox and a person axis, so the axis rules are exercised on both sides.
             "Y", "Y/2023", "Y/Forms", "Y/TODO", "Y/Mom",
@@ -450,8 +425,8 @@ import Foundation
                 "the year, the inbox and the person axis all drop, as before")
     }
 
-    /// The convenience overload — the one the tests above and any isolated caller use — builds the
-    /// map itself and must answer identically to the threaded one.
+    /// The convenience overload, used by the tests above and any isolated caller, builds the map
+    /// itself and must answer the same as the threaded one.
     @Test func theOverloadThatBuildsItsOwnMapAgrees() {
         let p = Self.profile(["A", "A/B", "A/C", "A/B/D"])
         let map = StructureDivergence.families(in: p)

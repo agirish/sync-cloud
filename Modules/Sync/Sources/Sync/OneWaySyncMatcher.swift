@@ -88,7 +88,7 @@ public struct OneWaySyncMatches: Equatable, Sendable {
     public var reappeared: [OneWaySyncReappearance]
 }
 
-/// RD67's matching order: which item on disk each record now is, on each side separately.
+/// The matching order: which item on disk each record now is, on each side separately.
 ///
 /// Each record and each item on disk is claimed at most once. Synced folders are matched first,
 /// then the folders below them, then files; within each tier, step 1 (by ID) finishes before
@@ -300,8 +300,8 @@ public enum OneWaySyncMatcher {
         }
 
         // By contents: on a first run only, only where nothing else could be the match, and only
-        // within one folder: a Dropbox file filed elsewhere stays where it was filed (decided
-        // 31 Oct), and iCloud's is copied.
+        // within one folder: a Dropbox file filed elsewhere stays where it was filed, and iCloud's
+        // is copied.
         let firstRun = Set(record.syncedFolders.filter { !$0.firstRunCompleted }.flatMap { [key($0.iCloudPath), key($0.dropboxPath)] })
         if !firstRun.isEmpty {
             struct Shape: Hashable { var folder: String; var size: Int64; var type: String }

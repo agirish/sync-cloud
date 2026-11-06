@@ -2,10 +2,9 @@ import Foundation
 
 /// A folder the Move picker suggests, with the reason it gives.
 ///
-/// **Offered only when the evidence is strong**, decided 2026-11-01: guesses that are right only
-/// part of the time read as noise in a picker, so a weak one is never shown at all. The one
-/// suggestion today is the year folder its neighbours imply (`yearFolder`), which is a fact
-/// about the folder rather than a guess about the file.
+/// Offered only when the evidence is strong: a guess that is only sometimes right is noise in a
+/// picker, so a weak one is never shown. The one suggestion today is the year folder the neighbours
+/// imply (`yearFolder`), a fact about the folder rather than a guess about the file.
 public struct DestinationSuggestion: Equatable, Sendable {
     /// Absolute path of the folder, existing or to be made.
     public let path: String
@@ -28,12 +27,9 @@ public enum DestinationSuggestions {
     /// three in one folder, and a majority of its folders, is how a person files by year.
     public static let minimumYearPeers = 3
 
-    /// **The year folder an item belongs in, when the folders beside it are years.**
-    ///
-    /// Moving `16. Sep 2026` out of a folder holding `2012 … 2025` and `Family`: the neighbours
-    /// are years, the item names one, so it goes in `2026` — made here if it is not here yet. The
-    /// reorganisation this was built from (Travel › Trips › IN-US, 2026-11-01) was exactly that,
-    /// one trip at a time.
+    /// The year folder an item belongs in, when the folders beside it are years. Moving
+    /// `16. Sep 2026` out of a folder holding `2012 … 2025` and `Family` suggests `2026`, made here
+    /// if it doesn't exist yet.
     ///
     /// Every condition is a refusal rather than a weaker answer:
     /// - at least `minimumYearPeers` sibling folders are years, and they are most of the folders;
@@ -78,14 +74,10 @@ public enum DestinationSuggestions {
         name.count == 4 && years(in: name, latestYear: latestYear) == [name]
     }
 
-    /// **The years `text` names, as words on their own** — 1900 to `latestYear`, four ASCII digits
-    /// with no letter, digit or underscore against either side. "Sep 2026", "16.09.2026" and
-    /// "2026-09-16" name 2026; a camera's "IMG_2047", "DSC_1999", "1920x1080", a flight "AI2016"
-    /// and a PNR's digits name none — a counter that happens to fall in range is not a year, and a
-    /// suggestion offered on one would be confidently wrong.
-    ///
-    /// A span written "2025-26" (a fiscal year, a season) names BOTH years, so it never has one
-    /// home: the two-digit tail is read as the next year when it is exactly that.
+    /// The years `text` names as words on their own: 1900 to `latestYear`, four ASCII digits with
+    /// no letter, digit or underscore on either side. "Sep 2026" and "16.09.2026" name 2026;
+    /// "IMG_2047", "1920x1080" and a flight "AI2016" name none, since a counter in range isn't a
+    /// year. A span "2025-26" names both years, so it never has one home.
     static func years(in text: String, latestYear: Int) -> [String] {
         guard latestYear >= 1900 else { return [] }   // an empty range would trap below
         let chars = Array(text)

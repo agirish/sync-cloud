@@ -79,9 +79,9 @@ private final class StubTools: AskClaudeToolRunning {
     }
 }
 
-/// One scratch domain per call, named for the test. The UUID is what keeps it to this process:
-/// cfprefsd serves a domain by name to every process on the Mac, so a name fixed per test shared
-/// its spend with the same test in another worktree's run, or the CI runner's.
+/// One scratch domain per call, named for the test. The UUID keeps it to this process: cfprefsd
+/// serves a domain by name to every process on the Mac, so a fixed name would share its spend with
+/// the same test in another worktree's run, or the CI runner's.
 private func freshDefaults(_ test: String = #function) -> ScratchDefaults {
     ScratchDefaults("AskClaudeTests." + test.prefix { $0 != "(" })
 }
@@ -216,7 +216,7 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
 @Suite struct AskClaudeRequestTests {
 
     @Test func everyModelGetsTheSameRequestButForItsNameAndFallbacks() throws {
-        // A chat changes model mid-thread (TE292): the API refuses its replayed thinking if the
+        // A chat changes model mid-thread: the API refuses its replayed thinking if the
         // system text or tools differ, so nothing else in the body may depend on the model.
         func rest(_ option: AskClaudeModels.Option) throws -> Data {
             guard case .object(var body) = AskClaudeRequest.body(model: option, messages: []) else { return Data() }
@@ -681,7 +681,7 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         let restored = AskClaudeEngine(transport: transport, defaults: defaults, now: { day })
         restored.restore(engine.snapshot)
         #expect(restored.snapshot == engine.snapshot)
-        // A chat saved before TE292 has none of them, and still restores.
+        // A chat saved before these fields existed has none of them, and still restores.
         var old = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.snapshot)) as? [String: Any])
         #expect(old.removeValue(forKey: "lastKept") != nil && old.removeValue(forKey: "contextTokens") != nil)
         let decoded = try JSONDecoder().decode(AskClaudeEngine.Snapshot.self, from: JSONSerialization.data(withJSONObject: old))
@@ -834,8 +834,8 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
     @Test func aChatCarriesOnUnlessTheDigestChanged() {
         #expect(AskClaudeRequest.fixedDigest.count == 12)
         #expect(AskClaudeEngine.isCurrent(setting: AskClaudeRequest.fixedDigest))
-        // A chat saved before TE292 holds `model|style|digest` with that build's digest: it starts
-        // over once. The model and style in it are no longer compared.
+        // An older chat holds `model|style|digest` with that build's digest: it starts over once.
+        // The model and style in it are not compared.
         #expect(!AskClaudeEngine.isCurrent(setting: "claude-sonnet-5-5|brief|0123456789ab"))
         #expect(AskClaudeEngine.isCurrent(setting: "claude-opus-5-5|detailed|" + AskClaudeRequest.fixedDigest))
     }
@@ -966,12 +966,11 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
     }
 }
 
-/// **Folders shared without asking, beside the hidden list** (his call on TE321): one folder is
-/// asked about, shared or hidden, never two at once, and a reset clears the shares.
+/// Folders shared without asking, beside the hidden list: one folder is asked about, shared or
+/// hidden, never two at once, and a reset clears the shares.
 @Suite struct AskClaudeSharedFoldersTests {
-    /// **A shared folder holds only what really lives in it** (review of TE319–TE323): a link
-    /// inside it to a folder elsewhere shares nothing of that folder, though the hidden list counts
-    /// a link by either spelling.
+    /// A shared folder holds only what really lives in it: a link inside it to a folder elsewhere
+    /// shares nothing of that folder, though the hidden list counts a link by either spelling.
     @Test func aLinkInsideASharedFolderSharesNothingOfItsTarget() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("shared-\(UUID().uuidString)").path
         defer { try? FileManager.default.removeItem(atPath: base) }

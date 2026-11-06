@@ -5,14 +5,12 @@ import Events
 
 /// `resolveDuplicateCopy(_:keeper:)` — the single-copy trash the Compare Copies surface reaches.
 ///
-/// **Failure paths first, and most of this file is them.** The verb destroys one of a user's files
-/// on the strength of a scan that may be minutes old, and the two things that make it safe are the
-/// pair verdict and the removal gate — neither of which shows up in a success. A resolve that
-/// merely *works* would pass with every refusal deleted.
+/// Mostly failure paths. The verb destroys one of a user's files on a scan that may be minutes
+/// old, and what makes it safe (the pair verdict and the removal gate) never shows in a success:
+/// a resolve that merely works would pass with every refusal deleted.
 ///
-/// The one behaviour a group resolve could not stand in for is pinned here too: on a three-copy
-/// group this trashes the compared copy and leaves the third alone, where
-/// `resolveDuplicateGroup` would take both.
+/// Also pinned: on a three-copy group this trashes the compared copy and leaves the third alone,
+/// where `resolveDuplicateGroup` would take both.
 @Suite struct DuplicatePairResolveTests {
 
     private static let scanned = Date(timeIntervalSince1970: 1_000)
@@ -47,8 +45,8 @@ import Events
                            .reduce(0) { $0 + $1.size })
     }
 
-    /// Reads the DISK log rather than `Logger.shared.entries` — the in-memory array is capped and
-    /// a parallel run can evict this suite's line before the assertion reads it.
+    /// Reads the disk log, not `Logger.shared.entries`: the in-memory array is capped, and a
+    /// parallel run can evict this suite's line before the assertion reads it.
     @MainActor
     private func loggedLine(containing fragment: String) async -> String? {
         await loggedLineOnDisk(containing: fragment)
@@ -56,12 +54,10 @@ import Events
 
     // MARK: The order the verdict asks its questions in
 
-    /// **A copy that is already gone is not a drifted keeper.** The assessment used to walk the
-    /// keeper before asking whether there was anything left to trash, so a copy the user had
-    /// already removed elsewhere — with a keeper that had also moved on — came back as
-    /// `keeperDrifted`: a warning banner sending the reader to rescan before trashing a file that
-    /// left the disk some time ago. There is nothing to trash and nothing was lost, and that is
-    /// what the surface has to say.
+    /// A copy that is already gone is not a drifted keeper. The assessment asks whether anything is
+    /// left to trash before walking the keeper; otherwise a copy removed elsewhere, beside a keeper
+    /// that also changed, comes back `keeperDrifted` and sends the reader to rescan. Nothing is
+    /// left to trash and nothing was lost, and the surface must say so.
     @MainActor
     @Test func aVanishedCopyIsNotBlamedOnTheKeeper() async throws {
         let fm = MockFileManager()
@@ -82,15 +78,12 @@ import Events
                 "the reader was sent to rescan over a file that is not there to rescan")
     }
 
-    /// **The keeper's folder is walked LAST**, the rule ``driftedFolderInGroup`` states and the
-    /// group resolve already follows. A walk is real time — ~0.7 s per 40k nodes — and a verdict
-    /// ages from the moment it is formed: asked first, the keeper's "unchanged" answer was stale
-    /// by the time the copy's own walk finished, so an edit landing in the keeper during those
-    /// seconds was never seen and the copy was trashed against a keeper that no longer held the
-    /// scanned content.
-    ///
-    /// Driven through the walk itself rather than through the verdict, because the verdict is the
-    /// same either way — the ORDER is the whole finding, and only the enumerations show it.
+    /// The keeper's folder is walked last, as ``driftedFolderInGroup(_:)`` states and the group
+    /// resolve does. A walk takes real time (~0.7 s per 40k nodes) and a verdict ages from the
+    /// moment it forms, so a keeper walked first could change during the copy's walk unseen, and
+    /// the copy would be trashed against a keeper that no longer holds the scanned content.
+    /// Checked on the enumerations, since the verdict is the same either way; only the order
+    /// differs.
     @MainActor
     @Test func theKeepersFolderIsWalkedAfterTheCopys() async throws {
         let fm = MockFileManager()
@@ -115,17 +108,11 @@ import Events
                 "the keeper was measured first, so its verdict aged behind the copy's walk")
     }
 
-    /// **A keeper the group is not keeping is refused in the ENGINE, not only in the button.**
-    ///
-    /// Open a three-copy group's second and third copies against each other and both are in one
-    /// live group while the group keeps the FIRST — so the live-group lookup, which asks only that
-    /// both paths are grouped together, waves it through. The Compare surface no longer offers
-    /// that pair a verdict, but this verb is `public` and a disabled control is not a rule: the
-    /// removal would be verified against a keeper the group does not have and reported to the user
-    /// as "keeping" a copy the rest of the app is not. The same argument that put the protection
-    /// check in here.
-    ///
-    /// The refusal has to name the copy that IS being kept, or the reader cannot act on it.
+    /// A keeper the group is not keeping is refused in the engine, not only by the button. A
+    /// three-copy group's second and third copies are in one live group while the group keeps the
+    /// first, so the live-group lookup alone would wave them through. The Compare surface offers
+    /// that pair no verdict, but this verb is `public` and a disabled control is not a rule. The
+    /// refusal names the copy that is being kept, so the reader can act on it.
     @MainActor
     @Test func aKeeperTheGroupIsNotKeepingIsRefused() async throws {
         let fm = MockFileManager()
@@ -155,10 +142,10 @@ import Events
 
     // MARK: Refusals
 
-    /// **The stale-scan case, and the reason the payload never carries a group UUID.** A rescan
-    /// replaces `duplicateGroups` wholesale, so a surface left open across one is describing
-    /// copies no current group holds. Nothing here has been re-verified against a live grouping,
-    /// and "unverified" must not resolve to "removed".
+    /// The stale-scan case, and why the payload never carries a group UUID. A rescan replaces
+    /// `duplicateGroups` wholesale, so a surface left open across one describes copies no current
+    /// group holds. Nothing has been re-verified against a live grouping, and "unverified" must not
+    /// resolve to "removed".
     @MainActor
     @Test func noLiveGroupRefusesAndTrashesNothing() async throws {
         let fm = MockFileManager()
@@ -196,10 +183,9 @@ import Events
         #expect(fm.virtualDisk["/b/x"] != nil)
     }
 
-    /// **The lookup is by PATH, so a fresh scan's brand-new UUID changes nothing.** This is the
-    /// positive control for the refusal above: without it, "refused" and "the id moved" would be
-    /// indistinguishable, and a lookup keyed on `DuplicateGroup.id` would pass the refusal test
-    /// while breaking every ordinary rescan.
+    /// The lookup is by path, so a fresh scan's new UUID changes nothing. The positive control for
+    /// the refusals above: a lookup keyed on `DuplicateGroup.id` would pass those while breaking
+    /// every ordinary rescan.
     @MainActor
     @Test func aRescanThatMintsANewGroupIdStillResolves() async throws {
         let fm = MockFileManager()
@@ -236,8 +222,8 @@ import Events
                 "a refusal he can see on screen must also be in the log he audits")
     }
 
-    /// A same-LENGTH rewrite of the keeper — the case size alone waves through, which is why the
-    /// drift check compares mtime as well.
+    /// A same-length rewrite of the keeper: size alone waves it through, so the drift check
+    /// compares mtime as well.
     @MainActor
     @Test func aKeeperRewrittenInPlaceAtTheSameLengthRefuses() async throws {
         let fm = MockFileManager()
@@ -252,8 +238,8 @@ import Events
         #expect(fm.virtualDisk["/b/x"] != nil)
     }
 
-    /// The dangerous half: the copy being DESTROYED changed after the scan, so it is no longer
-    /// provably a duplicate of anything — it may now be the only instance of its new content.
+    /// The dangerous half: the copy being destroyed changed after the scan, so it is no longer
+    /// provably a duplicate; it may be the only instance of its new content.
     @MainActor
     @Test func aDriftedCopyRefusesAndNamesIt() async throws {
         let fm = MockFileManager()
@@ -271,7 +257,7 @@ import Events
     }
 
     /// A folder copy with NO scan baseline was never fully read, so "changed since it was scanned"
-    /// would assert a change nobody measured — and send the user to a rescan that records nil
+    /// would assert a change nobody measured, and send the user to a rescan that records nil
     /// again. The refusal stands either way; only the claim changes.
     @MainActor
     @Test func aFolderCopyWithNoBaselineRefusesWithoutClaimingItChanged() async throws {
@@ -290,7 +276,7 @@ import Events
         #expect(!message.contains("changed since it was scanned"))
     }
 
-    /// The keeper and the copy are the same file — a caller bug that would trash the very copy it
+    /// The keeper and the copy are the same file: a caller bug that would trash the copy it
     /// promised to keep. Refused before anything is measured.
     @MainActor
     @Test func trashingTheKeeperItselfIsRefused() async throws {
@@ -307,10 +293,10 @@ import Events
 
     // MARK: The gate's window
 
-    /// **The pre-check is the first verdict, not the last.** `deleteItems` holds the
-    /// permanent-delete confirmation open for as long as the user leaves it, and what follows it
-    /// is unrecoverable. The gate re-runs the same assessment after the confirmation — here the
-    /// copy is rewritten *inside* the dialog, and the removal must not proceed.
+    /// The pre-check is the first verdict, not the last. `deleteItems` holds the permanent-delete
+    /// confirmation open as long as the user leaves it, and what follows is unrecoverable, so the
+    /// gate re-runs the assessment after it. Here the copy is rewritten inside the dialog, and the
+    /// removal must not proceed.
     @MainActor
     @Test func driftInsideThePermanentDeleteDialogIsRefusedByTheGate() async throws {
         let fm = MockFileManager()
@@ -337,10 +323,9 @@ import Events
                 "the gate's post-confirmation pass let a drifted copy be destroyed permanently")
     }
 
-    /// The nil-`self` branch of the gate, reached directly: a manager torn down mid-delete cannot
-    /// verify anything, so it must refuse everything rather than wave paths through. Unreachable
-    /// through the call site, which holds `self` on the awaiting frame — which is exactly why it
-    /// is exercised here instead.
+    /// The nil-`self` branch of the gate, reached directly: a manager torn down mid-delete can't
+    /// verify anything, so it refuses everything. The call site holds `self` on the awaiting frame,
+    /// so only a direct call reaches it.
     @MainActor
     @Test func theGateRefusesEverythingWhenItsManagerIsGone() async throws {
         var gate: (@Sendable ([String]) async -> Set<String>)?
@@ -360,9 +345,9 @@ import Events
 
     // MARK: Success
 
-    /// **The whole reason this verb exists.** On a three-copy group the pair verdict is about one
-    /// copy; `resolveDuplicateGroup` would trash both redundant copies, destroying a file the user
-    /// decided nothing about.
+    /// Why this verb exists: on a three-copy group the pair verdict is about one copy, and
+    /// `resolveDuplicateGroup` would trash both redundant copies, including one the user decided
+    /// nothing about.
     @MainActor
     @Test func onlyTheComparedCopyIsTrashedNotEveryRedundantOne() async throws {
         let fm = MockFileManager()
@@ -383,7 +368,7 @@ import Events
         #expect(remaining.copies.map(\.path).sorted() == ["/a/x", "/c/x"])
     }
 
-    /// A two-copy group has nothing left to be a duplicate of, so it leaves the list — the same
+    /// A two-copy group has nothing left to be a duplicate of, so it leaves the list, the same
     /// in-memory update the Compare review's trash performs.
     @MainActor
     @Test func aResolvedTwoCopyGroupLeavesTheList() async throws {
@@ -401,10 +386,10 @@ import Events
         #expect(manager.banner?.isUndoable == true)
     }
 
-    /// One file can legitimately sit in two groups — the same-text pass lets an identical group's
-    /// keeper anchor a same-text group as well. Both must be updated, or the second goes on
-    /// listing a file that is now in the Trash. The trashed file is a REDUNDANT copy in both: one
-    /// that keeps it is refused (`aCopyThatIsAnotherGroupsKeeperIsRefused`).
+    /// One file can sit in two groups (the same-text pass lets an identical group's keeper anchor a
+    /// same-text group too). Both must be updated, or the second goes on listing a file now in the
+    /// Trash. The trashed file is a redundant copy in both; a group that keeps it refuses
+    /// (`aCopyThatIsAnotherGroupsKeeperIsRefused`).
     @MainActor
     @Test func everyGroupHoldingTheTrashedPathIsUpdated() async throws {
         let fm = MockFileManager()
@@ -424,9 +409,9 @@ import Events
                 "a group left listing a file that is now in the Trash")
     }
 
-    /// On a Trash-less volume the copy was destroyed, not trashed. The banner must not offer a ⌘Z
-    /// that would fire at whatever was previously on the undo stack, and the log must say which
-    /// way it went — he reads that log to find things in the Trash.
+    /// On a Trash-less volume the copy is destroyed, not trashed. The banner must not offer a ⌘Z
+    /// that would fire at whatever was on the undo stack before, and the log must say which way it
+    /// went: he reads that log to find things in the Trash.
     @MainActor
     @Test func aPermanentRemovalDoesNotPromiseUndoAndSaysSoInTheLog() async throws {
         let fm = MockFileManager()
@@ -446,9 +431,8 @@ import Events
         #expect(await loggedLine(containing: "permanently deleted the compared copy /b/perm-x") != nil)
     }
 
-    /// **A vanished copy is not drift.** There is nothing to trash and nothing was lost, so the
-    /// verb says so and drops the copy rather than warning about a change the user probably made
-    /// themselves in Finder a moment ago.
+    /// A vanished copy is not drift. Nothing is left to trash and nothing was lost, so the verb says
+    /// so and drops the copy rather than warning about a change the user probably made in Finder.
     @MainActor
     @Test func aVanishedCopyIsDroppedRatherThanRefusedAsDrift() async throws {
         let fm = MockFileManager()
@@ -466,15 +450,11 @@ import Events
 
     // MARK: Protected copies
 
-    /// A copy that may never be offered for removal, refused by the ENGINE rather than by the
-    /// surface that happens to be driving it.
-    ///
-    /// **The surface disabling its button was the whole protection, and the verb is `public`.**
-    /// `recommendedRemovalPaths` filters these copies out of every batch, and the Compare surface
-    /// greys its trash button for one — but neither is a rule the engine kept, so any other caller,
-    /// or the same one a release later, could trash a file out of a folder another group is
-    /// keeping. The bytes survive in the pair's keeper; the kept folder's snapshot does not, and
-    /// every later resolve of THAT group then refuses as drifted.
+    /// A copy that may never be offered for removal is refused by the engine, not only by the
+    /// surface driving it. `recommendedRemovalPaths` filters it out and the Compare surface greys
+    /// its button, but the verb is `public`: any other caller could trash a file out of a folder
+    /// another group keeps. The bytes survive in the pair's keeper, but the kept folder's snapshot
+    /// doesn't, and every later resolve of that group refuses as drifted.
     @MainActor
     @Test func aProtectedCopyIsRefusedByTheEngineNotJustTheButton() async throws {
         let fm = MockFileManager()
@@ -494,8 +474,8 @@ import Events
                 "the refusal did not say why: \(manager.banner?.message ?? "no banner")")
     }
 
-    /// The positive control the case above needs. The same shape with the flag cleared really does
-    /// remove the copy — so the refusal is the protection, not the fixture failing to line up.
+    /// The positive control for the case above: with the flag cleared the copy is removed, so the
+    /// refusal is the protection, not the fixture failing to line up.
     @MainActor
     @Test func theSamePairWithoutTheFlagIsRemoved() async throws {
         let fm = MockFileManager()
@@ -510,10 +490,9 @@ import Events
         #expect(fm.virtualDisk["/kept/x"] == nil)
     }
 
-    /// **Protection read from the LIVE group, not from the caller's value.** This is the window the
-    /// gate exists for: the surface opened on a copy that was removable, a rescan then kept the
-    /// folder it sits in, and the caller is still holding the value from before that scan. Asking
-    /// the passed-in copy would answer about results that have moved on — and would trash it.
+    /// Protection is read from the live group, not the caller's value. The surface opened on a
+    /// removable copy, a rescan then kept the folder it sits in, and the caller still holds the
+    /// old value; asking the passed-in copy would answer about stale results, and trash it.
     @MainActor
     @Test func protectionAcquiredInARescanStillRefuses() async throws {
         let fm = MockFileManager()
@@ -533,9 +512,8 @@ import Events
         #expect(fm.virtualDisk["/kept/x"] != nil)
     }
 
-    /// And the same, arriving inside the permanent-delete dialog — the gate re-runs the assessment
-    /// at the moment of removal, so protection acquired while the user was reading the alert is
-    /// caught by the same check.
+    /// The same, arriving inside the permanent-delete dialog: the gate re-runs the assessment at
+    /// the moment of removal, so protection acquired while the alert is open is caught too.
     @MainActor
     @Test func protectionAcquiredInsideTheDialogIsRefusedByTheGate() async throws {
         let fm = MockFileManager()
@@ -564,11 +542,10 @@ import Events
                 "the gate destroyed a copy that became protected while the alert was open")
     }
 
-    /// **A copy that IS another group's keeper is refused (D3).** The pair checked only the
-    /// protection flag, while the hold it documents — and the Compare review asks — has a second
-    /// half: the copy is, or holds, a group's current keeper. `/b/x` sits in two groups, and the
-    /// second keeps it; trashing it as the first group's redundant copy took the other group's
-    /// keeper with it.
+    /// A copy that is another group's keeper is refused. The hold has two halves, the protection
+    /// flag and "the copy is, or holds, a group's current keeper". `/b/x` sits in two groups and the
+    /// second keeps it, so trashing it as the first group's redundant copy would take the other
+    /// group's keeper.
     @MainActor
     @Test func aCopyThatIsAnotherGroupsKeeperIsRefused() async throws {
         let fm = MockFileManager()
@@ -585,11 +562,10 @@ import Events
                 "the refusal did not say why: \(manager.banner?.message ?? "no banner")")
     }
 
-    /// **A copy re-picked as its OWN group's keeper is named as such (D6)**, not as "the copy
-    /// another duplicate group keeps — rescan": no other group is involved, and a rescan would not
-    /// change the user's pick. `removalHold(onCopyAt:keeping:)` is told which copy the removal
-    /// keeps, which picks out the group asking. Without it, the same pick still holds, in the
-    /// other words.
+    /// A copy re-picked as its own group's keeper is named as such, not as "the copy another
+    /// duplicate group keeps — rescan": no other group is involved, and a rescan wouldn't change
+    /// the pick. `removalHold(onCopyAt:keeping:)` is told which copy the removal keeps, which
+    /// picks out the group asking. Without it, the pick still holds, in the other wording.
     @MainActor
     @Test func aCopyRepickedAsItsOwnGroupsKeeperIsNamedAsSuch() {
         let manager = makeManager(MockFileManager())
@@ -629,7 +605,7 @@ import Events
     }
 }
 
-/// Order-recording box for the walk-order test — the mock's `onEnumerate` fires off the main
+/// Order-recording box for the walk-order test: the mock's `onEnumerate` fires off the main
 /// actor, so the array needs its own lock rather than the suite's isolation.
 private final class Recorder: @unchecked Sendable {
     private let lock = NSLock()

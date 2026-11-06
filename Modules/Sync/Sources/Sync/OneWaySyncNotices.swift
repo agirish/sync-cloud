@@ -7,7 +7,7 @@ import Darwin
 import Events
 import Foundation
 
-/// A row in Activity ▸ Now for one-way sync (DC): under *Needs you*, something waiting for the
+/// A row in Activity ▸ Now for one-way sync: under *Needs you*, something waiting for the
 /// user, or under *For your information*.
 ///
 /// Saved, so it survives a quit. A *Needs you* row stays until answered or until its cause clears,
@@ -153,7 +153,7 @@ public struct OneWaySyncNoticeDelivery: Equatable, Sendable {
 public struct OneWaySyncNoticeBoard: Codable, Equatable, Sendable, OneWaySyncEmpty {
     public static let currentVersion = 1
 
-    /// While the whole sync is stopped, a row reminds once a day (DM)…
+    /// While the whole sync is stopped, a row reminds once a day…
     public static let wholeSyncReminder: Int64 = 24 * 60 * 60
     /// …and anything else that waits, once a week.
     public static let otherReminder: Int64 = 7 * 24 * 60 * 60

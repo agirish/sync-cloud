@@ -2,17 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **"Try another" is a paid call, and it was the one paid path with no guards at all.**
-///
-/// The scan and the refine both run their verdicts through `FilingEngine.applyVerdicts`, where the
-/// cross-person rule lives. A re-ask resolved its verdict straight through `destination(from:)` and
-/// put the result on the card — so the model could answer `Immigration/OCI/Son` for a document
-/// named for Daughter and nothing would stop it. That is the error the rule was written for, on the
-/// click most likely to produce it: the user is asking the model to think again about a file it has
-/// already been wrong about once.
-///
-/// The rule is a named member now (`FilingEngine.personVeto`) so it cannot be present on one path
-/// and absent on the next. These test the rule directly and pin both call sites.
+/// "Try another" is a paid call and needs the cross-person rule like the scan and the refine:
+/// otherwise the model could answer `Immigration/OCI/Son` for a document named for Daughter, on the
+/// click most likely to produce that, a re-ask about a file it already got wrong. The rule is one
+/// member, `FilingEngine.personVeto`, so no paid path can lack it. These test the rule and pin both
+/// call sites.
 @Suite struct FilingTryAnotherVetoTests {
 
     static let root = "/root"
@@ -51,20 +45,12 @@ import Testing
         #expect(reported.destination == "Immigration/OCI/Son")
     }
 
-    /// **The reported failure, reproduced.** `Daughter OCI.pdf` into a folder Son owns — reached
-    /// through a segment that does not exist yet.
-    ///
-    /// The rule opened with an EXACT dictionary lookup of the destination in `profile.folders`, and
-    /// a profile describes the folders that exist. So every `proposesNewFolder: true` destination
-    /// missed the lookup and skipped the veto entirely: no refusal, no log line, no user-visible
-    /// trace. The content-blind guard does not apply (the PDF has text) and the shortlist guard is
-    /// explicitly skipped when new segments exist, so nothing else stood between the answer and the
-    /// card.
-    ///
-    /// All four rule tests above and below use destinations that are literally keys in the fixture
-    /// profile, which is why the structural bypass in the rule's own opening guard had no test.
+    /// `Daughter OCI.pdf` into a new folder inside one Son owns is still refused. A profile lists
+    /// only folders that exist, so an exact lookup would miss every new-folder destination; the
+    /// rule must resolve the owning ancestor. Nothing else catches this: the content-blind guard
+    /// doesn't apply to a PDF with text, and the shortlist guard is skipped for new segments.
     @Test func aNewFolderInsideAnothersPersonFolderIsStillRefused() throws {
-        // Not a key in the profile — the whole point. Its PARENT is.
+        // Not a key in the profile; its parent is.
         let destination = "\(Self.root)/Immigration/OCI/Son/Application"
         #expect(Self.profile().folders["Immigration/OCI/Son/Application"] == nil,
                 "the fixture stopped exercising a new folder — this test would pass on the old lookup")
@@ -76,8 +62,8 @@ import Testing
         let reported = try #require(veto.reported)
         #expect(reported.namedPerson == "daughter")
         #expect(reported.proposedPerson == "son")
-        // Reported as the destination the user was actually offered, not as the ancestor the rule
-        // resolved the person from — the sentence is about where the file was going.
+        // Reported as the destination the user was offered, not the ancestor the person came from:
+        // the sentence is about where the file was going.
         #expect(reported.destination == "Immigration/OCI/Son/Application")
     }
 
@@ -91,8 +77,8 @@ import Testing
         #expect(veto.reported?.proposedPerson == "son")
     }
 
-    /// And the walk stops at the NEAREST owner rather than the outermost: a new folder under
-    /// Daughter's own folder is hers, even though Son's sits alongside it under a shared parent.
+    /// The walk stops at the nearest owner: a new folder under Daughter's folder is hers, though
+    /// Son's sits alongside it under a shared parent.
     @Test func theNearestOwningAncestorWinsSoTheRightPersonIsStillAllowed() {
         #expect(FilingEngine.personVeto(
             fileName: "Daughter OCI.pdf",
@@ -101,8 +87,8 @@ import Testing
             identity: nil, pageSample: nil) == nil)
     }
 
-    /// A new folder with no owning ancestor at all is not vetoed — the rule refuses a
-    /// CONTRADICTION, and there is nothing here to contradict.
+    /// A new folder with no owning ancestor is not vetoed: the rule refuses a contradiction, and
+    /// there is none here.
     @Test func aNewFolderWithNoOwningAncestorIsAllowed() {
         #expect(FilingEngine.personVeto(
             fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/Passports/New",
@@ -110,8 +96,8 @@ import Testing
             identity: nil, pageSample: nil) == nil)
     }
 
-    /// The other direction, so the rule is not simply refusing everything: the person's OWN folder
-    /// is allowed, and so is a folder with no person axis at all.
+    /// The other direction, so the rule doesn't refuse everything: the person's own folder is
+    /// allowed, and so is a folder with no person axis.
     @Test func theRightPersonsFolderAndAnUnownedFolderAreAllowed() {
         #expect(FilingEngine.personVeto(
             fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Daughter",
@@ -142,8 +128,7 @@ import Testing
 
     // MARK: Both paid paths ask it
 
-    /// The call sites, because a rule extracted for sharing is one revert from being unused — and
-    /// this one was already unused on a path that could spend money.
+    /// The call sites: both paid paths must actually call the shared rule.
     @Test func bothPaidPathsRunTheirVerdictThroughTheVeto() throws {
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -153,17 +138,14 @@ import Testing
                                                   encoding: .utf8),
                                       "cannot read \(file) — this scan would be vacuous")
             try #require(source.count > 500, "\(file) is implausibly short")
-            // **Calls, not occurrences.** `FilingEngine.swift` DECLARES `personVeto`, so a bare
-            // `contains("personVeto(")` matched its own `static func` line and survived deleting
-            // every call in the file. Subtracting the declaration is what makes the count a
-            // statement about call sites; a sibling scan in this package excludes self-declaring
-            // files for exactly this reason.
+            // Calls, not occurrences: `FilingEngine.swift` declares `personVeto`, so a bare
+            // `contains` would match the declaration and survive deleting every call.
             let occurrences = source.components(separatedBy: "personVeto(").count - 1
             let declarations = source.components(separatedBy: "func personVeto(").count - 1
             #expect(occurrences - declarations >= 1,
                     "\(file) resolves a backend verdict without the cross-person rule (\(occurrences) occurrence(s), \(declarations) of them the declaration)")
         }
-        // And the refine reaches it through `applyVerdicts`, which is where its own guards live.
+        // The refine reaches it through `applyVerdicts`, where its own guards live.
         let refine = try #require(try? String(contentsOf: dir.appendingPathComponent("FileSyncManager+FilingRefine.swift"),
                                               encoding: .utf8))
         #expect(refine.contains("FilingEngine.applyVerdicts("),

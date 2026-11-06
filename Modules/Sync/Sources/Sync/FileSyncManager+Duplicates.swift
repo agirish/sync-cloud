@@ -6,11 +6,9 @@ import Foundation
 /// they land in the Trash with the same one-step Undo as every other destructive action.
 extension FileSyncManager {
 
-    /// Files the most recent duplicate scan had to skip during content hashing — and therefore
-    /// could not prove identical to anything. Without this figure, two identical cloud-only
-    /// placeholders are simply invisible to the scan with zero indication. Labels the
-    /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results
-    /// (`duplicateScanSkips` in FileSyncManager.swift), reset by `clearDuplicates`.
+    /// Files the last duplicate scan couldn't prove identical to anything, by reason, so skipped
+    /// files are reported rather than silently missing. Labels the current `duplicateGroups` as
+    /// `duplicateScanRoot` does: published with the results, reset by `clearDuplicates`.
     public struct DuplicateScanSkips: Sendable, Equatable {
         /// Candidates skipped because they are cloud-only (dataless) placeholders that hashing
         /// would force-download.
@@ -19,31 +17,20 @@ extension FileSyncManager {
         /// not the bytes, so no single-path duplicate offer about one is truthful. Counted so
         /// a Time-Machine-shaped tree doesn't just quietly report fewer duplicates.
         public var multiLink: Int
-        /// Documents the same-text pass could not judge: an image-only scan, a password-locked
-        /// PDF, or one whose page 1 holds fewer than ``ContentFingerprint/minimumTokens`` tokens.
-        ///
-        /// **Counted for exactly the reason this feature exists.** The roadmap's complaint about
-        /// the re-stamped-PDF blind spot was not that it was large, it was that it was *silent* —
-        /// the files hashed fine, failed to match, and no counter moved. A same-text pass that
-        /// declined a thousand image-only scans without saying so would recreate that.
+        /// Documents the same-text pass couldn't judge: an image-only scan, a password-locked PDF,
+        /// or one whose page 1 holds fewer than ``ContentFingerprint/minimumTokens`` tokens.
+        /// Counted so a pass that declines many documents says so, rather than silently missing
+        /// their re-stamped copies.
         public var textUnreadable: Int
-        /// Candidates whose bytes could not be read, or could not be proved to be the bytes that
-        /// were read: gone or unreadable by the time hashing reached them, a directory or a broken
-        /// link where a file was expected, replaced between the stat and the open, or rewritten
-        /// mid-read.
-        ///
-        /// **Counted because this is the one skip reason that grew without saying so.** Every
-        /// sibling above is tallied — `multiLink` explicitly so a Time-Machine-shaped tree does not
-        /// quietly report fewer duplicates — while this verdict fell through a bare `break`, and
-        /// the mid-read coherence check added two fresh ways to reach it. A volume that answered
-        /// badly could put every candidate here and the scan would report no duplicates, with
-        /// nothing on screen saying why. That is precisely the silence the rest of this type
-        /// exists to end.
+        /// Candidates whose bytes couldn't be read, or couldn't be proved to be the bytes that were
+        /// read: gone or unreadable by the time hashing reached them, a directory or broken link
+        /// where a file was expected, replaced between the stat and the open, or rewritten
+        /// mid-read. Counted so a volume that answers badly can't turn into "no duplicates" with
+        /// nothing on screen saying why.
         public var unverifiable: Int
-        /// Files no duplicate claim of any kind could be made about. `textUnreadable` is
-        /// deliberately NOT in it: those files were hashed and grouped normally, and only the
-        /// weaker text claim was declined for them. `unverifiable` IS in it — nothing was learned
-        /// about those files at all, which is this number's own definition.
+        /// Files no duplicate claim of any kind could be made about. `textUnreadable` is not in it:
+        /// those files were hashed and grouped normally, and only the weaker text claim was
+        /// declined for them.
         public var total: Int { cloudOnly + multiLink + unverifiable }
 
         public init(cloudOnly: Int = 0, multiLink: Int = 0,
@@ -75,8 +62,7 @@ extension FileSyncManager {
                 redundant += g.copies.count - 1
             }
             // The kind the user must look at before acting: a same-text group's copies only
-            // provably *read* the same. (Name-only groups counted here too until the case was
-            // removed — a shared folder name turned out to be evidence of nothing.)
+            // provably *read* the same.
             switch g.matchType {
             case .sameText: review += 1
             case .identical, .overlapping, .versions: break
@@ -90,11 +76,10 @@ extension FileSyncManager {
 
     // MARK: Scan
 
-    /// Walks one provider subtree, hashes duplicate-candidate files, and groups the results.
+    /// Starts a cancellable Find Duplicates scan of one subtree, replacing any in-flight one.
     /// - Parameters:
     ///   - root: The provider root (or focused folder) to scan.
     ///   - options: Detection tuning.
-    /// Starts a cancellable Find Duplicates scan, replacing any in-flight one.
     public func startFindDuplicates(root: URL, options: DuplicateFinderOptions = .init()) {
         duplicateScanTask = restartedScanTask(replacing: duplicateScanTask) { [weak self] in
             await self?.findDuplicates(root: root, options: options)
@@ -106,25 +91,21 @@ extension FileSyncManager {
         duplicateScanTask?.cancel()
     }
 
-    /// Re-runs the duplicate scan on lens open, when `root` is one of the targets the user has
-    /// scanned to completion before. Free of *money and of network*, always — everything it does is
-    /// local — and free of time on the second run onwards, because both persisted indexes mean an
-    /// unchanged file is neither re-read nor re-parsed. It is no longer free of time on the FIRST
-    /// run after the same-text pass arrived: that pass reads every PDF in the tree once (measured
-    /// at ~5.5 minutes for 10,569 documents) before its digests are cached. The scan is cancellable
-    /// and reports progress throughout, and the pass has a Settings toggle, so the cost is visible
-    /// and refusable rather than hidden — but "free by construction", which this said before, is
-    /// now only true of the repeat. The questions remain consent and idempotence:
+    /// Re-runs the duplicate scan on lens open, when `root` is a target the user has scanned to
+    /// completion before. It is all local, so it never costs money or network. A repeat costs
+    /// little time, since both persisted indexes skip unchanged files, but the first run with the
+    /// same-text pass reads every PDF in the tree once (minutes on a large tree). The scan is
+    /// cancellable and shows progress, and the pass has a Settings toggle. The questions are
+    /// consent and idempotence:
     ///
-    /// - **Consent** is a remembered target matching: the user has scanned exactly this before,
-    ///   so repeating it unasked offers nothing they didn't already ask for. Nothing remembered
-    ///   (or no injected store) means never, and a target that is no longer a reachable directory
-    ///   is declined rather than scanned into an empty result — see
-    ///   ``FileSyncManager/isReachableDirectory(_:fileManager:)``.
-    /// - **Idempotence** against the callers' overlapping triggers (appear, workspace change,
-    ///   root change — the same trio as `restoreStorageLens`): a completed scan this session
-    ///   declines via `hasFoundDuplicates`, a running one via `isFindingDuplicates`, and an
-    ///   attempt that ended any other way (cancelled) via the per-target latch.
+    /// - Consent is a remembered target: the user has scanned exactly this before, so repeating it
+    ///   offers nothing they didn't ask for. Nothing remembered (or no injected store) means never,
+    ///   and a target that is no longer a reachable directory is declined rather than scanned into
+    ///   an empty result (``FileSyncManager/isReachableDirectory(_:fileManager:)``).
+    /// - Idempotence against the callers' overlapping triggers (appear, workspace change, root
+    ///   change, as for `restoreStorageLens`): a completed scan this session declines via
+    ///   `hasFoundDuplicates`, a running one via `isFindingDuplicates`, and a cancelled attempt via
+    ///   the per-target latch.
     ///
     /// Returns whether a scan was started, for tests.
     @discardableResult
@@ -140,21 +121,18 @@ extension FileSyncManager {
         return true
     }
 
-    /// `sampleAbove` and `isCloudOnly` are injectable for tests only (a real >100 MB fixture per
-    /// run would be wasteful, and a real dataless file can't be fabricated); production callers
-    /// use the defaults. `sampleAbove` is the size past which a candidate's ends are sampled
-    /// before it is read whole — see ``duplicateEdgeSampleAbove``.
+    /// `sampleAbove` and `isCloudOnly` are injectable for tests only (a >100 MB fixture per run is
+    /// wasteful, and a dataless file can't be fabricated). `sampleAbove` is the size past which a
+    /// candidate's ends are sampled before it is read whole (``duplicateEdgeSampleAbove``).
     ///
-    /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree costs
-    /// no re-reads. A test that varies `isCloudOnly` across scans of the SAME files must pass
-    /// `nil` — see ``hashFilesCounting`` for why a hit bypasses it.
-    /// `textFingerprint` is the same-text pass's reader: a path in, a ``FingerprintReading`` out —
-    /// a ``ContentFingerprint`` digest, too little text, or not readable. `textlessCache` holds
-    /// the too-little-text answers, apart from the digests for the reason
-    /// ``ContentHashCache/sharedTextless`` gives. Defaulted to the real PDFKit reader for the
-    /// same reason `isCloudOnly` is defaulted to the real materialization check — production wants
-    /// it and only tests want to vary it. `fingerprintCache` is its own store, separate from the
-    /// content-hash one because the two hold different things under the same key shape.
+    /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree
+    /// re-reads nothing. A test that varies `isCloudOnly` across scans of the same files must pass
+    /// `nil` (see ``hashFilesCounting`` for why a hit bypasses it).
+    ///
+    /// `textFingerprint` is the same-text pass's reader: a path in, a ``FingerprintReading`` out.
+    /// `fingerprintCache` holds its digests, apart from the content hashes because the two share a
+    /// key shape but hold different things. `textlessCache` holds the too-little-text answers,
+    /// apart from the digests for the reason ``ContentHashCache/sharedTextless`` gives.
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
@@ -168,13 +146,10 @@ extension FileSyncManager {
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
-        // The two caches must not be the same instance. They share a key shape — `ContentHashKey`:
-        // path, mtime, size, file number and status-change time — and both store a 64-hex string, so one instance holding both would let a file's
-        // SHA-256 be served as its fingerprint and vice versa, silently and with nothing about the
-        // value to give it away. `ContentHashCache.sharedFingerprints` exists to make that
-        // unwriteable; this is what makes that claim true rather than a comment. Declining the
-        // cache rather than trapping: the cost is re-reading documents, and a crash over a caching
-        // mistake is the worse outcome.
+        // The caches must be distinct instances. They share a key shape (`ContentHashKey`) and both
+        // store a 64-hex string, so one instance holding both would silently serve a file's SHA-256
+        // as its fingerprint, or the reverse. Decline the cache rather than trap: re-reading
+        // documents beats a crash.
         let documentCache: ContentHashCache? =
             (fingerprintCache != nil && fingerprintCache === cache) ? nil : fingerprintCache
         if documentCache == nil, fingerprintCache != nil {
@@ -201,13 +176,11 @@ extension FileSyncManager {
 
         // 1. Walk the full subtree (off-main inside buildTree).
         //
-        // **Budgeted first, as a probe** — same shape and same reason as the storage lens; see
-        // `buildStorageLens` for the reasoning in full. The short version: this pass cannot take a
-        // budget for its answer, because a duplicate group computed from part of a tree is a
-        // duplicate MISSED rather than a partial list, but it can use one to learn the tree's size
-        // before committing. And the cost here is worse than the lens's, not better: past the walk
-        // this hashes every size-colliding file, so a tree big enough to stop the probe is a tree
-        // whose scan is measured in reads of real file content.
+        // Budgeted first, as a probe, as the storage lens does (`buildStorageLens`). The answer
+        // can't be budgeted, since groups computed from part of a tree miss duplicates, but the
+        // probe learns the tree's size before committing. Past the walk this hashes every
+        // size-colliding file, so a tree too big for the probe costs real content reads, and the
+        // user confirms it first.
         let probe = NodeBudget(wholeTreeProbeBudget)
         var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
                                         maxDepth: nil, budget: probe)
@@ -224,14 +197,13 @@ extension FileSyncManager {
             if Task.isCancelled { return }
         }
 
-        // 2. Only files whose size collides with another can possibly be identical — hash just
-        //    those. Everything else gets a unique placeholder so folder signatures still compute
-        //    but never falsely match.
+        // 2. Only files whose size collides with another can be identical, so hash just those.
+        //    Everything else gets a unique placeholder so folder signatures still compute but never
+        //    falsely match.
         //
-        //    Nothing under an ignored name (`.git`, `node_modules`, …) is a file here: the grouping
-        //    stops at the name (`DuplicateFinder.collect`), so hashing, reading or link-checking
-        //    what lies below it is work for a digest nothing reads — a repository's objects hashed,
-        //    every PDF in `node_modules` parsed, its hard links counted in the skip note.
+        //    Nothing under an ignored name (`.git`, `node_modules`, …) counts: the grouping stops
+        //    at the name (`DuplicateFinder.collect`), so hashing, reading or link-checking below it
+        //    is wasted.
         let allFiles = Self.flattenFiles(tree, skipping: options.ignoredNames)
         var sizeCount: [Int: Int] = [:]
         for f in allFiles where (f.fileSize ?? -1) >= 0 {
@@ -257,19 +229,16 @@ extension FileSyncManager {
                                                             sampleAbove: sampleAbove)
 
         let total = candidatePaths.count
-        // "Hashing 0 candidates…" read as what it was — a format string. Zero candidates is a
-        // real, common state (no two files share a size), so it gets its own sentence.
+        // Zero candidates is a common state (no two files share a size), so it gets its own
+        // sentence rather than "Hashing 0 candidates…".
         updateScan(\.duplicateScanLifecycle, epoch: epoch,
                    status: total == 0 ? "Looking for candidates…"
                                       : "Hashing \(total) candidate\(total == 1 ? "" : "s")…")
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
-        // One @Published write per whole percent — see `ProgressPublishGate` for what an ungated
-        // run costs the window. Two gates in series rather than one, because each is wrong alone
-        // at the other's end of the range: the `% 50` floor is what keeps a SMALL scan quiet (a
-        // percent gate publishes on nearly every file below ~5,000 candidates, which is MORE
-        // traffic than the modulo it would replace), and the percent gate is what keeps a LARGE
-        // one quiet (at 23,000 candidates the modulo alone fires 460 times). Composed, the traffic
-        // is min(total / 50, ~101) and neither end regresses.
+        // One @Published write per whole percent (`ProgressPublishGate`). Two gates in series,
+        // because each fails alone at the other's end: the `% 50` floor keeps a small scan quiet (a
+        // percent gate publishes on nearly every file below ~5,000 candidates), and the percent
+        // gate keeps a large one quiet. Together the traffic is min(total / 50, ~101).
         let hashGate = ProgressPublishGateBox()
         let hashOutcome = await Self.hashFilesCounting(
             candidatePaths, fileManager: fileManager,
@@ -277,11 +246,10 @@ extension FileSyncManager {
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
-                    // **The gate is consulted HERE, inside the main-actor hop, not in the closure
-                    // above.** `ProgressPublishGateBox` is `@unchecked Sendable` on the stated
-                    // condition that it is touched only from the main actor — and unlike
-                    // `+Verify`'s `reportCompleted`, this closure runs on the worker. Reading it
-                    // one line earlier would be a data race across every hashing task.
+                    // Consult the gate inside the main-actor hop, never in the closure above:
+                    // `ProgressPublishGateBox` is `@unchecked Sendable` only because it is touched
+                    // solely on the main actor, and that closure runs on the worker, so reading it
+                    // there is a data race.
                     guard let self, hashGate.admits(completed: done, total: total),
                           self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
                                           status: "Hashing \(done) of \(total)…") else { return }
@@ -291,11 +259,10 @@ extension FileSyncManager {
         }
         let realHashes = hashOutcome.hashes
         if Task.isCancelled { return }
-        // Deterministic terminal publish: the done == total update above is an unstructured
-        // main-actor Task that can lose the race against this resumption — the defer's epoch
-        // bump would then drop it, ending the bar at the last 50-multiple instead of full.
-        // We're back on the main actor with the epoch still current (and not cancelled, per
-        // the guard above), so pin the bar to 100% before the grouping pass below.
+        // Deterministic terminal publish: the `done == total` update above is an unstructured
+        // main-actor Task that can lose the race to this resumption, and the defer's epoch bump
+        // would then drop it, leaving the bar short of full. Back on the main actor with the epoch
+        // current, so pin it at 100%.
         if total > 0 {
             updateScan(\.duplicateScanLifecycle, epoch: epoch, status: "Hashing \(total) of \(total)…")
             duplicateScanProgress = (completed: total, total: total)
@@ -307,17 +274,14 @@ extension FileSyncManager {
             fileHashes[f.id] = realHashes[f.id] ?? DuplicateFinder.unknownSignature(forPath: f.id)
         }
 
-        // Hard-linked files (link count > 1) are dropped from grouping entirely: a directory
-        // entry is not the bytes, so no single-path offer about one is truthful — whether the
-        // sibling link is inside the scan or beyond it. Statted over ALL scanned files, not
-        // just the size-colliding hash candidates: the versions pass admits ANY file ≥
-        // minFileSize (unknown-hash members ride along in a group real hashes justify), so a
-        // unique-size link skipped by a candidates-only stat rode straight into a versions
-        // group and was recommended for removal. Stat-only metadata reads, off the main actor.
-        // Persist what this scan hashed before the next cancellation check. Reading and hashing
-        // those bytes was the expensive part of the scan and it has already happened; discarding
-        // the digests because the user cancelled a moment later would mean re-reading the same
-        // gigabytes next time. Cancelling abandons the GROUPING, not the measurements.
+        // Save what this scan hashed before the next cancellation check: the reads were the
+        // expensive part, and a cancel abandons the grouping, not the measurements.
+        //
+        // Then drop hard-linked files (link count > 1) from grouping: a directory entry is not the
+        // bytes, so no single-path offer about one is truthful, wherever the sibling link is.
+        // Statted over all scanned files, not just the hash candidates, because the versions pass
+        // admits any file ≥ minFileSize: a unique-size link would otherwise reach a versions group
+        // and be recommended for removal. Stat-only reads, off the main actor.
         await cache?.save()
 
         let linkCheckPaths = allFiles.map { $0.id }
@@ -326,18 +290,12 @@ extension FileSyncManager {
         }.value
         if Task.isCancelled { return }
 
-        // 2b. Read the documents, for the duplicates a byte hash cannot see: a provider re-stamps
-        //     each PDF on download, so the same bill fetched twice is byte-different with identical
-        //     content. Every fingerprintable document is read, NOT just the size-colliding hash
-        //     candidates above — measured on the real tree, restricting the pass to files that
-        //     already share a size would find fewer than half the groups it finds unrestricted:
-        //     119 of 251 on the replay that measured it. (Both totals are from that one pre-lane
-        //     run; the shipped serial lane reports ~248. The ratio is what this argues, not the
-        //     total, and re-stating 119 against a total it was not measured with would be an
-        //     invented number.) The reason is that
-        //     a re-stamp routinely changes the byte count too (a compressed re-save changes it by
-        //     an order of magnitude). Cached by (path, mtime, size, file number, ctime), so this is
-        //     paid once.
+        // 2b. Read the documents, for duplicates a byte hash can't see: a provider re-stamps each
+        //     PDF on download, so the same bill fetched twice differs in bytes but not in content.
+        //     Every fingerprintable document is read, not just the size-colliding candidates,
+        //     because a re-stamp often changes the byte count too: restricting to shared sizes
+        //     found under half the groups on a real tree. Cached by (path, mtime, size, file
+        //     number, ctime), so this is paid once.
         var textFingerprints: [String: String] = [:]
         var textUnreadable = 0
         if options.detectSameText {
@@ -355,12 +313,9 @@ extension FileSyncManager {
                     documentPaths, fileManager: fileManager, cache: documentCache,
                     textless: negativeCache, extract: textFingerprint
                 ) { [weak self] done in
-                    // Every 50, and deliberately NOT also on the last one. The hashing phase above
-                    // publishes `done == total` from here as well as terminally, which is harmless
-                    // but makes the terminal publish untestable — the racing hop usually lands, so
-                    // deleting the terminal publish leaves every assertion green and the bug only
-                    // shows up under load. With the interval hops alone, the full value has exactly
-                    // one source and a test can hold it to that.
+                    // Every 50, and deliberately not also on the last one: with the interval hops
+                    // alone, the full value has one source (the terminal publish below), and a test
+                    // can hold it to that.
                     if done % 50 == 0 {
                         Task { @MainActor in
                             // Percent gate inside the hop, `% 50` floor outside it — the same
@@ -373,12 +328,10 @@ extension FileSyncManager {
                     }
                 }
                 textUnreadable = documentTotal - textFingerprints.count
-                // Deterministic terminal publish, for the same reason the hashing phase above has
-                // one: the `done == documentTotal` update is an unstructured main-actor Task that
-                // can lose the race against this resumption, and the defer's epoch bump then drops
-                // it — leaving the bar at the last 50-multiple. It matters MORE here than there,
-                // because this is now the long phase (minutes on a cold tree), so a bar frozen at
-                // "Reading 10,550 of 10,569" is what the user stares at for the rest of the scan.
+                // Deterministic terminal publish: the interval hops stop at the last multiple of
+                // 50, and one still queued can lose the race to this resumption and be dropped by
+                // the defer's epoch bump. This is the long phase on a cold tree, so a bar left
+                // short would show for the rest of the scan.
                 if !Task.isCancelled {
                     updateScan(\.duplicateScanLifecycle, epoch: epoch,
                                status: "Reading \(documentTotal) of \(documentTotal)…")
@@ -393,8 +346,8 @@ extension FileSyncManager {
         if Task.isCancelled { return }
 
         // 3. Group (pure), then drop anything the user has kept separate. Off the main actor: on a
-        // Documents-sized tree the grouping alone held the window for 0.5–0.9 s at the end of every
-        // scan, and it takes and returns plain values.
+        //    Documents-sized tree the grouping alone takes 0.5–0.9 s, and it takes and returns
+        //    plain values.
         let groupInput = (tree, fileHashes, multiLinkPaths, textFingerprints)
         let groups = await Task.detached(priority: .userInitiated) {
             DuplicateFinder.findGroups(tree: groupInput.0, fileHashes: groupInput.1, options: options,
@@ -429,14 +382,12 @@ extension FileSyncManager {
         }
     }
 
-    /// The key a fingerprint is cached under — ``ContentHashKey``'s own invalidation contract,
-    /// reused verbatim: path, mtime and size, plus the file number and status-change time
-    /// (``ContentHashKey/diskIdentity(atPath:)``, FR59). The triple alone could not see a document
-    /// replaced by a same-size one carrying its dates — what a copy over it leaves, since copies
-    /// take the source's dates — and this index keeps an entry while it is used, so the old fingerprint was
-    /// served and Duplicates could call a different file "same text". nil when the file has no
-    /// readable mtime, which means this document is fingerprinted every scan rather than cached
-    /// under an unstable key.
+    /// The key a fingerprint is cached under: ``ContentHashKey``'s own contract, path, mtime and
+    /// size plus file number and status-change time (``ContentHashKey/diskIdentity(atPath:)``). The
+    /// triple alone can't see a document replaced by a same-size one carrying its dates (what a
+    /// copy over it leaves), and would serve the old fingerprint as "same text". nil without a
+    /// readable mtime, so that document is fingerprinted every scan rather than cached under an
+    /// unstable key.
     nonisolated static func fingerprintCacheKey(forPath path: String,
                                                 fileManager: FileManaging) -> ContentHashKey? {
         guard let attributes = try? fileManager.attributesOfItem(atPath: path),
@@ -447,19 +398,16 @@ extension FileSyncManager {
                               fileNumber: identity?.fileNumber, statusChanged: identity?.statusChanged)
     }
 
-    /// Fingerprints documents with bounded concurrency, returning path → digest for the ones that
-    /// produced one. Cached by the key the content hashes use (``fingerprintCacheKey``), so a
-    /// rescan of an unchanged tree re-parses nothing.
+    /// Fingerprints documents with bounded concurrency, returning path → digest for those that
+    /// produced one. Cached under ``fingerprintCacheKey``, so a rescan of an unchanged tree
+    /// re-parses nothing.
     ///
-    /// **Including the documents that have no fingerprint, when the reason is the document.** A
-    /// read that came to too little text is cached in `textless` as
+    /// A read that came to too little text is cached in `textless` as
     /// ``ContentFingerprint/tooLittleTextMarker`` under the same key, so it is invalidated exactly
-    /// as a digest is. It used not to be stored,
-    /// and a cache miss and a textless document looked the same — every warm rescan re-parsed
-    /// every image-only scan on the PDF lane: 858 documents of the real tree, and most of a
-    /// 5–14 s rescan. A document that could not be read (``FingerprintReading/unreadable``) is
-    /// still never stored, so a placeholder that downloads, or a file that stops being locked, is
-    /// read on the next scan. The marker is answered as nil here and never leaves this function.
+    /// as a digest is and warm rescans skip image-only scans too. An unreadable document
+    /// (``FingerprintReading/unreadable``) is never stored, so a placeholder that downloads, or a
+    /// file that stops being locked, is read next scan. The marker is answered as nil and never
+    /// leaves here.
     nonisolated static func fingerprintDocuments(
         _ paths: [String],
         fileManager: FileManaging,
@@ -526,12 +474,8 @@ extension FileSyncManager {
     }
 
     /// Marks a group as intentionally separate: removes it now and remembers it so future scans
-    /// don't re-flag the same cluster.
-    ///
-    /// **And it can be taken back.** One mis-click hid a group for good, across every rescan, with
-    /// no undo and nothing anywhere that listed what was hidden. It now registers one ⌘Z step and
-    /// says so in an undoable banner; ``forgetKeptSeparateGroups(under:)`` is the way back for older
-    /// ones.
+    /// don't re-flag the same cluster. Registers one ⌘Z step and says so in an undoable banner;
+    /// ``forgetKeptSeparateGroups(under:)`` brings back older ones.
     public func keepDuplicateGroupSeparate(_ group: DuplicateGroup) {
         var keys = ignoredDuplicateKeys
         keys.insert(group.ignoreKey)
@@ -553,14 +497,11 @@ extension FileSyncManager {
                           undoable: undoManager != nil)
     }
 
-    /// ⌘Z for ``keepDuplicateGroupSeparate(_:)``: forgets the key and puts the card back where it
-    /// was, and registers the redo.
-    ///
-    /// **The card goes back only into the results it came from.** It used to go back unless a
-    /// group with the same `id` was showing — but ids are minted per scan, so after a rescan of the
-    /// same folder (Show them again brings the group back) the undo added a second copy of the
-    /// card, and after a scan of another folder it dropped this folder's group into those results.
-    /// The key is forgotten either way, so the next scan of this folder flags it again.
+    /// ⌘Z for ``keepDuplicateGroupSeparate(_:)``: forgets the key, puts the card back, and
+    /// registers the redo. The card goes back only into the results it came from, and not when they
+    /// already show the same cluster: ids are minted per scan, so a rescan or another folder's scan
+    /// would get a duplicate or a stray card. The key is forgotten either way, so the next scan
+    /// flags it again.
     func restoreKeptSeparateGroup(_ group: DuplicateGroup, at index: Int?,
                                   scannedFrom root: String?) {
         var keys = ignoredDuplicateKeys
@@ -599,18 +540,14 @@ extension FileSyncManager {
         return !paths.isEmpty && paths.allSatisfy { $0.hasPrefix(prefix) }
     }
 
-    /// The kept-separate keys a scan of `root` could flag — what the lens's *Show them again*
-    /// counts and forgets. Empty without a root.
+    /// The kept-separate keys a scan of `root` could flag: what the lens's *Show them again* counts
+    /// and forgets. Empty without a root.
     ///
-    /// **Not every key.** The set is kept for every provider and folder at once, so counting it
-    /// whole put "You’ve kept 12 groups separate" under a scan that could only ever have shown two
-    /// of them, and *Show them again* forgot all twelve, everywhere, with no way back.
-    ///
-    /// **Nor every key under the root: not those the last scan found a copy of gone.** A key is
-    /// the cluster's exact copy paths, so one with a copy gone can never match a scan again — it
-    /// was counted in "You’ve kept N groups separate" and promised back by *Show them again* all
-    /// the same. Read from ``keptSeparateGoneKeys``, which the scan fills from its own tree: this
-    /// is counted from the lens's body, where a stat per copy would be disk I/O on the main thread.
+    /// Only keys under `root`, since the set spans every provider and folder at once. And not those
+    /// whose copy the last scan found gone: a key is the cluster's exact copy paths, so it can
+    /// never match again. Read from ``keptSeparateGoneKeys``, which the scan fills from its own
+    /// tree, because this is counted from the lens's body, where a stat per copy would be
+    /// main-thread disk I/O.
     public func keptSeparateKeys(under root: String?) -> Set<String> {
         keptSeparateKeysInFolder(root).subtracting(keptSeparateGoneKeys)
     }
@@ -665,35 +602,20 @@ extension FileSyncManager {
             : "Forgot \(count.formatted()) groups kept separate — this scan flags any that are still duplicates."
     }
 
-    /// Clears the current results (called when switching providers, so stale groups from one
-    /// provider can never be shown — or acted on — under another).
-    /// Every lens result that belongs to the provider being switched away from.
+    /// Clears every lens result belonging to the provider being switched away from, so stale
+    /// results can never be shown, or acted on, under another provider.
     ///
-    /// **A list, in one place, because a list spread across call sites is what broke.** The two
-    /// provider-switch handlers in `ContentView` each cleared duplicates, filing and the automation
-    /// dry-run inline, under the comment "stale Tidy results must not outlive their provider" — and
-    /// the risky-name finding, which became a lens result when Rename folded into Organize, was
-    /// never added to either. It outlived its provider: Organize kept showing the previous
-    /// account's finding, and "Fix all" would have renamed those files — under the OLD provider's
-    /// ruleset, at absolute paths under the OLD provider's root — while the window said you were
-    /// somewhere else. `clearFiling()` does not cover it; the name scan has its own lifecycle.
-    ///
-    /// Adding a lens now means adding it here, where the omission is one line from the others and
-    /// `everyLensResultIsClearedByAProviderSwitch` fails until it is.
+    /// One list in one place: a lens missing here keeps the previous account's finding on screen,
+    /// and acting on it would use the old provider's root and rules while the window shows another.
+    /// A new lens is added here, and `everyLensResultIsClearedByAProviderSwitch` fails until it is.
     public func clearLensResultsForProviderSwitch() {
         clearDuplicates()
         clearFiling()
         clearAutomationDryRun()
         clearNameScan()
-        // The rename backlog needs no line of its own: `clearFiling()` above drops it, because it
-        // is that scan's finding and shares its scope.
-        // Storage was the fifth lens and the omission this doc warns about, repeated: until now
-        // `clearStorageLens()` was called from tests and from nowhere else, so switching provider
-        // left the previous account's report on screen — its folder chip naming a root the window
-        // no longer showed. Read-only, so nothing could be misapplied from it, but it is still a
-        // reading attributed to the wrong place, and restoring reports makes it more confident:
-        // the report now also carries a "Scanned 2h ago" marker vouching for numbers from
-        // somewhere else entirely.
+        // The rename backlog needs no line of its own: `clearFiling()` drops it, as that scan's
+        // finding. Storage is read-only, but its report would still name the old root and vouch for
+        // it with a "Scanned 2h ago" marker.
         clearStorageLens()
     }
 
@@ -713,96 +635,56 @@ extension FileSyncManager {
 
     // MARK: Resolve
 
-    /// Whether a group's keeper is still where — and what — the scan saw. Groups are point-in-time
-    /// snapshots: if the keeper was deleted, renamed, moved, or (for a byte-identical file group)
-    /// overwritten in place between scan and click, trashing the "redundant" copies would trash the
-    /// *last* copies of the keeper's original content — the one invariant the finder promises never to
-    /// break. Re-verified at resolve time, not just scan time.
+    /// Whether a group's keeper is still where, and what, the scan saw. Groups are point-in-time
+    /// snapshots: if the keeper was deleted, moved or rewritten between scan and click, trashing
+    /// the "redundant" copies would trash the last copies of its original content. So it is
+    /// re-checked at resolve time, not just scan time.
     ///
-    /// For a file we also re-check the byte size against the scan snapshot: any in-place edit
-    /// changes the size (and mtime), so a size mismatch means the keeper's content drifted and its
-    /// copies are no longer provably identical to it. (Size is used rather than mtime because the
-    /// scan reads mtime via URL resource values, which need not compare equal to a re-stat through
-    /// the file-manager seam; size is exact and can never false-fail an unchanged file.) A FOLDER
-    /// keeper is existence-only *here* — its stat size isn't its recursive content size — and gets
-    /// its content check from `driftedFolderInGroup`, which `resolveDuplicateGroup` and the batch
-    /// run alongside this and which covers the keeper as well as the removal candidates. (The
-    /// merge path deliberately has neither — see `copyDriftedInPlace` — its keeper is *meant* to
-    /// change, and its own trash step re-walks the source.)
+    /// A file keeper is checked by size and modification date (`copyDriftedInPlace`). A folder
+    /// keeper is existence-only here and gets its content check from `driftedFolderInGroup`, which
+    /// the group resolve and the batch run alongside this. The merge path has neither: its keeper
+    /// is meant to change, and its own trash step re-walks the source.
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
         copyStillExists(group.keeper)
     }
 
-    /// The keeper test above, for ANY copy — extracted so the pair resolve
-    /// (``resolveDuplicateCopy(_:keeper:)``) asks the keeper question in the one spelling the
-    /// group resolve asks it, rather than re-deriving "exists, and hasn't drifted" beside it.
-    /// Two copies of a safety predicate can only agree by luck.
+    /// ``keeperStillExists(_:)`` for any copy, so the pair resolve
+    /// (``resolveDuplicateCopy(_:keeper:)``) asks the keeper question in the same spelling as the
+    /// group resolve. Two copies of a safety predicate agree only by luck.
     private func copyStillExists(_ copy: DuplicateCopy) -> Bool {
         guard fileManager.fileExists(atPath: copy.path) else { return false }
         return !copyDriftedInPlace(copy)
     }
 
-    /// Whether `copy` is still on disk but no longer the size the scan recorded — an in-place
-    /// rewrite (a re-export to the same name, a provider re-download, an edit) that leaves the path
-    /// intact while replacing the bytes underneath it.
+    /// Whether `copy` is still on disk but no longer the size or modification date the scan
+    /// recorded: an in-place rewrite (a re-export, a provider re-download, an edit) under the same
+    /// path.
     ///
-    /// One member because two callers must agree: the keeper check above and the removal-candidate
-    /// check below ask the same question about opposite ends of a group, and a group is only safe
-    /// to act on when *neither* end drifted. A copy that has simply *vanished* is not drift — there
-    /// is nothing left to trash, and `dropFullyRemovedGroups` already accounts for it.
+    /// Shared by the keeper check and the removal-candidate check, because a group is safe to act
+    /// on only when neither end drifted. A vanished copy is not drift: nothing is left to trash,
+    /// and `dropFullyRemovedGroups` accounts for it. An unstattable file counts as drifted, which
+    /// refuses.
     ///
-    /// Unstattable counts as drifted, which refuses. That is the safe direction on both ends: a
-    /// path we cannot measure is one we cannot show to be redundant.
+    /// Size and mtime, because size alone passes a same-length rewrite (`MergeFileSnapshot` holds
+    /// both for the same reason). Known blind spots: coarse volume timestamps (1–2 s on FAT and
+    /// some SMB), writers that restore the old mtime (`touch -r`, `rsync --times`, some cloud
+    /// daemons), and xattr or Finder-tag edits, which move only ctime (trashing then loses the
+    /// tags, not the bytes). Catching those would need a content re-hash at resolve time.
     ///
-    /// **Modification date, not just size.** This used to compare size alone, on the stated
-    /// grounds that the scan reads mtime via `URLResourceValues` which "need not compare equal to
-    /// a re-stat through the file-manager seam". Measured on this machine, that is not so: over
-    /// 200 files the two read paths agreed EXACTLY, 200 of 200. Size alone waves through every
-    /// same-length rewrite — 2025 to 2026, a `sed -i` over fixed-width text — and the merge path
-    /// in this same file had already rejected that reasoning ("Size alone let a same-length
-    /// in-place rewrite slip through"), which is why `MergeFileSnapshot` carries both. The mtime
-    /// comparison is only as fine as the volume's timestamps: FAT and some SMB mounts round to
-    /// 1–2 s, so a same-length rewrite landing inside that window still compares equal there.
-    ///
-    /// Two further accepted residuals, distinct from the timestamp-granularity one above:
-    /// **mtime-preserving writers** defeat the size+mtime gate entirely — `touch -r`, `rsync
-    /// --times`, and some cloud daemons re-write bytes and then restore the original mtime, so a
-    /// same-length rewrite by one of them compares equal on any volume; and **xattr/Finder-tag
-    /// edits are invisible** — they move ctime, not mtime, and neither size nor mtime records
-    /// them, so a copy whose only change is metadata is still trashed as redundant (which loses
-    /// the tags, not the bytes). Both are size+mtime's inherent ceiling; catching them would need
-    /// a content re-hash at resolve time.
-    ///
-    /// **Folders are checked too now, per file rather than in aggregate.** The gap was real: a
-    /// folder group's entire resolve-time guarantee was once "a directory entry still exists at
-    /// this path", so scanning two 3,000-file folders as identical, moving 1,200 photos out of one
-    /// and pressing Move to Trash took the last intact copy of those 1,200.
-    ///
-    /// The first folder check compared the scan's recursive count+bytes rollup against a raw
-    /// re-walk, and the "every group would refuse for the opposite reason" risk it had dismissed
-    /// was exactly what shipped: the scan skips `ignoredNames` and counts a symlink as one
-    /// zero-byte entry, so a `.DS_Store` — every folder ever opened in Finder — was refused
-    /// forever, the offset could mask a real loss, and a same-length rewrite was invisible to
-    /// count and bytes alike. The scan now records a per-file baseline
-    /// (``FolderContentSnapshot``) on each folder copy, and the check re-walks with the scan's own
-    /// conventions and compares (path, size, mtime) per entry — the fidelity `MergeFileSnapshot`
-    /// already gave the merge path. See ``folderDriftedInPlace(_:)``.
+    /// Folders always answer false here; their per-file check is ``folderDriftedInPlace(_:)``.
     private func copyDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
         guard fileManager.fileExists(atPath: copy.path) else { return false }
         // Directories are answered by ``folderDriftedInPlace(_:)``, and only on the paths that
-        // TRASH — see `driftedFolderInGroup`. Not here, because this member is also what the merge
-        // path's keeper check goes through, and a merge is *designed* to change its keeper: it
-        // plans against a fresh walk of both sides and re-verifies the source immediately before
-        // trashing it, so holding its destination to the scan's recorded contents would refuse a
-        // merge whenever the folder gained or lost anything since — which for a folder somebody
-        // uses is most of the time.
+        // trash (`driftedFolderInGroup`). Not here, because the merge path's keeper check also
+        // comes through this member, and a merge is meant to change its keeper: it plans against a
+        // fresh walk and re-verifies the source just before trashing, so holding its keeper to the
+        // scan would refuse nearly every merge of a folder in use.
         guard !copy.isDirectory else { return false }
         guard let attrs = try? fileManager.attributesOfItem(atPath: copy.path) else { return true }
         let currentDate = attrs[.modificationDate] as? Date
         let currentSize = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
-        // Refuse only on a KNOWN mismatch: a real file always reports its size, so a drifted
-        // copy is caught; if size is unavailable (never happens on the real FS) fall back to the
-        // existence check rather than over-refuse.
+        // Refuse only on a known mismatch: a real file always reports its size, so a drifted copy
+        // is caught; if size is missing, fall back to the existence check rather than over-refuse.
         if let currentSize, currentSize != copy.size { return true }
         // Same rule for the date: compare it when both ends have one, rather than refusing every
         // group whose scan recorded no date.
@@ -810,43 +692,31 @@ extension FileSyncManager {
         return false
     }
 
-    /// Whether a FOLDER copy still holds what the scan measured — per entry, against the
-    /// ``FolderContentSnapshot`` the scan recorded on the copy, via the one shared re-walk
+    /// Whether a folder copy no longer holds what the scan measured, per entry, against the
+    /// ``FolderContentSnapshot`` the scan recorded on it. Uses the one shared re-walk
     /// (``folderContentsMatchScan(path:snapshot:fileManager:)``) the Compare review's gate also
-    /// consults, so the two destructive doors can never drift apart in what they check.
+    /// uses, so the two destructive paths can't differ in what they check. An extra file, a missing
+    /// file, a kind change and a same-length rewrite all read as drift.
     ///
-    /// **Per entry, because the aggregate this used to compare lied in both directions.** It
-    /// summed a RAW listing (ignored names counted, symlinks statted for their own bytes) against
-    /// the scan's convention-bound rollup, so a folder holding a `.DS_Store` was refused as
-    /// "changed since it was scanned" forever — rescanning reproduced the mismatch — while the
-    /// same constant offset could exactly mask a real loss. And even a convention-true count+bytes
-    /// cannot see a same-length rewrite, which the file-level check above was already fixed to
-    /// catch via mtime. The snapshot compares (path, size, mtime) per file, so an extra file, a
-    /// missing file, a kind change, and a same-length rewrite all read as drift.
+    /// Anything that can't be re-walked completely, and a copy with no snapshot, counts as drifted,
+    /// which refuses: a partial walk can't prove a folder unchanged. The scan records nil for a
+    /// subtree it couldn't fully read, so callers word that refusal as "couldn't be fully checked"
+    /// rather than "changed"; a rescan of the same tree records nil again.
     ///
-    /// Anything that cannot be re-walked completely — and a copy carrying NO snapshot — counts as
-    /// drifted, which refuses: a partial walk cannot prove a folder is still what it was. That is
-    /// the same direction the file check takes for an unstattable path, and the safe one on both
-    /// ends of a group. A nil snapshot is not only a hand-built copy's state: the scan records nil
-    /// on a folder whose subtree held an unexplored or unreadable descendant, so the callers word
-    /// that refusal as "couldn't be fully checked" rather than claiming a change nobody measured —
-    /// a rescan of the same unreadable tree records nil again.
-    ///
-    /// The cost is one recursive walk per folder copy, at the moment of a destructive click — the
-    /// merge path has always re-walked here for the same reason, and the alternative is trashing
-    /// the last copy of 1,200 photos to save it.
+    /// Costs one recursive walk per folder copy at the destructive click, the price of never
+    /// trashing the last copy of a folder's contents.
     private func folderDriftedInPlace(_ copy: DuplicateCopy) async -> Bool {
         !(await Self.folderContentsMatchScan(path: copy.path, snapshot: copy.contentSnapshot,
                                              fileManager: fileManager))
     }
 
-    /// Re-walks `path` and answers what the scan would see there now, with the scan's OWN
-    /// traversal conventions: the same tree walk (`buildTree`, off the main actor), the same
-    /// ignored names skipped, the same symlink handling. Nil when the walk could not cover the
-    /// whole subtree — a partial walk is not a baseline and not a verdict.
+    /// Re-walks `path` and answers what the scan would see there now, with the scan's own
+    /// conventions: the same tree walk (`buildTree`, off the main actor), ignored names and symlink
+    /// handling. Nil when the walk couldn't cover the whole subtree: a partial walk is not a
+    /// baseline.
     ///
     /// Public alongside ``folderContentsMatchScan(path:snapshot:fileManager:)`` so the app target
-    /// can both build and compare snapshots; the engine's own baselines are recorded by the scan.
+    /// can build and compare snapshots; the engine's own baselines are recorded by the scan.
     public nonisolated static func folderContentSnapshot(
         ofPath path: String, ignoredNames: Set<String>, fileManager: FileManaging
     ) async -> FolderContentSnapshot? {
@@ -855,17 +725,14 @@ extension FileSyncManager {
         return FolderContentSnapshot(walkedChildren: tree, ignoredNames: ignoredNames)
     }
 
-    /// **The one folder drift gate**, shared by every path that destroys a folder copy over a
-    /// scan-time claim: the engine's per-group and batch resolves (via `folderDriftedInPlace`)
-    /// and the Compare review's "Trash right copy" (via `DuplicateReviewCoordinator`). Re-walks
-    /// `path` with the conventions `snapshot` was recorded under and compares per entry; any
-    /// walk failure, unreadable descendant, extra entry, missing entry, kind change, or
-    /// size/mtime mismatch answers false — and so does a nil `snapshot`, because a copy without a
-    /// baseline cannot be proven unchanged. False refuses the destructive action. The two false
-    /// cases are worded apart by the callers: a real mismatch is "changed since it was scanned"
-    /// and a rescan records a fresh baseline, while a nil snapshot means the scan itself could not
-    /// fully read the subtree — nothing is known to have changed, and a rescan of the same
-    /// unreadable tree records nil again.
+    /// The one folder drift gate, shared by every path that destroys a folder copy on a scan-time
+    /// claim: the engine's group and batch resolves (via `folderDriftedInPlace`) and the Compare
+    /// review's "Trash right copy" (via `DuplicateReviewCoordinator`). Re-walks `path` with the
+    /// conventions `snapshot` was recorded under and compares per entry. Any walk failure,
+    /// unreadable descendant, extra or missing entry, kind change or size/mtime mismatch answers
+    /// false, as does a nil `snapshot`, and false refuses. Callers word the two apart: a mismatch
+    /// is "changed since it was scanned", while a nil snapshot means the scan couldn't fully read
+    /// the subtree.
     public nonisolated static func folderContentsMatchScan(
         path: String, snapshot: FolderContentSnapshot?, fileManager: FileManaging
     ) async -> Bool {
@@ -876,21 +743,14 @@ extension FileSyncManager {
         return current.entries == snapshot.entries
     }
 
-    /// The first folder in `group` — keeper or removal candidate — whose contents no longer match
-    /// what the scan measured, or nil when none has drifted.
+    /// The first folder in `group`, keeper or removal candidate, whose contents no longer match the
+    /// scan, or nil. Both ends, and only on the paths that trash: the keeper's loss makes a
+    /// "redundant" copy the last one, and a candidate's gain is content nothing else has. The merge
+    /// path doesn't come here (`copyDriftedInPlace`).
     ///
-    /// **Both ends, and only on the paths that trash.** The keeper is the copy being kept, so its
-    /// loss is what makes a "redundant" copy the last one; the candidates are the copies being
-    /// destroyed, so their gain is content nothing else has. The merge path deliberately does not
-    /// come here — see `copyDriftedInPlace`.
-    ///
-    /// **The keeper is re-walked LAST.** Each walk here takes real time (~0.7 s per 40k-node
-    /// folder), and a verdict ages from the moment it is formed: with the keeper walked first, a
-    /// group with several candidate folders had the keeper's "unchanged" verdict staled by every
-    /// candidate walk after it — an edit landing in the keeper during those walks was never seen,
-    /// and the copies were trashed against a keeper that no longer held the scanned content.
-    /// Walking the copy being KEPT last keeps its verdict the freshest one at the moment the
-    /// caller acts.
+    /// The keeper is re-walked last. Each walk takes real time (~0.7 s per 40k-node folder) and a
+    /// verdict ages from when it is formed; walked first, the keeper could be edited during the
+    /// candidates' walks unseen. Last, its verdict is the freshest when the caller acts.
     private func driftedFolderInGroup(_ group: DuplicateGroup) async -> DuplicateCopy? {
         let removalPaths = Set(group.recommendedRemovalPaths)
         let considered = group.copies.filter {
@@ -908,18 +768,11 @@ extension FileSyncManager {
         return nil
     }
 
-    /// The copies this group would TRASH that no longer hold the bytes the scan grouped.
-    ///
-    /// The keeper check alone is half a guarantee, and the dangerous half is the other one: the
-    /// keeper is the file being *kept*, while these are the files being *destroyed*. A group is a
-    /// point-in-time snapshot, the results outlive the scan for the whole session, and one of these
-    /// paths being rewritten in place between scan and click means the copy is no longer a copy —
-    /// trashing it destroys the only instance of its new content, under a banner calling it
-    /// redundant. On a volume with no Trash `deleteItems` escalates to a *permanent* delete, which
-    /// the user confirms believing the app verified the file was a duplicate.
-    ///
-    /// Same refusal shape the merge path has always had (`mergeSourceDrifted`, which re-walks the
-    /// redundant copy immediately before trashing it): if it changed, leave it alone and say so.
+    /// The copies this group would trash that no longer hold the bytes the scan grouped. The keeper
+    /// check covers what is kept; this covers what is destroyed. Results outlive the scan for the
+    /// whole session, and a copy rewritten in place since is no longer a copy: trashing it destroys
+    /// the only instance of its new content, and on a volume with no Trash `deleteItems` escalates
+    /// to a permanent delete. Same refusal shape as the merge path's `mergeSourceDrifted`.
     private func driftedRemovalCandidates(_ group: DuplicateGroup) -> [DuplicateCopy] {
         let removalPaths = Set(group.recommendedRemovalPaths)
         return group.copies.filter { removalPaths.contains($0.path) && copyDriftedInPlace($0) }
@@ -932,11 +785,9 @@ extension FileSyncManager {
     /// and those groups must stay listed however the delete call accounted for them.
     private func dropFullyRemovedGroups(from groups: [DuplicateGroup]) -> [DuplicateGroup] {
         let done = groups.filter { group in
-            // A group with nothing to remove is not resolved — `allSatisfy` on an empty list is
-            // vacuously true, which would drop it from the list as though its copies had been
-            // trashed AND credit its bytes to the reclaimed total. Reachable: re-aiming the keeper
-            // of a folder-protected group leaves every removal candidate protected, so
-            // `recommendedRemovalPaths` is empty while the copies are all still on disk.
+            // A group with nothing to remove is not resolved: `allSatisfy` on an empty list is
+            // true, which would drop it and credit its bytes as reclaimed. Reachable when re-aiming
+            // the keeper of a folder-protected group leaves every removal candidate protected.
             let paths = group.recommendedRemovalPaths
             return !paths.isEmpty && paths.allSatisfy { !fileManager.fileExists(atPath: $0) }
         }
@@ -952,8 +803,8 @@ extension FileSyncManager {
         case drifted
         /// A folder copy carries no scan baseline, so nothing can be proven either way.
         case missingBaseline
-        /// A copy to remove is, or holds, the copy another listed group keeps (FR10). Nothing
-        /// changed: the keepers moved under it, so "changed since the scan" would be false.
+        /// A copy to remove is, or holds, the copy another listed group keeps. Nothing changed: the
+        /// keepers moved under it, so "changed since the scan" would be false.
         case holdsKeeper
     }
 
@@ -972,35 +823,29 @@ extension FileSyncManager {
         }
     }
 
-    /// The duplicates flows' `removalGate` body: re-runs the full drift verdict — keeper, file
-    /// candidates, folder re-walks — for every group among `paths`, and returns the paths of the
-    /// groups that no longer hold. `deleteItems` calls this when the serialized operation starts
-    /// (the queue wait can put a long operation between the caller's checks and the removal) and
-    /// again after a confirmed permanent delete (the dialog is user-paced, and what follows it is
-    /// unrecoverable) — the two windows the callers' own pre-checks cannot cover.
+    /// The duplicates flows' `removalGate` body: re-runs the full drift verdict (keeper, file
+    /// candidates, folder re-walks) for every group among `paths`, and returns the paths of the
+    /// groups that no longer hold. `deleteItems` calls it when the serialized operation starts (the
+    /// queue wait can be long) and again after a confirmed permanent delete (the dialog is
+    /// user-paced and what follows is unrecoverable): the two windows the callers' own pre-checks
+    /// can't cover.
     ///
-    /// Refusals are logged HERE, per group with the keeper and the drifted copy's path, so the
-    /// single resolve and the batch report identically and a refusal is never a silent counter
-    /// bump. (The single resolve's own PRE-checks log the same shape — keeper path plus culprit
-    /// path. They used to log basenames only, which made three copies named `IMG_0421.jpg`
-    /// undiagnosable from the log, and made this paragraph's claim true of the gate's refusals and
-    /// false of the pre-checks it shares its wording with.) — he audits `~/sync-cloud.log`, and a copy the app promised to trash and then kept
-    /// must say why.
+    /// Refusals are logged here, per group, with the keeper's and the culprit's paths, so the
+    /// single resolve and the batch report alike in `~/sync-cloud.log` and a refusal is never
+    /// silent.
     func refuseDriftedDuplicateRemovals(_ paths: [String], groups: [DuplicateGroup],
                                         refusals: DuplicateRemovalRefusals) async -> Set<String> {
         var refusedPaths = Set<String>()
-        // Keyed by `canonicalRemovalPath`, and the answer is given back in the caller's OWN
-        // spelling. The two sides of this exchange do not always hold one spelling of a path — the
-        // post-confirmation invocation is fed URL round-tripped strings — and matching them raw
-        // failed open in the worst possible way: the intersection came back empty, the `guard`
-        // below `continue`d, and the group went unverified immediately before a permanent delete,
-        // silently. See `FileSyncManager.canonicalRemovalPath`.
+        // Keyed by `canonicalRemovalPath`, answered in the caller's own spelling. The
+        // post-confirmation call is fed URL round-tripped strings, and matching raw would come back
+        // empty, skip the group, and leave it unverified right before a permanent delete. See
+        // `FileSyncManager.canonicalRemovalPath`.
         var askedByKey: [String: Set<String>] = [:]
         for p in paths { askedByKey[Self.canonicalRemovalPath(p), default: []].insert(p) }
         var attributed = Set<String>()
-        // Every listed group's keeper as it stands NOW — after any keeper the user picked by hand,
-        // which the scan's own protection (decided once, at scan time) cannot see — and every
-        // folder above one, built once so the FR10 check below is one lookup per copy.
+        // Every listed group's keeper as it stands now, including keepers picked by hand (which the
+        // scan's own protection can't see), and every folder above one, built once so the check
+        // below is one lookup per copy.
         let holdingKeepers = Self.pathsHoldingKeepers(
             (duplicateGroups + groups).map { Self.canonicalRemovalPath($0.keeper.path) })
         for group in groups {
@@ -1023,10 +868,10 @@ extension FileSyncManager {
                 let key = Self.canonicalRemovalPath(copy.path)
                 return groupKeys.contains(key) && holdingKeepers.contains(key)
             }) {
-                // **A copy that holds — or is — another group's keeper is never removed** (FR10).
-                // The scan protects such folders, but only against the keepers it chose; pick a
-                // different keeper in one group and another group's removal can hold it, and one
-                // Apply recommended sent every copy to the Trash. A rescan recomputes the protection.
+                // A copy that is, or holds, another group's keeper is never removed. The scan
+                // protects such folders only against the keepers it chose, and a keeper picked by
+                // hand in one group can sit inside another group's removal. A rescan recomputes the
+                // protection.
                 kind = .holdsKeeper
                 culprit = holder
             }
@@ -1042,13 +887,11 @@ extension FileSyncManager {
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) at the last check before removal — “\(culprit.name)” (\(culprit.path)) is or holds the copy another group keeps; rescan to recompute which copies are safe to remove")
             }
         }
-        // **Fail CLOSED.** Anything left over belongs to none of the groups this gate was built
-        // for, so nothing here has re-verified it — and the gate's whole job is to answer for what
-        // is about to be destroyed. Unattributable used to mean unrefused, which made "the match
-        // failed" and "the file was removed" the same outcome. Unreachable from the shipped
-        // callers (each passes exactly its own groups' `recommendedRemovalPaths`, and
-        // `deleteItems` only ever prunes that list), so this costs the ordinary path nothing and
-        // is logged rather than silent, because reaching it means a caller wired the gate wrong.
+        // Fail closed. Anything left over belongs to none of the groups this gate was built for, so
+        // nothing has re-verified it, and the gate answers for everything about to be destroyed.
+        // Unreachable from the shipped callers (each passes its own groups'
+        // `recommendedRemovalPaths`, and `deleteItems` only prunes that list), and logged, because
+        // reaching it means a caller wired the gate wrong.
         let unattributed = Set(paths).subtracting(attributed)
         if !unattributed.isEmpty {
             Logger.shared.warning("Duplicates: refused \(unattributed.count) path(s) at the last check before removal because they belong to none of the groups being verified — \(unattributed.sorted().joined(separator: ", "))")
@@ -1057,14 +900,11 @@ extension FileSyncManager {
         return refusedPaths
     }
 
-    /// Every path that is, or holds, one of `keepers`: each keeper and every prefix of it that ends
-    /// before a `/` — exactly the set of `key`s for which a keeper `== key` or
-    /// `isInsideDirectory(anyOf: [key])`. Built ONCE per gate run, as the scan's `recordAncestors`
-    /// builds its own: asking every keeper about every copy was O(copies × keepers) on the main
-    /// actor, measured at 2.1 s for 1,000 groups and 35.6 s for 3,000.
-    ///
-    /// Walked from the longest prefix down, stopping at the first one already present — whoever
-    /// put it there also put in every shorter one.
+    /// Every path that is, or holds, one of `keepers`: each keeper and every prefix of it ending
+    /// before a `/`. Built once per gate run, as the scan's `recordAncestors` builds its own,
+    /// because asking every keeper about every copy is O(copies × keepers) on the main actor
+    /// (seconds for a few thousand groups). Walked from the longest prefix down, stopping at the
+    /// first already present: whoever added it also added every shorter one.
     nonisolated static func pathsHoldingKeepers(_ keepers: [String]) -> Set<String> {
         var out = Set<String>()
         for keeper in keepers {
@@ -1079,17 +919,10 @@ extension FileSyncManager {
     }
 
     /// The gate closure `resolveDuplicateGroup` and `applyRecommendedDuplicates` hand to
-    /// `deleteItems`, over the given groups. `self` is captured weakly: a manager torn down
-    /// mid-delete cannot verify anything, so it refuses EVERYTHING rather than crashing the queue.
-    ///
-    /// Fail CLOSED, for the same reason the `unattributed` block above says: "nothing has
-    /// re-verified this" and "this may be destroyed" must not be the same outcome. `return []`
-    /// refused nothing and let every path through, in a file whose two gate bodies are explicitly
-    /// fail-closed for exactly this case. Unreachable today — both callers are instance members
-    /// holding `self` on the awaiting frame — so `Set(about)` costs the ordinary path nothing.
-    ///
-    /// Not `private`, so the nil-`self` branch can be exercised at all: it is by construction
-    /// unreachable through the call sites.
+    /// `deleteItems`, over the given groups. `self` is captured weakly, and a torn-down manager
+    /// refuses everything: "nothing re-verified this" must never mean "this may be destroyed".
+    /// Unreachable today (both callers hold `self` while awaiting); not `private`, so a test can
+    /// reach that branch.
     func duplicateRemovalGate(groups: [DuplicateGroup],
                               refusals: DuplicateRemovalRefusals)
         -> @Sendable ([String]) async -> Set<String> {
@@ -1106,9 +939,7 @@ extension FileSyncManager {
         let paths = group.recommendedRemovalPaths
         guard !paths.isEmpty else { return false }
         guard keeperStillExists(group) else {
-            // Logged, with the path: the gate and the batch both report a keeper refusal, and this
-            // one used to be banner-only — so the single resolve's most common refusal left no
-            // trace at all in `~/sync-cloud.log`.
+            // Logged with the path, as the gate and the batch log a keeper refusal.
             Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — the keeper (\(group.keeper.path)) is no longer what the scan saw")
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
             return false
@@ -1116,17 +947,12 @@ extension FileSyncManager {
         var driftedCopy = driftedRemovalCandidates(group).first
         if driftedCopy == nil { driftedCopy = await driftedFolderInGroup(group) }
         if let drifted = driftedCopy {
-            // Two refusals, told apart: a folder that carries NO baseline was never fully read by
-            // the scan, so "changed since it was scanned" would assert a change nobody measured —
-            // and send the user to a rescan that reproduces nil while the subtree stays unreadable.
-            // The refusal stands either way; only the claim changes. (Same honesty rule as the
-            // empty-batch banner in `applyRecommendedDuplicates`: name the cause only where the
-            // cause has been checked.)
+            // Two refusals, told apart: a folder with no baseline was never fully read by the scan,
+            // so "changed since it was scanned" would claim a change nobody measured, and a rescan
+            // would reproduce the nil. The refusal stands either way; only the wording changes.
             if drifted.isDirectory, drifted.contentSnapshot == nil {
-                // "Unreadable or too deep", not just "wasn't readable": the scan records nil for
-                // a subtree it could not COVER, and an unreadable descendant is only one way to
-                // get one — the walk's hard depth cap and its symlink-cycle guard leave the same
-                // mark. Naming only the readable half over-claimed.
+                // "Unreadable, or nested too deep": the scan records nil for any subtree it
+                // couldn't cover, which includes the walk's depth cap and its symlink-cycle guard.
                 banner = .warning("“\(drifted.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so there’s no baseline to prove it unchanged. Review it manually before removing.")
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) has no scan baseline (its subtree wasn't fully coverable at scan time: unreadable, too deep, or a link cycle)")
             } else {
@@ -1136,13 +962,11 @@ extension FileSyncManager {
             return false
         }
         let bytes = group.reclaimableBytes
-        // The checks above are the FIRST verdict, not the last: `deleteItems` routes through the
-        // serialized op queue (anything queued ahead of it runs in between) and can hold a
-        // permanent-delete confirmation open for as long as the user leaves it. Both windows are
-        // covered by the removal gate, which re-runs the full drift verdict at the moment the
-        // removal actually starts and again after a confirmed permanent delete — so the verdict
-        // the trash acts on is always the freshest one. The batch and the Compare review hand
-        // `deleteItems` the same shape of gate.
+        // These checks are the first verdict, not the last: `deleteItems` runs on the serialized op
+        // queue (anything queued ahead runs first) and can hold a permanent-delete confirmation
+        // open for as long as the user leaves it. The removal gate re-runs the full verdict when
+        // the removal starts and again after a confirmed permanent delete, so the trash acts on the
+        // freshest one. The batch and the Compare review pass the same kind of gate.
         let refusals = DuplicateRemovalRefusals()
         let outcome = await deleteItems(at: paths, fileManager: fileManager,
                                         removalGate: duplicateRemovalGate(groups: [group],
@@ -1171,9 +995,9 @@ extension FileSyncManager {
             return false
         }
         if currentError == nil {
-            // Only promise ⌘Z when the delete can actually be taken back. On a Trash-less volume
-            // these files were destroyed permanently and nothing was registered, so the promise
-            // sent ⌘Z at whatever was previously on top of the stack.
+            // Promise ⌘Z only when the delete can be taken back. On a Trash-less volume the files
+            // are gone and nothing was registered, so ⌘Z would undo whatever was on the stack
+            // before.
             banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable)
         }
         Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
@@ -1182,16 +1006,15 @@ extension FileSyncManager {
 
     // MARK: Resolve one copy (the Compare Copies pair verdict)
 
-    /// Why a single-copy resolve refused — or that it may proceed. One value, produced by one
-    /// routine (``assessDuplicatePair(copy:keeper:)``), consulted by both the pre-check and the
-    /// removal gate, so the two windows around a `deleteItems` can never disagree about what they
-    /// verified. The shape mirrors the Compare review's `ReviewedPairVerdict`, which is the same
-    /// question asked from the app target.
+    /// Why a single-copy resolve refused, or that it may proceed. Produced by one routine
+    /// (``assessDuplicatePair(copy:keeper:)``) for both the pre-check and the removal gate, so the
+    /// two windows around a `deleteItems` can't disagree. Mirrors the Compare review's
+    /// `ReviewedPairVerdict`, the same question asked from the app target.
     enum DuplicatePairVerdict: Sendable, Equatable {
         /// Both ends are still what the scan saw; the copy may be removed.
         case matches
-        /// No live group holds BOTH paths any more — a rescan replaced the results under the
-        /// surface, so nothing here has been re-verified against a current grouping.
+        /// No live group holds both paths any more: a rescan replaced the results, so nothing here
+        /// can be re-verified against a current grouping.
         case noLiveGroup
         /// The keeper is gone, or is no longer what the scan measured. Removing the other copy
         /// could take the last instance of the keeper's original content.
@@ -1201,72 +1024,50 @@ extension FileSyncManager {
         /// The copy is already off the disk. Not drift, and not a refusal: there is nothing to
         /// trash and nothing was lost.
         case copyVanished
-        /// The pair names a `keeper` the live group is NOT keeping — a three-copy group compared
-        /// pairwise, where the group keeps the third copy. Not drift and not staleness: both
-        /// paths are in a current group and both are exactly what the scan saw. What is wrong is
-        /// the CLAIM — the removal would be verified against a keeper this group does not have,
-        /// and reported to the user as "keeping" a copy the rest of the app is not.
+        /// The pair names a `keeper` the live group isn't keeping, as when a three-copy group is
+        /// compared pairwise and the group keeps the third. Both paths are current and unchanged;
+        /// the claim is what is wrong, since the removal would be verified, and reported, against a
+        /// keeper the group doesn't have.
         case keeperNotKept(groupKeeperName: String)
-        /// Another group's decision holds the copy — it lives inside a folder another group is
-        /// KEEPING (``DuplicateCopy/isProtectedFromRemoval``), or it is, or holds, a group's current
-        /// keeper (``removalHold(onCopyAt:keeping:)``). Not a safety failure like drift: the file
-        /// is exactly what the scan saw, and removing it would still undo a decision made
-        /// elsewhere in the same results.
+        /// Another group's decision holds the copy: it sits inside a folder another group keeps
+        /// (``DuplicateCopy/isProtectedFromRemoval``), or it is, or holds, a group's current keeper
+        /// (``removalHold(onCopyAt:keeping:)``). Not drift: the file is what the scan saw, but
+        /// removing it would undo a decision made elsewhere in the same results.
         case copyHeld(DuplicateRemovalHold)
     }
 
-    /// The whole verdict for ONE pair: is there still a live grouping for these two paths, is
-    /// there anything left to trash, may it be trashed, has it drifted — and last of all, is the
-    /// keeper still what the scan measured.
+    /// The whole verdict for one pair: is there still a live grouping for both paths, anything left
+    /// to trash, may it be trashed, has it drifted, and last, is the keeper still what the scan
+    /// measured.
     ///
-    /// **The live-group lookup is by PATH, never by group id.** `DuplicateGroup.id` is a fresh
-    /// `UUID` on every scan — the rescan replaces `duplicateGroups` wholesale — so a surface that
-    /// stayed open across one holds an id that names nothing, and a lookup by it would silently
-    /// find no group where a lookup by path finds the current one. `DuplicateCompareContext` set
-    /// this precedent for the Compare review for the same reason.
+    /// The live group is found by path, never by id: `DuplicateGroup.id` is a fresh `UUID` every
+    /// scan, so an id held across a rescan names nothing (`DuplicateCompareContext` works the same
+    /// way). No live group fails closed.
     ///
-    /// Fail-closed on a missing group: "the scan moved on" and "verified against the current
-    /// results" must not be the same outcome.
-    ///
-    /// **The keeper is measured LAST, and that ordering is the point** — the rule
-    /// ``driftedFolderInGroup`` states and the group path already follows. A folder walk is real
-    /// time (~0.7 s per 40k nodes), and a verdict ages from the moment it is formed: asked first,
-    /// the keeper's "unchanged" answer was staled by the copy's own walk, so an edit landing in
-    /// the keeper during those seconds was never seen and the copy was trashed against a keeper
-    /// that no longer held the scanned content. Walking the copy being KEPT last leaves its
-    /// verdict the freshest one at the moment `deleteItems` acts on it.
-    ///
-    /// **The cheap disk question comes first, before either walk.** A copy that is simply gone has
-    /// nothing to trash and nothing to lose, whatever the keeper's state — and asked after the
-    /// keeper, that case could be reported as `keeperDrifted`, sending the reader to rescan over a
-    /// file that had already left the disk.
+    /// Order matters. The disk check comes first: a copy already gone has nothing to lose, and
+    /// asked after the keeper it could read as `keeperDrifted`. The keeper is measured last, as in
+    /// ``driftedFolderInGroup``: a folder walk takes real time, and its verdict must be the
+    /// freshest when `deleteItems` acts.
     func assessDuplicatePair(copy: DuplicateCopy, keeper: DuplicateCopy) async -> DuplicatePairVerdict {
         guard let live = liveGroup(holding: copy.path, and: keeper.path) else { return .noLiveGroup }
-        // **A vanished copy is not drift** — the same distinction `dropFullyRemovedGroups` draws,
-        // and the one the Compare review draws with `.deleteVanished`. `copyDriftedInPlace`
-        // answers false for a path that is simply gone, so this has to be asked separately.
+        // A vanished copy is not drift (as in `dropFullyRemovedGroups` and the Compare review's
+        // `.deleteVanished`). `copyDriftedInPlace` answers false for a missing path, so ask
+        // separately.
         guard fileManager.fileExists(atPath: copy.path) else { return .copyVanished }
-        // **The keeper has to be the one the GROUP is keeping, and nothing checked that.** The
-        // live-group lookup above asks only that both paths are in one group, which a group's
-        // second and third copies satisfy while it keeps the first. The surface no longer offers
-        // that pair a verdict (`PairKeeperStanding`), but this verb is `public` and a disabled
-        // button is not a rule — the same argument that moved `copyHeld` in here. Refused
-        // rather than silently redirected to the real keeper: the caller asked to keep a specific
-        // copy, and quietly acting on a different one is worse than not acting.
+        // The keeper must be the one the group keeps; the lookup above only asks that both paths
+        // share a group. The surface no longer offers such a pair (`PairKeeperStanding`), but this
+        // verb is `public` and a disabled button is not a rule. Refused, not redirected: quietly
+        // acting on a different keeper is worse than not acting.
         guard live.keeper.path == keeper.path else {
             return .keeperNotKept(groupKeeperName: live.keeper.name)
         }
-        // **Read from the LIVE results, not from the caller's snapshot** — which is the whole
-        // reason this sits in the assessment rather than beside it in the surface. A hold is a fact
-        // about the current results: a rescan can make a copy protected by keeping the folder it
-        // sits in, a keeper picked by hand on another group's card can sit inside it, and the
-        // caller is holding a value from before either. Asking the passed-in copy would answer
-        // about a grouping that has moved on. Both halves of the hold, as `removalHold` documents
-        // and the Compare review's Trash right copy asks: this used to check the protection flag
-        // alone, so a copy that IS another group's keeper was trashed here.
+        // Read the hold from the live results, not the caller's snapshot: a rescan can protect a
+        // copy by keeping its folder, or a keeper picked by hand on another card can sit inside it.
+        // Both halves of the hold, as `removalHold` documents and the Compare review's Trash right
+        // copy asks.
         //
-        // After the disk question that can say "there is nothing to do here", and before either
-        // drift measurement, which this refusal makes pointless.
+        // After the disk check, which can say there is nothing to do, and before the drift
+        // measurements, which a hold makes pointless.
         if let hold = removalHold(onCopyAt: copy.path, keeping: keeper.path) {
             return .copyHeld(hold)
         }
@@ -1287,15 +1088,10 @@ extension FileSyncManager {
         return .matches
     }
 
-    /// The live group holding both paths, or nil. Every copy is compared by absolute path — the
-    /// spelling `removeResolvedDuplicateCopy` matches on — because that is the identity that
-    /// survives a rescan.
-    ///
-    /// **Scanned rather than gathered into a `Set`.** This is read at draw time by the Compare
-    /// overlay — which re-derives everything by path on every render, deliberately — and building a
-    /// set of every copy's path in every group, for two membership questions, is the whole scan's
-    /// worth of allocation per frame. A group holds a handful of copies; two linear passes over
-    /// them allocate nothing.
+    /// The live group holding both paths, or nil. Copies are compared by absolute path, the
+    /// spelling `removeResolvedDuplicateCopy` matches on and the identity that survives a rescan.
+    /// Two linear passes rather than a `Set`: the Compare overlay reads this on every render, and a
+    /// group holds only a handful of copies.
     public func liveGroup(holding copyPath: String, and keeperPath: String) -> DuplicateGroup? {
         duplicateGroups.first { group in
             group.copies.contains { $0.path == copyPath }
@@ -1303,14 +1099,11 @@ extension FileSyncManager {
         }
     }
 
-    /// Posts the banner AND the log line for a refusing pair verdict — both sides, both wordings,
-    /// in one place so the pre-check and the gate report a refusal identically. He audits
-    /// `~/sync-cloud.log`; a copy the app offered to trash and then kept must say why there too.
-    ///
-    /// The two folder refusals stay worded apart for the reason `resolveDuplicateGroup` words them
-    /// apart: a copy carrying NO scan baseline was never fully read, so "changed since it was
-    /// scanned" would assert a change nobody measured, and would send the user to a rescan that
-    /// records nil again over the same unreadable subtree.
+    /// Posts the banner and the log line for a refusing pair verdict, in one place so the pre-check
+    /// and the gate report alike; a copy the app offered to trash and then kept must say why in
+    /// `~/sync-cloud.log` too. The folder refusals stay worded apart, as in
+    /// `resolveDuplicateGroup`: a copy with no scan baseline was never fully read, so "changed"
+    /// would claim what nobody measured.
     private func reportPairRefusal(_ verdict: DuplicatePairVerdict,
                                    copy: DuplicateCopy, keeper: DuplicateCopy) {
         switch verdict {
@@ -1341,31 +1134,30 @@ extension FileSyncManager {
         }
     }
 
-    /// Why a decision in the live results forbids removing one copy outright. The single-copy removals
-    /// (the Compare Copies pair, and the Compare review's "Trash right copy") ask it; the group
-    /// flows have their own forms of both checks (`recommendedRemovalPaths` and the gate's FR10).
+    /// Why a decision in the live results forbids removing one copy outright. Asked by the
+    /// single-copy removals (the Compare Copies pair and the Compare review's "Trash right copy");
+    /// the group flows have their own forms of both checks (`recommendedRemovalPaths` and the
+    /// removal gate).
     public enum DuplicateRemovalHold: Sendable, Equatable {
         /// The copy sits inside a folder another group is keeping
         /// (``DuplicateCopy/isProtectedFromRemoval``).
         case insideKeptFolder
-        /// The copy is, or holds, a listed group's CURRENT keeper — the gate's FR10 check, which
-        /// sees a keeper picked by hand where the scan's protection cannot.
+        /// The copy is, or holds, a listed group's current keeper: the removal gate's check, which
+        /// sees a keeper picked by hand where the scan's protection can't.
         case holdsKeeper
-        /// The copy is now the keeper of the very group it was offered for removal from — picked
-        /// by hand after the removal was offered, as the Compare review's right copy can be from
-        /// the card beside it. A case of its own because it is not "another group": the honest
-        /// advice is to compare the pair again, not to rescan.
+        /// The copy is now the keeper of the group it was offered for removal from, picked by hand
+        /// since (as the Compare review's right copy can be). Its own case because it isn't
+        /// "another group": the advice is to compare the pair again, not to rescan.
         case isItsGroupsKeeper
     }
 
-    /// The hold on the copy at `path`, read from the LIVE results — protection and keepers are
-    /// facts about the current grouping, which a rescan or a keeper re-pick moves under a surface
-    /// that stayed open. A copy flagged protected in ANY group it sits in is held: the flag says
-    /// where it lives, not which group asks.
+    /// The hold on the copy at `path`, read from the live results, since a rescan or a keeper
+    /// re-pick can move them under a surface left open. A copy flagged protected in any group it
+    /// sits in is held: the flag says where it lives, not which group asks.
     ///
-    /// `keeperPath` names the copy the removal is meant to keep, which picks out the group asking:
-    /// when the copy has since become THAT group's keeper, the hold says so
-    /// (`.isItsGroupsKeeper`) rather than blaming "another duplicate group".
+    /// `keeperPath` names the copy the removal means to keep, which picks out the asking group: a
+    /// copy that has since become that group's keeper reads `.isItsGroupsKeeper`, not "another
+    /// group".
     public func removalHold(onCopyAt path: String, keeping keeperPath: String? = nil)
         -> DuplicateRemovalHold? {
         if duplicateGroups.contains(where: { group in
@@ -1408,13 +1200,10 @@ extension FileSyncManager {
         return true
     }
 
-    /// The gate ``resolveDuplicateCopy(_:keeper:)`` hands to `deleteItems`, over one pair.
-    ///
-    /// A named member rather than a closure written at the call site, for the reason
-    /// ``duplicateRemovalGate(groups:refusals:)`` is one: the nil-`self` branch is by construction
-    /// unreachable through the call site (which holds `self` on the awaiting frame), so a test can
-    /// only exercise it by building the closure directly. `return []` there would refuse nothing
-    /// and let a file be destroyed with nothing having re-verified it.
+    /// The gate ``resolveDuplicateCopy(_:keeper:)`` hands to `deleteItems`, over one pair. A named
+    /// member, like ``duplicateRemovalGate(groups:refusals:)``, so a test can reach the nil-`self`
+    /// branch, which the call site never does. That branch must refuse: `return []` would let a
+    /// file be destroyed with nothing re-verified.
     func duplicatePairRemovalGate(copy: DuplicateCopy, keeper: DuplicateCopy)
         -> @Sendable ([String]) async -> Set<String> {
         { [weak self] about in
@@ -1435,21 +1224,15 @@ extension FileSyncManager {
         }
     }
 
-    /// Trashes ONE copy of a duplicate group, keeping `keeper` — the verdict the Compare Copies
-    /// surface reaches on a pair.
+    /// Trashes one copy of a duplicate group, keeping `keeper`: the verdict the Compare Copies
+    /// surface reaches on a pair. ``resolveDuplicateGroup(_:)`` can't stand in: it trashes every
+    /// redundant copy, which on a three-copy group compared pairwise destroys two files where the
+    /// user decided about one.
     ///
-    /// **A group resolve could not stand in for this.** ``resolveDuplicateGroup(_:)`` trashes
-    /// *every* redundant copy of a group; on a two-copy group that happens to be the same act, and
-    /// on a three-copy group compared pairwise it destroys two files where the user decided about
-    /// one. The only single-copy trash that existed lived in the app target's Compare review
-    /// coordinator, unreachable from the module that draws this surface.
-    ///
-    /// Built inside the shared machinery rather than beside it: the same
-    /// ``assessDuplicatePair(copy:keeper:)`` verdict before and inside the removal gate, the same
-    /// `deleteItems` path, the same conditional ⌘Z promise (`DeleteOutcome.isUndoable` is false on
-    /// a Trash-less volume, where the file was destroyed rather than trashed), and the same
-    /// in-memory update through ``removeResolvedDuplicateCopy(atPath:)``, which already handles a
-    /// copy that legitimately sits in two groups.
+    /// Uses the shared machinery: the same ``assessDuplicatePair(copy:keeper:)`` verdict before and
+    /// inside the removal gate, the same `deleteItems` path, the same conditional ⌘Z promise
+    /// (`DeleteOutcome.isUndoable` is false on a Trash-less volume), and the same in-memory update
+    /// through ``removeResolvedDuplicateCopy(atPath:)``, which handles a copy in two groups.
     ///
     /// Returns true only when the copy actually left the disk.
     @discardableResult
@@ -1473,24 +1256,20 @@ extension FileSyncManager {
         case .matches:
             break
         }
-        // The verdict above is the FIRST check, not the last: `deleteItems` routes through the
-        // serialized op queue (a long queued operation inserts its whole duration here) and can
-        // hold a permanent-delete confirmation open for as long as the user leaves it. The gate
-        // re-runs the SAME assessment at the moment the removal starts and again after a confirmed
-        // permanent delete, and refuses — with the same banner and log line — if either end
-        // drifted in between. `fileManager: fileManager` explicitly, so the verdict and the
-        // removal are asked of one filesystem even under an injected manager.
+        // This verdict is the first check, not the last: `deleteItems` runs on the serialized op
+        // queue and can hold a permanent-delete confirmation open indefinitely. The gate re-runs
+        // the same assessment when the removal starts and after a confirmed permanent delete,
+        // refusing with the same banner and log line. `fileManager` is passed so the verdict and
+        // the removal ask one filesystem.
         let bytes = copy.size
         let outcome = await deleteItems(at: [copy.path], fileManager: fileManager,
                                         removalGate: duplicatePairRemovalGate(copy: copy,
                                                                               keeper: keeper))
         guard outcome.removed > 0 else { return false }
-        // **Say which way it went.** `removed` folds together the two outcomes `DeleteOutcome`
-        // exists to separate: on a Trash-less volume — exFAT, most SMB shares — the copy was
-        // destroyed permanently, and calling that "Trashed" sends anyone reading the log to a
-        // Trash that never received it. Asked of the permanent count, not the trashed one: a copy the
-        // Trash took without a location counts in neither `trashed` nor `permanentlyDeleted`, and is
-        // in the Trash.
+        // Say which way it went: on a Trash-less volume (exFAT, most SMB shares) the copy was
+        // destroyed, and "trashed" would send a log reader to a Trash that never got it. Ask the
+        // permanent count, not the trashed one: a copy the Trash took without a location counts in
+        // neither, and is in the Trash.
         Logger.shared.info(outcome.permanentlyDeleted == 0
             ? "Duplicates: trashed the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))"
             : "Duplicates: permanently deleted the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))")
@@ -1508,51 +1287,37 @@ extension FileSyncManager {
         duplicateGroups.filter { $0.isRecommendedForBatch }
     }
 
-    /// Applies the recommended removal to `scope` — the byte-identical groups among it. Versions,
-    /// name-only, and overlapping groups are deliberately left for a per-group look.
+    /// Applies the recommended removal to the batch-eligible (byte-identical) groups in `scope`.
+    /// Other kinds of group are left for a per-group look.
     ///
-    /// `scope` is REQUIRED, and that is the safety property, not a style choice. This used to read
-    /// `duplicateGroups` itself, which was safe only while the button that called it always meant
-    /// "all of them". Now that a search can narrow the list, the button says "Trash all 3" over 3
-    /// visible rows — and a method recomputing its own targets from the unfiltered `duplicateGroups`
-    /// would have trashed all 8, destroying 5 items the user could not see. Making the caller name
-    /// the exact collection is what makes that unwriteable rather than merely untested: the count
-    /// on the button and the array iterated here are one value, passed in.
-    ///
-    /// The group's own eligibility and keeper checks still apply on top, so a caller that passes a
-    /// name-only group can't talk this into trashing it.
+    /// `scope` is required, and that is the safety property: a search can narrow the list, and a
+    /// button reading "Trash all 3" must act on those 3 rows, never on groups the user can't see.
+    /// The count on the button and the array iterated here are one value, passed in. Each group's
+    /// own eligibility and keeper checks still apply, so a caller can't pass an ineligible group
+    /// through.
     public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
         let eligible = scope.filter { $0.isRecommendedForBatch }
-        // The batch is TWO phases, and the shape is load-bearing:
+        // The batch has two phases, and the shape is load-bearing.
         //
-        // **Phase 1 — verify every group up front, with no undo group open and nothing deleted.**
-        // Refusals are decided (and logged, per group) here, before anything destructive starts.
+        // Phase 1 verifies every group up front, with no undo group open and nothing deleted.
+        // Refusals are decided and logged per group here, before anything destructive starts.
         //
-        // **Phase 2 — ONE `deleteItems` call for every surviving path.** One call means:
-        //   - ONE restore-undo registration, so ⌘Z reverses the whole batch as one step — with no
-        //     `beginUndoGrouping` held open anywhere. The per-group-call version of this method
-        //     held its undo group open across the folder re-walks and the delete awaits (one of
-        //     which can hold a modal permanent-delete dialog); NSUndoManager grouping is
-        //     manager-global, so any unrelated operation completing in one of those windows — a
-        //     queued copy finishing and registering its undo — nested INSIDE the batch's group,
-        //     and "undo the batch" also reversed the unrelated operation. The bulk-sync run
-        //     (`FileSyncManager+BulkSync.swift`) states the same rule and closes its group before
-        //     awaiting anything; here the group is gone entirely, because `deleteItems`' own
-        //     single registration IS the one step.
-        //   - ONE permanent-delete confirmation on a Trash-less volume, where the per-group loop
-        //     raised one dialog per group.
-        //   - The phase-1 verdicts are re-checked by the removal gate at the moment the removal
-        //     actually starts, and again after a confirmed permanent delete — the same
-        //     last-moment re-verification `resolveDuplicateGroup` and the Compare review use —
-        //     so neither the queue wait nor the dialog can stale a verdict into a wrong trash.
-        //     A group that drifts in either window is refused (and logged) by the gate; its
-        //     copies stay on disk and it stays listed.
-        //   - **The residual that shape carries, named:** the gate runs ONCE over the whole
-        //     surviving list, not once per group immediately before that group's own trash, so a
-        //     group late in a large batch is removed some way after the walk that cleared it. It
-        //     is accepted, and `deleteItems`' `removalGate` parameter carries the reasoning —
-        //     everything between the gate and the removals is machine-paced inside one serialized
-        //     operation, while the two windows the gate exists for are user-unbounded.
+        // Phase 2 is one `deleteItems` call for every surviving path, which gives:
+        //   - One restore-undo registration, so ⌘Z reverses the whole batch as one step, with no
+        //     `beginUndoGrouping` held open. Undo grouping is manager-global: a group held open
+        //     across the folder re-walks and the delete (which can hold a modal dialog) would
+        //     swallow any unrelated operation registering meanwhile, and undoing the batch would
+        //     reverse that too. `FileSyncManager+BulkSync.swift` states the same rule.
+        //   - One permanent-delete confirmation on a Trash-less volume, not one per group.
+        //   - The removal gate re-checks the phase-1 verdicts when the removal starts and after a
+        //     confirmed permanent delete, as `resolveDuplicateGroup` and the Compare review do, so
+        //     neither the queue wait nor the dialog can stale a verdict. A group that drifts in
+        //     either window is refused and logged; its copies stay on disk and it stays listed.
+        //   - Accepted residual: the gate runs once over the whole list, not per group right before
+        //     its own trash, so a late group is removed a while after its check. Everything between
+        //     gate and removal is machine-paced inside one serialized operation, while the two
+        //     windows the gate covers are user-paced (`deleteItems`' `removalGate` parameter has
+        //     the reasoning).
         var survivors: [DuplicateGroup] = []          // passed phase 1 and offer paths
         var verifiedButEmpty: [DuplicateGroup] = []   // passed phase 1; offered no paths
         var refused = 0
@@ -1590,12 +1355,10 @@ extension FileSyncManager {
         }
 
         guard !survivors.isEmpty else {
-            // **"Nothing to remove" is not "something changed".** This said "rescan before removing
-            // copies" for every empty batch, and drift is only one of the two ways to get one: a
-            // group that survived the checks and still contributes no paths has every removal
-            // candidate FOLDER-PROTECTED — reachable by re-aiming the keeper of a folder-protected
-            // group, as `dropFullyRemovedGroups` notes. Nothing changed there, so a rescan finds
-            // exactly the same thing and the advice sends the user around a loop.
+            // "Nothing to remove" is not "something changed". Drift is one way to get an empty
+            // batch; the other is a group that passed the checks with every removal candidate
+            // folder-protected (reachable by re-aiming the keeper of a folder-protected group). A
+            // rescan finds the same thing there, so advising one would send the user round a loop.
             if verifiedButEmpty.isEmpty, !eligible.isEmpty {
                 // Every eligible group was refused by the checks. When every refusal was a folder
                 // with no baseline, "changed since they were scanned" asserts a change nobody
@@ -1604,12 +1367,10 @@ extension FileSyncManager {
                                                              missingBaseline: refusedForMissingBaseline,
                                                              holdsKeeper: 0))
             } else if !verifiedButEmpty.isEmpty {
-                // **Name the cause only where the cause has been checked.** Protection is the
-                // reachable reason and the useful thing to say — but an empty removal list is also
-                // exactly what a group carrying no redundant copies produces, and this method is
-                // `public` with a `DuplicateGroup` initializer that validates nothing, so what a
-                // "group" is belongs to the caller. Measured: a one-copy group, with nothing
-                // protected anywhere, was told every copy in it was protected.
+                // Name the cause only where it has been checked. Protection is the reachable
+                // reason, but an empty removal list is also what a group with no redundant copies
+                // produces, and this method is `public` over an unvalidated `DuplicateGroup`, so
+                // "every copy is protected" is said only when it is true.
                 let allProtected = verifiedButEmpty.allSatisfy { group in
                     !group.redundantCopies.isEmpty
                         && group.redundantCopies.allSatisfy(\.isProtectedFromRemoval)
@@ -1622,22 +1383,13 @@ extension FileSyncManager {
             return
         }
 
-        // Phase 2 — one delete for the whole batch.
+        // Phase 2: one delete for the whole batch.
         //
-        // Which paths were on disk immediately before the delete. A copy that had already
-        // vanished externally still makes its group RESOLVE — every removal path is gone, so it
-        // correctly drops off the list — but this run freed nothing for it, and its recorded
-        // bytes were being added to the total the banner prints. Measured before the fix: two
-        // identical pairs with one copy already removed by something else reported "Reclaimed 5 KB
-        // from 2 groups — press ⌘Z to undo" for a run that trashed one 1 KB file.
-        //
-        // **The drift checks do not cover this, and the reason is `copyDriftedInPlace`'s first
-        // line.** It opens with `guard fileManager.fileExists(...) else { return false }` — a copy
-        // that is GONE is explicitly *not* drifted, so the group sails through the checks. (The
-        // `else { return true }` on the attribute read below it fires only for a file that exists
-        // and cannot be stat'ed, which is a different state.) Two earlier explanations of this
-        // were wrong in both directions — first that the drift filter caught it, then that it did
-        // not for an unrelated reason — so the guard above is the one to read.
+        // Record which paths were on disk just before the delete. A copy already removed externally
+        // still lets its group resolve (every removal path is gone), but this run freed nothing for
+        // it, so its bytes must not count toward the banner's total. The drift checks don't catch
+        // this: `copyDriftedInPlace` returns false for a path that no longer exists, so a gone
+        // copy is explicitly not drifted.
         let allPaths = survivors.flatMap { $0.recommendedRemovalPaths }
         let presentBefore = Set(allPaths.filter { fileManager.fileExists(atPath: $0) })
         let refusals = DuplicateRemovalRefusals()
@@ -1646,13 +1398,10 @@ extension FileSyncManager {
                                                                           refusals: refusals))
         // Fold the gate's refusals into the batch accounting — the gate logged each one already.
         let gateRefused = refusals.all
-        // **A group refused by the POST-confirmation gate can already have been acted on.** Both
-        // gate invocations share one refusals object, and the second runs after the first pass has
-        // trashed everything it could: a group whose remaining copy is refused there was counted
-        // into `refused` and then described by the partial banner as having been "left alone",
-        // which is false of the copies of it that are already in the Trash. `dropFullyRemovedGroups`
-        // keeps it listed correctly; only the banner over-claimed. The disk is the ground truth,
-        // the same rule that method follows.
+        // A group refused by the post-confirmation gate may already be partly removed: both gate
+        // calls share one refusals object, and the second runs after the first pass has trashed
+        // what it could. It stays listed (`dropFullyRemovedGroups`), but the banner must not call
+        // it "left alone". The disk is the ground truth.
         let survivorsByID = Dictionary(survivors.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let refusedAfterPartialRemovalIDs = Set(gateRefused.keys.filter { id in
             guard let group = survivorsByID[id] else { return false }
@@ -1686,11 +1435,9 @@ extension FileSyncManager {
             return
         }
         let done = dropFullyRemovedGroups(from: survivors)
-        // Group-level, because `reclaimableBytes` is a group-level figure the scan computed from the
-        // whole removal set: a group that was PARTLY gone beforehand still credits its whole recorded
-        // number, and re-deriving that per copy would change what the ordinary case reports too.
-        // What this fixes is the whole-group case — a group removed entirely by something else no
-        // longer contributes to a total claiming this run freed it.
+        // Group-level, because `reclaimableBytes` is a group-level figure from the scan: a group
+        // partly gone beforehand still credits its whole number. Only a group removed entirely by
+        // something else is left out of the total.
         let credited = done.filter { !Set($0.recommendedRemovalPaths).isDisjoint(with: presentBefore) }
         let bytes = credited.reduce(0) { $0 + $1.reclaimableBytes }
         Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
@@ -1710,14 +1457,11 @@ extension FileSyncManager {
                                   undoable: isUndoable)
             } else {
                 // Partial (refused groups, a declined fallback, a cancelled dialog): claim only
-                // what landed, and say what was REFUSED rather than burying it in "the rest stay
-                // listed" — a group the batch skipped on purpose is information, not leftovers.
-                // `undoable:` as well as the sentence. The flag is what `invalidateUndoableBanner`
-                // reads to retire the offer when the undo stack moves on — without it the Undo
-                // button here outlives the step it points at, and the next operation makes it
-                // an instruction to reverse the WRONG one. That a warning is normally left standing
-                // is exactly why this needs saying: severity and undoability are separate, which is
-                // why `.warning` takes the parameter at all.
+                // what landed, and name what was refused rather than folding it into "the rest stay
+                // listed". Pass `undoable:` too: `invalidateUndoableBanner` reads the flag, not the
+                // sentence, to retire the offer when the undo stack moves on, or the Undo button
+                // would later reverse the wrong step. Severity and undoability are separate, which
+                // is why `.warning` takes the parameter.
                 var clauses: [String] = []
                 let drifted = refused - refusedForMissingBaseline - refusedForHoldingKeeper
                     - refusedAfterPartialRemoval
@@ -1769,13 +1513,12 @@ extension FileSyncManager {
         let url: URL
         let plannedSnapshot: [String: MergeFileSnapshot]
         /// Every keeper-side path this fold's claim rests on: the destination of each file the copy
-        /// loop actually wrote, PLUS the keeper file `planMerge` matched for each file it skipped as
-        /// already present. Together they are "every byte this copy is being trashed for now lives
-        /// in the keeper", spelled as paths the gate can stat.
+        /// loop wrote, plus the keeper file `planMerge` matched for each file it skipped as already
+        /// present. Together they say every byte this copy is trashed for lives in the keeper, as
+        /// paths the gate can stat.
         ///
-        /// No default. The gate refuses on a missing destination, so an empty list is silence, and a
-        /// defaulted parameter would make a new call site fail OPEN by omission — the exact shape
-        /// the two `unattributed` blocks in this file exist to prevent.
+        /// No default: the gate refuses on a missing destination, so an empty list checks nothing,
+        /// and a default would let a new call site fail open by omission.
         let keeperDestinations: [String]
     }
 
@@ -1783,12 +1526,8 @@ extension FileSyncManager {
     /// banner once the delete returns. Lock-guarded because the gate closure is `@Sendable`; the
     /// body itself runs on the main actor.
     ///
-    /// **Identity is the PATH; the name is only what gets displayed.** This de-duplicated on the
-    /// basename, and overlapping-group copies frequently share one — that is generally *why* they
-    /// grouped — so two refused folds named `Photos` collapsed into a single recorded refusal. The
-    /// sibling `DuplicateRemovalRefusals` keys on `DuplicateGroup.ID` and never had this. (Today's
-    /// only consumer reads `all.first`, so nothing visible undercounts yet; the de-duplication is
-    /// wrong at the point it happens, which is where it is worth fixing.)
+    /// Keyed by path, not name: overlapping copies often share a basename (often why they grouped),
+    /// and keying by name would merge two refused folds into one.
     final class MergeRemovalRefusals: @unchecked Sendable {
         private let lock = NSLock()
         private var recorded: [(name: String, path: String)] = []
@@ -1810,31 +1549,20 @@ extension FileSyncManager {
         }
     }
 
-    /// The merge's `removalGate` body: re-runs `mergeSourceDrifted` — the same verdict the loop
-    /// formed before enqueuing the delete — for every fold among `paths`, plus the keeper check,
-    /// and returns the paths whose claim no longer holds.
+    /// The merge's `removalGate` body: re-runs `mergeSourceDrifted`, the verdict the loop formed
+    /// before enqueuing the delete, for every fold among `paths`, plus a keeper check, and returns
+    /// the paths whose claim no longer holds. It covers the duplicates gate's two windows: the
+    /// serialized queue wait, and the user-paced permanent-delete confirmation.
     ///
-    /// The merge's trash was the one destructive duplicates path with no gate at all. Its own
-    /// drift re-walk runs *before* `deleteItems` enqueues, so both windows the resolve and batch
-    /// paths cover were wide open here: the serialized queue wait, and the user-paced
-    /// permanent-delete confirmation with nothing re-verified before the unrecoverable branch.
+    /// The keeper check matters: every byte the copy is trashed for lives in the keeper, so a
+    /// keeper changed since the fold makes the copy the only instance again. `keeperStillExists`
+    /// alone is not enough: `copyDriftedInPlace` is always false for a directory, and a merge
+    /// keeper is always a folder, so it only asks whether a folder still exists there, and an
+    /// emptied or recreated keeper passes. So the gate also stats each of the fold's
+    /// `keeperDestinations`: what this fold put in the keeper plus what `planMerge` matched there.
     ///
-    /// The keeper is checked too, and it is not redundant with the fold's own snapshot: every byte
-    /// this copy is being trashed for now lives in the keeper, so a keeper that left its scanned
-    /// location between the fold and the removal turns the copy back into the only instance.
-    ///
-    /// **That check is `keeperStillExists` AND the fold's own destinations, and the second is the
-    /// load-bearing one.** `keeperStillExists` is `fileExists(keeper.path) && !copyDriftedInPlace`,
-    /// and `copyDriftedInPlace` returns false unconditionally for a directory (see its own comment
-    /// for why a merge keeper is MEANT to change and cannot be held to the scan baseline) — a merge
-    /// keeper is always a folder, so on its own it asks only "is a directory entry still mounted
-    /// here". Measured with probes: `refused=[]` for an emptied-in-place keeper AND for a
-    /// removed-and-recreated one, with the redundant copy trashed in both. What the merge cannot
-    /// check against the SCAN it can check against ITSELF: `keeperDestinations` is exactly what this
-    /// fold put in the keeper plus what `planMerge` matched there, and a stat of each is cheap.
-    ///
-    /// Refusals are logged per copy, in the shape the duplicates gate logs its own — he audits
-    /// `~/sync-cloud.log`, and a copy the app was about to trash and then kept must say why.
+    /// Refusals are logged per copy, as the duplicates gate logs its own, so `~/sync-cloud.log`
+    /// says why a copy the app was about to trash was kept.
     func refuseDriftedMergeSources(_ paths: [String], group: DuplicateGroup,
                                    folds: [MergeFoldRecord],
                                    refusals: MergeRemovalRefusals) async -> Set<String> {
@@ -1889,10 +1617,9 @@ extension FileSyncManager {
         return refused
     }
 
-    /// The gate closure `mergeDuplicateGroup` hands to `deleteItems`. `self` is captured weakly: a
-    /// manager torn down mid-delete cannot verify anything, so it refuses EVERYTHING rather than
-    /// crashing the queue — the same fail-closed rule, and the same reasoning, as
-    /// `duplicateRemovalGate`'s.
+    /// The gate closure `mergeDuplicateGroup` hands to `deleteItems`. `self` is captured weakly,
+    /// and a torn-down manager refuses everything rather than crashing the queue, as in
+    /// `duplicateRemovalGate`.
     func mergeRemovalGate(group: DuplicateGroup, folds: [MergeFoldRecord],
                           refusals: MergeRemovalRefusals)
         -> @Sendable ([String]) async -> Set<String> {
@@ -1910,11 +1637,10 @@ extension FileSyncManager {
     @discardableResult
     public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         guard case .overlapping = group.matchType else { return false }
-        // Re-entry guard, independent of any UI disabling: a merge runs for minutes, and a second
-        // call for the same group would re-plan against the half-merged keeper — every unique
-        // file already folded in now "exists" at its destination, so the second pass would mint
-        // " 2" junk copies of all of them. Claimed synchronously on the main actor BEFORE the
-        // first suspension point, so two rapid clicks can never both pass.
+        // Re-entry guard, independent of the UI: a merge runs for minutes, and a second call would
+        // re-plan against the half-merged keeper, where every file already folded "exists", minting
+        // " 2" junk copies of them all. Claimed synchronously on the main actor before the first
+        // suspension point, so two rapid clicks can't both pass.
         guard !mergingGroupIDs.contains(group.id) else {
             Logger.shared.info("Duplicates merge: “\(group.name)” is already merging — duplicate request dropped")
             return false
@@ -1945,47 +1671,38 @@ extension FileSyncManager {
             // Clear only if still ours: a queued operation may have published its own by now.
             if activeProgress === progress { activeProgress = nil }
         }
-        // **The whole merge is ONE undo step, and NOTHING is registered until the awaiting is
-        // over.** Both halves matter and they used to fight each other.
+        // The whole merge is one undo step, and nothing is registered until the awaiting is over.
         //
-        // The step: without a grouping a merge registered 2N steps — one `registerCopyUndo` per
-        // redundant copy plus one delete group each — so "Press ⌘Z to undo" reversed only the last
-        // trash and left the user guessing how many more presses the rest needed.
+        // One step, because otherwise a merge registers 2N steps (a copy-undo and a delete per
+        // redundant copy) and "Press ⌘Z to undo" reverses only the last trash. Registered at the
+        // end, because undo grouping is manager-global: a group held open across a suspension
+        // (planning walks, the queued copy, the drift re-walk, a `deleteItems` that can hold a
+        // modal dialog) swallows whatever else registers meanwhile, and this is the one duplicates
+        // path whose ⌘Z deletes files from the keeper.
         //
-        // The hazard the grouping brought with it: NSUndoManager grouping is manager-GLOBAL, so a
-        // group held open across a suspension swallows whatever anything else registers in that
-        // window — and this merge's group was open across the planning walks, the queued copy, the
-        // drift re-walk and a `deleteItems` that can hold a modal permanent-delete dialog. "Undo
-        // the merge" then reversed an unrelated operation too, and this is the one duplicates path
-        // whose ⌘Z reversal DELETES files out of the keeper.
+        // So the run is recorded and registered afterwards, as in `FileSyncManager+BulkSync.swift`
+        // and `applyRecommendedDuplicates`:
         //
-        // Both are had by recording the run and registering it afterwards, the shape
-        // `FileSyncManager+BulkSync.swift` states and `applyRecommendedDuplicates` was rebuilt
-        // around:
-        //
-        //   * every fold's copies land in `foldedItems`, each with the identity walk that was
-        //     started the moment that copy landed (`startCopyIdentityWalk`) — a batch must not use
-        //     `registerCopyUndo(items:)`, whose walk begins at registration, because registration
-        //     is now the END of the merge and an edit made anywhere in between would be recorded
-        //     as the copy's own baseline;
-        //   * the trash is ONE `deleteItems` for every fold that completed, after the loop, and it
-        //     hands its restore registration back (`restoreUndoHandback`) instead of registering
+        //   * every fold's copies land in `foldedItems`, each with an identity walk started the
+        //     moment that copy landed (`startCopyIdentityWalk`). Not `registerCopyUndo(items:)`,
+        //     whose walk starts at registration, the end of the merge, and would record an edit
+        //     made in between as the copy's own baseline;
+        //   * the trash is one `deleteItems` for every completed fold, after the loop, and it hands
+        //     its restore registration back (`restoreUndoHandback`) instead of registering
         //     mid-await;
-        //   * the tail then opens the group, registers the copy-undo and the restore, names it and
-        //     closes it, with NO await anywhere between `beginUndoGrouping` and `endUndoGrouping`.
-        //     A synchronous main-actor stretch cannot be interleaved by construction, which is
-        //     what makes this a fix rather than a smaller window.
+        //   * the tail opens the group, registers the copy-undo and the restore, and closes it with
+        //     no await between `beginUndoGrouping` and `endUndoGrouping`. A synchronous main-actor
+        //     stretch can't be interleaved.
         //
-        // The group is still only opened when there is something to put in it: an empty group
-        // cannot be taken back (calling undo() to discard it reverses the user's PREVIOUS action
-        // if the platform dropped the empty group itself), so it is never created.
+        // The group is opened only when there is something to put in it: an empty group can't be
+        // taken back (calling undo() to discard it may reverse the user's previous action), so it
+        // is never created.
         //
-        // What the reshuffle costs, stated: the redundant copies now all stay on disk until the
-        // loop ends, so a merge's peak disk use is the keeper plus every copy (it was the keeper
-        // plus the copies not yet folded), and a run that is cancelled or fails mid-copy trashes
-        // only the folds that fully completed BEFORE that point — the same set as before, just
-        // trashed later. In exchange a Trash-less volume raises ONE permanent-delete confirmation
-        // instead of one per copy.
+        // The cost: the redundant copies all stay on disk until the loop ends, so peak disk use is
+        // the keeper plus every copy. A failed run trashes only the folds completed before the
+        // failure, and a cancelled one trashes none (see below). In exchange a Trash-less volume
+        // raises one permanent-delete confirmation, not one per copy.
+        //
         // Every copy this merge folded in, flat across the folds: they share one action name, so
         // one registration covers them all and the undo reverses them as a unit.
         var foldedItems: [PendingCopyItemState] = []
@@ -1995,9 +1712,8 @@ extension FileSyncManager {
         var totalFolded = 0
         var allTrashed = true
         var cancelled = false
-        // A fold whose copy phase failed. It used to `return false` on the spot, which was only
-        // safe while the earlier folds had already been trashed and registered inside the loop;
-        // now the registration tail is the single exit, so the failure is carried to it.
+        // A fold whose copy phase failed, carried to the registration tail (the single exit) so the
+        // copies that already landed still get their undo.
         var copyFailed = false
         // The folds that completed AND still matched their plan: exactly what the one trash below
         // is allowed to remove, and what the removal gate re-verifies at the last moment.
@@ -2027,9 +1743,9 @@ extension FileSyncManager {
             defer { progress.completedUnitCount += 1 }
             // Already gone (e.g. from a prior partial merge/retry) — treat as done, don't fail.
             guard fm.fileExists(atPath: redundant.path) else { continue }
-            // Defensive: never merge a copy that contains, or is contained by, the keeper. The
-            // engine no longer emits such nested pairs, but folding into self then trashing would
-            // delete out of the keeper. Skip it and keep the group.
+            // Never merge a copy that contains, or is contained by, the keeper: folding into itself
+            // and then trashing would delete out of the keeper. The engine doesn't emit such pairs;
+            // skip it and keep the group.
             if Self.pathsOverlap(redundant.path, keeperPath) {
                 allTrashed = false
                 continue
@@ -2051,11 +1767,11 @@ extension FileSyncManager {
                 allTrashed = false
                 break
             }
-            // Steps aimed under a keeper SYMLINK folder can't run safely — the copy would write
-            // through the link (into an external folder, or into the source itself, where the
-            // self-collision minted junk per retry) — and skipping them silently would let the
-            // trash step destroy content that never landed. Refuse the whole copy: nothing is
-            // copied or trashed, the group stays listed, and the banner names the link.
+            // Steps aimed under a keeper symlink folder can't run safely: the copy would write
+            // through the link (into an external folder, or into the source itself), and skipping
+            // them silently would let the trash step destroy content that never landed. Refuse the
+            // whole copy: nothing is copied or trashed, the group stays listed, and the banner
+            // names the link.
             guard plan.blockedLinkedDirs.isEmpty else {
                 let dirs = plan.blockedLinkedDirs.map { "“\($0)”" }.joined(separator: ", ")
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
@@ -2063,9 +1779,9 @@ extension FileSyncManager {
                 allTrashed = false
                 continue
             }
-            // **A folder the walk could not read is not an empty one** (FR12). The merge folds what
-            // it saw into the keeper and then trashes the whole copy — unread subfolder included,
-            // and on a volume without a Trash, for good. Refused whole, like the link case above.
+            // A folder the walk couldn't read is not an empty one. The merge would fold what it saw
+            // and then trash the whole copy, unread subfolder included, for good on a volume
+            // without a Trash. Refused whole, like the link case above.
             guard plan.unreadDirs.isEmpty else {
                 let dirs = plan.unreadDirs.prefix(3).map { "“\($0)”" }.joined(separator: ", ")
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” holds \(plan.unreadDirs.count) folder(s) that could not be read (\(plan.unreadDirs.joined(separator: ", "))) — refusing to merge and trash it")
@@ -2101,13 +1817,10 @@ extension FileSyncManager {
                         }
                         reserved.insert(reservedKey(dst.path))
                         let overwritten = try FileSyncManager.safeCopyItem(at: step.src, to: dst, fileManager: fm)
-                        // The identity walk starts HERE, the moment this file's own copy landed —
-                        // not at registration, which the restructure moved to the end of the whole
-                        // merge. `registerCopyUndo(items:)`'s walk-at-registration convenience is
-                        // documented for single-item call sites for exactly this reason: a batch
-                        // that blocks on user prompts and slow-volume I/O in between would record
-                        // an edit made during that tail as the copy's own baseline, and a later ⌘Z
-                        // would trash it.
+                        // Start the identity walk here, the moment this file's copy landed, not at
+                        // registration, which is the end of the whole merge: an edit made in
+                        // between would be recorded as the copy's baseline, and a later ⌘Z would
+                        // trash it.
                         copied.append((source: step.src, destination: dst, overwritten: overwritten,
                                        identity: FileSyncManager.startCopyIdentityWalk(at: dst, fileManager: fm)))
                     } catch {
@@ -2134,11 +1847,10 @@ extension FileSyncManager {
                 break
             }
             if outcome.failed {
-                // Leave the redundant copy in place so nothing is trashed after a partial copy;
-                // the group stays so the user can retry (already-copied files are skipped next time).
-                // Falls through to the tail rather than returning here: the copies that DID land in
-                // this run — this fold's and every earlier one's — have no undo registered yet, and
-                // an early return would leave them in the keeper with nothing to reverse them.
+                // Leave the redundant copy in place so nothing is trashed after a partial copy; the
+                // group stays for a retry (already-copied files are skipped next time). Fall
+                // through to the tail rather than return: the copies that did land in this run have
+                // no undo registered yet.
                 present(.syncFailed(item: redundant.name, path: redundant.path,
                                     reason: "Some files couldn’t be merged; the folder was left in place."))
                 copyFailed = true
@@ -2170,38 +1882,25 @@ extension FileSyncManager {
                                                     + plan.vouchedKeeperPaths))
         }
 
-        // ONE trash for every fold that completed, gated. The gate is the whole reason this can be
-        // deferred at all: it re-walks each copy against its own plan snapshot at the moment the
-        // serialized removal STARTS, and again after a confirmed permanent delete — the two windows
-        // a check made up in the loop cannot cover (the op queue can put a minutes-long operation
-        // in between, and the confirmation dialog sits open for as long as the user leaves it).
-        // This path had neither: `mergeSourceDrifted` above ran before `deleteItems` even enqueued,
-        // and the unrecoverable branch re-verified nothing at all.
+        // One trash for every completed fold, gated. The gate re-walks each copy against its plan
+        // snapshot when the serialized removal starts and again after a confirmed permanent delete:
+        // the two windows the loop's own check (`mergeSourceDrifted` above, before `deleteItems`
+        // enqueues) can't cover.
         let gateRefusals = MergeRemovalRefusals()
-        // Copies the user was asked about on a Trash-less volume and chose NOT to destroy. Carried
-        // because `deleteItems` posts its own, accurate explanation for this
-        // ("Kept those N items — … you chose not to delete them permanently") and the merge's
-        // banner then overwrote it with "Merged part of “X” — some copies were left in place.
-        // Review and retry." — which is wrong twice: everything WAS folded, and nothing was left
-        // by accident. No path named the decline at all.
+        // Copies the user chose not to destroy on a Trash-less volume. Carried so the banner names
+        // the decline rather than overwriting `deleteItems`' own "Kept those N items" with "some
+        // copies were left in place", which would be wrong: everything was folded, and nothing was
+        // left by accident.
         var declinedCopies = 0
         var trashedForUndo: (originals: [URL], backups: [URL?])?
-        // **A Cancel must not START a destructive step that had not begun.** Deferring the trash
-        // out of the loop made this call unconditional, so a fold that completed BEFORE the user
-        // pressed Cancel was trashed AFTER it — measured on a Trash-less volume, the Cancel was
-        // answered by a modal permanent-delete alert the user never asked for, plus a second
-        // "Moving N items to the Trash" dialog carrying its own, different Cancel (`deleteItems` publishes its
-        // own `Progress`). Before the restructure each fold was trashed inside the loop, so a
-        // Cancel stopped further trashing; this restores that meaning under the new shape.
+        // A Cancel must not start a destructive step that hadn't begun. Otherwise folds completed
+        // before the Cancel would be trashed after it, and on a Trash-less volume the Cancel would
+        // be answered by a permanent-delete alert (and `deleteItems`' own progress, with its own
+        // Cancel). The folded copies stay on disk, as the cancel banner promises: a retry re-plans,
+        // skips the files already copied, and trashes then.
         //
-        // The folded copies simply stay on disk, which is what the cancel banner already promises
-        // ("a retry skips what landed"): the retry re-plans, the already-copied files are skipped
-        // by the plan's retry-idempotence rule, and the trash happens then.
-        //
-        // Only `cancelled` skips it. A COPY FAILURE does not: pre-restructure the earlier folds
-        // were already in the Trash by the time a later fold's copy failed, so trashing them here
-        // is the same outcome, later — and unlike a Cancel it is not the user asking for the run
-        // to stop touching their files.
+        // Only `cancelled` skips it, not a copy failure: the folds completed before the failure are
+        // trashed, and a failure is not the user asking the run to stop touching their files.
         if cancelled, !readyToTrash.isEmpty {
             Logger.shared.info("Duplicates merge: “\(group.name)” was cancelled with \(readyToTrash.count) completed fold(s) not yet trashed — leaving them on disk rather than starting a removal the user just cancelled")
         }
@@ -2233,80 +1932,63 @@ extension FileSyncManager {
 
         progress.markFinishing("the merge of “\(group.name)”")
 
-        // **The registration tail — synchronous, start to finish.** No `await` may appear between
-        // `beginUndoGrouping` and `endUndoGrouping`: the main actor cannot be interleaved inside a
-        // synchronous stretch, so nothing else can register into the merge's step. The identity
-        // walks are awaited AFTER the group closes.
+        // The registration tail, synchronous start to finish. No `await` between
+        // `beginUndoGrouping` and `endUndoGrouping`: a synchronous main-actor stretch can't be
+        // interleaved, so nothing else can register into the merge's step. The identity walks are
+        // awaited after the group closes.
         var identityWalk: Task<Void, Never>?
-        // **A merge with a permanently deleted copy registers NO copy-undo.** Withdrawing the
-        // banner's button was never enough: the registration below is what `undoManager.canUndo`
-        // and the Edit ▸ Undo menu item read, and measured at dc865114 and at 6fe2c8c7 alike,
-        // `isUndoable=false` sat alongside `canUndo=true` and `undoActionName="Merge Keeper"`.
-        // Firing that menu item deletes the folded files back out of the keeper while the original
-        // is permanently gone — this is the one duplicates path whose ⌘Z DESTROYS data, and the
-        // banner is not the only surface that offers it. Now that registration is one synchronous
-        // tail, withholding it is a single condition rather than a rollback.
+        // A merge with a permanently deleted copy registers no copy-undo. Withdrawing the banner's
+        // button is not enough: Edit ▸ Undo reads the registration, and firing it would delete the
+        // folded files out of the keeper while the original is gone. This is the one duplicates
+        // path whose ⌘Z can destroy data.
         //
-        // The Trash RESTORE is still registered when some copies did reach the Trash: it only puts
-        // files back, its redo re-trashes recoverably, and dropping it would throw away a recovery
-        // the user has no other one-step route to. But it is named for what it does rather than for
-        // the merge — an Edit menu reading "Undo Merge Keeper" would promise to reverse a merge
-        // that cannot be reversed, which is the same over-claim in a different surface.
+        // The Trash restore is still registered for copies that reached the Trash: it only puts
+        // files back, and its redo re-trashes recoverably. It is named for what it does, not
+        // "Merge", so the Edit menu doesn't promise to reverse a merge that can't be reversed.
         //
-        // A copy the Trash took WITHOUT a location withholds it too: no restore is registered for
-        // that copy, so the fold's undo would take the files out of the keeper while the original
-        // sits in the Trash where only Finder can find it.
+        // A copy the Trash took without a location withholds the copy-undo too: no restore exists
+        // for it, so the undo would take the files out of the keeper while the original sits where
+        // only Finder can find it.
         let copyUndoWithheld = anyPermanentlyDeleted || anyTrashedWithoutLocation
         let registersCopyUndo = !foldedItems.isEmpty && !copyUndoWithheld
         if registersCopyUndo || trashedForUndo != nil {
             let actionName = copyUndoWithheld ? "Restore Copies of “\(group.name)”" : "Merge \(group.name)"
             // Grouped only when there is a manager to group in. Without one (headless/CLI) the
-            // registrations are no-ops, but the handback still has to be ANSWERED — the trash
-            // happened, and dropping the pairs on the floor is the one way to lose an undo the
-            // caller took responsibility for.
+            // registrations are no-ops, but the handback must still be consumed: the trash
+            // happened.
             let grouped = undoManager != nil
             if grouped { undoManager?.beginUndoGrouping() }
             if registersCopyUndo {
                 identityWalk = registerCopyUndo(pendingItems: foldedItems, actionName: actionName, fileManager: fm)
             }
-            // Registered AFTER the copy-undo, so ⌘Z pops it FIRST: the redundant copies come back
-            // out of the Trash before anything is removed from the keeper.
+            // Registered after the copy-undo, so ⌘Z pops it first: the redundant copies come back
+            // out of the Trash before anything is removed from the keeper. The other order, if the
+            // restore then failed, would have deleted the folded files with the originals still
+            // gone.
             //
-            // Registration order is only HALF of that guarantee, and the half that was always
-            // sound. Both handlers spawn a `Task` that calls `enqueueFileOperation`, so what the
-            // user actually sees is the order that queue runs them in — and that order used to be
-            // a race (`enqueueFileOperation` claimed its slot only after an actor round trip, so
-            // the later caller could claim first). Measured through this exact pair: ~1 inversion
-            // in 300 undos on an idle machine, i.e. a ⌘Z that deleted the folded files out of the
-            // keeper first. Fixed there, pinned by `FileOperationQueueOrderTests`. The other order would,
-            // if the restore then failed, have already deleted the folded files with the originals
-            // still gone. Only the copies that reached the Trash are here — a permanently deleted
-            // one registers nothing, which is what `anyPermanentlyDeleted` withdraws the ⌘Z offer
-            // for below: the group would still hold the copy-undo, whose reversal DELETES the
-            // folded items out of the keeper, and the originals would be gone.
+            // Registration order is only half of it: both handlers spawn a `Task` that calls
+            // `enqueueFileOperation`, so what the user sees is the queue's order, which keeps call
+            // order (pinned by `FileOperationQueueOrderTests`). Only the copies that reached the
+            // Trash are here; a permanently deleted one registers nothing, which is why
+            // `copyUndoWithheld` withholds the copy-undo above.
             if let trashedForUndo {
                 registerRestoreItems(urls: trashedForUndo.originals, trashedItems: trashedForUndo.backups,
                                      actionName: actionName, fileManager: fm)
             }
-            // No `setActionName` here, and that is measured rather than assumed: every registrar
-            // above names the step after the `actionName` it was handed, and here both were handed
-            // the SAME one, so a call adding it back is inert (mutation-checked — deleting it left
-            // `oneUndoReversesAWholeTwoCopyMergeAndNothingElse` green). Bulk sync does need one
-            // because its per-file registrations carry per-file names. What the step used to read
-            // in the Edit menu — "Delete N Items", the name of `deleteItems`' own registration —
-            // is fixed by the handback, which put the naming back in this method's hands.
+            // No `setActionName` here: each registrar above names the step after the `actionName`
+            // it was handed, and both got the same one, so the call would be inert. (Bulk sync
+            // needs one because its per-file registrations carry per-file names.)
             if grouped { undoManager?.endUndoGrouping() }
         }
 
-        // Outside the group, for the reason stated at the tail. Awaiting keeps the
-        // `registerCopyUndo` contract this site alone used to break: every banner below,
-        // ⌘Z-offering or not, posts only after the identities the undo checks exist.
+        // Outside the group, as the tail requires. Awaited so every banner below, offering ⌘Z or
+        // not, posts only after the identities the undo checks exist (`registerCopyUndo`'s
+        // contract).
         await identityWalk?.value
         if copyFailed { return false }   // the alert is the feedback; no merge banner over it
 
-        // Whether this merge registered an undo — the offer every banner below makes or withholds.
-        // Asked once, so a partial ending offers the ⌘Z its folds really have (see the success
-        // banner's note for the two conditions).
+        // Whether this merge registered an undo: the offer every banner below makes or withholds,
+        // asked once so a partial ending offers the ⌘Z its folds really have.
         let offersUndo = !copyUndoWithheld && (registersCopyUndo || trashedForUndo != nil)
 
         // Only drop the group and claim success when every redundant copy actually left the disk
@@ -2314,14 +1996,10 @@ extension FileSyncManager {
         // never show a false "Merged" banner over an orphaned folder.
         guard allTrashed, currentError == nil else {
             if cancelled {
-                // Nothing was trashed — the deferred removal is skipped on this branch — so the
-                // only thing that happened is the copying, and the only thing ⌘Z has to reverse is
-                // the copy-undo registered above. `undoable:` is passed rather than defaulted: the
-                // flag, not the sentence, is what `invalidateUndoableBanner` reads to retire the
-                // offer when the undo stack moves on, and a "press ⌘Z" that outlives its step
-                // becomes an instruction to reverse the NEXT operation. It defaulted to false here
-                // while the prose offered ⌘Z anyway — the exact drift this file's own reasoning at
-                // the partial-batch banner warns about.
+                // Nothing was trashed (the removal is skipped on cancel), so ⌘Z only reverses the
+                // copy-undo registered above. Pass `undoable:` explicitly:
+                // `invalidateUndoableBanner` reads the flag, not the sentence, to retire the offer,
+                // and a "press ⌘Z" that outlives its step would reverse the next operation.
                 banner = .warning(totalFolded > 0
                     ? "Merge of “\(group.name)” canceled — nothing was trashed, so every copy is still on disk. The \(totalFolded) file\(totalFolded == 1 ? "" : "s") already folded into \(group.keeper.name) can be undone with ⌘Z; the group stays listed and a retry skips what landed."
                     : "Merge of “\(group.name)” canceled — nothing was copied or trashed. The group stays listed.",
@@ -2345,36 +2023,27 @@ extension FileSyncManager {
             return false
         }
         duplicateGroups.removeAll { $0.id == group.id }
-        // **Offer ⌘Z only where this merge actually registered one**, which is not the same
-        // question as `!copyUndoWithheld`. Two conditions, and they are separate:
+        // Offer ⌘Z only where this merge registered one; `!copyUndoWithheld` alone isn't enough:
         //
-        // - `!copyUndoWithheld` is the DELIBERATE withdrawal above: with a copy destroyed
-        //   outright the merge cannot be taken back, and the restore that *is* registered for the
-        //   copies that reached the Trash is named for itself rather than for the merge. That one
-        //   stays exactly as it was.
-        // - `registeredUndo` is the one this condition could not see: a merge that folded nothing
-        //   and trashed nothing enters the registration tail with `foldedItems` empty and no
-        //   handback, so the `if` above opens no group and registers nothing at all — while
-        //   `copyUndoWithheld` is false, so the banner promised ⌘Z anyway. Reachable two
-        //   ways, both ordinary: every redundant copy already off the disk (an external delete, or
-        //   a retry after a partial merge — each one skipped by the loop's `fileExists` guard,
-        //   and skipping is not failing), or a group carrying no redundant copy at all.
+        // - `!copyUndoWithheld` is the deliberate withdrawal above: with a copy destroyed outright
+        //   the merge can't be taken back, and the restore registered for the copies that reached
+        //   the Trash is named for itself.
+        // - A merge that folded and trashed nothing registers nothing at all, while
+        //   `copyUndoWithheld` is false. That happens when every redundant copy is already off the
+        //   disk (an external delete, or a retry after a partial merge) or the group has no
+        //   redundant copy.
         //
-        // The stack is untouched in that case, which is precisely the harm: ⌘Z reverses whatever
-        // the user did BEFORE the merge, and the Edit menu names that step. Same rule the two
-        // reclaim paths already follow through `DeleteOutcome.isUndoable`, stated here because the
-        // merge builds its registration by hand and so has to answer the question itself.
+        // With the stack untouched, ⌘Z would reverse whatever the user did before the merge. The
+        // reclaim paths answer this through `DeleteOutcome.isUndoable`; the merge registers by
+        // hand, so it asks itself (`offersUndo`).
         let registeredUndo = offersUndo
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name).",
                           undoable: registeredUndo)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         if copyUndoWithheld {
-            // He audits this log, and this is the case where the fold cannot be taken back. The
-            // line used to say "the merge is not undoable", which was FALSE at the moment it was
-            // written — the copy-undo was registered and `canUndo` was true; only the banner's
-            // button had been withdrawn. It now records what the code actually did — and says
-            // "deleted permanently" only when one was: a copy the Trash took without a location is
-            // in the Trash, and the line used to call it gone.
+            // He audits this log, and this is the case where the fold can't be taken back. Say what
+            // the code did, and say "deleted permanently" only when a copy was: one the Trash took
+            // without a location is still in the Trash.
             let why = anyPermanentlyDeleted
                 ? "had a redundant copy deleted permanently rather than trashed"
                 : "had a redundant copy moved to the Trash with no location reported, so it can only be put back from the Trash in Finder"
@@ -2393,16 +2062,13 @@ extension FileSyncManager {
     /// Reads through URL resource values (not the injectable FileManaging), so mock-backed
     /// tests see no link counts and keep their exact pre-existing grouping behavior.
     nonisolated static func multiLinkPaths(among paths: [String]) -> Set<String> {
-        // **Every file, in parallel.** The comment at the call site explains why this cannot be
-        // narrowed to the hash candidates — a unique-size link skipped by a candidates-only stat
-        // rode straight into a versions group and was recommended for removal — so the semantics
-        // are fixed and the only thing left to change is how long they take. Measured over 20,000
-        // real paths from ~/Documents: 0.501s serial against 0.183s across the cores, finding the
-        // same 7 multi-link files. On a 39,000-file tree that is most of a second of pure stat.
+        // Every file, in parallel. The call site explains why this can't be narrowed to the hash
+        // candidates, so only the speed can change: over 20,000 real paths, 0.50 s serial against
+        // 0.18 s across the cores.
         //
-        // `concurrentPerform` over chunks rather than per path: the work per item is one stat, so
-        // per-item dispatch would cost more than it saves. Results are merged under a lock once
-        // per chunk, and the answer is a Set, so ordering does not enter into it.
+        // `concurrentPerform` over chunks, not per path: the work per item is one stat, so per-item
+        // dispatch would cost more than it saves. Results merge under a lock once per chunk, into a
+        // Set, so order doesn't matter.
         guard !paths.isEmpty else { return [] }
         let keys: Set<URLResourceKey> = [.linkCountKey]
         let chunkSize = 256
@@ -2429,19 +2095,16 @@ extension FileSyncManager {
     }
 
     /// Plans the additive merge of `rURL` into `kURL`: the files under `rURL` whose content the
-    /// keeper does NOT provably already have, mapped to their destination under the keeper —
-    /// plus a `sourceSnapshot` of the redundant copy's full file set (relative path → size+mtime)
-    /// as it stood at plan time, so the trash step can prove nothing appeared or changed since.
+    /// keeper doesn't provably have, mapped to their destination under the keeper, plus a
+    /// `sourceSnapshot` of the redundant copy's full file set (relative path → size+mtime) at plan
+    /// time, so the trash step can prove nothing appeared or changed since.
     ///
-    /// `vouchedKeeperPaths` is the other half of that proof and the reason this returns four things
-    /// instead of three: the keeper-side path of every source file this plan SKIPPED, i.e. the file
-    /// whose existence is the entire reason no step was emitted. The copy is trashed on the claim
-    /// that every byte in it lives in the keeper, and for a skipped file that claim rests on a
-    /// keeper file the merge never wrote and therefore never re-checks. Both skip branches report:
-    /// the same-relative-path hash match (`keeperHashByRel`) and the retry-idempotence match, whose
-    /// keeper file carries the uniquified name a previous run minted, not the source's.
-    /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
-    /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
+    /// `vouchedKeeperPaths` is the other half of that proof: the keeper-side path of every source
+    /// file this plan skipped, the file whose existence is why no step was emitted. The merge never
+    /// writes those, so the gate stats them. Both skip branches report: the same-relative-path hash
+    /// match (`keeperHashByRel`) and the retry-idempotence match, whose keeper file has a
+    /// uniquified name. Relative paths come from the tree walk, not string prefix math, so path
+    /// canonicalization quirks (`/var` vs `/private/var`) can't mangle the destinations.
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging,
         cache: ContentHashCache? = .shared,
@@ -2449,56 +2112,44 @@ extension FileSyncManager {
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot],
                 blockedLinkedDirs: [String], vouchedKeeperPaths: [String], unreadDirs: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
-        // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
-        // this exact content *at the same location*, not merely somewhere. "Same location" uses
-        // the keeper VOLUME's name semantics: case folds on a case-insensitive volume ("A.txt"
-        // and "a.txt" are one on-disk name — an exact-case key missed the collision, copied,
-        // and uniquified a junk sibling the retry-skip then never saw), and Unicode always
-        // precomposes (APFS/HFS+ lookups are normalization-insensitive regardless of case
-        // sensitivity, and providers mix NFC/NFD forms — the same reason nearNameKey folds NFC).
+        // Keeper content hash keyed by relative path, so "already have it" means this exact content
+        // at the same location, not merely somewhere. "Same location" follows the keeper volume's
+        // name rules: case folds on a case-insensitive volume ("A.txt" and "a.txt" are one name
+        // there), and Unicode always precomposes (APFS/HFS+ lookups ignore normalization, and
+        // providers mix NFC and NFD, the same reason nearNameKey folds NFC).
         let relKey: (String) -> String = caseSensitiveVolume
             ? { $0.precomposedStringWithCanonicalMapping }
             : { $0.precomposedStringWithCanonicalMapping.lowercased() }
 
-        // ONE pruning walk builds the keeper's whole view, so the symlink invariant has a
-        // single choke point: a symlink ENTRY (file or directory — lstat semantics) may vouch
-        // for nothing. Its own NAME still counts as taken (fileExists collides with a link),
-        // but its content — and, for a linked DIRECTORY, its entire followed subtree, which
-        // buildTree deliberately walks as ordinary files — must feed neither hash map nor the
-        // name set: counting through-the-link content as "present in the keeper" lets the
-        // skip fire for bytes whose only real copy is the redundant folder the merge is about
-        // to trash, leaving the keeper a dangling link over Trash-recoverable content.
+        // One pruning walk builds the keeper's whole view, so the symlink rule has one choke point:
+        // a symlink entry (file or directory, lstat semantics) vouches for nothing. Its name still
+        // counts as taken (fileExists collides with a link), but its content, and a linked
+        // directory's followed subtree (which buildTree walks as ordinary files), must feed neither
+        // hash map nor the name set. Counting through-the-link content as present would skip bytes
+        // whose only real copy is the folder about to be trashed, leaving the keeper a dangling
+        // link.
         //
-        // keeperNames carries every surviving rel — files, FOLDERS, unhashable files — for the
-        // "name taken" gate: the copy loop decides collisions with fileExists, which a
-        // directory or a too-large file triggers exactly like a hashed file. The per-parent
-        // hash sets serve the retry-skip: hashFiles omits unhashable files entirely (no
-        // placeholder values), so a set hit is always a real SHA-256 match.
+        // keeperNames holds every surviving rel (files, folders, unhashable files) for the "name
+        // taken" check, because the copy loop decides collisions with fileExists. The per-parent
+        // hash sets serve the retry-skip: hashFiles omits unhashable files, so a set hit is always
+        // a real SHA-256 match.
         var kItems: [(rel: String, id: String)] = []
         var keeperNames = Set<String>()
-        // Folded rels of keeper entries that are SYMLINKED DIRECTORIES: pruning them from the
-        // maps is only half the invariant — a plan step aimed at a rel UNDER one would still
-        // write THROUGH the link (fileExists, uniquify, and the copy's temp staging all resolve
-        // intermediate links), landing "folded" files in whatever the link points at: an
-        // external folder the merge has no business modifying, or the SOURCE itself (where the
-        // self-collision uniquified junk per retry and the fold could never complete). Steps
-        // descending through one are returned as blocked instead, and the caller refuses.
+        // Folded rels of keeper entries that are symlinked directories. Pruning them from the maps
+        // is only half the rule: a step aimed under one would still write through the link
+        // (fileExists, uniquify and the copy's temp staging all resolve intermediate links), into
+        // an external folder or the source itself. Such steps are returned as blocked instead, and
+        // the caller refuses.
         var linkedDirRels = Set<String>()
-        // Whether the walk's own symlink flag can be trusted for this manager. The real filesystem
-        // branch of the walk's `stat` records `isSymbolicLink` from `.isSymbolicLinkKey`; the mock
-        // branch never sets it, so injected managers keep the explicit stat and their behaviour is
-        // byte-for-byte what it was.
+        // Whether the walk's own symlink flag can be trusted for this manager. The real-filesystem
+        // walk records `isSymbolicLink` from `.isSymbolicLinkKey`; the mock branch never sets it,
+        // so injected managers keep the explicit stat.
         let walkKnowsSymlinks = fm is FileManager
         func isSymlinkEntry(_ n: FileNode) -> Bool {
-            // The walk already lstat'ed every entry and wrote down whether it is a link, so asking
-            // the file manager again is a second syscall for an answer we are already holding —
-            // and this runs per node, per redundant copy. Measured at 0.134 s of `planMerge`'s
-            // 0.252 s on a 2000-file keeper: the single largest cost in the planner, larger than
-            // the tree walk it decorates by an order of magnitude.
-            //
-            // Equivalent, not merely similar: `.isSymbolicLinkKey` and `attributesOfItem`'s
-            // `.type` are both lstat semantics on the entry itself, and a broken link never
-            // reaches here at all (the walk drops it, because its `fileExists` resolves).
+            // The walk already lstat'ed every entry, so asking again is a second syscall per node,
+            // per copy: the largest cost in the planner on a big keeper. Equivalent, not just
+            // similar: `.isSymbolicLinkKey` and `attributesOfItem`'s `.type` are both lstat of the
+            // entry, and the walk drops broken links before they get here.
             if walkKnowsSymlinks { return n.isSymbolicLink == true }
             return (try? fm.attributesOfItem(atPath: n.id))?[.type] as? FileAttributeType == .typeSymbolicLink
         }
@@ -2529,12 +2180,10 @@ extension FileSyncManager {
             return nil
         }
 
-        // Walked before either side is hashed, so each side reads only files the other side has a
-        // file of the same size for. Every skip and vouch below compares a digest across the two
-        // trees, and equal digests need equal sizes, so a file with no same-size counterpart can
-        // match nothing: hashing it read gigabytes to change no step. A size the walk could not
-        // state, or any symlink entry, counts as matching anything — and then the whole other
-        // side is hashed, the cautious answer for a case this exists only to make cheaper.
+        // Walked before either side is hashed, so each side hashes only files the other side has a
+        // same-size file for: equal digests need equal sizes, so anything else can match nothing. A
+        // size the walk couldn't state, or a symlink entry, matches anything, and then the whole
+        // other side is hashed, the cautious answer.
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
         var walkedSizes: [String: Int] = [:]
@@ -2582,38 +2231,31 @@ extension FileSyncManager {
 
         let rHashes = await hashFiles(worthHashing(rIDs, against: kIDs), fileManager: fm,
                                       cache: cache, isCancelled: isCancelled)
-        // The third hashing site, and the one the "keep the digests" pass missed: both trees were
-        // just read in full, and quitting after a merge threw that work away where the scan and
-        // Verify already keep theirs. Same contract as those two — the reads have happened
-        // whatever the plan below decides.
+        // Save the digests: both trees were just read in full, and as for the scan and Verify, the
+        // reads have happened whatever the plan below decides.
         await cache?.save()
 
         var steps: [(src: URL, dst: URL)] = []
         var blockedLinkedDirs = Set<String>()
         var vouchedKeeperPaths: [String] = []
         for item in rItems {
-            // Skip ONLY when the keeper already has this exact content at the SAME relative path —
-            // a true same-location duplicate. A distinctly-named or -located file is folded in even
-            // when its bytes happen to also live elsewhere in the keeper, so the merge never
-            // silently drops a meaningfully-named file (a later duplicates scan can reconcile any
-            // resulting byte-duplicate — losing a filename is the worse surprise).
-            // An UNHASHABLE source file (unreadable, cloud-only) is deliberately
-            // re-planned every run: its content can't be proven landed, and the trash step's
-            // safety rests on this run's own copy. A cancelled run's prior landing then sits
-            // as a junk sibling — the price of never skipping unverified content.
+            // Skip only when the keeper already has this exact content at the same relative path. A
+            // file with a different name or location is folded in even when its bytes also live
+            // elsewhere in the keeper: losing a filename is worse than a byte-duplicate a later
+            // scan can reconcile. An unhashable source file (unreadable, cloud-only) is re-planned
+            // every run: its content can't be proven landed, and the trash step relies on this
+            // run's own copy. A cancelled run's earlier copy then sits as a junk sibling, the price
+            // of never skipping unverified content.
             if let h = rHashes[item.id] {
                 if keeperHashByRel[relKey(item.rel)] == h {
                     if let vouch = keeperPathByRel[relKey(item.rel)] { vouchedKeeperPaths.append(vouch) }
                     continue
                 }
-                // Retry idempotence: the destination NAME is taken (by anything fileExists
-                // would collide with — a different-content file, a folder, an unhashable
-                // file), and the same bytes already live in that folder under another name —
-                // the collision-uniquify outcome of a previous (cancelled/failed) run of this
-                // very merge. Copying again would mint "x 2"/"x 3" junk on every retry,
-                // against the cancel banner's "a retry skips what landed". The name-preserving
-                // principle above is not violated: with the name taken, this fold could only
-                // ever land junk-named.
+                // Retry idempotence: the destination name is taken (by anything fileExists collides
+                // with) and the same bytes already live in that folder under another name, the
+                // uniquified result of an earlier cancelled or failed run of this merge. Copying
+                // again would mint "x 2", "x 3" on every retry. Name preservation still holds: with
+                // the name taken, this fold could only land junk-named.
                 let parent = relKey((item.rel as NSString).deletingLastPathComponent)
                 if keeperNames.contains(relKey(item.rel)),
                    keeperHashesByParent[parent]?.contains(h) == true {
@@ -2634,16 +2276,12 @@ extension FileSyncManager {
                 unexploredRelativePaths(rTree))
     }
 
-    /// What the drift check knows about one file in the merge source: byte size AND modification
-    /// date. Size alone let a same-length in-place rewrite of a plan-skipped file slip through the
-    /// minutes-long hash/copy window — the rewrite's only copy would then be trashed. Any real
-    /// write bumps the mtime (both fields come from the same tree walk, so an unchanged file
-    /// always compares equal) — to within the volume's timestamp granularity: on FAT or a coarse
-    /// SMB mount (1–2 s ticks) a same-length rewrite inside one tick still compares equal, the
-    /// same residual blindness the resolve path's file and folder checks carry — and the same two
-    /// further residuals too: an mtime-preserving writer (`touch -r`, `rsync --times`, some cloud
-    /// daemons) makes any rewrite invisible to size+mtime, and xattr/Finder-tag edits move ctime
-    /// only, so neither field sees them (see `copyDriftedInPlace`).
+    /// What the drift check knows about one file in the merge source: size and modification date.
+    /// Size alone would pass a same-length rewrite of a plan-skipped file during the minutes-long
+    /// hash/copy window, and the rewrite's only copy would be trashed. Both come from the same
+    /// walk, so an unchanged file always compares equal. Same blind spots as `copyDriftedInPlace`:
+    /// coarse volume timestamps (FAT, some SMB), mtime-preserving writers, and xattr or Finder-tag
+    /// edits.
     struct MergeFileSnapshot: Sendable, Equatable {
         var size: Int
         var modificationDate: Date?
@@ -2715,14 +2353,9 @@ extension FileSyncManager {
     /// figures, or removes the whole group when only the keeper is left. Matched by absolute path;
     /// a no-op if the path isn't in any current group.
     public func removeResolvedDuplicateCopy(atPath path: String) {
-        // EVERY group holding the path, not the first — one file can now legitimately be in two.
-        // `groupedFilePaths` used to guarantee a file appeared in at most one file group, and
-        // `firstIndex` was correct because of it; the same-text pass broke that invariant on
-        // purpose, by letting an identical group's KEEPER anchor a same-text group as well (see
-        // `sameTextFileGroups`). Trash that keeper out-of-band from the Compare review and the
-        // first-match version updated one group and left the other listing a file that is now in
-        // the Trash — not destructive, because `keeperStillExists` refuses the resolve, but the
-        // user is told to rescan for something the app was holding the answer to.
+        // Every group holding the path, not the first: one file can legitimately be in two, since a
+        // same-text group can be anchored on an identical group's keeper (`sameTextFileGroups`).
+        // Updating only one would leave the other listing a file that is now in the Trash.
         for idx in duplicateGroups.indices.reversed()
         where duplicateGroups[idx].copies.contains(where: { $0.id == path }) {
             if let updated = duplicateGroups[idx].removingRedundantCopy(atPath: path) {
@@ -2778,21 +2411,18 @@ extension FileSyncManager {
                                 cache: cache, onProgress: onProgress, isCancelled: isCancelled).hashes
     }
 
-    /// ``hashFiles`` plus per-reason skip counts. `isCloudOnly` is injectable for tests (a real
-    /// dataless file can't be fabricated — the flag is provider-set).
+    /// ``hashFiles`` plus per-reason skip counts. `isCloudOnly` is injectable for tests (a dataless
+    /// file can't be fabricated; the flag is provider-set).
     ///
-    /// `cache` is REQUIRED rather than defaulted, because the right answer differs per caller and a
-    /// default would pick one silently. The entry points (``findDuplicates`` and ``planMerge``) pass
-    /// the session cache Verify already uses, so the two features stop paying for each other's work:
-    /// a duplicates scan after a Verify — or a second duplicates scan, or the keeper tree re-walked once per
-    /// redundant copy during a merge — re-read and re-hashed gigabytes that had not changed.
+    /// `cache` is required, not defaulted, because the right answer differs per caller. The entry
+    /// points (``findDuplicates`` and ``planMerge``) pass the session cache Verify uses, so a scan
+    /// after a Verify, a second scan, or a merge re-walking the keeper per copy doesn't re-hash
+    /// unchanged files.
     ///
-    /// Note what a hit deliberately bypasses: the cache holds DIGESTS, while `isCloudOnly` only
-    /// decides whether computing one is possible without a download. A file whose digest is
-    /// already known is therefore hashed-and-grouped even if it is now cloud-only — which is the
-    /// better answer (the duplicate really is detectable) but means a caller VARYING that knob
-    /// across calls must not share a cache, or the second call inherits the first's answer. Only
-    /// tests vary it; production holds it constant.
+    /// A cache hit bypasses `isCloudOnly`: the cache holds digests, and `isCloudOnly` only decides
+    /// whether computing one needs a download. A file with a known digest is grouped even if it is
+    /// now cloud-only (the better answer), so a caller varying that knob across calls must not
+    /// share a cache. Only tests vary it.
     nonisolated static func hashFilesCounting(
         _ paths: [String],
         fileManager: FileManaging,
@@ -2844,25 +2474,23 @@ extension FileSyncManager {
     }
 
     /// The size past which a duplicate candidate's two ends are sampled before it is read whole:
-    /// 100 MB, where the hasher used to stop altogether.
+    /// 100 MB.
     ///
-    /// **Why the scan samples and the hasher does not.** The scan reads every candidate that shares
-    /// its size with another, unasked, across a whole tree. Below this size that costs what it
-    /// always has. Above it, a pair of same-size files that are NOT copies — two disk images, two
-    /// pre-allocated containers — would now be read in full, gigabytes each, to learn they differ.
-    /// Their first and last megabyte almost always differ already, and a difference anywhere is
-    /// proof, so only files whose ends match another's are read whole. Copies always match there,
-    /// so the sample never hides a duplicate; it only spares the reads that could not find one.
+    /// The scan reads every candidate that shares its size with another, unasked, across a whole
+    /// tree. Above this size, two same-size files that are not copies (disk images, pre-allocated
+    /// containers) would be read in full, gigabytes each, to learn they differ. Their first and
+    /// last megabyte almost always differ, and a difference anywhere is proof, so only files whose
+    /// ends match another's are read whole. Copies always match there, so sampling never hides a
+    /// duplicate.
     public nonisolated static let duplicateEdgeSampleAbove = 100_000_000
 
-    /// ``FileContentVerifier/edgeSample`` of each file, with bounded concurrency — path → sample,
+    /// ``FileContentVerifier/edgeSample`` of each file, with bounded concurrency: path → sample,
     /// missing where none could be taken. The same width and lane as ``hashFilesCounting``.
     ///
-    /// **A size whose every file already has its digest in `cache` is not sampled.** The full hash
-    /// will answer each one from the cache without a read, so its 2 MB per file bought nothing —
-    /// on a warm rescan, every large candidate. It is left unsampled, which keeps it whole for the
-    /// full hash (``candidatesNeedingFullHash``). A size with any uncached file is sampled whole:
-    /// samples can only be compared with samples.
+    /// A size whose every file already has its digest in `cache` is not sampled: the full hash
+    /// answers each from the cache without a read, so sampling buys nothing (every large candidate,
+    /// on a warm rescan). It stays whole for the full hash (``candidatesNeedingFullHash``). A size
+    /// with any uncached file is sampled whole, since samples compare only with samples.
     nonisolated static func edgeSamples(
         _ files: [(path: String, size: Int)],
         maxConcurrent: Int = 6,
@@ -2912,13 +2540,14 @@ extension FileSyncManager {
     }
 
     /// The candidates still worth a full hash once the large ones' edge samples are in, in their
-    /// original order. Every candidate at or under `sampleAbove` stays. A larger one is dropped only
-    /// when its sample is unlike every other same-size candidate's — proof it is a copy of none.
+    /// original order. Every candidate at or under `sampleAbove` stays; a larger one is dropped
+    /// only when its sample is unlike every other same-size candidate's, proof it is a copy of
+    /// none.
     ///
-    /// **A size with any unsampled member keeps all of its members.** No sample means unknown, not
-    /// different: a cloud-only copy is never opened here, but its digest may already be cached, and
+    /// A size with any unsampled member keeps all its members: no sample means unknown, not
+    /// different. A cloud-only copy is never opened here, but its digest may be cached, and
     /// dropping its local twin would lose the pair. An unreadable one goes on to the full hash,
-    /// which counts it as a skip the way it always has.
+    /// which counts it as a skip.
     nonisolated static func candidatesNeedingFullHash(
         _ candidates: [(path: String, size: Int)],
         samples: [String: String],
@@ -2937,15 +2566,10 @@ extension FileSyncManager {
         return candidates.map(\.path).filter { !dropped.contains($0) }
     }
 
-    /// **Built once, and reached under a lock.** This is called from `body` — the compare surface's
-    /// facts strip states two sizes and was allocating and configuring two formatters on every
-    /// render of it — and `ByteCountFormatter` is not cheap to build.
-    ///
-    /// The lock rather than a trust in thread safety: `formatBytes` is `nonisolated` and is called
-    /// from wherever a size is shown, and Apple documents thread safety for `DateFormatter` and
-    /// `NumberFormatter` without saying anything about this one. An uncontended `NSLock` is a
-    /// rounding error against the allocation it replaces. (`FileSizeFormat.byteCount` solves the
-    /// same problem the other way, by being `@MainActor`, which this cannot be.)
+    /// Built once and used under a lock: `formatBytes` is called from view bodies on every render,
+    /// and `ByteCountFormatter` is not cheap to build. The lock because `formatBytes` is
+    /// `nonisolated` and Apple documents no thread safety for this formatter; uncontended, it costs
+    /// next to nothing. (`FileSizeFormat.byteCount` stays `@MainActor` instead, which this can't.)
     private nonisolated(unsafe) static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file

@@ -2,24 +2,18 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Pins the stale-scratch sweep, which unlinks files from the user's real
-/// `~/Library/Preferences`. The cost of it being too loose is not a failing test — it is a deleted
-/// preference domain — so the deletion path itself is exercised here, not just the predicate.
-///
-/// The fixtures are the shapes actually observed on 2026-08-03, when 3,551 leaked scratch suites
-/// had accumulated (a cold `defaults domains` had gone from ~0.1s to 2.38s) and exactly one real
-/// domain in that directory carried a UUID.
-///
-/// Every test calls `sweepStaleScratchPlists()` directly rather than through `record`'s
-/// once-per-process trigger: that trigger fires for whichever test runs first, so routing through
-/// it would leave the others asserting against a sweep that never ran.
+/// Pins the stale-scratch sweep, which unlinks files from the user's real `~/Library/Preferences`.
+/// Too loose a sweep costs a deleted preference domain, not a failing test, so the deletion path
+/// itself is exercised here, not just the predicate. The fixtures are real observed shapes. Every
+/// test calls `sweepStaleScratchPlists()` directly: `record`'s once-per-process trigger fires for
+/// whichever test runs first, so the others would assert against a sweep that never ran.
 @Suite struct ScratchPlistSweepTests {
 
     private static let preferences = (NSHomeDirectory() as NSString)
         .appendingPathComponent("Library/Preferences")
 
-    /// Writes a plist into the real preferences directory, back-dated by `ageSeconds`. Returns its
-    /// path; the caller owns cleanup (the sweep may or may not be the thing that removes it).
+    /// Writes a plist into the real preferences directory, back-dated by `ageSeconds`, and returns
+    /// its path. The caller cleans up, since the sweep may or may not remove it.
     private func plant(_ name: String, ageSeconds: TimeInterval) throws -> String {
         let path = "\(Self.preferences)/\(name)"
         try Data("<plist/>".utf8).write(to: URL(fileURLWithPath: path))
@@ -28,8 +22,8 @@ import Foundation
         return path
     }
 
-    /// The sweep's whole purpose: a scratch suite whose run was killed before it could record
-    /// itself is unlinked anyway, on shape alone. Both live naming forms, aged past the floor.
+    /// A scratch suite whose run was killed before it recorded itself is still unlinked, on shape
+    /// alone. Both live naming forms, aged past the floor.
     @Test func aStaleScratchSuiteIsSweptWithoutEverHavingBeenRecorded() throws {
         let dash = try plant("SweepTestDash-27F8084A-D4C7-4067-BB25-2B648F8C4153.plist",
                              ageSeconds: 7200)
@@ -44,11 +38,10 @@ import Foundation
         #expect(!FileManager.default.fileExists(atPath: dot))
     }
 
-    /// The most important test in this file. A real domain in the same directory ends in a UUID
-    /// too — `com.openai.chat.RemoteFeatureFlags.164320f2-…` — and the ONLY thing distinguishing
-    /// it from a scratch suite is hex case: `UUID().uuidString` is uppercase, that one is not.
-    /// Relax the predicate to case-insensitive and this sweep deletes real preferences. Aged well
-    /// past the floor, so age is not what is saving it.
+    /// The most important test here. A real domain in the same directory ends in a UUID too
+    /// (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), and only hex case tells it from a scratch
+    /// suite: `UUID().uuidString` is uppercase. A case-insensitive predicate would delete real
+    /// preferences. Aged past the floor, so age isn't what saves it.
     @Test func aRealDomainWithALowercaseUUIDSurvivesTheSweep() throws {
         let real = try plant("com.example.sweeptest.RemoteFeatureFlags.164320f2-9a87-42e0-a5e8-3b112733f6fd.plist",
                              ageSeconds: 7200)
@@ -60,9 +53,8 @@ import Foundation
                 "a lowercase UUID is a real domain, not a scratch suite")
     }
 
-    /// The age floor is what makes the sweep safe to run while other sessions are testing — this
-    /// Mac routinely has several worktrees running suites at once. A suite created seconds ago
-    /// matches the pattern exactly and must still survive.
+    /// The age floor makes the sweep safe while other worktrees run suites at once: a suite created
+    /// seconds ago matches the pattern exactly and must still survive.
     @Test func aLiveScratchSuiteInsideTheAgeFloorSurvives() throws {
         let live = try plant("SweepTestLive-D3BC5A6D-EC81-4AEE-AAD2-C8CD78672D66.plist",
                              ageSeconds: 5)
@@ -78,12 +70,10 @@ import Foundation
                 "a suite minutes old may belong to a concurrently running session")
     }
 
-    /// Another project of the owner's leaks test suites into this same directory, and they are
-    /// tracked THERE. A SyncCloud run must not delete them: on 2026-08-03 a manual cleanup did,
-    /// 11 of them, and the sweep as first landed would have kept doing it on every run. Ownership
-    /// is not inferable from the shape — these match the scratch pattern exactly — so this is the
-    /// only thing keeping the sweep inside its own house. Aged past the floor, so age is not what
-    /// is saving them.
+    /// Another of the owner's projects leaks test suites into this directory and tracks them
+    /// itself; a SyncCloud run must not delete them. They match the scratch pattern exactly, so
+    /// ownership can't be read from the shape, and this exclusion is all that keeps the sweep to its
+    /// own suites. Aged past the floor, so age isn't what saves them.
     @Test func anotherProjectsScratchSuitesAreNeverSwept() throws {
         let foreign = try plant("pdfutils.tests.27F8084A-D4C7-4067-BB25-2B648F8C4153.plist",
                                 ageSeconds: 7200)
@@ -99,8 +89,8 @@ import Foundation
         #expect(FileManager.default.fileExists(atPath: alsoForeign))
     }
 
-    /// Shape cases that never reach the filesystem. Prefixes carry test-function names, so they
-    /// contain both separators themselves — the UUID must be matched at the END, not anywhere.
+    /// Shape cases that never reach the filesystem. Prefixes carry test-function names, which
+    /// contain both separators, so the UUID must be matched at the end, not anywhere.
     @Test func thePredicateAcceptsOnlyTheScratchShape() {
         #expect(ScratchDefaultsLedger.isScratchSuitePlist(
             "SettingsTests-testPathOverrides()-89F9B898-ADAC-4BDF-A274-CA0F135E7E70.plist"))

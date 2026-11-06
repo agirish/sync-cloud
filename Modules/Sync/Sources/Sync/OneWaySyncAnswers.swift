@@ -57,7 +57,7 @@ public struct OneWaySyncReversal: Equatable, Sendable, Identifiable {
         case restore(removedPath: String, to: String)
         /// Edited in iCloud: the version this sync replaced goes back into iCloud.
         case previousVersion(keptAt: String, at: String)
-        /// Moved in from a folder that isn't synced (EU): iCloud's file goes back to `to`, in that
+        /// Moved in from a folder that isn't synced: iCloud's file goes back to `to`, in that
         /// folder, which must still be there; nothing is made for it. The next sync then moves
         /// Dropbox's copy to SyncCloud Removed, as for any move out.
         case moveBackOut(from: String, to: String)
@@ -100,7 +100,7 @@ public struct OneWaySyncReversal: Equatable, Sendable, Identifiable {
     }
 }
 
-/// **The answers to Now's rows.** Each does one thing on disk and leaves the rest to the next
+/// The answers to Now's rows. Each does one thing on disk and leaves the rest to the next
 /// pass, which finds both sides agreeing and records them; none of them edits the record behind
 /// the planner's back except where a folder's own record changes (renamed, stopped, removed).
 ///
@@ -530,7 +530,7 @@ extension OneWaySyncWriter {
 
         var kept: OneWaySyncFileState?
         if OneWaySyncDisk.kind(at: target.path) != nil {
-            // iCloud's current version, kept outside DG's and DJ's limits.
+            // iCloud's current version, kept outside the one-a-day and seven-per-file limits.
             let clone = places.staging.appendingPathComponent(UUID().uuidString)
             defer { OneWaySyncDisk.removeStaged(clone) }
             try OneWaySyncDisk.coordinatedRead(target, deadline: coordinationDeadline) { read in

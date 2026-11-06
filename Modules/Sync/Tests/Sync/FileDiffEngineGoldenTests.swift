@@ -2,16 +2,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Characterization ("golden") test for `FileDiffEngine.computeDifferences`. Pins the full diff of
-/// one broad two-pane fixture as a single snapshot, so any change to which rows are produced, their
-/// type, or their sync direction flips the snapshot and must be consciously re-blessed. Complements
-/// the focused diff tests by catching COLLATERAL changes to the diff output.
+/// Golden test for `FileDiffEngine.computeDifferences`: pins the full diff of one broad two-pane
+/// fixture as a single snapshot, so any change to which rows appear, their type or their direction
+/// flips it and must be re-blessed on purpose. Catches collateral changes the focused tests miss.
 ///
-/// The snapshot serializes EVERY row field a consumer depends on — relativePath, type, action,
-/// BOTH item paths, both sizes, the enclosed count, and the description. The item paths are
-/// load-bearing for the CLI: its `targetRelativePath` derives the name-rule-validated path from
-/// the TARGET item path (5f76853), so a change to how `.nameConflict` rows carry the two sides'
-/// real spellings silently re-breaks the trailing-space doppelganger sync.
+/// The snapshot serializes every row field a consumer depends on: relativePath, type, action, both
+/// item paths, both sizes, the enclosed count and the description. The item paths matter to the
+/// CLI: its `targetRelativePath` derives the validated path from the target item path, so a change
+/// to how `.nameConflict` rows carry each side's real spelling would silently break the
+/// trailing-space doppelganger sync.
 @Suite struct FileDiffEngineGoldenTests {
 
     private let d1 = Date(timeIntervalSince1970: 1_600_000_000)
@@ -107,9 +106,9 @@ import Testing
         //  · mixdir (dir vs file, dates equal) defaults to the folder side (→R) and collapses the
         //    dir side's child into the row (encl=1); mixnewer (right file newer past tolerance)
         //    goes ←L — the date outranks the folder default. Both surface as `differs` rows, and
-        //    both are HELD (FR40): a folder's own date says nothing about its contents, so the
+        //    both are HELD: a folder's own date says nothing about its contents, so the
         //    direction is only a suggestion for a single deliberate copy;
-        //  · diffsize.txt (equal dates, different sizes) is held too (FR39) — no newer side;
+        //  · diffsize.txt (equal dates, different sizes) is held too — no newer side;
         //  · lockeddir (unlistable on the right, `isUnexplored`) contributes NO rows at all — not
         //    for itself and not for lockeddir/inside.txt, whose absence on the right is unknowable
         //    (a phantom Missing row would offer to copy into a folder nobody can read).

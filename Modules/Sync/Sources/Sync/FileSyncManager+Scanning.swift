@@ -1,23 +1,14 @@
 import Events
 import Foundation
 
-/// A span measured on two clocks, because one of them counts time the Mac spent asleep.
+/// A span measured on two clocks, because a wall clock also counts time the Mac spent asleep.
+/// With one clock, a slow walk and a lid closed mid-walk print the same number, and the sleeps
+/// drown out the slow walks worth finding.
 ///
-/// **`[load] left #1 shallow first paint 19 nodes (walk 8887.98 s …)`** — a listing of nineteen
-/// entries, reported as taking two and a half hours. The same log holds **1.4 s** for the identical
-/// walk, and 25s, 85s, 191s, 334s and 990s besides. `CFAbsoluteTimeGetCurrent` is a wall clock: it
-/// keeps running while the machine sleeps, so the number spans everything that happened between two
-/// lines of code rather than the work between them. With one clock a genuinely slow walk and a
-/// laptop lid closed mid-walk print the same thing — and the slow ones are the ones worth finding.
-/// The five-figure entries have been drowning out whatever the real spread is.
-///
-/// `SuspendingClock` stops while the system is asleep; `ContinuousClock` does not. Reporting the
-/// first and naming the difference when it is material separates the two.
-///
-/// **What it does not separate:** a process that is merely descheduled or App-Napped. Both clocks
-/// keep running through that, because the machine is awake — so a large `active` still means "this
-/// took a long time", not necessarily "this did a long time's work". That distinction needs a CPU
-/// clock and is a different question from the one this answers.
+/// `SuspendingClock` stops while the system sleeps; `ContinuousClock` doesn't. This reports the
+/// first and names the difference when it matters. It can't separate a process that was merely
+/// descheduled or App-Napped: both clocks run then, so a large `active` means "took long", not
+/// necessarily "did long work".
 struct Elapsed {
     private let active: SuspendingClock.Instant
     private let wall: ContinuousClock.Instant
@@ -27,17 +18,16 @@ struct Elapsed {
         wall = ContinuousClock.now
     }
 
-    /// `nnn.n ms` under a second, `n.nn s` above it — the shape ``FileSyncManager/durationText(since:)``
-    /// established, so a log line reads the same whichever measured it. A span the machine slept
-    /// through gains a clause rather than a bigger number.
+    /// `nnn.n ms` under a second, `n.nn s` above it, as ``FileSyncManager/durationText(since:)``
+    /// prints, so log lines read alike. A span the machine slept through gains a clause rather than
+    /// a bigger number.
     var text: String {
         Self.describe(active: Self.seconds(SuspendingClock.now - active),
                       wall: Self.seconds(ContinuousClock.now - wall))
     }
 
-    /// The formatting, separated from the clocks so it can be tested against spans no test could
-    /// produce by waiting — the interesting one being an hour of sleep, which is exactly the case
-    /// that motivated the type.
+    /// The formatting, apart from the clocks so tests can feed it spans no test could wait for,
+    /// such as an hour of sleep.
     static func describe(active: Double, wall: Double) -> String {
         let asleep = wall - active
         // A tenth of a second is below the resolution anything here cares about, and is the order
@@ -78,36 +68,26 @@ extension FileSyncManager {
         else { rightLoadGeneration += 1; loadToken = rightLoadGeneration }
 
         let task = Task {
-            // The pane's own load token, printed on every line this load emits. Without it a
-            // start line could not be attributed to an outcome line: the two panes interleave,
-            // a navigation supersedes the load already in flight, and a progressive load emits
-            // two publishes — so "the Nth start" and "the Nth completion" are unrelated events.
-            // Durations derived by pairing them positionally were off by orders of magnitude
-            // (a 6 s load read as 6,095 s). Reuses the spinner's existing per-load generation
-            // rather than minting a second identity that could disagree with it.
+            // The pane's load token, on every line this load emits, so a start line can be matched
+            // to its outcome: the panes interleave, navigations supersede loads, and a progressive
+            // load publishes twice. Reuses the spinner's generation rather than a second identity
+            // that could disagree with it.
             let tag = "\(isLeft ? "left" : "right") #\(loadToken)"
             let startedAt = Elapsed()
             Logger.shared.debug("[load] \(tag) start \(path)\(relativeSuffix(isLeft: isLeft))")
 
-            // What this load ended up doing. Set at every exit; the default is what an exit that
-            // reaches none of them would print, so an unaccounted path names itself in the log
-            // instead of vanishing. Read by the `defer` below, which is the only writer of the
-            // outcome line — a `return` cannot skip it.
+            // What this load ended up doing, set at every exit. The default names an exit that
+            // set nothing. Only the `defer` below writes the outcome line, so no `return` skips it.
             //
-            // The node counts these outcomes carry are RAW walked nodes (`countItems`), not the
-            // filtered `leftItemCount` the old completion line printed: the walk's cost is per
-            // node walked, and a count that hidden-file filtering has already thinned is the
-            // wrong denominator for it. It costs one extra main-actor traversal — ~5 ms per 40k
-            // nodes, measured — which the reported duration therefore includes. Against the real
-            // loads it appears in (36-425 ms on the cache path, seconds on a cold walk) that is
-            // 1-6%, small enough to keep for a number the record is useless without.
+            // Node counts are raw walked nodes (`countItems`), not the filtered item count, because
+            // a walk's cost is per node walked. Counting costs one main-actor traversal (~5 ms per
+            // 40k nodes), which the reported duration includes.
             var outcome = "ended without reaching a known exit"
 
-            // Whatever exit this load takes — normal completion, cache-hit return, or
-            // cancellation between the disk walks — release the loading spinner, but only if
-            // this load is still the pane's current one (a newer load owns the flag once it
-            // starts). Without this, a load cancelled with no successor stranded the spinner
-            // (the "stuck Scanning Directory…" bug); it self-healed only on re-navigation.
+            // Whatever exit this load takes (completion, cache hit, or cancellation between the
+            // walks), release the loading spinner, but only while this load is still the pane's
+            // current one: a newer load owns the flag. Otherwise a load cancelled with no
+            // successor would leave the spinner up until the next navigation.
             defer {
                 let stillCurrent = isLeft ? (leftLoadGeneration == loadToken) : (rightLoadGeneration == loadToken)
                 let wasLoading = isLeft ? isLoadingLeftTree : isLoadingRightTree
@@ -116,8 +96,8 @@ extension FileSyncManager {
                     if isLeft { isLoadingLeftTree = false } else { isLoadingRightTree = false }
                     strandedSpinner = Task.isCancelled
                 }
-                // The one line per load that carries its outcome AND its duration. Emitted from
-                // the `defer` so every exit is covered, including ones added later.
+                // The one line per load with its outcome and duration, from the `defer` so every
+                // exit is covered.
                 Logger.shared.debug(
                     "[load] \(tag) \(outcome) in \(startedAt.text)"
                     + (strandedSpinner ? "; cleared its stale loading spinner" : ""))
@@ -133,53 +113,44 @@ extension FileSyncManager {
             // next orders every change after it against this load (`PaneWatchState`).
             let walkMark = self.noteFolderWatchLoad(isLeft: isLeft, focusPath: focusPath)
 
-            // Fast path: serve the focus from the cache without touching the disk — a direct
-            // hit, or a slice of the cached root tree (deep by construction, so drill-down and
-            // breadcrumb navigation are instant). File operations, sort changes, and force
-            // refresh clear the cache, so this never serves stale post-operation state.
+            // Fast path: serve the focus from the cache without touching the disk, as a direct hit
+            // or a slice of the cached root tree (deep, so drill-down and breadcrumbs are instant).
+            // File operations, sort changes and force refresh clear the cache, so this never
+            // serves stale post-operation state.
             let direct = prefetchedTrees[focusPath]
             let cached = direct ?? Self.subtree(atPath: focusPath, under: rootURL.path,
                                                 in: prefetchedTrees[rootURL.path], links: links)
             if let cached {
-                // A slice inherits the root walk's stopped provenance: the budget stopped
-                // SOMEWHERE, and this subtree may hold some of what went unwalked. Inheriting
-                // liberally is safe — the warm scan re-checks the maps for surviving unexplored
-                // directories before it banners, so an over-inherited bit on a whole slice
-                // costs nothing.
+                // A slice inherits the root walk's stopped bit, since it may hold some of what went
+                // unwalked. Over-inheriting is harmless: the warm scan re-checks for unexplored
+                // directories before it banners.
                 if prefetchedTreeWalkStopped.contains(rootURL.path) {
                     prefetchedTreeWalkStopped.insert(focusPath)
                 }
                 prefetchedTrees[focusPath] = cached
-                // The read stamp travels the same way and for the same reason: a slice belongs to
-                // the root's walk, so it is exactly as old as that walk. `??` rather than an
-                // overwrite — a direct hit on `focusPath` already carries its own, and the root's
-                // is the older of the two.
+                // The read stamp travels the same way: a slice is as old as the root's walk. Only
+                // when missing, since a direct hit carries its own, newer one.
                 if prefetchedTreeReadAt[focusPath] == nil {
                     prefetchedTreeReadAt[focusPath] = prefetchedTreeReadAt[rootURL.path]
                 }
                 if prefetchedTreeReadMark[focusPath] == nil {
                     prefetchedTreeReadMark[focusPath] = prefetchedTreeReadMark[rootURL.path]
                 }
-                // And the folder links the root's walk followed — a slice's own walk was the root's.
-                // Liberally, like the stopped bit: the record does not say where in the tree each
-                // link sits, so a slice holding none of them inherits them all, which costs a drop
-                // nobody needed and never a stale tree. A direct hit carries its own record.
+                // And the folder links the root's walk followed. Liberally, like the stopped bit:
+                // the record doesn't say where each link sits, so a slice inherits them all, which
+                // can cost a needless drop but never a stale tree. A direct hit has its own record.
                 if direct == nil {
                     prefetchedTreeLinkTargets[focusPath] = prefetchedTreeLinkTargets[rootURL.path]
                 }
-                // A cache entry with no stamp predates this bookkeeping (or was written by a test);
-                // `Date()` is then the only answer available, and it is the one the pane had before
-                // any of this existed.
-                // The mark the same way, except that an entry without one stands for the oldest
-                // walk there is: any change the watcher reports for this folder postdates it.
+                // An entry with no stamp (one a test wrote) gets `Date()`. One with no mark counts
+                // as the oldest walk there is, so any change the watcher reports postdates it.
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath,
                                   readAt: prefetchedTreeReadAt[focusPath] ?? Date(),
                                   readMark: prefetchedTreeReadMark[focusPath] ?? 0,
                                   linkTargets: prefetchedTreeLinkTargets[focusPath] ?? [])
                 await self.applyFilters()
                 outcome = "served \(Self.countItems(in: cached)) nodes from cache"
-                // The spinner (set by a slow load this one just cancelled) is released by the
-                // deferred cleanup above.
+                // The deferred cleanup above releases any spinner a cancelled slow load left up.
                 return
             }
 
@@ -196,13 +167,11 @@ extension FileSyncManager {
             // lands while they run, this load's tree predates it and must not be cached.
             let configToken = self.scanConfigGeneration
 
-            // Progressive first paint: publish the immediate children right away (one
-            // directory listing), then swap in the deep tree when the full walk finishes —
-            // but only when the pane has nothing valid to show for this focus (first load,
-            // or navigation to an uncached folder). A same-focus refresh keeps the current
-            // deep tree visible until the new one lands (stale-while-revalidate) instead of
-            // collapsing rows to a shallow flash. The loading flag stays up until the deep
-            // tree lands, which also keeps pruneSelection off the interim tree.
+            // Progressive first paint: publish the immediate children (one listing), then the deep
+            // tree when the walk finishes, but only when the pane has nothing valid for this focus.
+            // A same-focus refresh keeps the current deep tree until the new one lands, rather than
+            // flashing shallow rows. The loading flag stays up until the deep tree lands, which
+            // keeps pruneSelection off the interim tree.
             let currentTree = isLeft ? rawLeftTree : rawRightTree
             let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
             if currentTree.isEmpty || lastFocus != focusPath {
@@ -220,24 +189,21 @@ extension FileSyncManager {
                 self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath,
                                   readMark: walkMark, linkTargets: shallowLinks.targets)
                 await self.applyFilters()
-                // The shallow pass is a SEPARATE cost from the deep one, not a prefix of it —
-                // it is its own `buildTree` over the same directory — so it gets its own line
-                // rather than being folded into the outcome's duration.
+                // The shallow pass is its own `buildTree`, a separate cost from the deep walk, so
+                // it gets its own line.
                 Logger.shared.debug(
                     "[load] \(tag) shallow first paint \(Self.countItems(in: shallowTree)) nodes"
                     + " (walk \(shallowWalk), publish \(Self.durationText(since: shallowPublishStart)))")
             }
 
             let deepStart = Elapsed()
-            // Held rather than inlined: after the walk, `didStopADescent` is the one fact that
-            // says whether this tree is the whole folder — the cached tree's provenance, which
-            // the warm scan needs to report partial coverage (see `PartialComparison.of`'s
-            // walk-stopped overload). Discarding it here is what left a warm scan of a truncated
-            // tree publishing `.complete` with no banner.
+            // Held, not inlined: after the walk, `didStopADescent` says whether this tree is the
+            // whole folder. The warm scan needs it to report partial coverage (the walk-stopped
+            // overload of `PartialComparison.of`); without it a truncated tree reads `.complete`.
             let paneBudget = NodeBudget(Self.paneNodeBudget,
                                         note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them")
-            // Held for the same reason as the budget: the folder links the walk followed are the
-            // tree's provenance too, and the next write there must find this entry (`FollowedLinks`).
+            // Held for the same reason: the next write through a followed folder link must find
+            // this entry (`FollowedLinks`).
             let followedLinks = FollowedLinks()
             let tree = await Self.buildTree(
                 url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget, linkedFolders: links,
@@ -255,9 +221,8 @@ extension FileSyncManager {
                                                           walkStopped: paneBudget.didStopADescent,
                                                           readMark: walkMark,
                                                           linkTargets: followedLinks.targets)
-            // `adoptFreshDeepTree` can bail without publishing (cancelled during its off-actor
-            // re-sort), which the old "Tree Loaded. Count:" line reported as a completion
-            // regardless — it ran unconditionally on the line after. Distinguish them.
+            // `adoptFreshDeepTree` can bail without publishing (cancelled during its re-sort), and
+            // that is not a completion.
             outcome = published
                 ? "walked \(Self.countItems(in: tree)) nodes (walk \(deepWalk), publish \(Self.durationText(since: publishStart)))"
                 : "superseded during the publish re-sort (walk \(deepWalk))"
@@ -276,27 +241,20 @@ extension FileSyncManager {
     }
     
     /// Publishes a fully walked deep tree for one pane and releases its loading spinner.
-    /// `builtWith` is the sort option the walk captured at entry; the option can change while
-    /// the walk runs (seconds on large panes), and the tree's ORDER then matches the stale
-    /// option — worse, for the Tags sort its nodes may lack the tags metadata only that
-    /// sort's walks fetch. On a mismatch the tree is re-sorted to the live option before
-    /// publishing (off the main actor; a full-tree sort froze the UI on large panes) so a
-    /// stale load can never clobber a newer sort choice, and the tree is NOT cached:
-    /// `sortOption.didSet` cleared the cache expecting the next walk to rebuild it for the
-    /// new option, and writing this one back would poison the cache fast path, which serves
-    /// cached trees as-is (for Tags, with no way to ever recover the missing metadata).
-    /// - Returns: Whether the tree was published. The one early exit here (cancelled during the
-    ///   off-actor re-sort) leaves the pane showing the previous tree, and `loadTree` reports it
-    ///   as a superseded load rather than a completion — its old completion line sat on the
-    ///   statement after this call and so claimed a load that had published nothing.
+    /// `builtWith` is the sort option the walk captured; it can change during the walk, leaving
+    /// the tree in the old order and, for the Tags sort, without the tags only that sort fetches.
+    /// On a mismatch the tree is re-sorted off the main actor before publishing, and is not
+    /// cached: `sortOption.didSet` cleared the cache for a fresh walk, and the fast path serves
+    /// cached trees as-is, so writing this one back would poison it.
+    /// - Returns: Whether the tree was published. The one early exit (cancelled during the
+    ///   re-sort) leaves the previous tree, and `loadTree` reports a superseded load.
     @discardableResult
-    /// - Parameter walkStopped: whether `paneNodeBudget` stopped the walk that built `tree` — the
-    ///   cached tree's provenance, recorded beside the cache entry so a later warm scan can say
-    ///   its coverage is partial. Defaults to false for the tests that adopt hand-built trees.
-    /// - Parameter linkTargets: where that walk read through a folder link (`FollowedLinks`) —
-    ///   provenance too, published with the pane and recorded beside the entry. Empty by default,
-    ///   for the same tests.
-    /// - Parameter readMark: the FSEvents id read before that walk started — see `adoptRawTree`.
+    /// - Parameter walkStopped: whether `paneNodeBudget` stopped the walk that built `tree`,
+    ///   recorded beside the cache entry so a later warm scan can report partial coverage. False
+    ///   by default, for tests that adopt hand-built trees.
+    /// - Parameter linkTargets: where that walk read through a folder link (`FollowedLinks`),
+    ///   published with the pane and recorded beside the entry. Empty by default, for those tests.
+    /// - Parameter readMark: the FSEvents id read before that walk started; see `adoptRawTree`.
     func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
                             loadToken: Int, configToken: Int, walkStopped: Bool = false,
                             readMark: UInt64? = nil, linkTargets: Set<String> = []) async -> Bool {
@@ -310,18 +268,15 @@ extension FileSyncManager {
             guard !Task.isCancelled else { return false }
         }
         adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath, readMark: readMark, linkTargets: linkTargets)
-        // The option can move AGAIN while the re-sort/publish above runs, and this adopt's
-        // generation bump discards any resort that change scheduled — re-sort once more in
-        // memory (generation-guarded, so it in turn yields to anything fresher).
+        // The option can change again during the re-sort, and this adopt's generation bump
+        // discards the resort that change scheduled, so re-sort once more (generation-guarded).
         if sortOption != liveSort {
             Task { await self.resortTreesAndRefilter() }
         }
         await applyFilters()
-        // Release the spinner only while this load is still the pane's current one (mirrors
-        // loadTree's deferred cleanup). A superseded load resuming here after the applyFilters
-        // suspension would otherwise clear the SUCCESSOR's spinner mid-walk — and, since the
-        // loading flag is what keeps pruneSelection off the interim shallow tree, let a prune
-        // wipe valid selections deeper than the shallow tree can see.
+        // Release the spinner only while this load is still current, as in loadTree. A superseded
+        // load resuming after applyFilters would clear its successor's spinner mid-walk, and so
+        // let pruneSelection wipe selections deeper than the interim shallow tree.
         let stillCurrent = isLeft ? (leftLoadGeneration == loadToken) : (rightLoadGeneration == loadToken)
         if stillCurrent {
             if isLeft {
@@ -330,30 +285,22 @@ extension FileSyncManager {
                 isLoadingRightTree = false
             }
         }
-        // Cache the deep tree for this focus (never the shallow one — cache consumers,
-        // including the in-memory diff scan, rely on cached trees being fully walked), and
-        // only when BOTH invariants re-checked after every await above still hold:
-        //  - the sort option never moved while this load ran (cached trees are served
-        //    verbatim, so they must match the current option's order and metadata exactly);
-        //  - the scan-config epoch never moved (a file operation finishing mid-load cleared
-        //    this cache and bumped the epoch; writing this pre-operation tree back would
-        //    resurrect it, and the cache fast path would then serve pre-op state as current
-        //    until the next invalidation).
-        //  - `liveSort == sortOp` guarantees NO re-sort happened above: if one did, `tree` carries
-        //    liveSort's ORDER but only sortOp's metadata (e.g. a Name-built tree re-sorted to Tags
-        //    has no tag xattrs), and `sortOption == sortOp` alone would still cache it whenever the
-        //    option later returns to sortOp — poisoning the fast path with a mis-ordered / metadata-
-        //    poor tree. Cache only the genuine, unmodified build.
+        // Cache the deep tree for this focus (never the shallow one: cache consumers, the
+        // in-memory diff included, rely on cached trees being fully walked), and only when:
+        //  - the sort option never moved during this load (cached trees are served verbatim);
+        //  - the scan-config epoch never moved (a file operation finishing mid-load cleared the
+        //    cache, and writing this pre-operation tree back would serve stale state as current);
+        //  - `liveSort == sortOp`, so no re-sort happened above. A re-sorted tree has the new
+        //    order but the old option's metadata (a Name-built tree has no tags), and would poison
+        //    the fast path once the option returns. Cache only the unmodified build.
         if sortOption == sortOp, liveSort == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
-            // Same publish, same clock: `adoptRawTree` above stamped the pane with `Date()`, and a
-            // second reading here would drift from it by the length of the re-sort. Reading the
-            // pane's own stamp back keeps the entry and the pane exactly equal, which is what makes
-            // a later cache hit able to reproduce this moment rather than approximate it.
+            // Reuse the pane's own stamp rather than a second `Date()`, so the entry and the pane
+            // agree exactly and a later cache hit reproduces this moment.
             prefetchedTreeReadAt[focusPath] = (isLeft ? leftTreeReadAt : rightTreeReadAt) ?? Date()
             prefetchedTreeReadMark[focusPath] = (isLeft ? leftWatch : rightWatch).readMark
-            // The provenance travels with the entry, in both directions — a fresh complete walk
-            // must also RETIRE a stale stopped mark, or the banner would outlive the truncation.
+            // Both directions: a fresh complete walk must also clear a stale stopped mark, or the
+            // banner would outlive the truncation.
             if walkStopped {
                 prefetchedTreeWalkStopped.insert(focusPath)
             } else {
@@ -365,8 +312,8 @@ extension FileSyncManager {
         return true
     }
 
-    /// `nnn.n ms` under a second, `n.nn s` above it — one shape for every duration the load
-    /// records print, so the log can be scanned (and parsed) without unit guessing.
+    /// `nnn.n ms` under a second, `n.nn s` above it: one shape for every load duration, so the log
+    /// can be read and parsed without guessing units.
     ///
     /// - Note: prefer ``Elapsed`` for anything that can run long. This reads one wall clock and so
     ///   cannot say whether a large number is work or a sleeping Mac; see that type.
@@ -376,8 +323,8 @@ extension FileSyncManager {
     }
 
     /// How long ago a cached walk read its folder, for the scan's line: "just now", "42 s ago",
-    /// "12 min ago", "4 h 3 min ago" — whole units, because the question it answers is whether the
-    /// comparison is minutes or hours old. An entry with no stamp predates the bookkeeping.
+    /// "12 min ago", "4 h 3 min ago". Whole units: the question is whether the comparison is
+    /// minutes or hours old. nil reads "at an unrecorded time".
     nonisolated static func ageText(since date: Date?, now: Date) -> String {
         guard let date else { return "at an unrecorded time" }
         let seconds = max(0, Int(now.timeIntervalSince(date)))
@@ -389,17 +336,17 @@ extension FileSyncManager {
         }
     }
 
-    /// The pane's relative path, for the load's start line — a load of the same root at a
-    /// different focus is a different load, and the root alone cannot tell them apart.
+    /// The pane's relative path, for the load's start line: the same root at a different focus is
+    /// a different load.
     func relativeSuffix(isLeft: Bool) -> String {
         let relative = isLeft ? leftRelativePath : rightRelativePath
         return relative.isEmpty ? "" : " (focus: \(relative))"
     }
 
-    /// Whether `tree` is a walk of `folder` that could not list it: `buildTree` hands back the folder
+    /// Whether `tree` is a walk of `folder` that couldn't list it: `buildTree` returns the folder
     /// itself marked unexplored, never a bare `[]`, so the cache and the diff know its contents are
-    /// UNKNOWN rather than empty. Each consumer has to recognise the shape — a pane unwraps it, a
-    /// column graft leaves it alone, and a source switch does not keep it.
+    /// unknown, not empty. Each consumer handles the shape: a pane unwraps it, a column graft leaves
+    /// it alone, and a source switch doesn't keep it.
     nonisolated static func isUnreadableRootWalk(_ tree: [FileNode], at folder: String) -> Bool {
         tree.count == 1 && tree[0].isUnexplored == true && tree[0].id == folder
     }
@@ -407,22 +354,17 @@ extension FileSyncManager {
     /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
     /// `rawTreeGeneration`, which invalidates any off-main resort snapshot in flight —
     /// this tree was built with the current sort option already applied.
-    /// - Parameter readAt: when the walk behind `tree` read the disk. Defaults to *now*, which is
-    ///   right for every path that has just walked something; the cache fast path passes the
-    ///   walk's own stamp instead, because a served tree is as old as the walk that built it and
-    ///   Browse's freshness segment would otherwise announce a re-read that never happened.
-    /// - Parameter linkTargets: where the walk behind `tree` read through a folder link — see
-    ///   `leftTreeLinkTargets`. Empty by default, which is right for a hand-built tree; every load
-    ///   passes its walk's own, a cache hit the entry's.
-    /// - Parameter readMark: the FSEvents id read before the walk behind `tree` started — what the
-    ///   folder watcher's changes are ordered against (`PaneWatchState`). nil reads the id now,
-    ///   `readAt`'s default in the other unit.
+    /// - Parameter readAt: when the walk behind `tree` read the disk. Defaults to now; the cache
+    ///   fast path passes the walk's own stamp, since a served tree is as old as its walk and
+    ///   Browse's freshness segment would otherwise claim a re-read.
+    /// - Parameter linkTargets: where that walk read through a folder link (see
+    ///   `leftTreeLinkTargets`). Empty by default, for a hand-built tree.
+    /// - Parameter readMark: the FSEvents id read before that walk started, which the folder
+    ///   watcher's changes are ordered against (`PaneWatchState`). nil reads the id now.
     func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String,
                       readAt: Date = Date(), readMark: UInt64? = nil, linkTargets: Set<String> = []) {
-        // An unreadable-root walk comes back as the root itself marked unexplored (see
-        // `buildTree`), so the cache and the diff know the contents are UNKNOWN rather than
-        // empty. The pane must not render the focused folder nested inside itself, though —
-        // unwrap the marker and show the folder empty, exactly as before the marker existed.
+        // An unreadable root comes back as itself marked unexplored (`isUnreadableRootWalk`).
+        // The pane must not show the folder nested inside itself, so unwrap it and show it empty.
         var tree = tree
         if Self.isUnreadableRootWalk(tree, at: focusPath) {
             tree = []
@@ -445,17 +387,13 @@ extension FileSyncManager {
     }
 
     /// The children of the directory at `path` inside a deep tree walked at `root`, or nil when
-    /// the path is not present (or `tree` is nil). Lets navigation serve a drill-down from an
-    /// ancestor's cached tree without re-walking the disk. A cycle- or depth-capped node
-    /// (`isUnexplored`) is a MISS, not an empty folder: its `[]` children are a construction
-    /// artifact, and serving them as the folder's deep tree would make the in-memory diff report the
-    /// entire other side as "missing". The miss sends the caller back to a fresh disk walk, which —
-    /// rooted at that path, with a fresh cycle-visited set and depth budget — walks correctly.
+    /// the path isn't there (or `tree` is nil), so navigation can drill down from an ancestor's
+    /// cached tree without a walk. An `isUnexplored` node is a miss, not an empty folder: served as
+    /// a deep tree, its `[]` would make the diff report the whole other side as missing. A miss
+    /// sends the caller to a fresh walk rooted at that path.
     ///
-    /// **Found by the names down from `root`** (`TreeShape.position`). `path` is a focus composed
-    /// from the root and a relative path, and the walk spells a node otherwise two levels below a
-    /// folder symlink and under a root reached through one: matched by id prefix alone, navigation
-    /// there always missed and took a cold walk of a folder the cached tree already held.
+    /// Found by the names down from `root` (`TreeShape.position`), not by id prefix: below a folder
+    /// symlink, or under a root reached through one, the walk spells ids differently from `path`.
     nonisolated static func subtree(atPath path: String, under root: String, in tree: [FileNode]?,
                                     links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
     -> [FileNode]? {
@@ -479,87 +417,53 @@ extension FileSyncManager {
     /// - Parameters:
     ///   - left: Cloud provider for the left pane (root path and display name).
     ///   - right: Cloud provider for the right pane.
-    /// - Parameter reloading: which panes need their tree walked again. `.both` is the answer for
-    ///   everything that changes what a walk would produce — a file operation, a forced rescan, a
-    ///   sort or hidden-files change, a provider switch — and it is the default so every existing
-    ///   caller keeps its behaviour exactly.
+    /// - Parameter reloading: which panes need their tree walked again. `.both` (the default) for
+    ///   anything that changes what a walk would produce: a file operation, a forced rescan, a sort
+    ///   or hidden-files change, a provider switch.
     ///
-    ///   A **tab switch** is the one caller that knows better: it re-points one pane and leaves the
-    ///   other alone, so walking the other rebuilds a tree identical to the one it already has.
-    ///   This is deliberately "don't ask" rather than "skip if it looks unchanged": every staleness
-    ///   source in this manager clears `prefetchedTrees` and *nothing else* — not the live tree, not
-    ///   `lastLoadedFocusPath` — so a load that inferred "same focus, already loaded, nothing to do"
-    ///   would serve pre-operation state after a copy or a delete. The scan still runs, and still
-    ///   compares both panes; the untouched one contributes the tree it already holds.
+    ///   A tab switch re-points one pane and asks for that one only. The caller says so; this
+    ///   never infers "looks unchanged", because staleness sources clear only `prefetchedTrees`,
+    ///   not the live tree or `lastLoadedFocusPath`, so an inferred skip would serve pre-operation
+    ///   state. The scan still compares both panes, using the tree the other already holds.
     ///
-    /// - Parameter comparing: whether the reload is followed by the two-pane comparison. `true`
-    ///   for every caller that has not thought about it, which keeps this the same function it was.
+    /// - Parameter comparing: whether the reload is followed by the two-pane comparison (`true` by
+    ///   default). `false` when the comparison wouldn't be displayed: the single-source workspaces
+    ///   (Browse, the lenses, Editor) show one tree and no differences.
     ///
-    ///   `false` says the caller knows the comparison would not be *displayed*: the single-source
-    ///   workspaces (Browse, the lenses, Editor) draw one tree and no differences — `FileTreeView`
-    ///   empties the difference index for them outright, so a scan on their behalf produces rows
-    ///   nothing renders. Entering a lens from the workspace bar re-homes the source rail to the
-    ///   provider root, which is a pane move, which is a refresh — and that refresh was walking
-    ///   both providers and diffing them on the way into a workspace that cannot show the answer.
-    ///
-    ///   **A skipped comparison is owed, not cancelled.** The caller that asks for one must arrange
-    ///   for the comparison to be made before anything displays it — the pane focus has moved, so
-    ///   the differences in hand describe a folder the left pane is no longer on, and showing them
-    ///   in Compare would be worse than showing none. `ContentView.owedComparison` is that
-    ///   arrangement.
+    ///   A skipped comparison is owed, not cancelled: the focus has moved, so the differences in
+    ///   hand describe the wrong folder. The caller must have it made before anything displays it
+    ///   (`ContentView.owedComparison`).
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider,
                                     reloading requested: PaneReloadScope = .both,
                                     comparing: Bool = true) async {
-        // **A narrower refresh must never cancel a wider one down to nothing.**
-        //
-        // This supersedes whatever is in flight, and before scoping existed that was safe: every
-        // refresh loaded both panes, so cancel-and-restart lost nothing. A one-pane refresh does
-        // not have that property. Switching tabs while the launch load — or any scan, which on a
-        // 39k-node tree runs for about a second — is still walking would cancel the right pane's
-        // load and never start another, leaving that pane blank until something else refreshed it.
-        //
-        // So the scopes are UNIONED rather than replaced: any disagreement with what is running
-        // widens this refresh to `.both`. Identical scopes are left alone, which is what keeps the
-        // duplicate-refresh dedupe below working for a repeated one-pane switch.
+        // **A narrower refresh must never cancel a wider one down to nothing.** This supersedes
+        // whatever is in flight: a one-pane refresh cancelling a two-pane load would leave the
+        // other pane blank until something refreshed it. So scopes are unioned: any disagreement
+        // with the running refresh widens this one to `.both`. Identical scopes stay, which keeps
+        // the dedupe below working for a repeated one-pane switch.
         let inFlightScope = activeRefreshKey?.reloading
         let widenedBy: PaneReloadScope? = {
-            // Only a one-pane request is actually widened: a `.both` request disagreeing with a
-            // narrower refresh in flight is already as wide as this goes, and announcing a widening
-            // that did not happen would put the line under ordinary loads.
+            // Only a one-pane request is widened; a `.both` request is already as wide as it goes,
+            // and announcing a widening for it would be false.
             guard let inFlightScope, inFlightScope != requested, requested != .both else { return nil }
             return inFlightScope
         }()
         let reloading: PaneReloadScope =
             (inFlightScope != nil && inFlightScope != requested) ? .both : requested
         let key = makeRefreshKey(left: left, right: right, reloading: reloading)
-        // The launch bootstrap fires several identical refreshes (the explicit initial one plus
-        // the provider-id onChange that resets navigation). A refresh already in flight for the
-        // exact same target loads both panes on its own, so skip the duplicate rather than
-        // cancel-and-restart it — that race could strand a pane's load, leaving it blank until
-        // the user re-navigated. A different target is real navigation and still supersedes —
-        // and "target" includes the scan-config epoch (see RefreshKey.config), so a refresh
-        // requested after a config change or invalidation supersedes too instead of being
-        // swallowed as a duplicate.
+        // Launch fires several identical refreshes. One already in flight for the same target
+        // does the work, so skip the duplicate rather than cancel and restart it, which could
+        // strand a pane's load and leave it blank. A different target still supersedes, and the
+        // target includes the scan-config epoch (RefreshKey.config), so a refresh after a config
+        // change or invalidation isn't swallowed as a duplicate.
         if activeRefreshKey == key {
             Logger.shared.debug("Skipping duplicate in-flight refresh for the same target")
             return
         }
-        // **Said here, AFTER the dedupe, because the line describes a walk.** A left-pane tab switch
-        // asks for `.leftOnly`, and a reader who then finds `[load] right #N start` under it has
-        // nothing to attribute that walk to — which is what this line is for.
-        //
-        // Announced above the dedupe, though, it was wrong in the one case it was most likely to be
-        // read in: when the refresh in flight is `.both` for the SAME target, this request widens to
-        // `.both`, the widened key equals `activeRefreshKey`, and the branch above returns without
-        // starting anything. The log then read "Widening a leftOnly refresh to both panes" followed
-        // immediately by "Skipping duplicate in-flight refresh" — a widening credited to a call that
-        // did no work at all. Below the dedupe the line means what it says: this refresh is running,
-        // and it is running wider than it was asked to.
-        // **`.info`, not `.debug`, for the same reason ⌘K's and ⌘W's refusals are.** `.debug` is
-        // dropped entirely at Settings ▸ Advanced ▸ Info, and this is the only account of a
-        // user-VISIBLE event: the other pane reloading under a request that named one. A reader
-        // who has turned the noise down is exactly the reader filing "why did my right pane
-        // reload?", so the one line that answers it must survive the level they are on.
+        // Explains a walk the request didn't name (a `.leftOnly` switch followed by
+        // `[load] right #N start`). Logged after the dedupe, because a widened request can equal
+        // the key in flight and return without walking anything. `.info`, not `.debug`, since it
+        // accounts for a visible reload and `.debug` is dropped at the Info level.
         if let widenedBy {
             Logger.shared.info("Widening a \(requested) refresh to both panes: a "
                                + "\(widenedBy) refresh was already in flight")
@@ -571,10 +475,8 @@ extension FileSyncManager {
             let leftRoot = (left.rootPath as NSString).expandingTildeInPath
             let rightRoot = (right.rootPath as NSString).expandingTildeInPath
 
-            // The two pane loads are independent — disjoint published state, and each walks
-            // the disk on its own detached worker — so run them concurrently. Serially they
-            // doubled time-to-first-render, and panes on different volumes don't even
-            // contend for I/O. Cancelling this task cancels both child loads.
+            // The two pane loads are independent (disjoint state, each on its own detached
+            // worker), so they run concurrently. Cancelling this task cancels both.
             switch reloading {
             case .both:
                 async let leftLoad: Void = self.loadTree(path: leftRoot, isLeft: true)
@@ -588,12 +490,10 @@ extension FileSyncManager {
             guard !Task.isCancelled else { return }
             
             if comparing {
-                // **The pane's own expression, so the scan finds what the pane cached.** A focus on
-                // a folder the root only LINKS to — iCloud Drive → Documents — is walked and cached
-                // under its real path (`focusURL`). Joined lexically, the scan missed that entry
-                // and walked the link itself, which lists nothing, so the side read as empty and
-                // every item opposite it as missing. A root the table does not name gets the path
-                // the lexical join gave it.
+                // The pane's own focus expression, so the scan finds what the pane cached. A folder
+                // the root only links to (iCloud Drive → Documents) is cached under its real path
+                // (`focusURL`); joined lexically, the scan would walk the link, list nothing, and
+                // report everything opposite as missing.
                 let links = self.linkedFolders
                 let currentLeftFull = Self.focusURL(root: leftRoot, relative: leftRelativePath,
                                                     fallback: URL(fileURLWithPath: leftRoot, isDirectory: true),
@@ -614,12 +514,10 @@ extension FileSyncManager {
         
         activeRefreshTask = task
         await task.value
-        // Release the key when this refresh is still the current one; a superseding refresh
-        // will have overwritten it and owns the cleanup. Matched by task identity (Task's ==),
-        // not key equality alone: a stale refresh unwinding late must not clear the key of a
-        // NEWER refresh for the same target (A(K1) superseded, C(K1) registers K1 again, A
-        // unwinds while C runs) — that would break the dedupe and let a duplicate
-        // cancel-restart C, reopening the strand race documented above.
+        // Release the key only while this refresh is current; a superseding one owns the cleanup.
+        // Matched by task identity, not key alone: a stale refresh unwinding late must not clear
+        // the key of a newer refresh for the same target, or a duplicate could cancel and restart
+        // it and strand a pane.
         if activeRefreshKey == key, activeRefreshTask == task {
             activeRefreshKey = nil
             // A change the folder watcher reported while this ran was held for now.
@@ -627,74 +525,29 @@ extension FileSyncManager {
         }
     }
 
-    /// Post-refresh hygiene: removes `.tmp_<UUID>` working files that a crashed or
-    /// force-quit safe copy/move left behind (every normal exit path cleans them up via
-    /// `defer`). Candidates come from the pane trees this refresh just walked — no extra
-    /// disk I/O. `.rollback_<UUID>` replacement backups are deliberately left in place: they
-    /// are the undo stack's restorable handle and may be the only copy of a replaced file.
+    /// Post-refresh hygiene: removes `.tmp_<UUID>` working files a crashed or force-quit safe
+    /// copy/move left behind (normal exits clean up via `defer`). Candidates come from the trees
+    /// this refresh just walked, so no extra I/O. `.rollback_<UUID>` backups stay: they are the
+    /// undo stack's handle and may be the only copy of a replaced file.
     ///
-    /// Refuses to run at all while any file operation is in flight. The age gate alone does
-    /// NOT make a live staging file safe, though this comment used to claim it did: a temp
-    /// staged by a same-volume rename inherits the SOURCE's modification date (and so does a
-    /// cross-volume `copyItem`, which preserves attributes), so staging any file untouched for
-    /// an hour produces a temp that is already past `minimumAge` at birth. A refresh landing
-    /// while `replaceItem` is still in flight — the whole reason that call can take real time
-    /// is a slow network volume — could then Trash the live operation's only staged copy out
-    /// from under it, and the resulting failure would report the content as lost to a system
-    /// item-replacement folder rather than sitting in the Trash. The counter is bumped before
-    /// the operation is enqueued and cleared after it completes, so it covers the entire
-    /// window; refreshes are explicitly allowed to walk mid-operation disk state, which is why
-    /// the sibling "no operation is mutating these panes right now" claim was false too.
-    /// Nothing is lost by waiting: an orphan is still an orphan at the next refresh, and only
-    /// a quiescent moment can tell an orphan from a staging file in use.
+    /// **Never runs while a file operation is in flight.** The age gate alone doesn't make a temp
+    /// safe: a staged temp inherits its source's modification date, so it can be past
+    /// `minimumAge` at birth, and a sweep during a slow `replaceItem` would trash the operation's
+    /// only staged copy. The counter covers the whole operation. Waiting loses nothing; only a
+    /// quiet moment tells an orphan from a temp in use.
     ///
-    /// Deliberately outside `enqueueFileOperation`, and deliberately does NOT bump
-    /// `fileOperationsEpoch` — this is the one filesystem write in the app that is neither, and
-    /// that is a decision, not an oversight. The exemption has to hold for all three of the
-    /// epoch's consumers (see its doc comment), which pose two different questions.
-    ///
-    /// Against the hashing passes (`autoVerifySameSizePairs`, `verifyAllWithChecksum`), the
-    /// question is whether something REWROTE the bytes they hashed: a verdict taken before a
-    /// copy/move/replace is a false claim about the file now sitting at that path, and folding
-    /// it into `verifiedSameDifferenceIds` hides a real difference. A removal cannot produce
-    /// that failure. The sweep's only mutation is `trashItem`, a rename of a whole artifact away
-    /// from its path: it never creates, truncates, or overwrites, so it cannot touch the bytes
-    /// behind any OTHER path, and against a path it does take, the hash either fails outright
-    /// (`nil`, never counted identical) or completes against the inode it already opened — a
-    /// true statement about the bytes that were there. No sequence of removals turns a genuinely
-    /// differing pair into an "identical" verdict.
-    ///
-    /// Against `confirmVerifiedCopy`, the question is different — whether the bulk copy the user
-    /// is about to confirm could overwrite bytes some operation has changed since they were
-    /// verified — and the exemption holds there for a narrower, sharper reason: the sweep only
-    /// ever trashes `.tmp_<UUID>` staging artifacts. Those are not, and cannot be, the
-    /// `rightItemPath` of any difference in the offer: `OrphanSweeper.isTempArtifactName`
-    /// requires the `.tmp_` prefix AND a parseable UUID after it, while the offer holds only
-    /// pairs found at the same relative path under BOTH panes — so a swept artifact would have
-    /// to exist under the identical `.tmp_<UUID>` name, same UUID, on both sides at once. The
-    /// files the copy would write over are ones the sweep provably never touched, and the copy's
-    /// own sources and destinations are unaffected by anything this pass can do.
-    ///
-    /// Joining in would cost real behaviour for that non-problem. This runs at the tail of EVERY
-    /// refresh (`refreshTreesAndScan`), the same moment the checksum pass is hashing — the pass is
-    /// spawned unstructured a few lines earlier, inside the `scanDirectories` this sweep follows —
-    /// so a bump here would discard that batch on essentially every refresh that finds an orphan
-    /// on disk, and nothing pins the order of the two, so it would do so nondeterministically.
-    /// It would cost the confirm-time consumer too: a background sweep landing while the copy
-    /// dialog is up would move the epoch out from under the standing offer and refuse the user's
-    /// click, with a banner blaming a file operation that was never theirs.
-    /// Routing it through `enqueueFileOperation` is worse still: the non-zero
-    /// `activeFileOperationsCount` would bounce the user's own Verify All ("Wait for the current
-    /// operation to finish before verifying"), refuse a verified copy on the same count term,
-    /// and hold the app-level quit guard, and the queue's completion handler sends
-    /// `refreshSubject` — a whole extra double-pane walk and scan for background hygiene nobody
-    /// asked for. Pinned by
+    /// Deliberately outside `enqueueFileOperation` and doesn't bump `fileOperationsEpoch`. Safe for
+    /// the hashing passes: `trashItem` only renames an artifact away, never rewriting bytes, so no
+    /// removal turns a differing pair into "identical". Safe for `confirmVerifiedCopy`: a swept
+    /// `.tmp_<UUID>` can't be a pair in the offer, which needs the same name, UUID included, on
+    /// both sides. A bump would discard the checksum batch hashing at the same moment and refuse a
+    /// standing copy offer. Enqueueing would also block Verify All, hold the quit guard and trigger
+    /// another full refresh. Pinned by
     /// `AutoVerifyOnScanTests.testOrphanSweepDuringTheHashDoesNotDiscardTheBatch`.
     ///
-    /// - Returns: Whether the sweep was allowed to look. Removal itself is detached, so this is
-    ///   the only part of the decision a caller (or a test) can observe synchronously — without
-    ///   it, "nothing was swept" and "nothing has been swept YET" are indistinguishable, and a
-    ///   test asserting the former passes vacuously against the latter.
+    /// - Returns: Whether the sweep was allowed to look. Removal is detached, so this is the only
+    ///   part a caller or test can observe synchronously; without it "nothing swept" and "nothing
+    ///   swept yet" look the same.
     @discardableResult
     func sweepOrphanedTempArtifacts(now: Date = Date()) -> Bool {
         guard activeFileOperationsCount == 0 else {
@@ -717,8 +570,8 @@ extension FileSyncManager {
             guard removed > 0, let self else { return }
             await MainActor.run {
                 Logger.shared.debug("Swept \(removed) orphaned .tmp_ working file(s)")
-                // The swept entries are baked into the cached deep trees; drop the cache
-                // so navigation reloads from disk instead of serving ghost entries.
+                // The swept entries are in the cached trees; drop the cache so navigation
+                // doesn't serve ghost entries.
                 self.dropPrefetchedTrees()
             }
         }
@@ -729,8 +582,8 @@ extension FileSyncManager {
     /// pass as the automatic post-refresh sweep, plus a banner so the click visibly did
     /// something (the automatic pass logs quietly).
     public func sweepOrphanedTempArtifactsNow() {
-        // The automatic pass declines silently while operations are in flight; a click must say
-        // so instead, or the success banner would claim a check that never happened.
+        // The automatic pass declines silently during operations; a click must say so, or the
+        // success banner would claim a check that never happened.
         guard activeFileOperationsCount == 0 else {
             banner = .warning("Wait for the current operation to finish before checking for orphaned files")
             return
@@ -757,21 +610,18 @@ extension FileSyncManager {
         await runOrQueueScan(request)
     }
 
-    /// Runs the request now, or queues it when a scan already holds the slot (the drain at the
-    /// end of `executeScan` picks it up). Separate from `scanDirectories` so the drain can
-    /// re-enter without minting a new generation — a re-queued request must stay OLDER than any
-    /// scan that started while it waited, so the generation-gated publish still discards it.
+    /// Runs the request now, or queues it when a scan holds the slot (the drain at the end of
+    /// `executeScan` picks it up). Separate from `scanDirectories` so the drain can re-enter without
+    /// a new generation: a re-queued request must stay older than any scan started while it waited,
+    /// so the generation-gated publish still discards it.
     private func runOrQueueScan(_ request: ScanRequest) async {
         if isScanning {
             // Only ever queue forward: a drain re-queueing an older request must not clobber
             // a newer one that arrived while the drain's task was waiting to run.
             if let queued = pendingScanRequest, queued.generation > request.generation { return }
             pendingScanRequest = request
-            // Routine coalescing (the user triggered scans in quick succession, or a refresh
-            // landed mid-scan) — a diagnostic, not a warning, so it stays out of the warnings filter.
-            // Tagged like every other scan line: without the generation this said that SOMETHING
-            // was queued but not what, and the request it names is the one whose start line
-            // appears later, when the drain finally runs it.
+            // Routine coalescing, so a diagnostic, not a warning. Tagged with the generation of the
+            // request, whose start line appears later when the drain runs it.
             Logger.shared.debug("[scan] #\(request.generation) queued behind a scan already in progress")
             return
         }
@@ -780,43 +630,22 @@ extension FileSyncManager {
 
     /// Stops the running scan (and the tree loads in front of it) at the user's request.
     ///
-    /// Every lens scan has had a Cancel since it shipped — `cancelFindDuplicates`,
-    /// `cancelBuildStorageLens`, `cancelFindFilingSuggestions`, `cancelAutomationDryRun` — and the
-    /// Compare scan, which walks *two* whole trees and is the longest operation in the app, had
-    /// none. Starting one against the wrong pair of roots meant waiting it out or quitting.
+    /// A scan runs one of two ways, and both must be cancellable. Usually it is inside
+    /// `refreshTreesAndScan`'s task, behind the pane loads, so cancelling that task stops all of
+    /// it. A scan queued behind a superseded one is drained on an unstructured task
+    /// (`scanDrainTask`) after its refresh has finished, where cancelling `activeRefreshTask` does
+    /// nothing. Both are cancelled unconditionally; cancelling a finished task is a no-op.
     ///
-    /// **A scan can be reached two ways, and both have to be cancellable.** Ordinarily it runs
-    /// inside `refreshTreesAndScan`'s task, behind the two pane loads — one structured chain, so
-    /// cancelling the refresh task cancels the loads and the scan together, and cancelling only the
-    /// scan would leave the loads running. But a scan queued behind a superseded one is **drained
-    /// on an unstructured task after its refresh has already finished and released its key**
-    /// (`scanDrainTask`, at the end of `executeScan`); there, `activeRefreshTask` points at a
-    /// completed task and cancelling it does nothing at all. Both handles are cancelled
-    /// unconditionally — cancelling a finished or absent task is a no-op, so no branch has to
-    /// decide which one is live.
+    /// Liveness is `isScanning` or a live `activeRefreshKey`, never `activeRefreshTask`, which is
+    /// only ever overwritten, so a finished one lingers. The key covers the loads before a scan;
+    /// `isScanning` covers a drained scan, which has no key. The Stop shows only from
+    /// `isScanShown` on, always inside that window.
     ///
-    /// **Liveness is `isScanning` or a live `activeRefreshKey` — never `activeRefreshTask`.** That
-    /// handle is never nilled out, only overwritten, so a finished refresh leaves a completed task
-    /// sitting there and a guard on it would report a cancel long after there was anything to
-    /// cancel. The key covers the load phase in front of a scan (where `isScanning` is still
-    /// false); `isScanning` covers the drained scan (which has no key). Together they are exactly
-    /// the window in which a Stop can act. The rung only *offers* it from `isScanShown` on, so a
-    /// scan too quick to stop never flashes it; a Stop pressed while it shows always lands inside
-    /// this window.
-    ///
-    /// **The queued request has to go too.** `pendingScanRequest` holds a scan that has not started
-    /// yet; leaving it would let the drain start a *fresh* scan the instant the cancelled one
-    /// unwound, so Cancel would look like it did nothing at all.
-    ///
-    /// `activeRefreshKey` is deliberately **not** cleared here. The cancelled task's own cleanup
-    /// releases it, matched by task identity, so clearing it here would only race that. Nor does
-    /// holding it briefly swallow the retry: every user-facing rescan goes through
-    /// `forceRefreshAction`, which calls `prepareForcedRescan()` and bumps the config epoch that
-    /// `RefreshKey` carries — so a Scan pressed while the cancelled refresh is still unwinding
-    /// builds a *different* key and is not deduped away.
-    ///
-    /// `executeScan`'s publish gate already discards a cancelled scan's results and still runs its
-    /// `isScanning = false`, so nothing here has to unwind state.
+    /// The queued request goes too, or the drain would start a fresh scan the moment this one
+    /// unwound. `activeRefreshKey` is left for the cancelled task's own cleanup, which would race
+    /// a clear here. A retry isn't deduped away: user rescans go through `forceRefreshAction`,
+    /// whose `prepareForcedRescan()` bumps the config epoch in `RefreshKey`. `executeScan`'s
+    /// publish gate discards the cancelled results and still clears `isScanning`.
     public func cancelScan() {
         guard isScanning || activeRefreshKey != nil else { return }
         Logger.shared.info("[scan] cancelled by the user")
@@ -829,17 +658,16 @@ extension FileSyncManager {
         isScanning = true
         let started = Date()
         scanStartedAt = started
-        // `isScanShown` rises only if THIS scan is still the running one when the wait ends —
-        // keyed on its start time, so a wait outliving its scan cannot light up the next one early.
+        // `isScanShown` rises only if this scan is still running when the wait ends. Keyed on its
+        // start time, so a wait outliving its scan can't light up the next one early.
         scanShownTask?.cancel()
         scanShownTask = Task { [scanShownWait] in
             await scanShownWait()
             guard !Task.isCancelled, isScanning, scanStartedAt == started else { return }
             isScanShown = true
         }
-        // Same identity discipline as the load records: the scan's own request generation, so a
-        // start line pairs with its outcome even when a refresh supersedes the scan mid-flight
-        // (which publishes nothing and, before this, logged nothing at all).
+        // Tagged with the request generation, like the load lines, so a start line pairs with its
+        // outcome even when a refresh supersedes the scan mid-flight.
         let scanTag = "#\(request.generation)"
         let scanStart = Elapsed()
         Logger.shared.info("Internal scan \(scanTag) comparing \(request.left.displayName) and \(request.right.displayName)")
@@ -854,56 +682,43 @@ extension FileSyncManager {
         // Snapshot on the main actor; the compute branches below run detached.
         let dateTolerance = dateToleranceSeconds
 
-        // In-memory fast path: when both focused folders have deep trees in the prefetch
-        // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
-        // from the trees instead of re-walking both directories on disk.
+        // In-memory fast path: when both focused folders have deep trees in the prefetch cache
+        // (file operations clear it, so cached means current), derive the comparison maps from
+        // the trees instead of walking the disk. The saving is modest (~15–20% at 40k nodes),
+        // since building the `[String: FileInfo]` map dominates both branches
+        // (`TreeWalkBenchmark`).
         //
-        // It is worth less than this comment used to claim ("the scan becomes near-instant
-        // after navigation"). Measured on the two real pane roots at ~40k nodes each, building
-        // the map from the tree costs 0.78 s / 1.19 s against 0.99 s / 1.41 s for the disk walk
-        // that produces the same map — a 15–21% saving, not a different order of magnitude,
-        // because BOTH branches are dominated by building the `[String: FileInfo]` map rather
-        // than by reading directories. See `TreeWalkBenchmark`, which measures both.
-        //
-        // Both sources report symlinked entries with the
-        // TARGET's size/date; the one remaining divergence is that the tree builder walks
-        // INTO symlinked directories (as the panes display them) while the disk enumerator
-        // reports the linked directory itself but not its contents.
-        // Both compute branches run detached (so the diff never blocks the main actor) and
-        // forward this task's cancellation in explicitly, mirroring `buildTree`: detached tasks
-        // don't inherit cancellation, and a superseded scan otherwise holds `isScanning` for a
-        // full double disk walk whose results are guaranteed to be discarded.
-        /// The two things a completed compute produces, carried together so the coverage fact
-        /// lands under the SAME publish gate as the rows it describes. Hopped to the main actor on
-        /// its own — the shape the incomplete-scan warning uses — a superseded scan could overwrite
-        /// a newer scan's coverage, and the banner would then describe a comparison nobody ran.
+        // Both sources report symlinked entries with the target's size and date; but the tree
+        // builder walks into symlinked directories (as the panes show them), while the disk
+        // enumerator reports the linked directory without its contents.
+        // Both compute branches run detached, so the diff never blocks the main actor, and
+        // forward cancellation explicitly as `buildTree` does: detached tasks don't inherit it,
+        // and a superseded scan would hold `isScanning` through a walk that will be discarded.
+        /// What a completed compute produces, carried together so the coverage lands under the same
+        /// publish gate as its rows. Published separately, a superseded scan could overwrite a newer
+        /// scan's coverage, and the banner would describe a comparison nobody ran.
         struct ScanOutcome: Sendable {
             let differences: [FileDifference]
             let coverage: PartialComparison
         }
         let newDifferences: ScanOutcome?
-        // When the trees compared from the cache were read, for the publish below, which dates the
-        // comparison by its walks (`lastScanReadAt`). nil when the scan walks the disk itself.
+        // When the cached trees were read, so the publish below dates the comparison by its walks
+        // (`lastScanReadAt`). nil when the scan walks the disk itself.
         var walksReadAt: Date?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
-            // Read on the main actor with the trees, carried into the compute: whether each
-            // cached tree's walk was budget-stopped. The maps alone cannot say — the root is
-            // readable, so no `""` record exists — and without this bit a warm scan of a
-            // truncated tree published `.complete` and showed no banner, the silent floor the
-            // banner was built to end (the cold branch of the very same pair banners).
+            // Whether each cached tree's walk was budget-stopped, read on the main actor with the
+            // trees. The maps alone can't say (the root is readable, so there is no `""` record),
+            // and without it a warm scan of a truncated tree would read `.complete` with no banner.
             let leftWalkStopped = prefetchedTreeWalkStopped.contains(leftURL.path)
             let rightWalkStopped = prefetchedTreeWalkStopped.contains(rightURL.path)
-            // Read here for the same reason: the entries can be dropped while the compute runs.
-            // An entry without a stamp predates the bookkeeping, and stands for "now", as on a pane.
+            // Read here too, since the entries can be dropped while the compute runs. An entry with
+            // no stamp stands for "now", as on a pane.
             let leftReadAt = prefetchedTreeReadAt[leftURL.path]
             let rightReadAt = prefetchedTreeReadAt[rightURL.path]
             walksReadAt = [leftReadAt, rightReadAt].compactMap { $0 }.min()
-            // **Info, and with the walks' ages: which branch runs decides the answer, not only the
-            // time.** A disk walk stops at the node budget wherever it gets to and the panes' walks
-            // where they got to, so one pair has counted 19 differences cold and 75 warm. At Debug,
-            // a reader at Info could not tell which a Compare was — after a source switch least of
-            // all, where the other pane's kept walk is the warm half. A record of its own rather
-            // than a suffix on the completed line, as `[filter]`'s is.
+            // At Info, with the walks' ages: the branch can change the answer, not only the time,
+            // since a budget-stopped disk walk and a pane walk can stop in different places. Its
+            // own record, like `[filter]`'s, not a suffix on the completed line.
             let now = Date()
             Logger.shared.info("[scan] \(scanTag) compares the panes' cached walks of “\(leftURL.path)” "
                                + "(walked \(Self.ageText(since: leftReadAt, now: now))) and “\(rightURL.path)” "
@@ -911,28 +726,19 @@ extension FileSyncManager {
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
-                // This branch skips the directory ENUMERATION, and touches no disk either:
-                // `filesInfo(fromTree:)` and the diff's one-sided rows both hint each URL with the
-                // entry's type. Unhinted, a file URL resolves its path against the file system —
-                // one lookup per node, ~40k per pane here, measured at 4x the hinted form
-                // (TreeWalkBenchmark's `+ map, hinted URL` vs `+ map, unhinted URL`) — the likeliest
-                // reason this branch once varied 4x across otherwise identical runs. Split the
-                // phases so a slow run says which half moved instead of leaving it to inference.
+                // No disk at all: `filesInfo(fromTree:)` and the diff's one-sided rows hint each URL
+                // with its type. An unhinted file URL looks its path up on disk, one lookup per node
+                // and ~4x slower (`TreeWalkBenchmark`). The phases are timed apart so a slow run
+                // says which half moved.
                 let flattenStart = CFAbsoluteTimeGetCurrent()
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
                 let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
                 let flatten = Self.durationText(since: flattenStart)
-                // **Say when the comparison is partial.** A pane tree can be truncated by
-                // `paneNodeBudget`, and a diff derived from one covers only what was walked — the
-                // cold branch already warns about its own truncation, and a warm scan that stayed
-                // silent would make "no differences" mean two different things depending on cache
-                // state. Warned rather than debugged: this changes what the result MEANS.
-                //
-                // Read off the MAPS, inside this detached task, and that placement is the point.
-                // The first version walked both trees on the main actor before the hop — up to
-                // 200,000 nodes per scan, which is precisely the shape (`PaneChildrenIndex`'s note
-                // records it) that once put 16.9 s of node comparison on the main thread. These
-                // maps are already built and already carry the marking.
+                // Say when the comparison is partial. A pane tree can be cut short by
+                // `paneNodeBudget`, and the cold branch warns about its own truncation, so a silent
+                // warm scan would make "no differences" mean two things. A warning, because it
+                // changes what the result means. Read off the maps in this detached task: walking
+                // the trees on the main actor would cost up to 200k nodes per scan there.
                 for (side, info) in [("left", leftFilesInfo), ("right", rightFilesInfo)]
                 where info.values.contains(where: { $0.isDirectory && $0.isUnexplored }) {
                     Logger.shared.warning("Scan: the \(side) tree is incomplete — this comparison covers what was walked, and reports nothing under an unread folder as missing")
@@ -966,30 +772,24 @@ extension FileSyncManager {
             }
         } else {
             // The Info twin of the cached branch's line, naming the side that missed: after a
-            // source switch a miss on the pane that stayed means its walk was not kept.
+            // source switch, a miss on the pane that stayed means its walk wasn't kept.
             let missing = [prefetchedTrees[leftURL.path] == nil ? "left" : nil,
                            prefetchedTrees[rightURL.path] == nil ? "right" : nil].compactMap { $0 }
             Logger.shared.info("[scan] \(scanTag) walks “\(leftURL.path)” and “\(rightURL.path)” from disk: "
                                + "no cached walk of \(missing.count == 1 ? "the \(missing[0]) one" : "either folder")")
-            // Read here, before detaching. Read inside, it was a hop back to the main actor for a
-            // `let`, and the walk queued behind whatever the main actor was doing — usually the
-            // render of a tree just published — with the clock below not yet started.
+            // Read before detaching: inside, each would hop back to the main actor and queue the
+            // walk behind whatever it was doing, before the clock below starts.
             let fm = fileManager
             let reads = datalessFolderReads
             let walkTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 do {
-                    // The two walks are independent and FileManager is thread-safe, so run them
-                    // concurrently — serially they doubled the scan's disk phase. They are
-                    // detached too, so cancellation is forwarded into both.
-                    // Before the tasks are created, not after: a detached task starts running as
-                    // soon as it exists, so a clock started below them would already have missed
-                    // the beginning of the work it claims to measure.
+                    // The two walks are independent and FileManager is thread-safe, so they run
+                    // concurrently, detached, with cancellation forwarded into both.
+                    // The clock starts before the tasks exist, since a detached task starts at once.
                     let walkStart = Elapsed()
-                    // **`paneNodeBudget`, and sharing it is a correctness requirement.** The warm
-                    // branch above derives its maps from the cached PANE trees, which that constant
-                    // caps; two different caps would make one comparison of one folder pair answer
-                    // differently depending on nothing but cache state. Do not split them without a
-                    // better reason than tidiness — see the constant's own note.
+                    // **Must share `paneNodeBudget`** with the warm branch, which compares cached
+                    // pane trees capped by it. Two caps would make one folder pair compare
+                    // differently depending only on cache state. See the constant's note.
                     let leftWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm,
                                                                maxEntries: Self.paneNodeBudget,
@@ -1044,83 +844,62 @@ extension FileSyncManager {
         }
 
         let isLatestRequest = request.generation == scanRequestGeneration
-        // Both gate terms are load-bearing. The generation check discards a scan any newer
-        // scanDirectories call (or invalidateComparisonState) has superseded. Task.isCancelled
-        // covers a window the generation can't: a superseding refresh cancels this task first
-        // and only reaches its own scanDirectories (bumping the generation) after both pane
-        // loads finish — until then this scan is still "latest" but its results are for
-        // folders the panes are navigating away from.
+        // Both terms are needed. The generation discards a scan a newer scanDirectories (or
+        // invalidateComparisonState) superseded. Task.isCancelled covers the gap before that: a
+        // superseding refresh cancels this task first and bumps the generation only after its
+        // pane loads, while this scan's results describe folders the panes are leaving.
         if !Task.isCancelled, isLatestRequest, let outcome = newDifferences {
             let results = outcome.differences
-            // Published with the rows, so the banner and the count can never describe two
-            // different scans.
+            // Published with the rows, so the banner and the count always describe one scan.
             self.lastScanCoverage = outcome.coverage
             self.rawDifferences = results
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
-            // **Dated by what it compared, not by when it ran.** From cached trees the comparison is
-            // as old as the older walk — after a source switch, the other pane's kept walk, which
-            // can be hours old — and a pill saying "just now" over it would withhold the hour-old
-            // warning exactly where it applies. Walked from disk, the two dates agree.
+            // Dated by what it compared, not when it ran. From cached trees the comparison is as old
+            // as the older walk, which can be hours old after a source switch, and "just now" would
+            // hide that. Walked from disk, the two dates agree.
             let completedAt = Date()
             let readAt = walksReadAt.map { min($0, completedAt) } ?? completedAt
             self.lastScanReadAt = readAt
             self.lastScanDate = completedAt
             self.verifiedSameDifferenceIds.removeAll()
-            // A fresh scan regenerates every row id, so a kept failure set would match nothing —
-            // harmless, but it would leave the Failed filter in the menu with a count of zero and
-            // the user selected into an empty list. Same reasoning as the line above.
+            // A fresh scan regenerates every row id, so a kept failure set would match nothing and
+            // leave the Failed filter at zero, selected into an empty list.
             self.lastTransferFailures = nil
-            // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"
-            // offer built from the previous scan now references superseded differences — drop it
-            // (same reason swapPanes clears it), so confirming can't bulk-copy stale pairs.
+            // A "copy verified-identical left→right" offer from the previous scan references
+            // superseded rows; drop it (as swapPanes does) so confirming can't copy stale pairs.
             self.verifiedIdenticalForCopy = nil
             await self.applyFilters()
-            // The compared folders' names, captured with the results they describe — the Path
-            // column must keep naming the scanned roots even if the panes navigate on. Set AFTER
-            // the filter pass on purpose: the pass suspends on a detached compute while the
-            // PREVIOUS scan's rows are still published (they stay visible through navigation by
-            // design), and the `lastScanDate` write above re-renders the view — assigning the
-            // new names before the pass would label those old rows with the new scan's anchor
-            // for the pass's whole duration. `applyFilters` publishes the rows synchronously
-            // before returning, so this write shares its main-actor slot with them: no render
-            // can interleave and pair new rows with old names either.
+            // The compared folders' names, so the Path column keeps naming the scanned roots if the
+            // panes navigate on. Set after the filter pass on purpose: the pass suspends while the
+            // previous rows are still published, and names set before it would label those old
+            // rows. `applyFilters` publishes synchronously before returning, so no render can pair
+            // new rows with old names either.
             self.lastScanRootNames = (leftURL.lastPathComponent, rightURL.lastPathComponent)
             hasScanned = true
-            // Recorded from THIS request's own paths, not from the panes: the panes can have
-            // navigated on while the scan ran (that is why `lastScanRootNames` is set from the
-            // request too), and a summary stamped with where the panes ended up would claim a
-            // count for folders that were never compared.
-            //
-            // `results.count`, the unfiltered scan output, not `differences.count`: the published
-            // list is `rawDifferences` minus the hidden/ignored filter, and it keeps moving after
-            // the scan — toggling ⇧⌘. or ignoring a row would leave the summary disagreeing with a
-            // number it was never measuring.
+            // Recorded from this request's paths, not the panes', which may have navigated on
+            // during the scan. `results.count` is the unfiltered output, not `differences.count`,
+            // which moves with the hidden/ignored filter after the scan.
             recordLastScanSummary(LastScanSummary(
-                // The comparison's age, for the same reason the pill shows it: the card's "Last
-                // scanned 3 days ago" is a claim about the folders, not about the scan.
+                // The comparison's age, as on the pill: "Last scanned 3 days ago" is a claim about
+                // the folders, not the scan.
                 date: readAt,
                 differenceCount: results.count,
                 leftProviderID: request.left.id,
-                // The request's own path, tilde-expanded — the same expression the pane's
-                // `PaneLogic.fullPath` produces — rather than `leftURL.path`, which is that string
-                // after `URL`'s normalization. `describes` trims trailing separators anyway, so
-                // this is belt and braces; it is written this way so the two sides START equal
-                // rather than relying on the trim to reconcile them.
+                // The request's path, tilde-expanded, as `PaneLogic.fullPath` produces it, rather
+                // than `leftURL.path` after `URL` normalization, so the two sides start equal
+                // without relying on `describes` trimming separators.
                 leftPath: (request.leftPath as NSString).expandingTildeInPath,
                 rightProviderID: request.right.id,
                 rightPath: (request.rightPath as NSString).expandingTildeInPath
             ))
 
-            // `.info`, matching the start line above rather than the `.debug` this used to be.
-            // A start and an outcome at different levels is the unpairable state this whole
-            // change set exists to remove, just triggered by a setting instead of by omission:
-            // at `minimumLevel == .info` every scan would log that it began and none that it
-            // ended. The two lines are one record and must live or die together.
+            // `.info`, matching the start line: at different levels, an Info log would show scans
+            // starting and never ending.
             Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(scanStart.text)")
-            // Its own record rather than a suffix on the line above, which is half of a
-            // started/completed pair and stays readable as one. `[filter]` so it greps on its own.
+            // Its own record, so the line above stays half of a started/completed pair. `[filter]`
+            // so it greps on its own.
             Logger.shared.info("[filter] \(filterGateSummary(rawDifferenceCount: results.count))")
 
             if autoVerifySameSizeDuringScan {
@@ -1129,9 +908,7 @@ extension FileSyncManager {
                 Task { await self.autoVerifySameSizePairs(scanGeneration: request.generation) }
             }
         } else {
-            // The discarded case, which used to leave the log with a scan that started and never
-            // said anything again — indistinguishable from one still running, and the reason the
-            // "Internal scan" lines outnumbered the "Scan completed" ones.
+            // A discarded scan logs too, or it would look like one still running.
             Logger.shared.info(
                 "[scan] \(scanTag) discarded after \(scanStart.text)"
                 + " (\(Task.isCancelled ? "cancelled" : isLatestRequest ? "no result" : "superseded by #\(scanRequestGeneration)"))")
@@ -1146,18 +923,13 @@ extension FileSyncManager {
         if let pending = pendingScanRequest {
             pendingScanRequest = nil
             if pending.generation > request.generation {
-                // Drain on a fresh unstructured task, never on this one: the only production
-                // path that queues a request is a superseding refresh that has already
-                // cancelled THIS scan's task before queueing. Draining inline would make the
-                // pending scan's publish gate see that inherited cancellation and silently
-                // discard its fresh results (the Differences list stuck on the previous
-                // folder). Re-enters through runOrQueueScan so a scan that claims the slot
-                // in the meantime re-queues it instead of two scans running at once.
+                // Drain on a fresh unstructured task, never this one: a request is queued only by
+                // a superseding refresh that already cancelled this task, so draining inline would
+                // inherit that cancellation and discard the fresh results. Re-enters through
+                // runOrQueueScan, so a scan that took the slot meanwhile re-queues it.
                 //
-                // HELD, because this is the one scan that runs outside a refresh task: the refresh
-                // that queued it has already finished and released its key, so `cancelScan` has
-                // no other way to reach it — and the Stop button, which shows for as long as
-                // `isScanning`, would be a dead control for this whole scan.
+                // Held, because this scan runs outside any refresh task, and `cancelScan` (the Stop
+                // button) has no other way to reach it.
                 scanDrainTask = Task { await self.runOrQueueScan(pending) }
             }
         }
@@ -1165,50 +937,34 @@ extension FileSyncManager {
     
     // MARK: - Internal Engine Operations
     
-    /// **The pane's deep walk stops here**, and every directory past it is marked unexplored —
-    /// present, expandable, and loaded by `PaneColumnsView` the moment a column opens it.
+    /// Where a pane's deep walk stops; every directory past it is marked unexplored, still
+    /// expandable, and loaded by `PaneColumnsView` when a column opens it.
     ///
-    /// A pane is the one `buildTree` caller that can be pointed at an arbitrary folder by a single
-    /// click, so it is the one that needs a ceiling. The number is chosen against measurement, not
-    /// taste: the largest real source here walks ~40k nodes in ~700 ms (`TreeWalkBenchmark`,
-    /// Release), so this is **5x the largest tree that works today** — every source that loads
-    /// fully now still loads fully, and the budget only ever bites a tree that was going to hang.
+    /// A pane can be pointed at any folder in one click, so it needs a ceiling. The largest real
+    /// source walks ~40k nodes in ~700 ms (`TreeWalkBenchmark`), so this is 5x that: only a tree
+    /// that would hang is cut. On `~` it costs ~1.3 s warm, where an unbounded walk ran for
+    /// minutes (`PaneNodeBudgetBenchmark`). Exhaustion is checked before a listing, so a spent
+    /// budget stops the next descent, not the current level.
     ///
-    /// The cap on `~` costs **1.31 s** warm for 200,399 nodes, 3,534 of them left unexplored
-    /// (`PaneNodeBudgetBenchmark`, Release, 2026-08-24) — against an unbounded walk of the same
-    /// tree that had not finished in ten minutes. The overshoot is 399 nodes, 0.2%: exhaustion is
-    /// checked before a listing, so a spent budget stops the next descent rather than the current
-    /// level.
+    /// **The comparison scan's cold branch must use the same number.** Its warm branch compares
+    /// the cached pane trees this caps; two caps would make one folder pair compare differently
+    /// depending only on cache state.
     ///
-    /// **The comparison scan's cold branch uses this same number**, and that is a correctness
-    /// requirement rather than reuse for tidiness. The scan has two branches: warm, deriving its
-    /// maps from the cached pane trees — which this caps — and cold, walking the disk through
-    /// `FileDiffEngine.getFilesInDirectory`. Two different caps would make one comparison of one
-    /// pair of folders return two different answers depending on nothing but cache state, which is
-    /// the least debuggable kind of wrong. Split them only with a reason better than that.
-    ///
-    /// **What this is still not:** a bound for the storage lens or the Organize passes, which walk
-    /// unbounded *by necessity* — they total sizes and group duplicates, where a truncated tree is
-    /// a wrong ANSWER rather than a partial view, so a budget is the wrong instrument entirely.
+    /// Not a bound for the storage lens or the Organize passes: they total sizes and group
+    /// duplicates, where a truncated tree is a wrong answer, not a partial view.
     nonisolated static let paneNodeBudget = 200_000
 
     /// The directory a pane's load actually walks: its root, focused down to its relative path.
     ///
-    /// **`PathBoundary.join`, not lexical composition**, and that is the whole content of this
-    /// function — a focus on a folder the root only LINKS to must walk where that folder really
-    /// is. Composed lexically this returned `<iCloud Drive>/Documents`, and the walk then named
-    /// every node below it the link way (`…/com~apple~CloudDocs/Documents/Home`), because the
-    /// linked-folder substitution in `childURLs(of:)` fires at the CONTAINER's listing and a walk
-    /// starting below it never sees that listing. Nothing else in the app spells a path that way:
-    /// the pane's own `currentPath` goes through `join` and comes back `~/Documents`. So
-    /// `PaneChildrenIndex` was keyed one way and asked the other — the root column survived on
-    /// `treeRoot`'s own key, and every column past it asked for a path the index had never heard
-    /// of and drew "Empty" over a folder full of files (measured against `~/Documents/Home`,
-    /// 15 children, 2026-09-08).
+    /// `PathBoundary.join`, not lexical composition: a focus on a folder the root only links to
+    /// must walk where that folder really is. Composed lexically (`<iCloud Drive>/Documents`), the
+    /// walk would never see the container listing where `childURLs(of:)` substitutes the link, so
+    /// it would spell every node the link way, while the pane's `currentPath` (also via `join`)
+    /// spells them `~/Documents/…`. `PaneChildrenIndex` would miss, and columns past the root
+    /// would show "Empty" over full folders.
     ///
-    /// `fallback` covers the empty root `join` answers `""` for — a provider dropped from settings
-    /// while its stale tree is still on screen — so this composes exactly what the lexical version
-    /// did for every root the link table does not name.
+    /// `fallback` covers the `""` that `join` answers for an empty root (a provider removed from
+    /// settings while its tree is still on screen).
     nonisolated static func focusURL(root: String, relative: String, fallback: URL,
                                      links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> URL {
         let focused = PathBoundary.join(root: root, relative: relative, links: links)
@@ -1220,47 +976,31 @@ extension FileSyncManager {
     /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —
     /// that is what makes the `Task.isCancelled` checks inside `buildNode` effective.
     ///
-    /// `maxDepth` caps the walk (1 = immediate children only) for the progressive first paint;
-    /// capped directories come back with `children: []` and `isUnexplored: true` — present and
-    /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
-    /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
-    /// A root that cannot be LISTED at all (permission denied) comes back as `[root node]`
-    /// marked unexplored — never a bare `[]`, which would read as authoritatively empty.
+    /// `maxDepth` caps the walk (1 = immediate children) for the progressive first paint; capped
+    /// directories come back with `children: []` and `isUnexplored: true`, never mistakable for an
+    /// empty folder. nil means unlimited, apart from the cycle guard and hard depth cap, which mark
+    /// the same way. A root that can't be listed comes back as `[root node]` marked unexplored,
+    /// never a bare `[]`, which would read as truly empty.
     ///
-    /// `budget` caps the walk by SIZE rather than by shape, and directories past it are marked
-    /// the same way again. It exists because `maxDepth` and `hardDepthCap` are both guards against
-    /// a tree that is *deep*, and the tree that actually hangs the app is one that is *wide*: the
-    /// home folder measures 196,726 directories (93.5k of them under `~/Library` alone) against
-    /// ~40k nodes for the largest real cloud source, and `/` is worse. Nothing bounded that until
-    /// the sidebar's Locations section put both one click away. Opt-in per call, and deliberately
-    /// so — a whole-tree analysis (duplicates, the storage lens, the filing taxonomy) must stay
-    /// unbounded, because there a partial tree is a wrong ANSWER rather than a partial display.
+    /// `budget` caps the walk by size, marking the same way. Depth caps guard deep trees, but the
+    /// tree that hangs the app is wide: the home folder holds ~200k directories against ~40k nodes
+    /// for the largest cloud source, and the sidebar puts it one click away. Opt-in: whole-tree
+    /// analyses (duplicates, the storage lens, the filing taxonomy) must stay unbounded, since a
+    /// partial tree there is a wrong answer.
     ///
-    /// On the real filesystem an unlimited walk fans sibling directory subtrees out across
-    /// cores at the first two levels that have siblings (`TreeBuilder.maxFanLevel`, bounded
-    /// by `maxConcurrentSubtrees`), and Finder tags are fetched only when sorting by them.
-    ///
-    /// This used to claim the two were "together roughly an order of magnitude faster on large
-    /// directories". Measured (`TreeWalkBenchmark`, Release, the two real ~40k-node pane roots):
-    /// the fan-out is worth **~1.15-1.25x**, not 10x — this walk lands at 690-740 ms against
-    /// 770-910 ms for a single-threaded listing+stat of the same tree, so it does strictly more
-    /// work slightly faster and no more. The reason is that the walk is bounded by the directory
-    /// ENUMERATION (a listing alone costs 690-830 ms of it), which is one volume's syscalls and
-    /// does not divide across cores. The tags saving is the larger of the two and is measured at
-    /// the declaration of `includeTags` below.
-    ///
-    /// Kept anyway: 1.2x on the pane's slowest phase is worth having, and none of it is on the
-    /// main actor. But do not reach for more parallelism here expecting the missing 10x — it was
-    /// never there, and the enumeration is the floor.
+    /// On the real filesystem an unlimited walk fans sibling subtrees across cores at the first two
+    /// levels with siblings (`TreeBuilder.maxFanLevel`, bounded by `maxConcurrentSubtrees`), and
+    /// fetches Finder tags only when sorting by them. The fan-out is worth only ~1.2x
+    /// (`TreeWalkBenchmark`): the walk is bound by directory enumeration, one volume's syscalls,
+    /// which don't divide across cores. Don't expect more from more parallelism.
     /// - Parameter linkedFolders: the folders macOS links into a root from outside it, listed as
-    ///   the real folders they point at — see `PathBoundary.LinkedFolders`. The machine's own
-    ///   table by default; a fixture passes its own.
+    ///   the real folders they point at (`PathBoundary.LinkedFolders`). The machine's table by
+    ///   default; a fixture passes its own.
     /// - Parameter followedLinks: where to record the folder symlinks this walk lists outside its
-    ///   root — see `FollowedLinks`. A pane load and a column's graft pass one, because the cache
-    ///   entry and the pane carry the answer; every other walk passes none and pays nothing for it.
-    /// - Parameter datalessReads: where a folder whose contents are not on this Mac is read — off the
-    ///   cooperative pool and for at most its deadline, after which it comes back unexplored; see
-    ///   `DatalessFolderReads`. The app's shared one by default; a pane load passes its manager's.
+    ///   root (`FollowedLinks`). A pane load and a column graft pass one; other walks pass none.
+    /// - Parameter datalessReads: where a folder whose contents aren't on this Mac is read, off the
+    ///   cooperative pool and for at most its deadline, after which it comes back unexplored
+    ///   (`DatalessFolderReads`). The shared one by default; a pane load passes its manager's.
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders, followedLinks: FollowedLinks? = nil, datalessReads: DatalessFolderReads = .shared) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
@@ -1268,19 +1008,10 @@ extension FileSyncManager {
                 let sortOption: SortOption
                 let maxDepth: Int?
                 /// Reading Finder tags is a separate xattr fetch per file, so tags are fetched
-                /// only when the sort actually reads them. Switching to the Tags sort reloads
-                /// the trees from disk (see `sortOption.didSet`) rather than re-sorting nodes
-                /// whose `tags` were never populated.
-                ///
-                /// The cost this avoids was recorded here as "~4x the cost of everything else in
-                /// the walk combined". Measured (`TreeWalkBenchmark`, Release, the real pane
-                /// roots, all four figures from ONE quiet run — the tags/name ratio is stable but
-                /// the absolute numbers move with machine load, so mixing runs would invent a
-                /// margin): the same walk is 690 ms / 730 ms sorting by name and 1,520 ms /
-                /// 1,600 ms sorting by tags, so the xattr fetch costs about **1.2x** the rest of
-                /// the walk — it roughly DOUBLES it rather than quintupling it. Still the biggest
-                /// single saving in the walk, and still worth gating; just not by the margin the
-                /// comment claimed.
+                /// only when the sort reads them. Switching to the Tags sort reloads the trees
+                /// from disk (`sortOption.didSet`) rather than re-sorting nodes with no `tags`.
+                /// The fetch roughly doubles the walk (`TreeWalkBenchmark`), the biggest single
+                /// saving in it.
                 let includeTags: Bool
                 /// Keys prefetched when listing a directory so each child's resourceValues in
                 /// buildNode is a cache hit rather than a separate stat.
@@ -1289,10 +1020,9 @@ extension FileSyncManager {
                 /// Metadata re-fetched from a symlink's target (type keys stay on the link).
                 let symlinkTargetKeySet: Set<URLResourceKey>
 
-                /// Once-per-scan logging for unreadable (permission-denied) directories. A shared
-                /// reference across the fan-out's branch copies of the (value-type) builder; the
-                /// lock makes the "log only the first" decision race-free. Per-directory logging
-                /// would spam a scan of a subtree with thousands of denied entries.
+                /// Logs only the first unreadable (permission-denied) directory per scan, since a
+                /// subtree can hold thousands. A reference shared by the fan-out's copies of the
+                /// value-type builder; the lock makes "only the first" race-free.
                 final class UnreadableListingLog: @unchecked Sendable {
                     private let lock = NSLock()
                     private var logged = false
@@ -1311,31 +1041,24 @@ extension FileSyncManager {
                 let budget: FileSyncManager.NodeBudget?
                 /// See `buildTree(url:…linkedFolders:)`.
                 let linkedFolders: PathBoundary.LinkedFolders
-                /// **Linked-folder targets that this walk ALSO reaches directly** — normalized.
+                /// Linked-folder targets this walk also reaches directly, normalized.
                 ///
-                /// A folder linked in from outside is substituted for the real folder it points at
-                /// (`childURLs`), so when the real folder is *itself* under the walk root it is
-                /// reached twice, with one id. Which of the two happens depends entirely on the
-                /// root: walk `~` and `~/Documents` is inside it, so both routes exist; walk the
-                /// iCloud container and `~/Documents` is outside it, so the link is the ONLY route
-                /// and marking it would lose 11 GB from that source's totals. Deciding it here,
-                /// once per walk from the root, is the whole rule.
+                /// A linked folder is substituted by the real folder it points at (`childURLs`), so
+                /// a real folder under the walk root is reached twice, with one id. It depends on
+                /// the root: under `~`, `~/Documents` has both routes; under the iCloud container
+                /// the link is the only route, and marking it would drop that folder from the
+                /// source's totals. So it is decided once per walk, from the root.
                 let coveredTargets: Set<String>
 
                 /// `nil` for every walk nobody asked; see `buildTree(url:…followedLinks:)`.
                 let followedLinks: FileSyncManager.FollowedLinks?
-                /// The root in both of its spellings — as handed over, and as
-                /// `resolvingSymlinksInPath` spells it. A followed link whose target lies under
-                /// either is one this walk already lists under its root, and is not recorded.
-                /// Empty when there is no `followedLinks`, so a walk nobody asked resolves nothing.
+                /// The root in both spellings: as handed over, and as `resolvingSymlinksInPath`
+                /// spells it. A followed link whose target lies under either is already listed under
+                /// the root and isn't recorded. Empty without `followedLinks`, so nothing resolves.
                 let rootSpellings: [String]
-                /// Where the root itself resolves, when that is somewhere else — a pane on a link,
-                /// or focused below one, whose listing reads that folder from its first level down.
-                /// `nil` when the root resolves to itself.
-                ///
-                /// **`/private` is not a link.** The resolver takes it off a temp root's spelling
-                /// with no link involved (`/private/var/…` → `/var/…`), so that alias alone is not
-                /// recorded: it would name the root, which a write under it matches already.
+                /// Where the root itself resolves when that is somewhere else (a pane on a link, or
+                /// focused below one); `nil` when it resolves to itself. The `/private` alias alone
+                /// (`/private/var/…` → `/var/…`) isn't a link and isn't recorded: it names the root.
                 let rootLinkTarget: String?
                 /// See `buildTree(url:…datalessReads:)`.
                 let datalessReads: FileSyncManager.DatalessFolderReads
@@ -1385,25 +1108,21 @@ extension FileSyncManager {
                 /// `children: []`, same as the shallow-pass cap.
                 static let hardDepthCap = 64
 
-                /// Sibling DIRECTORY subtrees fan out across cores at the first two levels
-                /// that actually have siblings (each subtree recursing sequentially below the
-                /// horizon); more fan-out just adds task overhead. Counted in WIDE levels, not
-                /// raw depth: a level with a single entry doesn't advance the fan level, so a
-                /// pane root holding one big folder — a common cloud-storage layout — still
-                /// parallelizes at the first level inside it.
+                /// Sibling directory subtrees fan out across cores at the first two levels that
+                /// have siblings, each recursing sequentially below; more only adds task overhead.
+                /// A single-entry level doesn't count, so a root holding one big folder (a common
+                /// cloud layout) still parallelizes inside it.
                 static let maxFanLevel = 2
 
-                /// At most this many subtree tasks live per fan-out group. Each task blocks a
-                /// cooperative-pool thread in synchronous filesystem calls, so leaving
-                /// headroom keeps one slow volume from pinning the whole width-limited pool
-                /// (and starving the other pane's walk and every other detached task); it
-                /// also caps how many pending child tasks a huge level allocates at once.
+                /// At most this many subtree tasks per fan-out group. Each blocks a cooperative-pool
+                /// thread in synchronous filesystem calls, so the headroom keeps one slow volume
+                /// from pinning the whole pool and starving the other pane's walk. It also caps the
+                /// pending child tasks a huge level allocates.
                 static let maxConcurrentSubtrees = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
 
-                /// What `directoryIdentity(of:)` returns — Hashable for the cycle-guard set and
-                /// Sendable so ancestor-chain snapshots can cross into the fan-out's child
-                /// tasks. The wrapped identifiers are immutable Foundation value objects
-                /// (NSNumber/NSData), safe to share across tasks.
+                /// What `directoryIdentity(of:)` returns: Hashable for the cycle-guard set, Sendable
+                /// so ancestor snapshots can cross into the fan-out's child tasks. The wrapped
+                /// identifiers are immutable NSNumber/NSData, safe to share.
                 enum DirectoryIdentity: Hashable, @unchecked Sendable {
                     case fileResource(volume: NSObject, file: NSObject)
                     case path(String)
@@ -1415,27 +1134,13 @@ extension FileSyncManager {
                 /// resourceValues would hit the real disk — fall back to the resolved path,
                 /// which is exact for mock disks (they contain no symlinks).
                 ///
-                /// - Parameter isSymbolicLink: whether `dirURL`'s **last component** is itself a
-                ///   link. Only then is the path resolved, and the distinction is exact rather
-                ///   than an approximation:
-                ///
-                ///   * `resourceValues` reports the LINK's own identity for a symlink, not its
-                ///     target's — measured, and it is why the resolve cannot simply be deleted.
-                ///     A cycle is always reached through a link, so that case must still resolve
-                ///     or the guard stops working entirely.
-                ///   * A directory whose last component is NOT a link reports its target identity
-                ///     with or without the resolve, **including when a symlinked ancestor is on
-                ///     the path** — the kernel resolves intermediate components during the walk.
-                ///     Also measured, and it is what makes skipping safe for the overwhelming
-                ///     majority: the identity that lands in `visited` is the same value either way.
-                ///
-                ///   The walk already knows this per node (`ItemStat.isSymlink`, from the
-                ///   prefetched `.isSymbolicLinkKey`), so it costs nothing to ask. It defaults to
-                ///   `true` — resolve — so a caller that cannot answer keeps the old behaviour.
-                ///
-                ///   Worth ~5.4µs of the ~10.8µs each directory used to pay here, measured over
-                ///   5,063 real directories; `resolvingSymlinksInPath` is a full path walk, while
-                ///   the identity fetch that remains is about 1µs warm.
+                /// - Parameter isSymbolicLink: whether `dirURL`'s last component is itself a link.
+                ///   Only then is the path resolved. `resourceValues` reports a symlink's own
+                ///   identity, not its target's, and cycles always pass through a link, so that
+                ///   case must resolve or the guard fails. Any other directory reports its target
+                ///   identity either way, even below a symlinked ancestor, since the kernel resolves
+                ///   intermediate components. The walk knows this per node (`ItemStat.isSymlink`);
+                ///   skipping the resolve halves the per-directory cost. Defaults to `true`.
                 func directoryIdentity(of dirURL: URL, isSymbolicLink: Bool = true) -> DirectoryIdentity {
                     if fileManager is FileManager {
                         let target = isSymbolicLink ? dirURL.resolvingSymlinksInPath() : dirURL
@@ -1445,23 +1150,18 @@ extension FileSyncManager {
                             return .fileResource(volume: volume, file: file)
                         }
                     }
-                    // The mock fallback resolves UNCONDITIONALLY, unlike the branch above, and the
-                    // asymmetry is deliberate. A `.path` identity is a string, so a Set holding
-                    // both resolved and unresolved spellings of one directory would not recognize
-                    // its own ancestor — and on this platform that is not hypothetical: a temp root
-                    // under `/var/folders/…` resolves to `/private/var/folders/…`, so the two
-                    // spellings differ for exactly the paths tests use. The inode branch above has
-                    // no such hazard, which is why only it is allowed to skip.
+                    // The mock fallback always resolves, unlike the branch above. A `.path` identity
+                    // is a string, and a set holding two spellings of one directory wouldn't
+                    // recognize its own ancestor; a temp root under `/var/folders/…` resolves to
+                    // `/private/var/folders/…`, exactly the paths tests use.
                     return .path(dirURL.resolvingSymlinksInPath().standardizedFileURL.path)
                 }
 
                 /// Records a folder symlink this walk is about to list, unless its root already
-                /// covers where it leads. Called only for a directory whose LAST component is a
-                /// link (`ItemStat.isSymlink`), and only once its listing has succeeded — a link the
-                /// depth cap, the cycle guard or the budget stopped at lists nothing of its
-                /// target's, so no write there can make this tree stale. Nested links are each
-                /// recorded where the walk meets them; a link the table substitutes never reaches
-                /// here, because the walk lists its real folder instead (`childURLs`).
+                /// covers where it leads. Only for a directory whose last component is a link
+                /// (`ItemStat.isSymlink`), once its listing succeeded: a link a cap or the budget
+                /// stopped at lists nothing, so no write there can stale this tree. Nested links are
+                /// each recorded where met; a substituted link never gets here (`childURLs`).
                 func noteFollowedLink(_ dirURL: URL) {
                     guard let followedLinks else { return }
                     let target = dirURL.resolvingSymlinksInPath().path
@@ -1470,38 +1170,32 @@ extension FileSyncManager {
                     followedLinks.note(target)
                 }
 
-                /// Immediate children of a directory. For the real filesystem this batch-prefetches
-                /// child metadata in a single call; for injected mocks it reconstructs child URLs from
-                /// the enumerator names exactly as before.
+                /// Immediate children of a directory. On the real filesystem this prefetches child
+                /// metadata in one call; for injected mocks it builds child URLs from the
+                /// enumerator names.
                 ///
-                /// `listingFailed` is true when the directory could not be LISTED at all (permission
-                /// denied, I/O error) as opposed to being legitimately empty. Both used to come back
-                /// as a bare `[]`, so a permission-denied directory cached as a plain empty node and
-                /// the diff minted phantom actionable "Missing" rows for its (invisible) contents.
+                /// `listingFailed` means the directory couldn't be listed at all (permission denied,
+                /// I/O error), as opposed to empty. Treated as empty, the diff would report phantom
+                /// "Missing" rows for its unseen contents.
                 ///
-                /// `unanswered` is the one failure that is not the folder's own: its contents are
-                /// with a cloud provider that did not hand them over in time (`DatalessFolderReads`).
-                /// It always comes with `listingFailed`, and only says which sentence the log owes.
+                /// `unanswered` is the one failure that isn't the folder's own: a cloud provider
+                /// didn't hand over its contents in time (`DatalessFolderReads`). It always comes
+                /// with `listingFailed` and only picks the log sentence.
                 func childURLs(of dirURL: URL) async -> (urls: [URL], listingFailed: Bool, unanswered: Bool, coveredElsewhere: Set<String>) {
                     let listing = await rawChildURLs(of: dirURL)
                     guard !listing.unanswered else { return ([], true, true, []) }
-                    // **A folder linked into this directory from outside is listed as the folder
-                    // it points at**, not as the link. iCloud Drive's container holds `Desktop`
-                    // and `Documents` as hidden symlinks to `~/Desktop` and `~/Documents`; walked
-                    // as links, every node under them would carry the link-side spelling, which
-                    // no stored absolute path in this app uses, and `enumerator(at:)` refuses to
-                    // traverse a URL whose LAST component is the link (measured — zero entries).
-                    // Substituted here, at the one listing, so `stat` sees a real directory, the
-                    // node's id is the real path, and the walk below it is the walk it always was.
-                    // A table that names nothing for this directory — every directory but one —
-                    // costs one dictionary lookup.
+                    // A folder linked into this directory from outside is listed as the folder it
+                    // points at, not as the link. iCloud Drive's container holds `Desktop` and
+                    // `Documents` as hidden symlinks to `~/Desktop` and `~/Documents`; walked as
+                    // links, every node would carry a spelling no stored path uses, and
+                    // `enumerator(at:)` lists nothing through a URL whose last component is a link.
+                    // Substituted here, so `stat` sees a real directory and ids are real paths. For
+                    // every other directory this is one dictionary lookup.
                     let table = PathBoundary.linkedFolders(atRoot: dirURL.path, in: linkedFolders)
                     guard !table.isEmpty else { return (listing.urls, listing.listingFailed, false, []) }
-                    // **Which substitutions land on a folder this walk also reaches directly.**
-                    // Reported rather than acted on here: the substitution itself must still
-                    // happen (the panes browse the real folder at that spot, and every stored path
-                    // is spelled the real way), so the duplication is marked on the NODE and left
-                    // for the consumers that add the tree up. See `FileNode.isCoveredElsewhere`.
+                    // Which substitutions land on a folder this walk also reaches directly. Only
+                    // reported: the substitution must still happen, so the duplicate is marked on
+                    // the node for consumers that add the tree up (`FileNode.isCoveredElsewhere`).
                     var covered: Set<String> = []
                     let urls = listing.urls.map { child -> URL in
                         guard let target = table[child.lastPathComponent] else { return child }
@@ -1513,13 +1207,12 @@ extension FileSyncManager {
                     return (urls, listing.listingFailed, false, covered)
                 }
 
-                /// `childURLs(of:)` before the linked-folder substitution — the listing as the
+                /// `childURLs(of:)` before the linked-folder substitution: the listing as the
                 /// directory holds it.
                 ///
-                /// **A folder whose contents are not on this Mac is listed off the cooperative pool,
-                /// and for at most the reads' deadline** (`DatalessFolderReads`, which says why).
-                /// Every other folder is listed right here, exactly as before: a materialized folder
-                /// never asks its provider, so the hop would buy nothing. The test costs one `stat`.
+                /// A folder whose contents aren't on this Mac is listed off the cooperative pool,
+                /// for at most the reads' deadline (`DatalessFolderReads` says why). Any other
+                /// folder is listed here, since it never asks its provider. The test costs a `stat`.
                 func rawChildURLs(of dirURL: URL) async -> (urls: [URL], listingFailed: Bool, unanswered: Bool) {
                     guard fileManager.isDataless(at: dirURL) else {
                         let listing = listNow(dirURL)
@@ -1536,9 +1229,9 @@ extension FileSyncManager {
                 func listNow(_ dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
                     if let realFm = fileManager as? FileManager {
                         // Fast path: one call prefetches every child's metadata so buildNode's
-                        // resourceValues are cache hits. The URL-based API does not traverse a
+                        // resourceValues are cache hits. The URL-based API doesn't traverse a
                         // symlinked directory, so fall back to the path-based listing (which follows
-                        // symlinks, as the tree always has) when it yields nothing.
+                        // symlinks) when it yields nothing.
                         if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys, options: []) {
                             if !prefetched.isEmpty {
                                 return (prefetched, false)
@@ -1560,19 +1253,14 @@ extension FileSyncManager {
                             return ([], true)
                         }
                     } else {
-                        // Injected `FileManaging`. This branch used to raise `listingFailed` only
-                        // on a nil enumerator, which never happens — so an unlistable directory
-                        // came back `([], false)`, meaning "listed, and empty", and the walk cached
-                        // it as an authoritatively empty folder. That is the opposite of what the
-                        // real-filesystem branch above decides for the same directory, where
-                        // `contentsOfDirectory` throws and the failure is reported honestly. This
-                        // makes the two branches agree.
-                        // Never asking through the reads: `rawChildURLs` already has, for a dataless
-                        // folder, and this is then the read's own body — asking again would join it.
+                        // Injected `FileManaging`: an unlistable directory must report
+                        // `listingFailed`, as the real-filesystem branch does, never `([], false)`,
+                        // which would cache it as empty.
+                        // Not through the reads: for a dataless folder `rawChildURLs` already asked,
+                        // and this is the read's own body, so asking again would join it.
                         let listing = fileManager.listingForARead(of: dirURL)
-                        // Switched rather than compared with `!=`: `DirectoryListingOutcome`
-                        // promises its callers handle every case, which is what makes a fourth
-                        // case a compile error here instead of one silently absorbed into "fine".
+                        // Switched, not compared with `!=`, so a new `DirectoryListingOutcome` case
+                        // is a compile error here rather than silently treated as fine.
                         switch listing.outcome {
                         case .unreadable:
                             return ([], true)
@@ -1606,16 +1294,14 @@ extension FileSyncManager {
                         s.kind = rv.typeIdentifier
                         if rv.isSymbolicLink == true {
                             s.isSymlink = true
-                            // resourceValues reports on the link itself, not its target. Preserve the
-                            // prior fileExists behavior for symlinks: resolve to the target so linked
-                            // directories still recurse and broken links are still dropped.
+                            // resourceValues reports on the link itself, not its target. Resolve via
+                            // fileExists so linked directories recurse and broken links are dropped.
                             var isDir: ObjCBool = false
                             guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
                             s.isDirectory = isDir.boolValue
-                            // Metadata must be the TARGET's too: the link's own size/mtime are
-                            // meaningless for diffing, and the disk-walk scan reports the target —
-                            // carrying the link's stat here made the same file classify differently
-                            // depending on which scan branch ran.
+                            // Metadata must be the target's too: the link's own size and date mean
+                            // nothing for diffing, and the disk-walk scan reports the target, so the
+                            // same file must classify the same whichever scan branch runs.
                             if let target = try? fullURL.resolvingSymlinksInPath().resourceValues(forKeys: symlinkTargetKeySet) {
                                 s.modificationDate = target.contentModificationDate
                                 s.fileSize = target.fileSize
@@ -1627,7 +1313,7 @@ extension FileSyncManager {
                         }
                     } else {
                         // Injected mock: resourceValues hits the real disk, so use the mock for
-                        // existence/type (metadata stays nil, as before).
+                        // existence and type; metadata stays nil.
                         var isDir: ObjCBool = false
                         guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
                         s.isDirectory = isDir.boolValue
@@ -1686,20 +1372,18 @@ extension FileSyncManager {
                     }
                     var branchVisited = visited
                     branchVisited.insert(identity)
-                    // **Budget check before the listing, not after.** The listing is the expensive
-                    // half, so a spent budget must stop the walk without paying for one more —
-                    // and the directory comes back marked exactly as the depth cap marks it, which
-                    // is why nothing downstream needs a new state to understand it.
+                    // Budget check before the listing, the expensive half, so a spent budget pays
+                    // for no more. Marked as the depth cap marks it, so nothing downstream needs a
+                    // new state.
                     if let budget, budget.isExhausted {
                         budget.noteStopped(fullURL.path)
                         return cappedNode(fullURL, s)
                     }
                     let listing = await childURLs(of: fullURL)
-                    // A directory whose LISTING failed (permission denied, I/O error) is not an
-                    // empty directory: mark it unexplored — the same shape as the depth cap — so
-                    // cache consumers and the diff never mistake "couldn't look" for "empty" and
-                    // mint phantom Missing rows for contents nobody could see. One its provider
-                    // did not answer for is marked the same way; the reads have already said why.
+                    // A directory whose listing failed isn't empty: mark it unexplored, like the
+                    // depth cap, so the diff never reports phantom Missing rows for contents nobody
+                    // could see. One its provider didn't answer for is marked the same way; the
+                    // reads already logged why.
                     if listing.listingFailed {
                         if !listing.unanswered { unreadableLog.note(fullURL.path) }
                         return cappedNode(fullURL, s)
@@ -1708,11 +1392,9 @@ extension FileSyncManager {
                     budget?.charge(listing.urls.count)
                     var children = await walkChildren(listing.urls, depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
-                    // Marked HERE rather than threaded through `walkChildren`: this is the one
-                    // place that knows both which children were substituted and what they became,
-                    // and ids are unique WITHIN a directory's children (the collision this whole
-                    // flag exists for is across sibling branches, never inside one listing), so
-                    // matching on id here is exact.
+                    // Marked here, the one place that knows both which children were substituted
+                    // and what they became. Ids are unique within one listing (the collision this
+                    // flag is for is across branches), so matching on id is exact.
                     children = Self.marking(children, coveredElsewhere: listing.coveredElsewhere)
                     return folderNode(fullURL, s, children: children)
                 }
@@ -1806,19 +1488,13 @@ extension FileSyncManager {
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget,
                                       linkedFolders: linkedFolders, followedLinks: followedLinks,
                                       datalessReads: datalessReads, root: url)
-            // Batch logging to avoid MainActor overhead in recursion
-            // (Removed per-node logging)
 
             let rootListing = await builder.childURLs(of: url)
-            // The walk returns the root's CHILDREN, so an unreadable ROOT has no child node to
-            // carry the unexplored marker — a bare [] read downstream as an authoritatively
-            // empty tree, and the diff minted phantom actionable Missing rows for everything
-            // the other side holds (the per-subdirectory marking above never fires for the
-            // root itself). Return the root as a single unexplored node instead: the diff
-            // (via `filesInfo(fromTree:)`), duplicates, and storage all treat it like any
-            // other directory whose contents are unknown, and `adoptRawTree` unwraps the
-            // marker so the panes still render the folder as empty rather than showing it
-            // nested inside itself.
+            // The walk returns the root's children, so an unreadable root has no child to carry
+            // the unexplored marker, and a bare [] would read as empty: the diff would report
+            // everything opposite as Missing. Return the root as one unexplored node, which the
+            // diff, duplicates and storage treat as unknown contents; `adoptRawTree` unwraps it
+            // for the panes.
             if rootListing.listingFailed {
                 if !rootListing.unanswered { builder.unreadableLog.note(url.path) }
                 let s = builder.stat(at: url) ?? TreeBuilder.ItemStat(isDirectory: true)
@@ -1831,10 +1507,8 @@ extension FileSyncManager {
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
             var rootChildren = await builder.walkChildren(rootListing.urls, depth: 1, fanLevel: 0, visited: visited)
             rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
-            // The root gets the same marking pass as every other directory. It is a no-op in
-            // practice — a root that links a folder in cannot also contain it, so `coveredTargets`
-            // never names one of the root's own substitutions — and it is here so the rule lives in
-            // one place rather than being a property of where the walk happens to start.
+            // The same marking pass as every other directory. A no-op in practice (a root that
+            // links a folder in can't also contain it), but it keeps the rule in one place.
             rootChildren = TreeBuilder.marking(rootChildren, coveredElsewhere: rootListing.coveredElsewhere)
             return rootChildren
         }
@@ -1862,30 +1536,20 @@ extension FileSyncManager {
 
     /// `url.path` with its storage forced native, for `FileNode.id`.
     ///
-    /// `URL.path` hands back a string lazily bridged from `NSString`, which has no contiguous
-    /// UTF-8 buffer — so every consumer that reaches for bytes pays to materialize them, and Swift's
-    /// cheap path for hashing a string (which wants exactly that buffer) is unavailable. `id` is
-    /// the app's universal dictionary and set key, so it is spent almost entirely on hashing:
-    /// measured in Release over this Mac's two provider roots, a lookup runs 13x slower bridged, a
-    /// dictionary build 9-10x, and a plain `for byte in path.utf8` loop 7.5x — the last of which is
-    /// the tell that the cause is the missing buffer rather than ObjC dispatch.
-    ///
-    /// Paying the round-trip once per node, here, converts that. Per pane it costs 11.0-13.4 ms of
-    /// a 395-423 ms walk and returns 122-165 ms across one load and one scan — `filesInfo` -101 to
-    /// -131 ms, the `PaneChildrenIndex` build -30 to -44 ms on the main actor. See
+    /// `URL.path` returns a string lazily bridged from `NSString`, with no contiguous UTF-8 buffer,
+    /// so hashing it misses Swift's fast path. `id` is the app's universal dictionary and set key,
+    /// and bridged it hashes ~10x slower. Converting once per node here costs ~3% of a walk and
+    /// saves far more in `filesInfo` and the main-actor `PaneChildrenIndex` build. See
     /// `docs/string-bridging.md` and `BridgedStringBenchmark`.
     ///
-    /// **`name` is deliberately left bridged.** Nothing is keyed on it, and its one whole-tree
-    /// consumer is `sortLevel`'s `localizedStandardCompare` — an `NSString` method that a bridged
-    /// string hands itself to for free and a native one must be bridged out for. Nativizing it too
-    /// measured 16-18 ms per pane WORSE. The asymmetry is the finding; do not "finish the job".
+    /// `name` is deliberately left bridged: nothing is keyed on it, and `sortLevel`'s
+    /// `localizedStandardCompare` is an `NSString` method, so a native name would have to be
+    /// bridged back, which measured slower. Don't "finish the job".
     ///
-    /// Byte-identical by construction: `String.utf8` is valid UTF-8 and decoding valid UTF-8 gives
-    /// back the same scalars, so equality, ordering, hashing, `hasPrefix` and every byte-level scan
-    /// see exactly what they saw before. Do NOT substitute
-    /// `String(cString: url.fileSystemRepresentation)`, which would be cheaper but is not obviously
-    /// normalization-identical to `URL.path` — and a silent NFC/NFD shift in a diff key is the very
-    /// failure `nearNameKey` exists to compensate for.
+    /// Byte-identical: decoding valid UTF-8 gives back the same scalars, so equality, ordering and
+    /// hashing are unchanged. **Don't** substitute `String(cString: url.fileSystemRepresentation)`:
+    /// it may not be normalization-identical to `URL.path`, and an NFC/NFD shift in a diff key is
+    /// the failure `nearNameKey` exists to compensate for.
     nonisolated static func nativePath(_ url: URL) -> String {
         String(decoding: Array(url.path.utf8), as: UTF8.self)
     }
@@ -1910,10 +1574,9 @@ extension FileSyncManager {
             case .dateModified:
                 let dA = a.modificationDate ?? Date.distantPast
                 let dB = b.modificationDate ?? Date.distantPast
-                // Break ties by name (like .kind/.tags): equal dates are common after a bulk copy,
-                // and without a tiebreaker the non-stable sort would order such siblings by input
-                // listing order — which can differ between panes or shift between scans and trigger
-                // a spurious tree republish.
+                // Break ties by name, like .kind and .tags: equal dates are common after a bulk
+                // copy, and the unstable sort would otherwise follow listing order, which can differ
+                // between panes or scans and trigger a spurious republish.
                 if dA == dB { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
                 return dA > dB
             case .size:

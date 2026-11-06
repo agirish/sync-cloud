@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **Which folder a pane's published tree was read at** — the fact Edit's owed selection (TE47)
-/// asks before selecting a row, so it never selects against the tree of a folder the pane has just
-/// left. `focusOn` moves the pane's folder at once; the walk that answers it lands later.
+/// Which folder a pane's published tree was read at. Edit's owed selection asks before selecting a
+/// row, so it never selects against the tree of a folder the pane has just left: `focusOn` moves
+/// the pane's folder at once, and the walk that answers it lands later.
 @MainActor
 @Suite struct PaneTreeFolderTests {
 

@@ -3,9 +3,8 @@ import Foundation
 
 /// A refusal as the engine reports it, before anything decides to keep it.
 ///
-/// Separate from ``PersonVetoEvent`` because the engine has no clock: `applyVerdicts` is a pure
-/// function over suggestions, and stamping a `Date` inside it would make its output depend on when
-/// it ran. The caller adds the time.
+/// Separate from ``PersonVetoEvent`` because the engine has no clock: `applyVerdicts` is pure, and
+/// a `Date` stamped inside it would make its output depend on when it ran. The caller adds the time.
 public struct PersonVetoRefusal: Sendable, Equatable {
     public let namedPerson: String
     public let proposedPerson: String
@@ -24,9 +23,9 @@ public struct PersonVetoRefusal: Sendable, Equatable {
 public struct PersonVetoEvent: Sendable, Equatable, Codable {
     /// The person the document names.
     public let namedPerson: String
-    /// The person whose folder the refused home belongs to. Not "the backend's" person: the rule
-    /// now sweeps every home on every card, and the keyword engine and the router propose most of
-    /// them — on a machine with no Apple Intelligence, all of them.
+    /// The person whose folder the refused home belongs to. Not necessarily the backend's: the rule
+    /// sweeps every home on every card, and the keyword engine and router propose most of them (all
+    /// of them without Apple Intelligence).
     public let proposedPerson: String
     public let fileName: String
     /// Where it would have gone, relative to the provider root.
@@ -43,17 +42,11 @@ public struct PersonVetoEvent: Sendable, Equatable, Codable {
     }
 }
 
-/// What the cross-person rule has actually stopped.
+/// What the cross-person rule has stopped. A veto that works looks the same as no veto, so this
+/// records each refusal and the People section can say, per person, what their record has bought.
 ///
-/// **The one thing about this feature that was invisible by construction.** The veto's whole job is
-/// to make a wrong suggestion not happen, so working perfectly looks identical to not existing —
-/// and the measurement that justified it (36 documents the old rule would have let into the wrong
-/// person's folder) lives in a test, not in front of the user. This records each refusal so the
-/// People section can say, per person, what their record has bought.
-///
-/// **Capped and lossy on purpose.** It is an illustration, not an audit trail: the count that
-/// matters is "3 this month", and keeping every event forever to show the last two of them would
-/// be storing a filing history nobody asked for. Oldest events fall off the end.
+/// Capped and lossy on purpose: an illustration, not an audit trail. Keeping every event would
+/// store a filing history nobody asked for, so the oldest fall off the end.
 @MainActor
 public final class PersonVetoLog: ObservableObject {
     @Published public private(set) var events: [PersonVetoEvent] = []
@@ -66,16 +59,10 @@ public final class PersonVetoLog: ObservableObject {
 
     /// True when the defaults hold a value for this key that this build could not decode.
     ///
-    /// **Absent and unreadable are opposite facts and this used to collapse them.** The load was
-    /// `guard let data = …, let decoded = try? … else { return }`, so a stored value this build
-    /// cannot understand left `events` empty — exactly as a machine that had never recorded a veto
-    /// does — and the very next ``record(_:)`` called ``save()``, which wrote that empty array over
-    /// the value it had never read. One refusal, and the log is gone.
-    ///
-    /// Not hypothetical: `PersonVetoEvent` is a stored `Codable`, so any build that adds a
-    /// non-optional field writes values older builds decline, and running the older build once
-    /// destroys them. The same law the roster (`PeopleStore.rosterIsUnreadable`), the filing corpus
-    /// and the verdict cache already follow — this was the last store still collapsing the two.
+    /// Absent and unreadable must stay distinct. Treated as empty, an unreadable value would be
+    /// overwritten by the next ``record(_:)``, losing the log. It happens whenever a newer build
+    /// adds a non-optional field to `PersonVetoEvent` and an older build runs. The roster
+    /// (`PeopleStore.rosterIsUnreadable`), filing corpus and verdict cache follow the same rule.
     private let storedValueIsUnreadable: Bool
 
     public init(userDefaults: UserDefaults = .standard) {
@@ -87,8 +74,8 @@ public final class PersonVetoLog: ObservableObject {
         }
         guard let decoded = try? JSONDecoder().decode([PersonVetoEvent].self, from: data) else {
             storedValueIsUnreadable = true
-            // Said once, at load, and it says what will and will not happen — the log is built once
-            // per launch, so this lasts the session and a later fix does not re-read it.
+            // Said once, at load: the log is built once per launch, so this holds for the session
+            // and a later fix isn't re-read until relaunch.
             Logger.shared.warning("The person veto log is stored but could not be read — this "
                                   + "session shows no past refusals and will NOT overwrite them. "
                                   + "They are still in defaults under \(Self.defaultsKey); "
@@ -108,7 +95,7 @@ public final class PersonVetoLog: ObservableObject {
                            + "\(event.namedPerson), that folder is \(event.proposedPerson)'s")
     }
 
-    /// How many refusals protected this person's documents — i.e. the document named them and was
+    /// How many refusals protected this person's documents: the document named them and was
     /// headed somewhere else.
     public func count(namedPerson id: String) -> Int {
         events.filter { $0.namedPerson == id }.count
@@ -126,9 +113,9 @@ public final class PersonVetoLog: ObservableObject {
     }
 
     private func save() {
-        // **A value this build could not read is one it must not write over.** Everything here is
-        // a whole-value replace, and when the load fell back to empty this array is what this
-        // session happens to have seen — not the history. See ``storedValueIsUnreadable``.
+        // **Never** write over a value this build could not read: each save replaces the whole
+        // value, and after a failed load this array is only what this session saw, not the
+        // history. See ``storedValueIsUnreadable``.
         guard !storedValueIsUnreadable else { return }
         guard let data = try? JSONEncoder().encode(events) else { return }
         userDefaults.set(data, forKey: Self.defaultsKey)

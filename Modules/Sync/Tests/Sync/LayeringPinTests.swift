@@ -1,20 +1,16 @@
 import Testing
 import Foundation
 
-/// Layering pin: the Sync engine must not link any UI framework.
-///
-/// Sync is the non-UI engine layer — views live in FileExplorer/Dashboard. This test
-/// scans every source file in the package and fails if `import SwiftUI` or
-/// `import AppKit` creeps back in, so the layering rule is self-enforcing.
-/// (CoreTransferable and UniformTypeIdentifiers are fine: they are data-transfer /
-/// type-metadata frameworks, not UI.)
+/// The Sync engine must not link a UI framework: views live in FileExplorer and Dashboard. Scans
+/// every source file in the package for `import SwiftUI` or `import AppKit`. CoreTransferable and
+/// UniformTypeIdentifiers are fine; they describe data, not UI.
 struct LayeringPinTests {
 
     /// Imports that must never appear in Modules/Sync/Sources.
     private static let forbiddenImports = ["import SwiftUI", "import AppKit"]
 
-    /// Files allowed to keep a forbidden import, keyed by file name with the
-    /// justification as the value. Currently empty — keep it that way.
+    /// Files allowed a forbidden import, by file name, with the justification as the value. Empty;
+    /// keep it that way.
     private static let allowlist: [String: String] = [:]
 
     @Test func syncSourcesLinkNoUIFramework() throws {
@@ -44,7 +40,7 @@ struct LayeringPinTests {
             }
         }
 
-        // Guard against the scan silently scanning nothing (e.g. after a directory rename).
+        // A scan that read nothing (say, after a folder rename) must not pass.
         #expect(scannedCount > 0, "Layering pin scanned no Swift files under \(sourcesRoot.path)")
         #expect(violations.isEmpty, "UI framework imports crept back into the Sync engine:\n\(violations.joined(separator: "\n"))")
     }

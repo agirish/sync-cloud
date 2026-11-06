@@ -2,20 +2,17 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The `FolderSurveyGroundTruthGateTests` treatment, extended to the other liveProfile-pinned
-/// suites: a machine-pinned suite is routinely absent from a green run, and a green run does not
-/// say which suites were in it — so each pinned suite gets an ungated companion line in the CI
-/// step log saying whether it ran, and which gate closed it when it did not.
-///
-/// `FolderSurveyGroundTruth` carries its own (it has a third gate, the display); this file covers
-/// `PersonChannelReplayTests` and `OrganizeScopeLiveProfileTests`, which until now vanished from
-/// every CI run with nothing said.
+/// A machine-pinned suite is routinely absent from a green run, and a green run doesn't say which
+/// suites were in it. So, as `FolderSurveyGroundTruthGateTests` does for its suite, each
+/// liveProfile-pinned suite gets an ungated line in the CI step log saying whether it ran, and
+/// which gate closed it if not. This file covers `PersonChannelReplayTests` and
+/// `OrganizeScopeLiveProfileTests`; `FolderSurveyGroundTruth` has its own, with a third gate (the
+/// display).
 enum LiveProfileSuiteGate {
-    /// Exclusion first — it outranks every content gate, and it is the branch CI always takes:
-    /// with `SYNCCLOUD_SKIP_MACHINE_PINNED=liveProfile` the trait disables the suite whatever the
-    /// gates say, so naming a closed content gate would send the reader to fix a profile that was
-    /// never the reason. Then the FIRST closed gate, because later gates were never the reason
-    /// either.
+    /// Exclusion first, the branch CI always takes: with `SYNCCLOUD_SKIP_MACHINE_PINNED=liveProfile`
+    /// the trait disables the suite whatever the gates say, so naming a content gate would send
+    /// the reader to fix a profile that was never the reason. Then the first closed gate, since
+    /// later ones weren't the reason either.
     static func line(excluded: Bool, gates: [(name: String, open: Bool)]) -> String {
         if excluded {
             return "SKIPPED — machine-pinned (liveProfile), excluded via SYNCCLOUD_SKIP_MACHINE_PINNED"
@@ -29,8 +26,7 @@ enum LiveProfileSuiteGate {
 
 @Suite struct LiveProfileSuiteGateTests {
 
-    /// The line's own logic, across the combinations, so it cannot come to say "ran" for a closed
-    /// gate — the first half of the template's split.
+    /// The line's own logic across the combinations, so it can't say "ran" for a closed gate.
     @Test func exclusionOutranksTheGatesAndTheFirstClosedGateIsNamed() {
         for combo in [[true, true], [true, false], [false, true], [false, false]] {
             let line = LiveProfileSuiteGate.line(excluded: true,
@@ -48,10 +44,9 @@ enum LiveProfileSuiteGate {
             .contains("second gate"))
     }
 
-    /// The real lines, read from the SAME gates the suites' own traits consult, so the report
-    /// cannot say RAN for a suite the trait has disabled — the second half of the split. stdout,
-    /// because that is what a CI step log keeps; the Activity Log's in-memory buffer is capped and
-    /// shared.
+    /// The real lines, read from the same gates the suites' traits consult, so the report can't say
+    /// RAN for a suite the trait disabled. Printed to stdout, which the CI step log keeps; the
+    /// Activity Log's in-memory buffer is capped and shared.
     @Test func theRunSaysWhetherTheLiveProfileSuitesRan() {
         let excluded = MachinePinnedGate.isExcluded(.liveProfile)
 
@@ -69,12 +64,10 @@ enum LiveProfileSuiteGate {
                 "the gate report says \(scope) while the gates read excluded=\(excluded) profile=\(LiveProfile.isAvailable)")
     }
 
-    /// The report's gates are a COPY of the suites' traits, and only convention kept them equal —
-    /// a suite that gained a third gate (the folder-survey template has one: display awake) would
-    /// leave the report printing RAN for a suite the new gate had skipped, and nothing above can
-    /// see that: the RAN assertion compares the line to the report's OWN inputs. This scan binds
-    /// the copy to the suites' `@Suite(` attributes: a condition joining or leaving either trait
-    /// fails here and names the report as the thing to update.
+    /// The report's gates are a copy of the suites' traits. A suite that gained a gate would leave
+    /// the report printing RAN for a suite it skipped, and the test above can't see that, since it
+    /// checks the line against the report's own inputs. This scan binds the copy to the suites'
+    /// `@Suite(` attributes: a condition joining or leaving either trait fails here.
     @Test func theReportedGatesMatchTheSuitesOwnTraits() throws {
         func suiteAttribute(of file: String) throws -> String {
             let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

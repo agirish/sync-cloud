@@ -2,23 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Every lens's findings belong to the provider they were found in, and a provider switch drops
-/// all of them.
-///
-/// **The rule was real and the list was incomplete.** Both provider-switch handlers in
-/// `ContentView` cleared duplicates, filing and the automation dry-run inline, under the comment
-/// "stale Tidy results must not outlive their provider". The risky-name finding — which became a
-/// lens result when Rename folded into Organize, and is now published by the Filing scan rather
-/// than by a lens of its own — was in neither list. `clearFiling()` does not cover it: the name
-/// scan has its own `ScanLifecycle`, its own root and its own results.
-///
-/// So it outlived its provider. Switch accounts and Organize kept showing the previous one's
-/// finding, with `hasScannedNames` still true so the chip stayed up; "Fix all" would then have
-/// renamed those files under the OLD provider's ruleset, at absolute paths under the OLD
-/// provider's root, while the window said you were somewhere else.
-///
-/// This suite exists because the defect was an *omission from a list*, which is the one kind of
-/// defect no test of the individual clears can catch — each of them worked perfectly.
+/// Every lens's findings belong to the provider they were found in, and a provider switch drops all
+/// of them. The risky-name finding is easy to miss: the Filing scan publishes it, but it has its own
+/// `ScanLifecycle`, root and results, so `clearFiling()` doesn't cover it. Left behind, Organize
+/// would show the old provider's finding, and "Fix all" would rename files under the old provider's
+/// rules and root. An omission from a list is what no test of the individual clears can catch.
 @MainActor
 @Suite struct ProviderSwitchLensResetTests {
 
@@ -47,8 +35,8 @@ import Foundation
         return m
     }
 
-    /// The one assertion the shipped code failed. Each lens is checked separately so a failure
-    /// names the lens that was forgotten rather than just "something survived".
+    /// Each lens is checked separately, so a failure names the lens that was forgotten rather than
+    /// just "something survived".
     @Test func everyLensResultIsClearedByAProviderSwitch() {
         let m = manager()
 
@@ -64,7 +52,7 @@ import Foundation
         #expect(m.hasFoundDuplicates == false, "the duplicates lens still reports a completed scan")
         #expect(m.hasSuggestedFiling == false, "filing outlived the provider switch")
         #expect(m.automationDryRunLifecycle.hasCompleted == false, "the automation dry-run outlived the provider switch")
-        // The one that shipped broken.
+        // The one that is easy to forget.
         #expect(m.riskyNames.isEmpty, "the risky-name finding outlived the provider switch")
         #expect(m.hasScannedNames == false,
                 "Organize still reports a completed name scan, so its chip stays up on the new provider")
@@ -74,18 +62,11 @@ import Foundation
 
     // MARK: - The filing collections `clearFiling()` left standing
 
-    /// **The same defect one level down: an omission from `clearFiling()`'s own list.**
-    ///
-    /// It clears eleven things and argues at length for the last of them —
-    /// `filingTryAnotherInFlight`, a latch `tryAnotherFolder` releases in a `defer` that only runs
-    /// if the round-trip returns, making this "the ONLY recovery hatch". `filingOCRInFlight` is the
-    /// identical latch: `readScan` inserts, releases in a `defer`, and `filingOCRExtractor` is an
-    /// unbounded `async` closure with no timeout, so a Vision render that never comes back leaves
-    /// the file latched and every later "Read scan" on it a silent no-op. Nothing else clears it —
-    /// a rescan assigns `filingSuggestions` directly and never touches this set.
-    ///
-    /// The other two are staleness rather than a latch, and only grow: both are keyed by absolute
-    /// path under the provider being switched away from.
+    /// The same rule one level down, for `clearFiling()`'s own list. `filingOCRInFlight` is a latch
+    /// like `filingTryAnotherInFlight`: `readScan` releases it in a `defer`, and
+    /// `filingOCRExtractor` has no timeout, so a Vision render that never returns leaves every later
+    /// "Read scan" on the file a silent no-op, and nothing else clears it. The other two are stale
+    /// and only grow: both are keyed by absolute path under the old provider.
     @Test func clearFilingClearsTheCollectionsKeyedToTheOldProvider() {
         let m = FileSyncManager()
         m.filingOCRInFlight = ["/old/Scan 1.pdf"]
@@ -107,8 +88,8 @@ import Foundation
                 "page-1 text for the old provider's files is still held, and only grows per switch")
     }
 
-    /// And through the path a provider switch actually takes, since that is the caller the fix is
-    /// for — testing only `clearFiling()` would pass on a build where nothing calls it.
+    /// The same through the path a provider switch takes: testing only `clearFiling()` would pass on
+    /// a build where nothing calls it.
     @Test func aProviderSwitchClearsThemToo() {
         let m = FileSyncManager()
         m.filingOCRInFlight = ["/old/Scan 1.pdf"]
@@ -122,9 +103,8 @@ import Foundation
         #expect(m.filingPageSamples.isEmpty)
     }
 
-    /// The finding's *root* is what makes a stale list dangerous rather than merely wrong: the
-    /// rows carry absolute paths under the provider that is no longer selected, and the fix path
-    /// renames by those paths.
+    /// The finding's root makes a stale list dangerous, not merely wrong: the rows carry absolute
+    /// paths under the provider no longer selected, and the fix path renames by those paths.
     @Test func aStaleFindingWouldHaveCarriedTheOldProvidersAbsolutePaths() {
         let m = manager()
         let staleRoot = try! #require(m.nameScanRoot).path

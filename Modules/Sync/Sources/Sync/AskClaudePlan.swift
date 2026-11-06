@@ -1,21 +1,21 @@
 import Foundation
 
-/// A card of changes in Ask Claude (TE285's filing card; TE262's plan card): rows the person
-/// reviews, ticks and changes. The card is local UI and is saved with the chat; what Claude is told
+/// A card of changes in Ask Claude (the filing card and the plan card): rows the person reviews,
+/// ticks and changes. The card is local UI and is saved with the chat; what Claude is told
 /// about it is written by the tool that made it.
 public struct AskClaudePlan: Codable, Equatable, Sendable {
 
     /// One change, by absolute path.
     public enum Change: Codable, Equatable, Sendable {
         /// Into `toFolder`, under its own name; the card says `landingName` when that name is
-        /// taken there (decision GE), and the name is found again when it runs.
+        /// taken there, and the name is found again when it runs.
         case move(from: String, toFolder: String)
         case rename(path: String, to: String)
         case newFolder(in: String, name: String)
-        /// `copyOf`, for a file already filed (decision GF): the other file holding its bytes. It
+        /// `copyOf`, for a file already filed: the other file holding its bytes. It
         /// goes only while that is still another file with the same bytes.
         case trash(path: String, copyOf: String? = nil)
-        /// Folders the card's moves leave empty (decision GA): each goes to the Trash only if,
+        /// Folders the card's moves leave empty: each goes to the Trash only if,
         /// once the moves have run, it holds no file.
         case trashIfEmptied(folders: [String])
 
@@ -30,7 +30,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
     }
 
-    /// A folder a row may go to instead (decision GC: the runner-up), with its words.
+    /// A folder a row may go to instead (the runner-up), with its words.
     public struct Choice: Codable, Equatable, Sendable {
         /// "iCloud › Documents › Taxes › 2025".
         public let label: String
@@ -53,9 +53,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         case folder(String)
         /// Unsure between folders: picked from its menu.
         case needsPick
-        /// The same file is already filed (decision GF).
+        /// The same file is already filed.
         case alreadyFiled
-        /// Folders left empty (decision GA).
+        /// Folders left empty.
         case emptied
     }
 
@@ -72,13 +72,13 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var note: String?
         /// The folder the move goes to, by label; nil for a row that isn't a move.
         public var folderLabel: String?
-        /// The folders its menu offers, the one it goes to first (decision GD).
+        /// The folders its menu offers, the one it goes to first.
         public var choices: [Choice]
         /// Set when they picked a folder from its menu: it then counts as theirs, not unsure.
         public var chosen: Bool
-        /// Shown in its own group, for a file already filed (decision GF).
+        /// Shown in its own group, for a file already filed.
         public var alreadyFiled: Bool
-        /// Why it can't run, found when it was proposed or at Apply (TE262); such a row has no tick.
+        /// Why it can't run, found when it was proposed or at Apply; such a row has no tick.
         public var refusal: String?
         /// What Apply did with it: "Moved", "Moved, as Ticket 2.pdf", or why it didn't.
         public var result: String?
@@ -128,8 +128,8 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
     }
 
-    /// Where a card is (TE262). Optional in the saved chat: a card saved before Apply existed
-    /// reads as proposed.
+    /// Where a card is. Optional in the saved chat: an older saved card without it reads as
+    /// proposed.
     public enum State: String, Codable, Sendable {
         case proposed, applying, applied, partlyApplied, undone, declined
     }
@@ -158,7 +158,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// After Apply: "Moved 31 files and made 1 folder."; after Undo, what came back.
     public var summary: String?
     /// What Next asks, the same words they could type: "Show me the next 10 loose files."
-    /// Nil when the card holds the last of them (decision GG).
+    /// Nil when the card holds the last of them.
     public var nextAsk: String?
     /// The Next button's label: "Next 10".
     public var nextLabel: String?
@@ -250,7 +250,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
 
     public var tickedCount: Int { rows.filter(\.ticked).count }
 
-    /// A row sent to another folder from its menu (decision GD): it moves to that folder's group
+    /// A row sent to another folder from its menu: it moves to that folder's group
     /// and is ticked.
     public mutating func choose(_ choice: Choice, forRow id: Int) {
         guard let index = rows.firstIndex(where: { $0.id == id }), case .move(let from, _) = rows[index].change else { return }
@@ -274,10 +274,10 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         noteLandingNames()
     }
 
-    /// "Kept as Ticket 2.pdf: the name is taken" (decision GE).
+    /// "Kept as Ticket 2.pdf: the name is taken".
     public static func landingNote(_ landing: String) -> String { "Kept as \(landing): the name is taken" }
 
-    /// Each move's landing name noted on its row (decision GE), in the order Apply runs them: a
+    /// Each move's landing name noted on its row, in the order Apply runs them: a
     /// name taken in its folder, on the disk or by a ticked move above it, lands numbered.
     public mutating func noteLandingNames(fileManager fm: FileManager = .default) {
         // Paths by the folder each resolves to, so two spellings of one folder share their names.

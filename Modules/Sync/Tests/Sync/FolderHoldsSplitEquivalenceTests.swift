@@ -2,16 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The `folder(_:holds:)` split preserves behaviour** — the proof `CLAUDE.md` §5 asks of a
-/// refactor. The folder watcher needed the function's string-math half on its own
-/// (`listedRoots` / `tail` / `listedTail`), so `folder(_:holds:)` became that half plus its
-/// symlink-resolving second try. `reference` below is the body as it stood before the split,
-/// verbatim; every input in the matrix must get the same answer from both.
-///
-/// The matrix crosses folders and paths spelled every way the callers spell them (`~`, trailing
-/// slash, `/var` against `/private/var`, the root itself, a sibling sharing a prefix, empty), a link
-/// table with a container and without, followed-link targets, and real symlinks on disk so the
-/// resolving branch runs.
+/// Proves `folder(_:holds:)` kept its behaviour when it was split into a string-math half the
+/// folder watcher also uses (`listedRoots` / `tail` / `listedTail`) and a symlink-resolving second
+/// try. `reference` below is the unsplit body; every input in the matrix must get the same answer
+/// from both. The matrix crosses folders and paths spelled every way callers spell them (`~`,
+/// trailing slash, `/var` against `/private/var`, the root itself, a prefix-sharing sibling, empty),
+/// link tables with and without a container, followed-link targets, and real symlinks on disk.
 @Suite struct FolderHoldsSplitEquivalenceTests {
 
     private static func reference(_ folder: String, holds path: String,

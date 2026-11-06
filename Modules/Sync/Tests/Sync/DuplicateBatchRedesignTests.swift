@@ -4,19 +4,14 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// The batch-apply redesign: one `deleteItems` call for the whole batch instead of one per group,
-/// no `NSUndoManager` group held open across suspension points, one permanent-delete confirmation
-/// instead of N, and a last-moment removal gate re-verifying every group at the two points where
-/// user-paced time can stale a verdict — when the serialized operation starts (the op queue can
-/// hold the delete behind a long operation) and after a confirmed permanent delete (the dialog is
-/// open for as long as the user leaves it).
-///
-/// These are the pins an adversarial review found missing: emptying the old undo grouping passed
-/// the ENTIRE package, deleting the mid-batch stop passed the duplicates suite, and nothing
-/// observed verify-then-trash ordering at all.
+/// The duplicate batch apply: one `deleteItems` call for the whole batch, no `NSUndoManager` group
+/// held open across suspension points, one permanent-delete confirmation, and a removal gate that
+/// re-verifies every group at the two points where user-paced time can stale a verdict: when the
+/// serialized operation starts (the queue can hold it behind a long operation) and after a
+/// confirmed permanent delete (the dialog stays open as long as the user leaves it).
 @Suite @MainActor struct DuplicateBatchRedesignTests {
-    /// Per test — see `LogCapture`. `batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths`
-    /// failed both CI attempts on the v4.5 release SHA reading the shared buffer directly.
+    /// Per test (see `LogCapture`): `batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths` fails
+    /// on CI when it reads the shared buffer directly.
     private let log = LogCapture()
 
 
@@ -71,16 +66,14 @@ import EventsTestSupport
 
     // MARK: One undo step for the whole batch — and only the batch
 
-    /// **The batch is ONE ⌘Z, and that ⌘Z touches nothing else.** The old shape held an
-    /// NSUndoManager group open across the whole loop (including awaits that can hold a modal
-    /// dialog); emptying that grouping passed all 2538 package tests, which is exactly the pin
-    /// this adds: a multi-group batch must come back WHOLE from one undo, and an unrelated
-    /// operation that completed before the batch must NOT come back with it.
+    /// The batch is one ⌘Z, and that ⌘Z touches nothing else: a multi-group batch comes back whole
+    /// from one undo, and an unrelated operation that finished before the batch does not come back
+    /// with it.
     @MainActor
     @Test func aMultiGroupBatchIsReversedWholeByOneUndoAndNothingMore() async throws {
         let mockFM = MockFileManager()
         let manager = makeManager(mockFM)
-        // An unrelated delete FIRST — its undo registration sits below the batch's on the stack.
+        // An unrelated delete first: its undo registration sits below the batch's on the stack.
         mockFM.virtualDisk["/c/unrelated.txt"] = stub(size: 77)
         await manager.deleteItems(at: ["/c/unrelated.txt"], fileManager: mockFM)
         try #require(mockFM.virtualDisk["/c/unrelated.txt"] == nil)
@@ -101,18 +94,18 @@ import EventsTestSupport
         #expect(manager.banner?.isUndoable == true)
         await closeTheUndoEventGroup(manager.undoManager)
 
-        // ONE undo brings the WHOLE batch back…
+        // One undo brings the whole batch back…
         manager.undoManager?.undo()
         await waitUntil("one undo restores every copy the batch trashed") {
             mockFM.virtualDisk["/b/x"] != nil && mockFM.virtualDisk["/b/y"] != nil
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        // …and ONLY the batch: the unrelated delete is still undone-able but not undone.
+        // …and only the batch: the unrelated delete can still be undone but isn't.
         #expect(mockFM.virtualDisk["/c/unrelated.txt"] == nil,
                 "one ⌘Z after the batch also reversed an unrelated earlier delete — the batch's undo step leaked beyond the batch")
         #expect(manager.undoManager?.canUndo == true,
                 "the unrelated delete's own undo step disappeared with the batch's")
-        // The proof the stack really held them apart: the SECOND undo restores the unrelated file.
+        // The stack really held them apart: the second undo restores the unrelated file.
         manager.undoManager?.undo()
         await waitUntil("the second undo restores the unrelated file") {
             mockFM.virtualDisk["/c/unrelated.txt"] != nil
@@ -122,8 +115,8 @@ import EventsTestSupport
 
     // MARK: One confirmation dialog for the whole batch
 
-    /// On a Trash-less volume the per-group loop raised one permanent-delete dialog PER GROUP;
-    /// the batch must ask once, for everything.
+    /// On a Trash-less volume the batch asks once, for everything, not one permanent-delete dialog
+    /// per group.
     @MainActor
     @Test func aTrashlessBatchRaisesOneConfirmationForAllGroups() async throws {
         let mockFM = MockFileManager()
@@ -147,26 +140,20 @@ import EventsTestSupport
         let invocations = asked.withLock { $0 }
         #expect(invocations.count == 1,
                 "the batch asked \(invocations.count) times — one dialog per group is the shape the redesign removed")
-        // **What this asserts, precisely: the ARGUMENT.** It used to be written as "the one dialog
-        // must name everything it is about to destroy", which the shipped alert did not do — the
-        // `count > 1` branch discarded the list — so the user-visible property was absent while
-        // this passed. That property is rendered in the app target and is pinned there, by
-        // `SyncOperationAlertsTests.permanentDeleteBodyNamesEveryItemByPath`; the Sync package
-        // cannot see it. What belongs here is the engine's half of the contract: the confirmer is
-        // handed every path, spelled fully enough for the alert to tell same-named copies apart.
+        // This checks the argument only: the confirmer is handed every full path, so the alert can
+        // tell same-named copies apart. That the alert shows them is the app's half, pinned by
+        // `SyncOperationAlertsTests.permanentDeleteBodyNamesEveryItemByPath`.
         #expect(Set(invocations.first ?? []) == ["/b/x", "/b/y"],
                 "the engine did not hand the confirmer the full paths of everything it is about to destroy")
         #expect(mockFM.virtualDisk["/b/x"] == nil)
         #expect(mockFM.virtualDisk["/b/y"] == nil)
-        // Permanent deletes poison the undo offer, exactly as before.
+        // Permanent deletes poison the undo offer.
         #expect(manager.banner?.message.contains("⌘Z") != true)
         #expect(manager.banner?.isUndoable != true)
     }
 
-    /// **A declined confirmation destroys nothing, anywhere in the batch.** The old code's pin was
-    /// a mid-batch `break` (whose deletion passed the suite); the one-call shape's equivalent is
-    /// that the decline covers every path the dialog named — nothing is removed after it, nothing
-    /// was removed before it, and every group stays listed.
+    /// A declined confirmation destroys nothing anywhere in the batch: the decline covers every
+    /// path the dialog named, nothing is removed before or after it, and every group stays listed.
     @MainActor
     @Test func aDeclinedConfirmationRemovesNothingAndKeepsEveryGroupListed() async throws {
         let mockFM = MockFileManager()
@@ -200,9 +187,9 @@ import EventsTestSupport
 
     // MARK: Verify-then-trash ordering, and the two user-paced windows
 
-    /// A group that drifts while the batch's delete waits in the serialized op queue is refused
-    /// at the last check — the phase-1 verdict is minutes old by the time a long queued operation
-    /// finishes, and acting on it anyway is exactly the blind batch the checks exist to prevent.
+    /// A group that drifts while the batch's delete waits in the serialized queue is refused at the
+    /// last check: the phase-1 verdict can be minutes old by then, and acting on it is the blind
+    /// batch the checks exist to prevent.
     @MainActor
     @Test func aGroupThatDriftsDuringTheQueueWaitIsRefusedAtTheLastCheck() async throws {
         let mockFM = MockFileManager()
@@ -229,7 +216,7 @@ import EventsTestSupport
         await waitUntil("the batch's delete is queued behind the blocker") {
             manager.activeFileOperationsCount == 2
         }
-        // Group 2's copy is rewritten IN the queue-wait window — after phase 1's verdict.
+        // Group 2's copy is rewritten in the queue-wait window, after phase 1's verdict.
         mockFM.virtualDisk["/b/y"] = stub(size: 2000)
         await latch.open()
         await batch.value
@@ -247,15 +234,15 @@ import EventsTestSupport
                 "a last-moment refusal must reach the log he audits")
     }
 
-    /// A copy rewritten while the permanent-delete dialog sits open is NOT destroyed on the
-    /// pre-dialog verdict. The dialog is user-paced — minutes can pass — and what follows it is
-    /// unrecoverable, so the gate re-runs after the confirmation, right before `removeItem`.
+    /// A copy rewritten while the permanent-delete dialog is open is not destroyed on the
+    /// pre-dialog verdict. The dialog is user-paced and what follows is unrecoverable, so the gate
+    /// re-runs after the confirmation, right before `removeItem`.
     @MainActor
     @Test func aCopyThatDriftsWhileTheConfirmationDialogIsOpenIsNotPermanentlyDeleted() async throws {
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true
         let manager = makeManager(mockFM)
-        // The dialog IS the drift window: the confirmer rewrites the copy, then confirms.
+        // The dialog is the drift window: the confirmer rewrites the copy, then confirms.
         manager.permanentDeleteConfirmer = { _ in
             mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(
                 isDirectory: false,
@@ -307,10 +294,9 @@ import EventsTestSupport
 
     // MARK: The keeper's verdict is the freshest one
 
-    /// **The keeper is re-walked LAST.** Each candidate walk ages the keeper's verdict; walking
-    /// the copy being KEPT last means its "unchanged" reading is the newest at the moment the
-    /// caller acts. Pinned structurally — the walk order is the mechanism — because the removal
-    /// gate's second pass would mask an order regression from any purely behavioral fixture.
+    /// The keeper is re-walked last, so its "unchanged" reading is the newest when the caller acts;
+    /// each candidate walk would age it. Pinned on the walk order itself, because the removal
+    /// gate's second pass would hide a wrong order from a purely behavioural fixture.
     @MainActor
     @Test func theFolderDriftCheckWalksTheKeeperAfterTheCandidates() async throws {
         let mockFM = MockFileManager()
@@ -338,9 +324,9 @@ import EventsTestSupport
                 "the keeper was walked before the candidates (order: \(order)) — every candidate walk after it stales its verdict")
     }
 
-    /// The behavioral half of the same rule: content that lands in the keeper while a CANDIDATE
-    /// is being walked is seen, because the keeper's walk comes after. (The removal gate's second
-    /// pass would also catch this, so the structural pin above is the one that holds the order.)
+    /// The behavioural half: content that lands in the keeper while a candidate is walked is seen,
+    /// because the keeper's walk comes after. The gate's second pass would catch this too, so the
+    /// test above is the one that holds the order.
     @MainActor
     @Test func aKeeperEditDuringACandidateWalkIsRefused() async throws {
         let mockFM = MockFileManager()
@@ -353,7 +339,7 @@ import EventsTestSupport
         manager.duplicateGroups = [g]
         let planted = LockedBox<Bool>(false)
         mockFM.onEnumerate = { url in
-            // A file lands in the KEEPER while the candidate is being verified.
+            // A file lands in the keeper while the candidate is being verified.
             guard url.path == "/b/Photos", planted.withLock({ let was = $0; $0 = true; return !was }) else { return }
             mockFM.virtualDisk["/a/Photos/landed-mid-walk.jpg"] = MockFileManager.FileStub(
                 isDirectory: false, attributes: [.size: 100], contents: nil)
@@ -368,9 +354,8 @@ import EventsTestSupport
 
     // MARK: Refusal accounting — the log and the mixed banner
 
-    /// Every phase-1 refusal writes a per-group line naming the keeper AND the refused copy's
-    /// path, split by wording (drifted vs no-baseline) — refusals used to bump counters and write
-    /// nothing, invisible in the log he audits.
+    /// Every phase-1 refusal writes a per-group line naming the keeper and the refused copy, worded
+    /// by cause (drifted or no baseline), so refusals show in the log he audits.
     @MainActor
     @Test func batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths() async throws {
         let token = String(UUID().uuidString.prefix(8))
@@ -403,10 +388,9 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/\(token)/b/Photos"] != nil)
     }
 
-    /// The mixed-count arm of the all-refused banner — `refused != refusedForMissingBaseline` —
-    /// was untested: with one drifted group and one baseline-less group the banner must take the
-    /// "changed since they were scanned" wording (a change WAS measured somewhere), not the
-    /// "couldn't be fully checked" one.
+    /// The mixed arm of the all-refused banner (`refused != refusedForMissingBaseline`): with one
+    /// drifted group and one baseline-less group, the banner says "changed since they were
+    /// scanned" (a change was measured), not "couldn't be fully checked".
     @MainActor
     @Test func aMixedRefusalBatchSaysChangedNotUnchecked() async throws {
         let mockFM = MockFileManager()
@@ -458,8 +442,8 @@ import EventsTestSupport
 
     // MARK: The `deleteItems` gate itself
 
-    /// The gate is consulted when the serialized operation STARTS, with the pruned path list,
-    /// and a refused path is left on disk and counted — while the others proceed.
+    /// The gate is consulted when the serialized operation starts, with the pruned path list; a
+    /// refused path is left on disk and counted while the others proceed.
     @MainActor
     @Test func theRemovalGateRunsAtOperationStartAndRefusedPathsStay() async throws {
         let mockFM = MockFileManager()
@@ -485,8 +469,8 @@ import EventsTestSupport
         #expect(outcome == DeleteOutcome(trashed: 1, refusedByGate: 1))
     }
 
-    /// After a CONFIRMED permanent delete the gate runs again, over just the paths about to be
-    /// destroyed unrecoverably — and a second-pass refusal reaches `removeItem` for nothing.
+    /// After a confirmed permanent delete the gate runs again, over just the paths about to be
+    /// destroyed, and a second-pass refusal reaches `removeItem` for nothing.
     @MainActor
     @Test func theRemovalGateRunsAgainAfterAConfirmedPermanentDelete() async throws {
         let mockFM = MockFileManager()
@@ -511,8 +495,8 @@ import EventsTestSupport
         #expect(outcome == DeleteOutcome(refusedByGate: 1))
     }
 
-    /// A wholesale gate refusal is the OPPOSITE of "already gone" — the items are on disk,
-    /// deliberately kept — so the direct-gesture banner must not claim they had vanished.
+    /// A wholesale gate refusal is the opposite of "already gone" (the items are on disk, kept on
+    /// purpose), so the direct-gesture banner must not claim they vanished.
     @MainActor
     @Test func aGateRefusedBatchIsNotReportedAsAlreadyGone() async throws {
         let mockFM = MockFileManager()
@@ -528,18 +512,10 @@ import EventsTestSupport
                 "a kept file was reported as already gone: “\(manager.banner?.message ?? "nil")”")
     }
 
-    /// **A wholly refused batch must leave a `deleteItems`-level line in the log.**
-    ///
-    /// Every other exit from `deleteItems` logs: removals, permanent deletions, a declined
-    /// permanent delete, "none of them were still on disk". A batch the gate refused outright
-    /// logged nothing at this level — the per-path `continue` is silent by design, the removal
-    /// block is skipped because nothing was removed, and the "already gone" branch deliberately
-    /// excludes this case. Both shipped gates happen to log their own refusals, but `removalGate`
-    /// is a public caller-supplied closure and nothing obliges one to, so a gate that stays quiet
-    /// makes the user's delete gesture read as ignored.
-    ///
-    /// The gate here logs NOTHING, which is the whole point: the line has to come from
-    /// `deleteItems`.
+    /// A batch the gate refused outright still leaves a `deleteItems`-level log line, as every
+    /// other exit does. `removalGate` is a caller-supplied closure that need not log, and a quiet
+    /// gate would make the delete gesture read as ignored. The gate here logs nothing, so the line
+    /// must come from `deleteItems`.
     @MainActor
     @Test func aWhollyGateRefusedDeleteIsLoggedAtTheDeleteLevel() async throws {
         let mockFM = MockFileManager()
@@ -548,10 +524,9 @@ import EventsTestSupport
         mockFM.virtualDisk["/d/\(tag)-a.txt"] = stub(size: 10)
         mockFM.virtualDisk["/d/\(tag)-b.txt"] = stub(size: 10)
 
-        // A marker before and after, so only THIS delete's lines are read out of a logger every
-        // other test in the process is also writing to — taken from the on-disk log, because the
-        // in-memory `entries` array is capped at 1000 and evicts the opening marker in a parallel
-        // run. See `logLines(tag:during:)`.
+        // Markers before and after, so only this delete's lines are read from a process-wide
+        // logger. Read from the on-disk log: the in-memory `entries` is capped at 1000 and evicts
+        // the opening marker in a parallel run. See `logLines(tag:during:)`.
         let mine = try await logLines(tag: tag) {
             _ = await manager.deleteItems(at: ["/d/\(tag)-a.txt", "/d/\(tag)-b.txt"], fileManager: mockFM,
                                           removalGate: { paths in Set(paths) })
@@ -568,9 +543,9 @@ import EventsTestSupport
 
     // MARK: The snapshot comparison sees kind, not just size
 
-    /// A file that becomes a DIRECTORY at the same relative path (or vice versa) is drift, even
-    /// when the sizes line up — the mock walk records every file at size 0, so a comparison
-    /// refactored down to sizes alone would call these equal and ship green.
+    /// A file that becomes a directory at the same relative path (or the reverse) is drift even
+    /// when sizes line up. The mock walk records every file at size 0, so a size-only comparison
+    /// would call these equal.
     @MainActor
     @Test func aKindChangeAtTheSamePathIsDrift() async throws {
         let mockFM = MockFileManager()
@@ -585,8 +560,8 @@ import EventsTestSupport
         #expect(matches == false,
                 "an entry that changed KIND at the same path compared equal — a size-only comparison shipped")
 
-        // The control, so the pin cannot pass by refusing everything: the same snapshot against
-        // a disk that still holds the FILE matches.
+        // The control, so the test can't pass by refusing everything: the same snapshot against a
+        // disk that still holds the file matches.
         mockFM.virtualDisk["/r/a"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         let control = await FileSyncManager.folderContentsMatchScan(
             path: "/r", snapshot: snapshot, fileManager: mockFM)

@@ -4,20 +4,19 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Pins the behavioral differences between the four copy/move entry points
-/// (`copyItems(fromLeft:)`, `moveItems(fromLeft:)`, `copyItems(toPath:)`, `moveItems(toPath:)`)
-/// ahead of collapsing them into one shared implementation:
-/// - same-URL handling: copies keep-both via `generateUniqueURL`, moves skip,
+/// Pins how the four copy/move entry points (`copyItems(fromLeft:)`, `moveItems(fromLeft:)`,
+/// `copyItems(toPath:)`, `moveItems(toPath:)`) differ, over their shared implementation:
+/// - same-URL handling: copies keep both via `generateUniqueURL`, moves skip,
 /// - which undo registrar runs (Copy vs Move action names),
 /// - the final debug log per variant, including the "N of M" partial-count form,
-/// - the error message per family ("Error copying items" vs "Error moving items"),
+/// - the error title per family ("Copy Failed" vs "Move Failed"),
 /// - the order and content of the returned nodes.
-/// Every test mocks the collision seams to the specific resolution it exercises; the unwired
-/// defaults fail safe (skip / don't delete), which UnwiredManagerSafeDefaultsTests pins.
+/// Each test mocks the collision seams to the resolution it exercises; the unwired defaults fail
+/// safe (skip, don't delete), which `UnwiredManagerSafeDefaultsTests` pins.
 @Suite struct CopyMoveBehaviorPinTests {
 
     /// True when `log` captured an entry with exactly `message`. A capture, not the shared buffer,
-    /// so the rest of the package logging past the line cannot take it away.
+    /// which other suites can evict.
     @MainActor
     private func loggerContains(_ log: LogCapture, _ message: String) async -> Bool {
         await log.entries.contains { $0.message == message }
@@ -35,9 +34,9 @@ import EventsTestSupport
 
     // MARK: - Where a pane transfer lands (FR37, FR38)
 
-    /// Dropbox opens at `Documents`, Google Drive at `My Drive/Documents`. Re-rooting by account
-    /// root put Dropbox `Documents/Tax.pdf` at the Google Drive account root, outside My Drive;
-    /// it lands in the folder the other pane shows, both ways.
+    /// Dropbox opens at `Documents`, Google Drive at `My Drive/Documents`. Dropbox
+    /// `Documents/Tax.pdf` lands in the folder the other pane shows, not at the Drive account root
+    /// outside My Drive, and the same both ways.
     @Test func aPaneTransferLandsUnderTheOtherPanesLandingFolder() throws {
         let target = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/GoogleDrive-x",
                                                    leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
@@ -53,12 +52,11 @@ import EventsTestSupport
         #expect(try same(FileNode(id: "/src/a/b.txt", name: "b.txt", isDirectory: false)).path == "/dst/a/b.txt")
     }
 
-    /// **P1, B5 (decided): the landing folder itself goes where its contents go.** Dropbox opens at
-    /// `Documents`, iCloud at its root; at Dropbox's account root the user picks `Documents`. It maps
-    /// onto iCloud's landing folder — the root — as `Documents/Tax.pdf` does, rather than landing
-    /// at iCloud `Documents` beside where its own contents go. A source opening deeper maps onto
-    /// the other's landing folder too. The transfer offers it as Merge only (below), so the root
-    /// is never replaced.
+    /// The landing folder itself goes where its contents go. Dropbox opens at `Documents`, iCloud
+    /// at its root; picking Dropbox's `Documents` maps it onto iCloud's root, as
+    /// `Documents/Tax.pdf` maps to `Tax.pdf`, not to an iCloud `Documents` beside its contents. A
+    /// deeper landing folder maps onto the other's too. It is offered as Merge only (below), so the
+    /// root is never replaced.
     @Test func theLandingFolderItselfMapsOntoTheOtherLandingFolder() throws {
         let toICloud = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
                                                      leftOpenAt: "Documents", rightOpenAt: "", links: [:])
@@ -79,10 +77,10 @@ import EventsTestSupport
         #expect(!isLanding(FileNode(id: "/r/Dropbox/Photos", name: "Photos", isDirectory: true)))
     }
 
-    /// **P3: a row above the landing folder lands at the other source's matching level.** Dropbox
-    /// `Photos/a.jpg` (beside `Documents`) went to the Google Drive account root, outside My Drive;
-    /// it lands beside Drive's `Documents`, and back again. A row branching higher than the other
-    /// source has levels for is refused, not grafted at its root.
+    /// A row above the landing folder lands at the other source's matching level: Dropbox
+    /// `Photos/a.jpg` (beside `Documents`) lands beside Drive's `Documents`, not at the account
+    /// root, and back again. A row branching higher than the other source has levels for is
+    /// refused, not grafted at its root.
     @Test func aRowAboveTheLandingFolderLandsAtTheMatchingLevel() throws {
         let toDrive = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/GD",
                                                     leftOpenAt: "Documents", rightOpenAt: "My Drive/Documents", links: [:])
@@ -96,15 +94,15 @@ import EventsTestSupport
         #expect(throws: FileSyncManager.FileOperationError.itemAboveOpeningFolder(itemName: "s.pdf")) {
             try toDropbox(FileNode(id: "/r/GD/Shared drives/Team/s.pdf", name: "s.pdf", isDirectory: false))
         }
-        // A destination that opens at its root takes every level there, as it always did.
+        // A destination that opens at its root takes every level there.
         let toICloud = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/Dropbox", rightRoot: "/r/iCloud",
                                                      leftOpenAt: "Documents", rightOpenAt: "", links: [:])
         #expect(try toICloud(photo).path == "/r/iCloud/Photos/a.jpg")
     }
 
-    /// The call site (B5): the landing folder copied to a pane that opens at its root is offered as
-    /// Merge only. Replace — or Keep Both — is refused with a sentence, and the root and what else it
-    /// holds stay; Merge puts its contents where they go.
+    /// The call site: the landing folder copied to a pane that opens at its root is offered as
+    /// Merge only. Replace or Keep Both is refused with a sentence and the root keeps what it
+    /// holds; Merge puts the contents where they go.
     @MainActor
     @Test(arguments: [CollisionResolution.replace, .keepBoth, .merge])
     func copyingTheLandingFolderOnlyMergesIntoTheOtherPanesRoot(answer: CollisionResolution) async throws {
@@ -135,8 +133,8 @@ import EventsTestSupport
         }
     }
 
-    /// Rows under iCloud's `Documents` link carry the folder's real path. A bare prefix test said
-    /// every one was outside the pane; the link table takes it back through the link's name.
+    /// Rows under iCloud's `Documents` link carry the folder's real path, which a bare prefix test
+    /// puts outside the pane; the link table maps it back through the link's name.
     @Test func aRowUnderICloudsDocumentsLinkTransfers() throws {
         let links: PathBoundary.LinkedFolders = ["/r/CloudDocs": ["Documents": "/r/home/Documents"]]
         let target = FileSyncManager.paneTargetURL(fromLeft: true, leftRoot: "/r/CloudDocs", rightRoot: "/r/OneDrive",
@@ -346,9 +344,8 @@ import EventsTestSupport
         #expect(await loggerContains(log, "Copied 1 of 2 item(s) to /dst"))
     }
 
-    /// moveItems(toPath:)'s final log had drifted from its three siblings: it reported the
-    /// *selection* count instead of the moved count and lacked the "N of M" partial form. The
-    /// unified implementation deliberately aligns it, so a partial move now logs "1 of 2".
+    /// `moveItems(toPath:)` logs the moved count, not the selection count, in the "N of M" form
+    /// like its three siblings: a partial move logs "1 of 2".
     @MainActor
     @Test func testMoveItemsToPathPartialSkipLogsMovedCount() async throws {
         let log = LogCapture()
@@ -398,7 +395,7 @@ import EventsTestSupport
 
     // MARK: - Error messages per family
 
-    /// A nesting violation surfaces as "Error copying items" for the copy family…
+    /// A nesting violation surfaces as "Copy Failed" for the copy family…
     @MainActor
     @Test func testCopyItemsErrorMessageUsesCopyingWording() async throws {
         let manager = makeManager()
@@ -413,7 +410,7 @@ import EventsTestSupport
         #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
     }
 
-    /// …and as "Error moving items" for the move family.
+    /// …and as "Move Failed" for the move family.
     @MainActor
     @Test func testMoveItemsErrorMessageUsesMovingWording() async throws {
         let manager = makeManager()
@@ -430,10 +427,9 @@ import EventsTestSupport
 
     // MARK: - Pane-root hardening (empty roots, prefix aliasing, vanished destination)
 
-    /// An empty destination root (the pane's provider vanished from settings) aborts the whole
-    /// operation before any I/O. Previously "" produced a relative target path that
-    /// URL(fileURLWithPath:) resolved against the process CWD — a move relocated files out of
-    /// the source pane into a CWD-relative tree.
+    /// An empty destination root (the pane's provider vanished from settings) aborts the operation
+    /// before any I/O. "" would give a relative target that `URL(fileURLWithPath:)` resolves
+    /// against the process's working directory, and a move would relocate files there.
     @MainActor
     @Test func testMoveItemsEmptyDestinationRootAbortsWithoutWrites() async throws {
         let manager = makeManager()
@@ -452,8 +448,8 @@ import EventsTestSupport
         #expect(manager.undoManager?.canUndo == false)
     }
 
-    /// An empty *source* root must fail too: "" prefix-matched every node, so the old code kept
-    /// the node's near-absolute path as the "relative" part and grafted it under the destination.
+    /// An empty source root fails too: "" prefix-matches every node, which would graft the node's
+    /// near-absolute path under the destination as its "relative" part.
     @MainActor
     @Test func testCopyItemsEmptySourceRootFailsInsteadOfGrafting() async throws {
         let manager = makeManager()
@@ -472,10 +468,9 @@ import EventsTestSupport
         #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/") })
     }
 
-    /// A node outside the source root fails per item — the old fallback grafted its absolute
-    /// path under the destination root, the mechanism behind the misdirected
-    /// `<newRoot>/Users/…/<oldRoot>/…` copies seen during pane swaps. A sibling that IS under
-    /// the root still transfers in the same call.
+    /// A node outside the source root fails per item rather than grafting its absolute path under
+    /// the destination (a misdirected `<newRoot>/Users/…/<oldRoot>/…` copy, as during a pane
+    /// swap). A sibling under the root still transfers in the same call.
     @MainActor
     @Test func testCopyItemsNodeOutsideSourceRootFailsPerItem() async throws {
         let manager = makeManager()
@@ -500,9 +495,8 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/outside/hardOutBB.txt"] != nil)
     }
 
-    /// Root "/data/foo" must not claim "/data/foobar/…" via a bare prefix match: previously the
-    /// remainder after the aliased prefix ("bar/…") became the relative path and the file was
-    /// silently copied to "<toRoot>/bar/…".
+    /// Root "/data/foo" must not claim "/data/foobar/…" by a bare prefix match, or the remainder
+    /// ("bar/…") becomes the relative path and the file silently goes to "<toRoot>/bar/…".
     @MainActor
     @Test func testMoveItemsPrefixAliasedRootFailsInsteadOfMisdirecting() async throws {
         let manager = makeManager()
@@ -522,9 +516,9 @@ import EventsTestSupport
         #expect(mockFM.attemptedRemovePaths.isEmpty)
     }
 
-    /// A destination pane root that no longer exists on disk (provider unmounted, e.g. the
-    /// Google Drive app quit) fails the operation instead of being silently recreated as a
-    /// plain local folder tree the FileProvider would never sync.
+    /// A destination pane root gone from disk (provider unmounted, say the Google Drive app quit)
+    /// fails the operation rather than being recreated as a local folder the FileProvider never
+    /// syncs.
     @MainActor
     @Test func testCopyItemsMissingDestinationRootIsNotRecreated() async throws {
         let manager = makeManager()
@@ -542,8 +536,8 @@ import EventsTestSupport
         #expect(mockFM.calledCopyItem == false)
     }
 
-    /// Same guard on the toPath route (drag & drop and paste): a vanished drop target is an
-    /// error, not a directory to recreate — and a move leaves the originals in place.
+    /// Same guard on the toPath route (drag and drop, paste): a vanished drop target is an error,
+    /// not a directory to recreate, and a move leaves the originals in place.
     @MainActor
     @Test func testMoveItemsToPathMissingDestinationFailsWithoutWrites() async throws {
         let manager = makeManager()
@@ -561,9 +555,8 @@ import EventsTestSupport
         #expect(mockFM.attemptedRemovePaths.isEmpty)
     }
 
-    /// Regression guard: missing intermediate folders UNDER an existing destination root must
-    /// still be created (bulk sync of nested files relies on it) — only the root itself is
-    /// never auto-created.
+    /// Missing intermediate folders under an existing destination root are still created (bulk
+    /// sync of nested files relies on it); only the root itself is never auto-created.
     @MainActor
     @Test func testCopyItemsCreatesMissingIntermediatesUnderExistingRoot() async throws {
         let manager = makeManager()

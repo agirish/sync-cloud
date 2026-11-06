@@ -4,7 +4,7 @@ import Testing
 @testable import Sync
 
 /// Sync replace: iCloud's file goes over Dropbox's and the Dropbox item stays; Dropbox's previous
-/// version is cloned into SyncCloud Removed, one a day (DG), seven at most (DJ).
+/// version is cloned into SyncCloud Removed, one a day, seven at most.
 @Suite struct OneWaySyncReplaceTests {
     static let path = "Finance/W-2.pdf"
     static let removedToday = "SyncCloud Removed/2026-10-30/Documents/Finance/W-2.pdf"
@@ -111,7 +111,7 @@ import Testing
         #expect(world.stagingContents == [])
     }
 
-    /// With no version to keep (DG already kept today's), the last re-check before the rename is
+    /// With no version to keep (today's is already kept), the last re-check before the rename is
     /// the only one between the diff and the write.
     @Test func aDropboxChangeWhileStagingStopsAReplaceThatKeepsNothing() throws {
         let world = try OneWayDiskWorld()
@@ -435,7 +435,8 @@ import Testing
             == ["Finance/w-2.PDF 1"])
     }
 
-    /// A clock set back dates the version just kept before the rest: DJ still keeps it.
+    /// A clock set back dates the version just kept before the rest: the seven-version cap still
+    /// keeps it.
     @Test func djNeverEmptiesTheVersionJustKept() throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
@@ -454,7 +455,8 @@ import Testing
         #expect(result.emptied.map(\.path) == ["SyncCloud Removed/2026-10-31/Documents/Finance/W-2.pdf"])
     }
 
-    /// DG's day is the calendar's, here Los Angeles: 23:30 and 00:30 local are two days.
+    /// The one-a-day rule's day is the calendar's, here Los Angeles: 23:30 and 00:30 local are two
+    /// days.
     @Test func dgUsesTheLocalDay() throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }

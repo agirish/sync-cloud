@@ -18,14 +18,10 @@ extension FileSyncManager {
         storageLensTask?.cancel()
     }
 
-    /// Clears the current report, so a stale report from one provider is never shown under
-    /// another. Reached from ``clearLensResultsForProviderSwitch()`` — which, until the audit that
-    /// added this line, did not call it: the claim in this comment was simply untrue for as long
-    /// as it had been written.
-    ///
-    /// Deliberately does NOT delete the stored snapshot: this runs on an ordinary provider switch,
-    /// and forgetting the other provider's saved report every time the user looked away would make
-    /// restoring nearly useless. ``forgetStoredStorageLens(root:)`` is the explicit erase.
+    /// Clears the current report, so one provider's report is never shown under another. Called
+    /// from ``clearLensResultsForProviderSwitch()``. Keeps the stored snapshot: this runs on every
+    /// provider switch, and erasing saved reports then would make restoring nearly useless.
+    /// ``forgetStoredStorageLens(root:)`` is the explicit erase.
     public func clearStorageLens() {
         storageLensTask?.cancel()
         storageLensReport = nil
@@ -37,36 +33,21 @@ extension FileSyncManager {
 
     // MARK: Restore
 
-    /// Where Storage Lens snapshots persist. nil (the default) disables restoring entirely — the
-    /// same injection rule the verdict cache and the hash index follow, so no test and no CLI run
-    /// can read or write the real file.
+    /// Where Storage Lens snapshots persist. nil (the default) disables restoring, as for the
+    /// verdict cache and the hash index, so no test or CLI run touches the real file.
     public var storageLensStoreURL: URL? {
         get { _storageLensStoreURL }
         set { _storageLensStoreURL = newValue }
     }
 
-    /// Shows the last saved report for `root`, if there is one, without scanning.
+    /// Shows the last saved report for `root`, if there is one, without scanning, and returns
+    /// whether it did. Refuses while a build runs or results are on screen: a restore starts from
+    /// something, never overwrites something newer.
     ///
-    /// Returns whether anything was restored. Refuses while a build is running and refuses to
-    /// replace results already on screen: a restore is a way to start from something rather than
-    /// nothing, never a way to overwrite something newer.
-    ///
-    /// **The read is memoised in the store, against the file's own modification stamp** — see
-    /// `StorageLensStore.load(from:)`.
-    ///
-    /// This said the opposite, and the reasoning had one hole: "the guards above mean it is only
-    /// ever reached while nothing is displayed", offered as a bound. It is not a bound. When the
-    /// current root has no saved snapshot, nothing is *ever* displayed, so `storageLensReport == nil`
-    /// stays true and every one of the six triggers — the workspace change, appearance, the scan
-    /// root moving, the rail lens changing, a scope change — re-read the file and ran two
-    /// `JSONDecoder` passes over every saved root's report, on the main actor, for the life of the
-    /// session. That is the common case, not the rare one: it is what a root nobody has analysed
-    /// looks like.
-    ///
-    /// The objection the old note raised — "a fourth piece of cache state to keep in step with a
-    /// background writer" — is answered rather than accepted: the memo is keyed on the file's
-    /// modification date and size, and the background writer writes atomically, so a save
-    /// invalidates it by construction. There is no rule for anyone to remember.
+    /// The read is memoised in the store against the file's modification date and size
+    /// (`StorageLensStore.load(from:)`). A root with no snapshot leaves `storageLensReport` nil, so
+    /// every trigger calls this again; without the memo each would decode the whole file on the
+    /// main actor. The writer saves atomically, so a save invalidates the memo by itself.
     @discardableResult
     public func restoreStorageLens(root: URL) -> Bool {
         guard let url = storageLensStoreURL,
@@ -83,16 +64,9 @@ extension FileSyncManager {
         return true
     }
 
-    /// Erases the saved report for `root`, or every saved report when `root` is nil.
-    ///
-    /// Called from Settings ▸ Advanced ▸ *Saved scan data*. It shipped with no caller at all for a
-    /// release — documented from ``clearStorageLens()`` as "the explicit erase" while there was no
-    /// way to reach it, which also left saved reports as the one on-disk store the user could
-    /// neither see nor clear.
-    ///
-    /// Deliberately does NOT take the report off screen: a reading you are looking at does not
-    /// become untrue because you stopped saving it, and `clearStorageLens()` is the one that
-    /// clears the view.
+    /// Erases the saved report for `root`, or every saved report when `root` is nil. Called from
+    /// Settings ▸ Advanced ▸ *Saved scan data*. Leaves the report on screen, since it is still
+    /// true; `clearStorageLens()` clears the view.
     public func forgetStoredStorageLens(root: String? = nil) {
         guard let url = storageLensStoreURL else { return }
         StorageLensStore.clearInBackground(root: root, from: url)
@@ -123,15 +97,10 @@ extension FileSyncManager {
 
         // 1. Walk the full subtree (off-main inside buildTree). maxDepth: nil = unlimited.
         //
-        // **Budgeted first, as a probe.** This pass cannot take a budget for its answer — a storage
-        // total computed from part of a tree is a wrong number, not a partial picture — but it can
-        // use one to find out how big the tree is before committing. Under the budget the probe IS
-        // the tree and nothing is spent twice, which is every ordinary source. Over it, the walk
-        // stopped early and we now know the real pass would cost minutes, so we ask before paying.
-        //
-        // This exists because the sidebar's Locations section puts the home folder and the boot
-        // volume one click from this workspace, and on 2026-08-24 the equivalent walk behind a pane
-        // hung the app for ten minutes on a 196,726-directory home folder.
+        // Budgeted first, as a probe. A storage total from part of a tree is a wrong number, so
+        // the answer can't be budgeted, but the probe finds out how big the tree is. Under the
+        // budget the probe is the tree and nothing is walked twice. Over it, the real pass would
+        // take minutes (the home folder or boot volume is one click away), so ask first.
         let probe = NodeBudget(wholeTreeProbeBudget)
         var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
                                         maxDepth: nil, budget: probe)
@@ -140,26 +109,23 @@ extension FileSyncManager {
             let preflight = LargeWalkPreflight(pass: .storageLens, rootPath: root.path,
                                                probeLimit: probe.limit)
             guard largeWalkConfirmer(preflight) else {
-                // Not silent, and the previous report stays on screen rather than being replaced by
-                // an empty one — `hasCompleted` never flips, exactly as for a cancelled build.
+                // Logged, and the previous report stays on screen: `hasCompleted` never flips, as
+                // for a cancelled build.
                 Logger.shared.info("Storage: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not analysed")
                 return
             }
-            // Confirmed: pay for the real walk. The probe's tree is discarded rather than extended,
-            // because a budgeted walk's unexplored nodes are indistinguishable from the cycle guard's
-            // and the permission-denied ones, so there is no honest way to resume from it.
+            // Confirmed: walk again in full. The probe's tree can't be extended, because its
+            // unexplored nodes look the same as cycle-guarded and permission-denied ones.
             tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
                                         maxDepth: nil)
             if Task.isCancelled { return }
         }
 
-        // 2. Analyze (pure, no disk) — DETACHED, like the hashing phase of the duplicate scan:
-        // the analyzer walks the whole tree, which on a 40k-node provider blocked the main actor
-        // for the full pass. Only the @Published writes below happen back on the main actor.
-        // Staleness guard: a newer build cancels this task (startBuildStorageLens), so the
-        // isCancelled check after the hop plays the role the duplicate scan's lifecycle epoch
-        // plays for its unstructured progress hops — a stale report can never land after a
-        // newer build started. Date() is captured before the hop so staleness is measured from now.
+        // 2. Analyze (pure, no disk), detached: the analyzer walks the whole tree, too long for the
+        // main actor on a large provider. Only the @Published writes below run on the main actor.
+        // A newer build cancels this task (startBuildStorageLens), so the isCancelled check after
+        // the hop keeps a stale report from landing. `now` is captured before the hop so staleness
+        // is measured from the build.
         let now = Date()
         let report = await Task.detached(priority: .userInitiated) {
             StorageLensAnalyzer.analyze(tree: tree, now: now, options: options)

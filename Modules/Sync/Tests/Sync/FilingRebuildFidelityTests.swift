@@ -2,21 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **What a re-answer must carry forward.**
-///
-/// Four places give a suggestion a new list of homes: a verdict promotion (`applyVerdicts`), a
-/// route (`routed`), a re-ask (`replaceFilingSuggestion`, behind "Try another" and "Read scan"),
-/// and the rename pass re-naming the incoming file. Each rebuilt the value member by member, and
-/// each therefore dropped `alreadyFiledAt` — the folders that already hold this same document by
-/// content, which only the end-of-scan marking pass produces.
-///
-/// So a marked list that was refined, or a card the user pressed "Try another" on, came back with
-/// `isAlreadyFiled == false`: the warning that stops a second copy being filed disappeared, and
-/// with it the `isBatchEligible` guard that keeps such a document out of the blind batch. Filing a
-/// second copy is not undone by moving it back — it lands under a name of its own in a folder that
-/// legitimately fits, with nothing about it saying it is a copy.
-///
-/// `replacingCandidates(_:)` is now the one way to do it, and these hold it to that.
+/// A re-answer must carry `alreadyFiledAt` forward. Four places give a suggestion new homes: a
+/// verdict promotion (`applyVerdicts`), a route (`routed`), a re-ask (`replaceFilingSuggestion`,
+/// behind "Try another" and "Read scan"), and the rename pass. Only the end-of-scan marking pass
+/// produces `alreadyFiledAt`, so a rebuild that drops it loses the already-filed warning and the
+/// `isBatchEligible` guard, and a second copy gets filed with nothing saying it is one. All four
+/// must go through `replacingCandidates(_:)`.
 @Suite struct FilingRebuildFidelityTests {
 
     static let root = "/root"
@@ -40,7 +31,7 @@ import Testing
         #expect(rebuilt.alreadyFiledAt == ["Legal/Immigration"])
         #expect(rebuilt.isAlreadyFiled)
         #expect(rebuilt.best?.path == "/root/Legal/OCI", "the new homes did not take")
-        // The rest of the record, so "carries everything" is asserted rather than described.
+        // The rest of the record, so "carries everything" is asserted.
         #expect(rebuilt.filePath == Self.suggestion().filePath)
         #expect(rebuilt.fileName == "eOCI.pdf")
         #expect(rebuilt.size == 1_000)
@@ -48,35 +39,30 @@ import Testing
         #expect(rebuilt.providerRoot == Self.root)
     }
 
-    /// And the consequence the marker exists for: a document the tree already holds stays out of
-    /// the blind batch across a rebuild. This is the assertion that would have caught the defect —
-    /// the field is a means, this is the end.
+    /// What the marker is for: a document the tree already holds stays out of the blind batch
+    /// across a rebuild.
     @Test func aRebuiltSuggestionIsStillKeptOutOfTheBlindBatch() {
         let confident = Self.suggestion().replacingCandidates([Self.dest("Legal/OCI", confidence: .high)])
         #expect(confident.hasConfidentHome, "the fixture cannot answer the batch question")
         #expect(!confident.isBatchEligible,
                 "a document already in the tree became blind-batch eligible by being re-answered")
 
-        // The other direction, so the test above is not passing on something else: the same rebuild
-        // of a document the tree does NOT already hold IS batch-eligible.
+        // Control: the same rebuild of a document the tree doesn't hold is batch-eligible.
         let fresh = Self.suggestion(alreadyFiledAt: [])
             .replacingCandidates([Self.dest("Legal/OCI", confidence: .high)])
         #expect(fresh.isBatchEligible)
     }
 
-    /// **Every rebuild site goes through the member**, asserted at the source because three of the
-    /// four cannot be driven from here (they need a live `FileSyncManager`, a provider root and a
-    /// published list). Without this the member is one revert from being unused on those paths:
-    /// reverting `replaceFilingSuggestion` — the "Try another" path the defect was reported
-    /// against — reproduces the symptom exactly with every behavioural test below still green.
+    /// Every rebuild site goes through the member, asserted at the source because three of the four
+    /// can't be driven from here (they need a live `FileSyncManager`, a provider root and a
+    /// published list). Reverting `replaceFilingSuggestion` to a member-by-member rebuild must fail
+    /// this.
     @Test func everyRebuildSiteGoesThroughTheMember() throws {
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/Sync")
-        // `FilingEngine.swift` is deliberately absent: it DECLARES `replacingCandidates`, so a
-        // whole-file `contains` there is satisfied by the declaration whatever `applyVerdicts`
-        // does. That site is covered behaviourally by `promotingAVerdictKeepsTheAlreadyFiledMarker`
-        // below, which is the stronger check anyway.
+        // `FilingEngine.swift` is absent: it declares `replacingCandidates`, so `contains` would
+        // always pass there. `promotingAVerdictKeepsTheAlreadyFiledMarker` covers that site.
         for (file, declaration) in [("FileSyncManager+Filing.swift", "replaceFilingSuggestion"),
                                     ("FileSyncManager+FilingRoute.swift", "routed"),
                                     ("FileSyncManager+FilingRename.swift", "naming")] {
@@ -89,11 +75,9 @@ import Testing
         }
     }
 
-    /// And the shape that lost it is gone: no rebuild names the initialiser member by member.
-    ///
-    /// Scoped to the two files that only ever *re-answer*. `FilingEngine` builds the original
-    /// suggestion and `+FilingRoute` builds a deliberately blank one for routing, so a bare
-    /// initialiser there is legitimate.
+    /// No re-answering site calls the initialiser member by member. Scoped to the two files that
+    /// only re-answer: `FilingEngine` builds the original suggestion and `+FilingRoute` builds a
+    /// blank one for routing, so a bare initialiser there is legitimate.
     @Test func noReAnsweringSiteCallsTheInitialiserDirectly() throws {
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -109,8 +93,8 @@ import Testing
         }
     }
 
-    /// `applyVerdicts` promotes a model answer over the heuristic's. It rebuilds, so it is one of
-    /// the four — driven here through the real entry point rather than asserted about the source.
+    /// `applyVerdicts` promotes a model answer over the heuristic's, one of the four rebuilds,
+    /// driven here through the real entry point.
     @Test func promotingAVerdictKeepsTheAlreadyFiledMarker() throws {
         let s = Self.suggestion(alreadyFiledAt: ["Legal/Immigration"])
         let verdict = FilingVerdict(relativePath: "Legal/OCI", confidence: .high,

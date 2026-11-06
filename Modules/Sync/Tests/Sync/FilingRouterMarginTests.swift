@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// ``FilingRouter/margin(top:runnerUp:)`` — the number `Ranking.confidence` is entirely derived
-/// from, and therefore what decides whether a folder is offered, auto-filed, or paid to refine.
+/// ``FilingRouter/margin(top:runnerUp:)``, the number `Ranking.confidence` is derived from, and so
+/// what decides whether a folder is offered, auto-filed, or paid to refine.
 @Suite struct FilingRouterMarginTests {
 
-    /// The ordinary separation, unchanged: a clear winner is high, a near-tie is low.
+    /// The ordinary separation: a clear winner is high, a near-tie is low.
     @Test func theMarginSeparatesAWinnerFromATie() {
         #expect(FilingRouter.margin(top: 1.0, runnerUp: 0.2) == 0.8)
         #expect(abs(FilingRouter.margin(top: 1.0, runnerUp: 0.95) - 0.05) < 1e-12)
@@ -17,8 +17,8 @@ import Testing
         #expect(FilingRouter.margin(top: 0.4, runnerUp: nil) == 1.0)
     }
 
-    /// **A top score the scorer pushed to or below zero is not confident.** This is the rule; the
-    /// old expression answered 1.0 here, which `Ranking.confidence` reads as `.high`.
+    /// A top score the scorer pushed to or below zero is not confident: its margin is 0, never the
+    /// 1.0 that `Ranking.confidence` reads as `.high`.
     @Test func aNonPositiveTopIsNeverConfident() {
         for top in [-0.55, -3.0, 0.0] {
             #expect(FilingRouter.margin(top: top, runnerUp: nil) == 0,
@@ -28,8 +28,8 @@ import Testing
         }
     }
 
-    /// The consequence, stated where it is actually read — a margin of 0 is `.low`, and `.low` is
-    /// what keeps `route` from promoting the folder and the blind batch from moving the file.
+    /// Where it is read: a margin of 0 is `.low`, which keeps `route` from promoting the folder and
+    /// the blind batch from moving the file.
     @Test func aZeroMarginRankingIsLowConfidence() {
         let ranking = FilingRouter.Ranking(
             candidates: [.init(relativePath: "School/Son", score: -0.55,
@@ -38,14 +38,13 @@ import Testing
         #expect(ranking.confidence == .low)
     }
 
-    /// A runner-up the scorer argued against separates MORE than a neutral one — the ratio can
-    /// exceed 1, and that is meaningful rather than a bug to clamp away.
+    /// A runner-up the scorer argued against separates more than a neutral one. The ratio can
+    /// exceed 1, meaningfully; don't clamp it.
     @Test func aContradictedRunnerUpSeparatesMoreThanAZeroOne() {
         #expect(FilingRouter.margin(top: 1.0, runnerUp: -1.0) > FilingRouter.margin(top: 1.0, runnerUp: 0))
     }
 
-    /// **The call site**, because a rule extracted for testability is one revert away from being
-    /// unused: `rank` must reach its margin through this function and not re-derive it inline.
+    /// At the call site: `rank` must get its margin from this function, not re-derive it inline.
     @Test func rankAsksThisFunctionForItsMargin() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

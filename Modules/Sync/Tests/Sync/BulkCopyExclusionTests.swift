@@ -3,14 +3,13 @@ import Foundation
 @testable import Sync
 
 /// Pins the verified-copy bulk run (`bulkCopyDifferencesLeftToRight`) into the same mutual
-/// exclusion as `syncAll` and Verify All: both bulk runs write `bulkSyncProgress` and nil it
-/// in their defer, so overlapping them interleaves the shared counter and whichever finishes
-/// first tears down the other's overlay — and syncAll's up-front destination stats would be
-/// staled by the verified-copy overwrites.
+/// exclusion as `syncAll` and Verify All. Both bulk runs write `bulkSyncProgress` and nil it on
+/// exit, so overlapping runs interleave the counter, the first to finish tears down the other's
+/// overlay, and the verified copy's writes stale syncAll's up-front destination stats.
 @Suite struct BulkCopyExclusionTests {
 
-    /// A source-only file per name plus one difference each; the verified-copy run needs no
-    /// collision seams (it overwrites unconditionally).
+    /// A source-only file and one difference per name. No collision seams: the verified-copy run
+    /// overwrites unconditionally.
     @MainActor
     private func makeFixture(names: [String]) throws -> (FileSyncManager, MockFileManager, [FileDifference]) {
         let mockFM = MockFileManager()
@@ -39,9 +38,9 @@ import Foundation
     static let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
     static let rightDate = Date(timeIntervalSince1970: 1_600_086_400)
 
-    /// A pair on both sides, same size, dates a day apart — the only shape a verified offer holds.
-    /// The run sets the right file's date and copies nothing (review E6), so a run that went
-    /// through reads as the right file taking `leftDate`.
+    /// A pair on both sides, same size, dates a day apart: the only shape a verified offer holds.
+    /// The run sets the right file's date and copies nothing, so a run that went through shows as
+    /// the right file taking `leftDate`.
     @MainActor
     private func addVerifiedPair(_ mockFM: MockFileManager, _ name: String) -> FileDifference {
         mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(
@@ -57,24 +56,21 @@ import Foundation
         (try? mockFM.attributesOfItem(atPath: "/dst/\(name)"))?[.modificationDate] as? Date
     }
 
-    /// (Field comparison — banner equality includes a per-publish id.)
+    /// Compares fields, since banner equality includes a per-publish id.
     @MainActor
     private func refused(_ manager: FileSyncManager) -> Bool {
         manager.banner?.message == "Wait for the current operation to finish before copying"
             && manager.banner?.severity == .warning
     }
 
-    /// Pin: a verified copy started while another bulk run is in flight refuses with a visible
-    /// banner — no files touched, no rows marked, and the running run's flag left alone.
+    /// A verified copy started while another bulk run is in flight refuses with a banner: no files
+    /// touched, no rows marked, and the running run's flag left alone.
     ///
-    /// The state is built the way production reaches it. A real file operation runs first, so
-    /// the offer is stamped at a MOVED epoch rather than at the initial 0 where every
-    /// comparison matches vacuously. `isBulkSyncRunning` is then latched WITHOUT moving the
-    /// epoch or the count, which is exactly `syncAll`'s prepare window: it latches the flag
-    /// before its confirmation prompt and before a single operation is enqueued (see the
-    /// comment at that assignment), so nothing has been written and `confirmVerifiedCopy`'s own
-    /// two guards both legitimately pass. `bulkCopyDifferencesLeftToRight`'s exclusion is the
-    /// only thing left standing here — which is the point of pinning it.
+    /// Built as production reaches it: one real operation first, so the offer is stamped at a
+    /// moved epoch (at 0 every comparison matches vacuously). Then `isBulkSyncRunning` is latched
+    /// without moving the epoch or count, which is `syncAll`'s prepare window before its prompt.
+    /// `confirmVerifiedCopy`'s two guards pass, so only `bulkCopyDifferencesLeftToRight`'s
+    /// exclusion can refuse.
     @MainActor
     @Test func testVerifiedCopyRefusedWhileAnotherBulkRunIsInFlight() async throws {
         let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt"])
@@ -99,13 +95,9 @@ import Foundation
         manager.isBulkSyncRunning = false
     }
 
-    /// Pin: a verified copy also refuses while Verify All is running — its overwrites would be
-    /// hashed mid-write and could record bogus "identical" results.
-    ///
-    /// Built at a MOVED epoch, like its sibling above: at the initial 0 the stamp and the live
-    /// epoch match vacuously, so the guards this test passes THROUGH on its way to the
-    /// `isVerifyAllRunning` exclusion prove nothing about themselves. One real operation first
-    /// makes them non-vacuous without changing what is being pinned.
+    /// A verified copy also refuses while Verify All runs: its writes would be hashed mid-write and
+    /// could record bogus "identical" results. Built at a moved epoch, like the test above, so the
+    /// guards it passes through on the way to `isVerifyAllRunning` aren't vacuous.
     @MainActor
     @Test func testVerifiedCopyRefusedWhileVerifyAllInFlight() async throws {
         let (manager, mockFM, _) = try makeFixture(names: [])
@@ -135,21 +127,15 @@ import Foundation
         #expect(!refused(manager))
     }
 
-    /// Pin (against a real in-flight run): while a verified copy is mid-flight it holds
-    /// `isBulkSyncRunning`, so a concurrent `syncAll` is dropped before touching any file, and
-    /// the run's exit releases the flag and tears down only its own progress.
+    /// While a verified copy is in flight it holds `isBulkSyncRunning`, so a concurrent `syncAll`
+    /// is dropped before touching any file, and the run's exit releases the flag and tears down
+    /// only its own progress.
     ///
-    /// The run is held by its OWN write — a date, since it copies nothing (review E6). It used to be held by parking a foreign operation
-    /// on the queue ahead of it, and that state production cannot reach: an offer is only
-    /// published while `activeFileOperationsCount == 0` and the epoch is still the one its
-    /// verdicts were hashed under, and `confirmVerifiedCopy` refuses if either has moved since
-    /// — so "an operation occupies the queue AND a live offer confirms" is a contradiction. The
-    /// old premise survived only because assigning the offer silently re-stamped it.
-    ///
-    /// The second-verified-copy leg is gone with it, for the same reason: `confirmVerifiedCopy`
-    /// nils the offer as it claims it, and Verify All refuses to run (so cannot publish a fresh
-    /// offer) while `isBulkSyncRunning`. There is no reachable second offer to confirm. The
-    /// refusal banner is pinned instead by `testVerifiedCopyRefusedWhileAnotherBulkRunIsInFlight`.
+    /// The run is held by its own write (a date, since it copies nothing), not by an operation
+    /// parked ahead of it: an offer confirms only with the queue empty and its epoch current, so
+    /// that state is unreachable. A second verified copy is unreachable too (the confirm nils the
+    /// offer, and Verify All won't run during a bulk run); its refusal banner is pinned by
+    /// `testVerifiedCopyRefusedWhileAnotherBulkRunIsInFlight`.
     @MainActor
     @Test(.parksAThread) func testVerifiedCopyExcludesConcurrentBulkRuns() async throws {
         let (manager, mockFM, fixtureDiffs) = try makeFixture(names: ["b.txt"])
@@ -158,11 +144,9 @@ import Foundation
         manager.rawDifferences = [verifiedDiff, bulkDiff]
         manager.differences = [verifiedDiff, bulkDiff]
 
-        // Park the FIRST date this run sets (it copies nothing — review E6), so the run is genuinely in flight while the
-        // assertions below run — no wall-clock sleeps, and nothing queued ahead of it. The park
-        // is bounded AND records its timeout: an unrecorded bound would let the copy resume on
-        // its own, and "the run was never held" would then be indistinguishable from "the run
-        // was held and the drop still happened" — which is the whole claim of this test.
+        // Park the first date this run sets, so it is in flight during the assertions below, with
+        // no sleeps and nothing queued ahead. The park is bounded and records its timeout, or a run
+        // that was never held would look the same as one held while the drop happened.
         let gate = ParkGate()
         let parked = LockedBox(false)
         mockFM.beforeSetAttributes = { _ in
@@ -178,20 +162,13 @@ import Foundation
         #expect(manager.isBulkSyncRunning)
         #expect(manager.bulkSyncProgress != nil)
 
-        // A bulk sync started now must be dropped, not queued behind the run.
+        // A bulk sync started now must be dropped, not queued behind the run. `syncAll` drops a
+        // re-entrant run silently, so there is nothing to poll for: awaiting it before the release
+        // proves the drop happened while the verified run was still parked.
         //
-        // Awaited BEFORE the release, which is what makes the drop observable at all: `syncAll`
-        // discards a re-entrant run SILENTLY, so there is nothing to poll for, and the yield
-        // loop this replaces was waiting on a signal that never existed. It returns through its
-        // guard without suspending on the copy, so this `await` completes while the verified run
-        // is demonstrably still parked — a deterministic proof the drop happened with the run
-        // genuinely in flight.
-        //
-        // The SILENCE is what identifies which guard did it, and it has to be asserted: this
-        // run also holds `syncingDifferenceIds` (markSyncing runs before the copy), so with the
-        // `isBulkSyncRunning` drop removed the very next guard catches the run and every other
-        // assertion here still passes — b.txt untouched, flag still held. That guard announces
-        // itself with a banner; the drop under test does not.
+        // The silence is asserted because it names the guard: the run also holds
+        // `syncingDifferenceIds`, so without the `isBulkSyncRunning` drop the next guard would
+        // catch it and every other assertion would pass. That guard shows a banner; this one doesn't.
         let syncAllTask = Task { await manager.syncAll(direction: .copyToRight, subset: [bulkDiff]) }
         await syncAllTask.value
         #expect(manager.isBulkSyncRunning, "the verified run must still hold the exclusion it was dropped against")

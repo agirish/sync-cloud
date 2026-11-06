@@ -1,15 +1,10 @@
 import Events
 import Foundation
 
-/// Reads and writes the artifacts a re-survey owns — ``FilingCorpus`` and ``FilingMemory``.
-///
-/// **The one place in the app that writes a filing artifact**, and separate from
-/// ``FilingProfileStore`` on purpose. That store is read-only because a half-finished scan
-/// overwriting a good profile is worse than having no profile; nothing here softens that. What it
-/// writes is a *complete* rebuild, produced before the first byte is written and written atomically,
-/// so the file on disk is only ever a whole memory — the previous one or the new one, never a blend.
-/// The folder profile is still never written: it records what a folder *is*, which is a judgement
-/// about names that a survey has no business revising.
+/// Reads and writes the artifacts a re-survey owns: ``FilingCorpus`` and ``FilingMemory``. The one
+/// place that writes a filing artifact, kept apart from the read-only ``FilingProfileStore``. It
+/// writes only a complete rebuild, atomically, so the file is always a whole memory, old or new,
+/// never a blend. The folder profile is never written: what a folder is isn't a survey's to revise.
 public enum FilingSurveyStore {
 
     public static func corpusURL(id: String, in directory: URL) -> URL {
@@ -20,56 +15,36 @@ public enum FilingSurveyStore {
         directory.appendingPathComponent("\(id)/filing-memory.json")
     }
 
-    /// How a corpus read went. **Absent and unreadable are different facts and the caller must be
-    /// able to tell them apart**, which is the whole reason this type exists.
-    ///
-    /// A tree that has never been surveyed has no corpus, and re-reading every document is the
-    /// correct answer. A corpus that is ON DISK and cannot be parsed says nothing about the tree —
-    /// and a survey that treats it as absent starts from an empty corpus, merges whatever this pass
-    /// happened to read into it, and writes the result over the memory. With the display asleep or
-    /// files offloaded, that is a near-empty memory written over megabytes of learned content, and
-    /// the moved fingerprint discards every cached classification with it. The unreadable-ROOT
-    /// guard in `FileSyncManager+FilingSurvey` already refuses exactly this harm; it arrived
-    /// through the corpus door instead.
+    /// How a corpus read went. **Absent and unreadable must stay distinct.** No corpus means re-read
+    /// everything. A corpus on disk that can't be read says nothing about the tree; treated as
+    /// absent, a survey would merge this pass into an empty corpus and write a near-empty memory
+    /// over the learned one, and the moved fingerprint would discard every cached classification.
     public enum CorpusRead: Sendable {
-        /// No corpus file — an ordinary state, and the next survey reads everything.
+        /// No corpus file: an ordinary state, and the next survey reads everything.
         case absent
-        /// A corpus file that is **on disk and could not be read** — could not be opened (mode
-        /// 000, an ACL, an I/O error, a dangling symlink) or could not be parsed. Nothing may be
-        /// inferred about the tree from it.
+        /// A corpus file on disk that couldn't be opened (mode 000, an ACL, an I/O error, a
+        /// dangling symlink) or parsed. Nothing may be inferred about the tree from it.
         case unreadable
         case loaded(FilingCorpus)
 
-        /// The corpus when there is one. Absent and unreadable both answer nil, which is what the
-        /// callers that genuinely cannot tell them apart already assumed.
+        /// The corpus when there is one; nil for both absent and unreadable, for callers that
+        /// don't need to tell them apart.
         public var corpus: FilingCorpus? {
             if case .loaded(let c) = self { return c }
             return nil
         }
     }
 
-    /// The corpus for `id`, saying which of the three states it found.
+    /// The corpus for `id`, saying which of the three states it found. **Unreadable includes a file
+    /// that is present but won't open**, not just a decode failure: an atomic write needs only
+    /// directory permission, so a mode-000 corpus taken as absent would be overwritten and lost.
+    /// `attributesOfItem`, not `fileExists`, which follows symlinks and says false for a link into
+    /// an unmounted volume, so the write would replace the link.
     ///
-    /// **Unreadable is not only a decode failure.** This reached `.unreadable` through the `catch`
-    /// alone, so every way a file can be present and unopenable — mode 000, an ACL, an I/O error,
-    /// a symlink whose target is gone — answered `.absent` and walked straight into the harm the
-    /// type exists to prevent. Measured: a mode-000 `filing-corpus.json` answered `.absent`, the
-    /// survey merged into an empty corpus, and `write` replaced the file — an atomic write needs
-    /// permission on the DIRECTORY, not on the file, so the learned content was destroyed rather
-    /// than protected.
-    ///
-    /// `attributesOfItem` rather than `fileExists`, the same probe the four sibling stores use:
-    /// `fileExists` follows symlinks and answers false for one whose target is on an unmounted
-    /// volume — measured — and the atomic write then replaces the link itself.
-    ///
-    /// **Nothing is moved aside here, deliberately, unlike ``StorageLensStore``,
-    /// ``FilingVerdictStore`` and ``PersonTagStore``.** Those three set the file aside because
-    /// they are *committed to writing*: their caller has verdicts or judgements in hand and the
-    /// only alternative to a rescue is losing them. This corpus has a third option and takes it —
-    /// `FileSyncManager+FilingSurvey` refuses the whole pass, so the bytes are left exactly as
-    /// they are and a fixed permission bit recovers the entire survey history. A set-aside here
-    /// would be strictly worse: the kept file is never re-ingested, so renaming it would turn a
-    /// recoverable permission problem into a full re-read of every document in the tree.
+    /// **Nothing is moved aside here**, unlike ``StorageLensStore``, ``FilingVerdictStore`` and
+    /// ``PersonTagStore``, which must write what their caller holds. `FileSyncManager+FilingSurvey`
+    /// refuses the whole pass instead, leaving the bytes as they are, so fixing the permission
+    /// recovers everything; a set-aside file is never re-read, forcing a full re-survey.
     public static func corpusRead(id: String, in directory: URL) -> CorpusRead {
         let url = corpusURL(id: id, in: directory)
         guard let data = try? Data(contentsOf: url) else {
@@ -89,22 +64,16 @@ public enum FilingSurveyStore {
         }
     }
 
-    /// The corpus for `id`, or nil when absent or unreadable.
-    ///
-    /// Nil is an ordinary state for a caller that only wants to know whether a corpus is available
-    /// — it means reading every document rather than the changed ones, which is slow and correct.
-    /// A caller that is about to WRITE over learned state must use ``corpusRead(id:in:)`` instead.
+    /// The corpus for `id`, or nil when absent or unreadable: fine for a caller that just reads
+    /// every document without one. **A caller about to write over learned state must use
+    /// ``corpusRead(id:in:)``.**
     public static func corpus(id: String, in directory: URL) -> FilingCorpus? {
         corpusRead(id: id, in: directory).corpus
     }
 
-    /// The corpus's `surveyedAt` stamp alone — nil when the file is absent, unreadable, or predates
-    /// the stamp (ROADMAP v5 §4.1).
-    ///
-    /// A separate read on purpose: the app wants this at launch, in the block that already loads
-    /// the profile, and building a nine-thousand-document dictionary to display one date would be
-    /// the wrong trade. The JSON is still parsed whole — that is Foundation's floor — but nothing
-    /// is materialised beyond the one field.
+    /// The corpus's `surveyedAt` stamp alone; nil when the file is absent, unreadable, or has no
+    /// stamp. A separate read so launch can show one date without building the whole document
+    /// dictionary: the JSON is still parsed, but only this field is decoded.
     public static func surveyedAt(id: String, in directory: URL) -> Date? {
         struct StampOnly: Decodable { let surveyedAt: String? }
         guard let data = try? Data(contentsOf: corpusURL(id: id, in: directory)),
@@ -113,14 +82,10 @@ public enum FilingSurveyStore {
         return decoded.surveyedAt.flatMap(FilingArtifactStamp.date(from:))
     }
 
-    /// Writes both artifacts atomically. Throws rather than logging, so a caller that promised the
-    /// user a survey can say it failed.
-    ///
-    /// `memory` is written only when it differs from `previousMemory`. **A re-survey that finds
-    /// nothing must not touch the file**: the memory's bytes are hashed into
-    /// ``FilingProfileStore/fingerprint(id:in:)``, which is part of every cached classification's
-    /// key, so rewriting an unchanged memory with a fresh `generated` stamp would throw away every
-    /// cached verdict to record that nothing happened.
+    /// Writes both artifacts atomically. Throws rather than logging, so a caller that promised a
+    /// survey can say it failed. **`memory` is written only when it differs from `previousMemory`**:
+    /// its bytes feed ``FilingProfileStore/fingerprint(id:in:)``, part of every cached
+    /// classification's key, so a fresh `generated` stamp alone would discard every cached verdict.
     @discardableResult
     public static func write(corpus: FilingCorpus, memory: FilingMemory, previousMemory: FilingMemory?,
                              id: String, in directory: URL, root: String,
@@ -129,10 +94,8 @@ public enum FilingSurveyStore {
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        // Stamped HERE, at the one write every survey goes through, so "last surveyed" moves even
-        // when the survey changed nothing (ROADMAP v5 §4.1) — while the memory below still writes
-        // only on change, which is what keeps the fingerprint (and every cached verdict keyed on
-        // it) from moving with the stamp. The pair pulls both ways on purpose.
+        // Stamped here, at the write every survey goes through, so "last surveyed" moves even when
+        // nothing changed, while the memory below writes only on change to keep the fingerprint.
         var stamped = corpus
         stamped.surveyedAt = now
         try encoder.encode(stamped).write(to: corpusURL(id: id, in: directory), options: .atomic)
@@ -144,16 +107,13 @@ public enum FilingSurveyStore {
         return true
     }
 
-    /// The instant both filing artifacts date themselves with — see ``FilingArtifactStamp``, which
-    /// is shared with ``FilingProfileStore`` so the two companion files cannot drift apart.
+    /// The instant both filing artifacts are dated with, via ``FilingArtifactStamp``, shared with
+    /// ``FilingProfileStore`` so the companion files can't drift apart.
     private static func stamp(_ date: Date) -> String { FilingArtifactStamp.string(from: date) }
 
-    /// The full on-disk shape, header and all.
-    ///
-    /// The header is not decoration: these artifacts get opened and read by hand when a suggestion
-    /// looks wrong, and a file that does not say what it is, when it was made, or what it sampled is
-    /// one nobody can audit. The fields match what the offline builder writes, so a memory made here
-    /// and one made there are the same document.
+    /// The full on-disk shape, header and all. The header lets someone auditing a wrong suggestion
+    /// see what the file is, when it was made and what it sampled. The fields match the offline
+    /// builder's, so a memory made here and one made there are the same document.
     private struct MemoryDocument: Encodable {
         let memory: FilingMemory
         let root: String

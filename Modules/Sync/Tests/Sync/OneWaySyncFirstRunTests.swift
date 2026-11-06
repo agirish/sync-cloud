@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// CZ: on a first run, a file with the same name on both sides is the same file. Same contents are
-/// adopted; different contents go by which is newer; the same second, or a future date, waits.
-/// A Dropbox file of identical contents under another name is renamed to match.
+/// On a first run, a file with the same name on both sides is the same file. Same contents are
+/// adopted; different contents go by which is newer; the same second, or a future date, waits. A
+/// Dropbox file of identical contents under another name is renamed to match.
 @Suite struct OneWaySyncFirstRunTests {
     static let t0 = OneWayWorld.t0
     static let now = OneWayWorld.t0.addingTimeInterval(3600)
@@ -131,8 +131,8 @@ import Testing
         #expect(plan.dropboxOnly.isEmpty)
     }
 
-    /// Only within one folder (31 Oct): a Dropbox file of the same contents filed in another
-    /// folder stays where it was, and iCloud's file is copied.
+    /// Only within one folder: a Dropbox file of the same contents filed in another folder stays
+    /// where it was, and iCloud's file is copied.
     @Test func identicalContentsInAnotherFolderIsNotPaired() {
         let plan = world(
             iCloud: [Self.file("Finance/receipt.pdf", id: 1, hash: "x")],

@@ -128,8 +128,8 @@ import Foundation
         let manager = FileSyncManager()
         #expect(manager.activeFileOperationsCount == 0)
 
-        // A long operation that parks until the test has observed it in flight — deterministic,
-        // unlike the old sleep pairing that flaked under a loaded parallel test run.
+        // A long operation that parks until the test has observed it in flight, so there is no
+        // sleep to lose under a loaded run.
         let release = DispatchSemaphore(value: 0)
         let operationTask = Task {
             await manager.enqueueFileOperation {
@@ -186,28 +186,20 @@ import Foundation
         #expect(manager.activeRefreshTask != nil)
     }
     
-    /// Every operation handed to `enqueueFileOperation` runs, runs ALONE, and unwinds the active
-    /// count — the serialization guarantee every mutation path in the app is built on.
+    /// Every operation handed to `enqueueFileOperation` runs, runs alone, and unwinds the active
+    /// count: the serialization guarantee every mutation path in the app is built on.
     ///
-    /// Deliberately has no timeout. It used to poll for up to 5 real seconds and then assert on
-    /// whatever had finished, which made it a race against the wall clock rather than a test of the
-    /// queue: the operations need the cooperative pool, so under any CPU load (a concurrent build
-    /// is enough) they legitimately do not finish in 5 s and the test reported "1 of 50 completed"
-    /// — a starvation symptom dressed up as a correctness failure. Seen twice in one session.
-    ///
-    /// Awaiting the task handles instead is exact: `enqueueFileOperation` returns only after its
-    /// own completion block has decremented the count, so when all 50 handles resolve the final
-    /// state is settled and both assertions are deterministic. A genuine deadlock now hangs until
-    /// the harness's own timeout, which is the honest signal — the old version turned that same
-    /// deadlock into a confusing wrong-number failure.
+    /// No timeout, on purpose: the operations need the cooperative pool, so under CPU load a
+    /// wall-clock poll would report a starved queue as a wrong count. Awaiting the task handles is
+    /// exact, since `enqueueFileOperation` returns only after its completion block decrements the
+    /// count. A real deadlock hangs until the harness's own timeout, which is the honest signal.
     @MainActor
     @Test func testConcurrentFileOperationsStress() async throws {
         actor Counter {
             private(set) var completed = 0
             private var inFlight = 0
-            /// The most operations ever running at once. `enqueueFileOperation` promises this
-            /// never exceeds 1; nothing asserted it before, so the test could pass with the queue
-            /// running everything in parallel.
+            /// The most operations ever running at once. `enqueueFileOperation` promises this never
+            /// exceeds 1, so a queue running everything in parallel fails here.
             private(set) var peakInFlight = 0
             func enter() {
                 inFlight += 1
@@ -282,9 +274,8 @@ import Foundation
     @MainActor
     @Test(.parksAThread) func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
-        // Deterministic: the walk parks at the gate (no wall-clock delay/sleep pairing to lose
-        // under a loaded parallel test run), so "load in flight" stays observable for exactly
-        // as long as the test needs.
+        // Deterministic: the walk parks at the gate, so "load in flight" stays observable for as
+        // long as the test needs, with no sleep to lose under a loaded run.
         let gate = ParkGate()
         mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
@@ -366,8 +357,8 @@ import Foundation
 
         #expect(manager.undoManager?.canUndo == true)
         manager.undoManager?.undo()
-        // The undo's file I/O runs on the detached operation queue; poll for its result
-        // instead of one fixed sleep, which flaked under a loaded parallel test run.
+        // The undo's file I/O runs on the detached operation queue; poll for its result rather
+        // than sleep a fixed time, which a loaded run outlasts.
         for _ in 0..<100 where mockFM.virtualDisk["/src/test_move.txt"] == nil {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
@@ -402,14 +393,14 @@ import Foundation
     }
 }
 
-/// `isHiddenPath` short-circuits on a UTF-8 scan before falling back to the expression it used to
-/// be. The scan is only allowed to prove the answer FALSE, so the two must agree everywhere — and
-/// the interesting disagreement is not hypothetical: `hasPrefix` compares grapheme clusters under
-/// canonical equivalence, so `"." + U+0301` is one cluster that is not `"."`.
+/// `isHiddenPath` short-circuits on a UTF-8 scan before falling back to a `hasPrefix` expression.
+/// The scan may only prove the answer false, so the two must agree everywhere, and they can
+/// differ: `hasPrefix` compares grapheme clusters under canonical equivalence, so `"." + U+0301`
+/// is one cluster that is not `"."`.
 @Suite struct HiddenPathScanTests {
 
-    /// The expression `isHiddenPath` carried before the scan was put in front of it. Kept here
-    /// rather than referenced so the test still has an independent oracle if the source changes.
+    /// The expression the scan short-circuits, copied here rather than referenced so the test
+    /// keeps an independent oracle if the source changes.
     private func originalExpression(_ path: String) -> Bool {
         path.components(separatedBy: "/").contains { $0.hasPrefix(".") }
     }

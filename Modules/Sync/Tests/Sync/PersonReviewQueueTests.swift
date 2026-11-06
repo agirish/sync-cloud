@@ -4,10 +4,9 @@ import Foundation
 
 /// The review queue: the page-text channel, the weak-name channel, and his verdicts.
 ///
-/// **What stage 1 threw away, and why it could not keep it.** Weak evidence was suppressed because
-/// there was nowhere to put it — a shared word like `father` alone names four people, so showing
-/// it as an answer would have been a wrong answer. It is not wrong, it is *unreviewed*, and these
-/// are the rules that decide what reaches him and what a verdict does to it.
+/// Weak evidence, such as a shared word like `father` that names four people, would be a wrong
+/// answer but is a fair question. These are the rules for what reaches him as a question and what
+/// a verdict does to it.
 @Suite struct PersonReviewQueueTests {
 
     // MARK: Fixtures — a household whose names overlap the way the real one does
@@ -36,9 +35,8 @@ import Foundation
         return FolderProfile(profileId: "t", root: "/root", folders: map, personTokens: [])
     }
 
-    /// A corpus whose documents carry page-1 anchors. **Anchors are sorted and de-duplicated on
-    /// disk**, and the fixtures sort them too so they cannot accidentally test an ordering the real
-    /// file never has.
+    /// A corpus whose documents carry page-1 anchors, sorted as they are on disk so the fixtures
+    /// can't test an ordering the real file never has.
     private static func corpus(_ docs: [(String, [String])]) -> FilingCorpus {
         FilingCorpus(profileId: "t", salt: "s",
                      documents: Dictionary(uniqueKeysWithValues: docs.map { path, anchors in
@@ -57,8 +55,8 @@ import Foundation
 
     // MARK: - The weak-name channel
 
-    /// **The rows stage 1 suppressed now arrive as questions.** `elder` alone is Dad's given name,
-    /// his wife's surname and his sons' — enough to ask about, never enough to claim.
+    /// A shared word in the name queues rather than claims: `elder` alone is Dad's given name and
+    /// two others' surname, enough to ask about, never enough to claim.
     @Test func aSharedWordInTheNameQueuesRatherThanClaims() throws {
         let c = Self.corpus([("Shared/Inbox/Elder - insurance card.pdf", [])])
         let set = try Self.gather("elder", corpus: c, profile: Self.inbox)
@@ -74,7 +72,7 @@ import Foundation
         #expect(sharedWith == 2, "granny and father both carry `elder` in a name")
     }
 
-    /// A phrase still claims outright — the queue must not swallow the evidence that already works.
+    /// A phrase still claims outright: the queue must not swallow evidence that already works.
     @Test func aPhraseStillClaimsWithoutAsking() throws {
         let c = Self.corpus([("Shared/Inbox/Granny Elder - Resume.pdf", [])])
         let set = try Self.gather("granny", corpus: c, profile: Self.inbox)
@@ -88,10 +86,9 @@ import Foundation
 
     // MARK: - The page-text channel
 
-    /// **A page-1 mention only ever queues.** It is testimony: an invoice prints the parent who
-    /// pays, a nomination form prints the spouse. Measured over the live tree, letting the page
-    /// claim documents put 2,011 rows in one person's "filed elsewhere" — all of them documents
-    /// that merely mention her.
+    /// A page-1 mention only ever queues. It is testimony: an invoice prints the parent who pays, a
+    /// nomination form prints the spouse. On the live tree, a page that could claim put thousands of
+    /// documents that merely mention one person in her "filed elsewhere".
     @Test func aPageMentionQueuesAndNeverClaims() throws {
         let c = Self.corpus([("Shared/Inbox/Scan 2026-03-14.pdf", ["granny", "policy", "renewal"])])
         let set = try Self.gather("granny", corpus: c, profile: Self.inbox)
@@ -105,10 +102,9 @@ import Foundation
         }
     }
 
-    /// **The rule that made the channel usable: exactly one person, or nothing.**
-    ///
-    /// A household document names several family members — and says nothing about whose it is.
-    /// Over the live tree this single condition took the page channel from 4,568 rows to 635.
+    /// The rule that makes the page channel usable: exactly one person, or nothing. A household
+    /// document names several family members and says nothing about whose it is; on the live tree
+    /// this condition cuts the channel's rows by about seven in eight.
     @Test func aPageNamingTwoPeopleNamesNobody() throws {
         let c = Self.corpus([("Shared/Inbox/Scan.pdf", ["granny", "maiden", "nomination"])])
         for person in ["granny", "mother"] {
@@ -119,9 +115,8 @@ import Foundation
         }
     }
 
-    /// **Precedence, and it is `attribution`'s to own.** A filename that names somebody is judged on
-    /// that alone; the page is not consulted, so a document named for Daughter never queues for the
-    /// woman page 1 happens to mention.
+    /// Precedence, owned by `attribution`: a filename that names somebody is judged on that alone,
+    /// so a document named for Daughter never queues for the woman page 1 happens to mention.
     @Test func aNameOnTheFileStopsThePageBeingRead() throws {
         let c = Self.corpus([("Shared/Inbox/Daughter Father - report card.pdf",
                               ["granny", "school", "term"])])
@@ -131,8 +126,8 @@ import Foundation
         #expect(daughter.elsewhere.count == 1)
     }
 
-    /// A document already in her own folder is claimed by the folder and never queued — the folder
-    /// channel is ground truth and outranks every question.
+    /// A document in her own folder is claimed by the folder and never queued: the folder channel
+    /// is ground truth and outranks every question.
     @Test func aDocumentInHerOwnFolderIsNeverQueued() throws {
         let p = Self.profile([("Family", nil), ("Family/Granny", "Granny")])
         let c = Self.corpus([("Family/Granny/Scan.pdf", ["granny", "policy"])])
@@ -143,8 +138,8 @@ import Foundation
 
     // MARK: - Verdicts
 
-    /// **"Not hers" sticks.** The channels are deterministic, so without a remembered refusal the
-    /// same weak match returns on every gather forever. This is the whole reason the file exists.
+    /// "Not hers" sticks. The channels are deterministic, so without a remembered refusal the same
+    /// weak match would return on every gather.
     @Test func aRejectionKeepsTheSameWeakMatchFromReturning() throws {
         let path = "Shared/Inbox/Elder - insurance card.pdf"
         let c = Self.corpus([(path, [])])
@@ -157,7 +152,7 @@ import Foundation
         #expect(after.elsewhere.isEmpty)
     }
 
-    /// A confirmation claims the document — and says *he* claimed it, not the evidence.
+    /// A confirmation claims the document, and says he claimed it, not the evidence.
     @Test func aConfirmationClaimsTheDocumentAsHisVerdict() throws {
         let path = "Shared/Inbox/Scan 2026-03-14.pdf"
         let c = Self.corpus([(path, ["granny", "policy"])])
@@ -169,11 +164,9 @@ import Foundation
         #expect(set.elsewhere.first?.evidence == .taggedByYou)
     }
 
-    /// **A confirmation on a document no channel would ever produce still shows.**
-    ///
-    /// The design's own example is a photo: it carries no text and no name either way, so nothing
-    /// computes a row for it. Without this the verdict would be recorded and then invisible, which
-    /// is indistinguishable from not having been recorded.
+    /// A confirmation on a document no channel would produce still shows, such as a photo with no
+    /// text and no name. Otherwise the verdict would be recorded and invisible, which looks the same
+    /// as not recorded.
     @Test func aConfirmationOnSilentEvidenceStillAppears() throws {
         let path = "Shared/Inbox/IMG_2214.HEIC"
         let c = Self.corpus([(path, [])])
@@ -184,8 +177,8 @@ import Foundation
         #expect(set.elsewhere.first?.evidence == .taggedByYou)
     }
 
-    /// A confirmation whose file has since left the corpus is kept rather than dropped — a verdict
-    /// silently vanishing is worse than one pointing at a path that has moved.
+    /// A confirmation whose file has left the corpus is kept: a verdict silently vanishing is worse
+    /// than one pointing at a path that has moved.
     @Test func aConfirmationOutlivesTheDocumentLeavingTheCorpus() throws {
         let tags = [PersonTag(personId: "daughter", key: .fingerprint("fp"), verdict: .confirmed,
                               recordedPath: "Gone/Away.pdf")]
@@ -193,13 +186,10 @@ import Foundation
         #expect(set.elsewhere.map(\.path) == ["Gone/Away.pdf"])
     }
 
-    /// A verdict is about one person, and one person's answer does not settle another's.
-    ///
-    /// **The queue never asks two people about the same filename**, which is worth stating because
-    /// it is not obvious: a shared word standing alone resolves through the registry's *given-name*
-    /// rule, so `elder` on its own is Dad and is never also a question for the wife and sons who
-    /// carry it as a surname. What can collide is a verdict against a computed row, and that is what
-    /// this holds: rejecting for him leaves her confirmation on the same document standing.
+    /// A verdict is about one person, and doesn't settle another's. The queue never asks two people
+    /// about one filename (a lone shared word resolves through the given-name rule, so `elder` is
+    /// only Dad's question), but a verdict can meet a computed row: rejecting for him leaves her
+    /// confirmation on the same document standing.
     @Test func oneVerdictDoesNotSettleAnotherPersonsQuestion() throws {
         let path = "Shared/Inbox/Elder - insurance card.pdf"
         let c = Self.corpus([(path, [])])
@@ -227,13 +217,9 @@ import Foundation
 
     // MARK: - The optimistic update has to be the same answer
 
-    /// **`applying(verdict:to:)` must equal what the next gather returns**, or the screen and the
-    /// file disagree until something reloads.
-    ///
-    /// The view does not re-gather after a verdict — it would re-read a 4.9 MB corpus and walk
-    /// 10,171 documents to change one row, putting a spinner between every keystroke of a review
-    /// session. That optimisation is only safe if the shortcut and the real thing agree, so this
-    /// asserts it directly rather than trusting the two to have been written the same way.
+    /// `applying(verdict:to:)` must equal what the next gather returns, or the screen and the file
+    /// disagree until something reloads. The view doesn't re-gather after a verdict, since that
+    /// re-reads the whole corpus to change one row, so the shortcut must match the real thing.
     @Test(arguments: [true, false])
     func theOptimisticUpdateMatchesTheNextGather(isTheirs: Bool) throws {
         let path = "Shared/Inbox/Scan 2026-03-14.pdf"
@@ -248,12 +234,12 @@ import Foundation
         let regathered = try Self.gather("granny", corpus: c, profile: Self.inbox, tags: tags)
         #expect(shortcut == regathered)
         // Non-vacuity: the two would also match if `applying` did nothing and the verdict were
-        // ignored. Something has to have changed.
+        // ignored, so something must have changed.
         #expect(shortcut != before)
     }
 
-    /// Applying a verdict to a path that is not in the queue changes nothing — a stale click from a
-    /// list that has already moved on must not invent a row.
+    /// Applying a verdict to a path not in the queue changes nothing: a stale click from a list
+    /// that has moved on must not invent a row.
     @Test func applyingAVerdictToAnUnqueuedPathIsInert() throws {
         let c = Self.corpus([("Shared/Inbox/Scan.pdf", ["granny"])])
         let set = try Self.gather("granny", corpus: c, profile: Self.inbox)
@@ -262,8 +248,8 @@ import Foundation
 
     // MARK: - The count the header shows
 
-    /// **Review rows are questions, not answers, so they are not in the total.** A header that
-    /// counted them would assert exactly what the queue exists to ask.
+    /// Review rows are questions, not answers, so they are not in the total; a header that counted
+    /// them would assert what the queue exists to ask.
     @Test func theTotalCountsClaimsAndNotQuestions() throws {
         let c = Self.corpus([("Shared/Inbox/Granny Elder - Resume.pdf", []),
                              ("Shared/Inbox/Scan.pdf", ["granny", "policy"])])

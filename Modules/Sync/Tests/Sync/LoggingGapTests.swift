@@ -4,30 +4,22 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Three outcomes that used to happen with nothing in `~/sync-cloud.log` to account for them.
+/// Outcomes a reader can observe that `~/sync-cloud.log` must account for: a pane that reloaded
+/// when only the other was asked for, a household where one person's names stopped matching, a
+/// tree with neither a profile nor an index entry. Each line is pinned so its removal fails a test,
+/// and the cases that must stay silent are pinned beside them.
 ///
-/// Each one is a state a reader can *observe* — a pane that reloaded when only the other was asked
-/// for, a household where one person's names stopped matching, a tree with neither a profile nor an
-/// index entry — while the log offered no cause. A log line is only worth adding if something would
-/// notice it going away, so each is pinned here, and the pair that must stay *silent* is pinned in
-/// the same tests as the absence half of the rule.
-///
-/// `Logger.shared` is a process-wide singleton and this suite runs alongside every other, so every
-/// fixture carries a token unique to its own run: an assertion matching on "some profile was rolled
-/// back" would be reading another test's line.
+/// `Logger.shared` is process-wide and shared with every suite running alongside, so every fixture
+/// carries a token unique to its own run.
 @Suite @MainActor struct LoggingGapTests {
-    /// Opened per test — Swift Testing builds a fresh suite instance for each — so every
-    /// assertion below reads a window that starts before its own test does, and cannot be
-    /// evicted out from under it. See `LogCapture` in `EventsTestSupport`.
+    /// Opened per test (Swift Testing builds a fresh instance for each), so every assertion reads a
+    /// window that starts before its test does and can't be evicted. See `LogCapture`.
     private let log = LogCapture()
 
 
-    /// The shared logger's most recent ENTRY containing `fragment`, or nil. Awaiting a fresh log
-    /// task first guarantees everything enqueued before it is visible in `entries`.
-    ///
-    /// The whole entry rather than its message, because a line's **level** is part of what this
-    /// suite pins — see `wideningAOnePaneRefreshSaysSo`. `loggedLine` below keeps the text-only
-    /// reading for the assertions that only care what was said.
+    /// The shared logger's most recent entry containing `fragment`, or nil. The whole entry, not
+    /// its message, because a line's level is part of what this suite pins
+    /// (`wideningAOnePaneRefreshSaysSo`).
     private func loggedEntry(containing fragment: String) async -> LogEntry? {
         await log.entries.last { $0.message.contains(fragment) }
     }
@@ -41,41 +33,21 @@ import Testing
 
     // MARK: - A one-pane refresh that quietly becomes a two-pane one
 
-    /// **A left-pane tab switch that walks the right pane has to say why.**
+    /// A left-pane tab switch that walks the right pane has to say why.
     ///
-    /// `refreshTreesAndScan` unions its requested scope with whatever is in flight, so a
-    /// `.leftOnly` switch arriving during a `.both` load widens to `.both` — deliberately, or the
-    /// narrower refresh would cancel the wider one and leave the other pane blank. The cost is that
-    /// the log then carries a `[load] right … start` line under a request that named only the left,
-    /// and nothing connected the two.
+    /// `refreshTreesAndScan` unions its requested scope with whatever is in flight, so a `.leftOnly`
+    /// switch during a `.both` load widens to `.both`; otherwise the narrower refresh would cancel
+    /// the wider one and leave the other pane blank. The log then shows a right-pane load under a
+    /// left-only request, so the widening must be logged. Two controls:
+    /// - An undisputed refresh must not claim a widening, or the line would appear on every load.
+    /// - A refresh that widens and is then deduped (the widened key equals `activeRefreshKey`)
+    ///   starts nothing, so it must not claim one either.
     ///
-    /// There are **two** controls, and the second is the one this test used to be built on top of:
-    ///
-    /// - An *undisputed* refresh must not claim to have widened anything, or the line would appear
-    ///   under every ordinary load and mean nothing.
-    /// - A refresh that widens and is then **deduped** must not claim it either. When the refresh in
-    ///   flight is `.both` for the SAME target, a one-pane request widens to `.both`, the widened key
-    ///   equals `activeRefreshKey`, and the call returns having started nothing — so a line written
-    ///   above that return credited a widening to a call that did no work. That was the only
-    ///   scenario the presence half exercised: it planted a `.both` key for the same target
-    ///   precisely to make the call dedupe and return at once, which is to say the one case the
-    ///   line was pinned in was the one case it was wrong in.
-    ///
-    /// **No half lets a refresh finish between the line and the assertion**, and that is not an
-    /// economy — it is measured. `Logger.entries` keeps the last 1000 lines, and the rest of this
-    /// package running in parallel logs past that window while even an empty two-pane refresh is
-    /// being scheduled on a loaded machine: the first version of this test awaited the refresh and
-    /// reported a missing line for a line that had been written. The decision under test is taken
-    /// synchronously at the top of `refreshTreesAndScan`, before any walk, so each half reads the log
-    /// as soon as the decision has been taken — the deduping half by returning at once, the two that
-    /// really run by starting the refresh as a task and waiting only for the decision's own
-    /// observable.
-    ///
-    /// **The scope PAIR in each fixture is chosen to be unique in this package.** `Logger.shared` is
-    /// process-wide and the line names only the two scopes, so a fragment another suite can write is
-    /// not this test's to assert on: `PaneReloadScopeTranscript` widens a `.leftOnly` under a
-    /// `.both`, which is why the presence half plants `.rightOnly` and matches the whole sentence,
-    /// and why the dedupe half requests `.rightOnly` — nothing else in the package does.
+    /// No half lets a refresh finish before the assertion: the rest of the package can log past the
+    /// 1,000-line window while even an empty refresh is scheduled. The decision is taken
+    /// synchronously at the top of `refreshTreesAndScan`, so each half reads the log as soon as it
+    /// is taken. Each fixture's scope pair is unique in this package: `PaneReloadScopeTranscript`
+    /// widens a `.leftOnly` under a `.both`, so these halves use `.rightOnly`.
     @MainActor
     @Test func wideningAOnePaneRefreshSaysSo() async throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -91,17 +63,12 @@ import Testing
         let r = CloudProvider(id: "R", displayName: "R", imageName: "folder",
                               rootPath: right.path, type: .localFolder)
 
-        // A refresh with a scope this one disagrees with, standing in for one still in flight — the
-        // key is the only part of it this decision reads. `.rightOnly` rather than `.both`, and that
-        // is the whole point of this half: the widened key carries `.both` and so differs from the
-        // planted one, which means the refresh is not deduped and really runs. Under a planted
-        // `.both` for the same target — what this half used to plant — the widened key MATCHES, the
-        // call returns at the dedupe two statements later, and the line would be describing a walk
-        // that never happened. That case is now the third half, below.
+        // A planted key standing in for a refresh in flight; the key is all this decision reads.
+        // `.rightOnly`, so the widened `.both` key differs from it and the refresh really runs
+        // (a planted `.both` for the same target would dedupe; that case is the third half).
         //
-        // Started as a task and read at the decision's own observable, for the window reason in the
-        // note above: `activeRefreshKey` moves off the planted key immediately after the line is
-        // written, so a key that has moved means the line is already in the buffer.
+        // Started as a task and read at the decision's own observable: `activeRefreshKey` moves
+        // off the planted key right after the line is written.
         let m = FileSyncManager()
         let planted = m.makeRefreshKey(left: l, right: r, reloading: .rightOnly)
         m.activeRefreshKey = planted
@@ -111,37 +78,27 @@ import Testing
         }
         widening.cancel()
 
-        // The WHOLE sentence, not "Widening a leftOnly refresh": `PaneReloadScopeTranscript` widens
-        // a `.leftOnly` under a `.both` in the same process, so the shorter fragment would find that
-        // suite's line and this one would pass with nothing of its own written.
+        // The whole sentence: `PaneReloadScopeTranscript` widens a `.leftOnly` under a `.both` in
+        // the same process, so a shorter fragment could match its line instead.
         let entry = await loggedEntry(
             containing: "Widening a leftOnly refresh to both panes: a rightOnly refresh was already in flight")
         #expect(entry != nil,
                 "a one-pane refresh was widened to both panes, and really ran, with nothing in the log")
-        // **The LEVEL, and it is not decoration.** `.debug` is dropped entirely at Settings ▸
-        // Advanced ▸ Info, and this is the only account of a user-VISIBLE event — the other pane
-        // reloading under a request that named one. The reader who has turned the noise down is
-        // exactly the reader filing "why did my right pane reload?", so a line that answers it at
-        // `.debug` answers nobody. `e1ae7b9e` raised it from `.debug` and nothing pinned it: every
-        // assertion in this suite read `\.message`, so the raise was one revert from being undone
-        // in silence.
+        // The level matters: `.debug` is dropped at Settings ▸ Advanced ▸ Info, and this is the only
+        // account of a visible event (the other pane reloading). The reader who turned the noise
+        // down is the one asking why their right pane reloaded.
         #expect(entry?.level == .info,
                 "the widening line is back at \(entry?.level.rawValue ?? "no") level — at .debug it is dropped for exactly the reader who turned the noise down to ask why their other pane reloaded")
         _ = await widening.value
 
-        // The first control, and it is the one that keeps the line honest: a `.both` request also
-        // disagrees with a narrower refresh in flight and also takes this branch — but nothing was
-        // widened, so announcing one would put the line under ordinary loads too.
+        // First control: a `.both` request also disagrees with a narrower refresh in flight and
+        // takes this branch, but widens nothing, so it must not announce a widening.
         //
-        // This half cannot dedupe — the widened key carries `.both` and the one in flight carries
-        // `.leftOnly`, so they can never match — which is why the refresh is started as a task and
-        // read as soon as the decision is taken rather than awaited to completion. `activeRefreshKey`
-        // is assigned immediately after the decision, so *moving off* the planted key is the
-        // observable that says the branch has run. Moving off it rather than landing on the widened
-        // one, because the refresh releases the key again when it finishes: a fast refresh would
-        // pass through the widened value between two polls and the wait would never see it. The
-        // marker goes in FIRST, so it is older than any line the branch could write: if it is still
-        // in the window, so is anything written after it.
+        // It can't dedupe, so it is started as a task and read once the decision is taken. The wait
+        // is for `activeRefreshKey` to move off the planted key, not to land on the widened one: the
+        // refresh releases the key when it finishes, so a fast one could pass through the widened
+        // value between polls. The marker goes in first, so if it is still in the window, so is
+        // anything the branch wrote.
         let m2 = FileSyncManager()
         let inFlight = m2.makeRefreshKey(left: l, right: r, reloading: .leftOnly)
         m2.activeRefreshKey = inFlight
@@ -159,15 +116,12 @@ import Testing
                 "a `.both` request is already as wide as this goes and must not claim a widening")
         _ = await control.value
 
-        // The second control: **widened, and then deduped away.** A one-pane request arriving under
-        // a `.both` refresh for the SAME target widens to `.both`, which is exactly the key already
-        // in flight — so the call skips and returns having walked nothing. Announced before the
-        // dedupe, the line read "Widening a rightOnly refresh to both panes" immediately followed by
-        // "Skipping duplicate in-flight refresh", crediting a widening to a call that did no work.
+        // Second control: widened, then deduped. A one-pane request under a `.both` refresh for the
+        // same target widens to the key already in flight, so the call returns having walked
+        // nothing, and must not claim a widening.
         //
-        // `.rightOnly` requested, because the fragment has to be one nothing else in this package
-        // writes: `PaneReloadScopeTranscript` and the presence half above both widen a `.leftOnly`.
-        // Marker first, as everywhere here, so a rolled window is reported rather than passing.
+        // `.rightOnly`, because nothing else in this package widens it. Marker first, so a rolled
+        // window is reported rather than passing.
         let m3 = FileSyncManager()
         let sameTarget = m3.makeRefreshKey(left: l, right: r, reloading: .both)
         m3.activeRefreshKey = sameTarget
@@ -198,15 +152,12 @@ import Testing
         return (dir, id)
     }
 
-    /// **A repeated person id is tolerated by everything and announced by nothing.**
+    /// A repeated person id is tolerated by everything and announced by nothing else.
     ///
-    /// The id is the roster's primary key everywhere except in the file, and each consumer resolves
-    /// a repeat differently — the registry's token index keeps the last record, an id lookup returns
-    /// the first. Nothing fails; a full name simply stops matching. Copying a record to add a
-    /// spelling and leaving its `id` alone is how it happens.
-    ///
-    /// The control below is the half that gives this one teeth: an ordinary roster must load in
-    /// silence, or the warning would be noise on every launch.
+    /// The id is the roster's primary key, and consumers resolve a repeat differently (the
+    /// registry's token index keeps the last record, an id lookup returns the first). Nothing fails;
+    /// a full name just stops matching. Copying a record to add a spelling without changing its `id`
+    /// causes it. The control below keeps the warning off an ordinary roster's launch.
     @MainActor
     @Test func aRepeatedPersonIdIsWarnedAboutOnceAtLoad() async throws {
         let dup = "mother-\(Self.token())"
@@ -217,18 +168,15 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = PeopleStore(directory: dir, profileId: id, profile: nil)
-        // The roster loaded AND was collapsed to one record — both halves matter here. The first
-        // is the fixture working at all; the second is why this warning cannot be derived from
-        // `store.people`, which is the repaired roster and no longer shows the repeat. An earlier
-        // version of the warning did exactly that and went silent; `PersonRegistry.repeatedIds`
-        // reads the raw list instead.
+        // The roster loaded and was collapsed to one record. The collapse is why the warning can't
+        // be derived from `store.people`, which no longer shows the repeat;
+        // `PersonRegistry.repeatedIds` reads the raw list instead.
         #expect(store.people.count == 1, "the fixture roster did not load, or the repeat survived it")
         #expect(store.people.first?.fullNames == ["Mother I Maiden"],
                 "the collapse kept the wrong record, so the line below would name the wrong loss")
 
-        // **The LOAD warning specifically.** `PeopleStore.save()` now refuses a roster that repeats
-        // an id and names the same ids doing it, so "a line mentioning `dup`" is no longer one
-        // thing: matched on the load warning's own opening so a refusal can never stand in for it.
+        // The load warning specifically: `PeopleStore.save()` refuses a roster that repeats an id
+        // and names the same ids, so match on the load warning's own opening.
         let line = await loggedLine(containing: "people.json repeats the person id(s) \(dup)")
         #expect(line != nil, "a roster repeating a person id loaded with nothing in the log")
         #expect(line?.contains("Refusing to write") != true,
@@ -237,13 +185,10 @@ import Testing
                 "the line has to say which of the two records wins: \(line ?? "nil")")
         #expect(line?.contains("dropped") == true,
                 "the line has to say the earlier records are DISCARDED, not merely out-voted: \(line ?? "nil")")
-        // **The path is load-bearing for the control below, and nothing else pinned it.**
-        // `anOrdinaryRosterLoadsWithoutAWarning` asserts the absence of any line naming the PROFILE
-        // ID, and the only reason a warning would carry that id is that this line prints
-        // `fileURL.path` — which is `<dir>/<profile id>/people.json`. Narrow that to
-        // `lastPathComponent` and the control goes vacuous in silence, including for the very
-        // mutation its comment claims to catch. So it is pinned here, in the positive half, where
-        // the line actually exists to be read.
+        // The path is pinned because the control below depends on it:
+        // `anOrdinaryRosterLoadsWithoutAWarning` asserts no line names the profile id, which only
+        // works while this line prints `fileURL.path` (`<dir>/<profile id>/people.json`). Narrowed
+        // to `lastPathComponent`, the control would go vacuous.
         #expect(line?.contains("/\(id)/people.json") == true,
                 "the warning no longer prints the roster's PATH, so `anOrdinaryRosterLoadsWithoutAWarning` — which matches on the profile id — can never fail: \(line ?? "nil")")
     }
@@ -258,10 +203,8 @@ import Testing
             """)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // **The marker goes in before the load**, on this suite's rule for every absence assertion:
-        // `Logger.entries` is a rolled 1000-line window shared with every suite running alongside,
-        // and a silence measured over a window that rolled past is a test that cannot fail. Older
-        // than anything the load could write, so if it is still there, so is anything after it.
+        // Marker before the load, as for every absence assertion here: a silence measured over a
+        // window that has rolled can't fail. If the marker is still there, so is anything after it.
         let marker = "logging-gap roster control marker \(Self.token())"
         await Logger.shared.debug(marker).value
 
@@ -271,29 +214,23 @@ import Testing
 
         #expect(await loggedLine(containing: marker) != nil,
                 "the log window rolled past this test's own marker, so the silence below is vacuous")
-        // Matched on the profile id rather than on `mark`: the id is in the file path the warning
-        // prints, so this catches a warning that fires with an EMPTY list of repeats too — which is
-        // exactly what a guard that stopped guarding would produce. That the warning really does
-        // print the path is pinned in the positive sibling above, because nothing here can see it.
+        // Matched on the profile id, which is in the path the warning prints, so this also catches
+        // a warning that fires with an empty list of repeats. The positive test pins that the path
+        // is printed.
         #expect(await loggedLine(containing: id) == nil, "an ordinary roster was warned about")
         #expect(mark != id)
     }
 
     // MARK: - A profile that was written and then taken away again
 
-    /// **The rollback is the one thing in the write path that logs, and the one thing no thrown
-    /// error carries.**
+    /// The rollback is logged; a refusal is not.
     ///
-    /// The profile lands first and `profiles.json` second; when the second fails the first is
-    /// removed again, because a profile nothing points at is one every retry refuses. What
-    /// propagates is the index write's own error, which says nothing about a profile having existed
-    /// for a moment — so a reader who finds neither profile nor index entry had no account of
-    /// either.
+    /// The profile lands first and `profiles.json` second; if the second fails, the profile is
+    /// removed again, since a profile nothing points at is one every retry refuses. The thrown error
+    /// is the index write's own and says nothing about the profile, so only the log can.
     ///
-    /// The second half is the rule that removed the line this replaces: **the store throws and the
-    /// caller logs**, so a refusal writes nothing here. `profileExists` used to log *and* throw
-    /// while its two siblings threw in silence, which taught a reader of the log that the other two
-    /// refusals do not happen.
+    /// A refusal, by contrast, is thrown and the caller logs it: the store throws and writes nothing
+    /// here, the same for all three refusals, so the log doesn't suggest some never happen.
     @MainActor
     @Test func theRollbackIsLoggedAndTheRefusalIsNot() async throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -304,8 +241,8 @@ import Testing
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
 
-        // The index write fails because its directory does not exist, which is where the rollback
-        // actually lives (see `land` — the older fixture stopped reaching it).
+        // The index write fails because its directory doesn't exist, which is the path that reaches
+        // the rollback (see `land`).
         #expect(throws: (any Error).self) {
             try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: url,
                                         index: Data("{}".utf8),
@@ -316,17 +253,13 @@ import Testing
         #expect(line?.contains("removed again") == true,
                 "the line has to say the profile went away, not merely that a write failed: \(line ?? "nil")")
 
-        // And now the silent half. A refusal carries its whole sentence in the error, so the store
-        // does not also write it — but the fact still has to be *available*, which is the
-        // presence assertion the absence below needs.
+        // The silent half. A refusal carries its whole sentence in the error, so the store must not
+        // also log it, but the error must still carry the id.
         //
-        // **This absence needs its own marker most of all**, and it was the one that did not have
-        // one. Its window is the widest of the three — two full `writeProfile` calls with atomic
-        // disk writes between the marker and the read — so on a loaded machine running this package
-        // in parallel it is the likeliest of them to be measured over a window that has already
-        // rolled, and the regression it exists to catch (a `Logger.shared.warning` reinstated beside
-        // `throw WriteRefusal.profileExists`) would then go unreported. Logged before the FIRST
-        // write, since that is the earliest point anything could name `refused`.
+        // This absence has the widest window here (two `writeProfile` calls with atomic writes), so
+        // it most needs its marker: without one, a reinstated `Logger.shared.warning` beside
+        // `throw WriteRefusal.profileExists` could go unreported. Logged before the first write,
+        // the earliest point anything could name `refused`.
         let refusalMarker = "logging-gap refusal marker \(Self.token())"
         await Logger.shared.debug(refusalMarker).value
 
@@ -348,27 +281,18 @@ import Testing
 
     // MARK: - A re-home line that credits a pane that did not move
 
-    /// **A provider switch re-homes ONE pane, and the line must not claim both.**
+    /// A provider switch re-homes one pane, and the line must not claim both.
     ///
-    /// The line is what a session read back in `~/sync-cloud.log` has to distinguish a source
-    /// switch from a two-pane reset, and "untouched" is a bigger claim than it used to be:
-    /// `retargetPane` leaves the sibling its tree, its columns, its selection and its history, and
-    /// the log is the only place that says so.
+    /// The line is how `~/sync-cloud.log` tells a source switch from a two-pane reset:
+    /// `retargetPane` leaves the sibling its tree, columns, selection and history. "Moved" must not
+    /// be decided by comparing whole histories, since any pane with history behind it would then
+    /// count as re-homed; this fixture's right pane has one step behind it for that reason.
     ///
-    /// **The first attempt at exactly this decided "moved" by comparing whole HISTORIES**, which is
-    /// a different question: a pane sitting on the right folder with anything behind it differs
-    /// from a fresh one-entry history, so any pane the user had navigated at all — the common case
-    /// — reported as re-homed and the line said what it said before. This fixture is that case:
-    /// the right pane has one step of history behind it.
-    ///
-    /// The write is still guarded on the history, and that is asserted here too — from the other
-    /// direction now. The sibling's Back stack must SURVIVE, because its tree is not being
-    /// replaced; it was cleared before, which is how a switch on one pane emptied the other pane's
-    /// Back button.
+    /// The sibling's Back stack must survive, because its tree isn't being replaced.
     @Test func aProviderSwitchDoesNotClaimToHaveRehomedBothPanes() async {
         let token = Self.token()
         let manager = FileSyncManager()
-        // The right pane, where the switch is NOT happening: on a folder, one step in.
+        // The right pane, where the switch isn't happening: on a folder, one step in.
         manager.focusOn(relativePath: "Documents/Family", isLeft: false)
         #expect(manager.rightHistory.canGoBack,
                 "the fixture has no right-pane history, so it cannot measure the case it exists for")
@@ -387,24 +311,21 @@ import Testing
                 "the line does not spell out what the untouched pane kept — the folder is the least of it: \(line ?? "nothing was logged")")
         #expect(line?.contains("both panes") == false,
                 "the line credits a re-homing to a pane that did not move: \(line ?? "nothing was logged")")
-        // **Phrased about the CALL, not about the window.** Two of these land in one gesture when a
-        // duplicate review's pin is released from the sibling, and an earlier wording produced two
-        // consecutive lines each declaring the other pane "untouched" for a gesture that moved both.
+        // Phrased about the call, not the window: releasing a duplicate review's pin from the
+        // sibling lands two of these in one gesture, and each must not call the other pane
+        // "untouched" when the gesture moved both.
         #expect(line?.contains("the right pane is untouched") == false,
                 "the line makes a claim about the window's end state that a second retarget in the same gesture falsifies: \(line ?? "nothing was logged")")
 
-        // The sibling's history is not the switched pane's to replace: its tree is still on screen,
-        // so Back is still a step the user can take.
+        // The sibling's tree is still on screen, so Back is still a step the user can take.
         #expect(manager.rightHistory.entries == ["", "Documents/Family"],
                 "a switch on the left pane emptied the right pane's Back stack")
     }
 
-    /// **A Compare says at Info whether it read the panes' cached walks or walked the disk, and how
-    /// old the walks were.** The branch decides the answer as well as the time — a disk walk stops
-    /// at the node budget wherever it gets to and the panes' walks where they got to, so one pair
-    /// has counted 19 differences cold and 75 warm — and both lines were Debug, so a reader at Info
-    /// could not tell which a Compare after a source switch had been. The roots carry this run's
-    /// token, so no other suite's scan can answer for these.
+    /// A Compare says at Info whether it read the panes' cached walks or walked the disk, and how
+    /// old the walks were. The branch decides the answer as well as the time: a disk walk stops at
+    /// the node budget, so cold and warm Compares of one pair can count different differences. The
+    /// roots carry this run's token, so no other suite's scan can answer for these.
     @Test func aScanSaysWhereItsTreesCameFrom() async throws {
         let token = Self.token()
         let leftRoot = "/scan-\(token)-left", rightRoot = "/scan-\(token)-right"
@@ -430,8 +351,8 @@ import Testing
         #expect(warm?.level == .info, "a scan from the panes' walks said so at \(warm?.level.rawValue ?? "no") level")
         #expect(warm?.message.contains("and “\(rightRoot)” (walked ") == true, "\(warm?.message ?? "nothing logged")")
 
-        // One side cached: the line names the side that missed — after a source switch, the pane
-        // that stayed means its walk was not kept.
+        // One side cached: the line names the side that missed (after a source switch, the pane
+        // that stayed means its walk wasn't kept).
         m.dropPrefetchedTrees(keeping: leftRoot)
         await m.scanDirectories(left: l, leftPath: leftRoot, right: r, rightPath: rightRoot)
         let half = await loggedEntry(containing: "walks “\(leftRoot)” and “\(rightRoot)” from disk")

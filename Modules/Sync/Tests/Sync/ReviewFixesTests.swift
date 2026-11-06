@@ -9,10 +9,9 @@ import Events
     // MARK: Case sensitivity of a destination that does not exist yet
 
     @Test func caseWalkTakesTheAnswerFromTheNearestExistingAncestor() {
-        // The shape a bulk sync always asks about: the file is missing on the destination side, so
-        // only an ancestor can answer. Before the walk, the probe failed on the leaf and the caller
-        // fell back to "folds case" — on a case-SENSITIVE volume that renamed `README.md` to
-        // `README 2.md` merely because `Readme.md` was in the same batch.
+        // The shape a bulk sync always asks about: the file is missing on the destination, so only
+        // an ancestor can answer. Falling back to "folds case" at the leaf would rename `README.md`
+        // to `README 2.md` on a case-sensitive volume just because `Readme.md` is in the batch.
         let target = URL(fileURLWithPath: "/vol/deep/dir/not-created-yet.txt")
         var asked: [String] = []
         let answer = FileSyncManager.caseSensitivityWalkingUp(from: target) { probe in
@@ -31,24 +30,11 @@ import Events
         #expect(FileSyncManager.caseSensitivityWalkingUp(from: URL(fileURLWithPath: "/a/b/c")) { _ in nil } == false)
     }
 
-    /// **The undo's case check asks about a path that is usually absent, so it must use the walk.**
-    ///
-    /// `sameItemAsMoved` decides whether a case-variant path at `item.from` is the moved item
-    /// itself or a foreign occupant the undo must refuse to displace. It asked
-    /// `volumeSupportsCaseSensitiveNames(for: item.from)` — and `item.from` is the path being
-    /// restored TO, which in an undo-of-a-move is normally not there. `resourceValues` throws for a
-    /// path with nothing on disk, so that probe "always produced the fallback — never the volume's
-    /// real answer", in the words of its own sibling's doc.
-    ///
-    /// The fallback is `false`, insensitive, and here that is the UNSAFE direction: it makes
-    /// `sameItemAsMoved` true on a genuinely case-sensitive volume, where the two paths are
-    /// distinct files, and waves the undo past the occupant guard the surrounding comment says must
-    /// trip. Folding is the safe default only where its cost is a needless " 2".
-    ///
-    /// A scan, and honest about it: telling the two probes apart behaviourally needs a
-    /// case-sensitive volume, which this machine is not — on a case-INsensitive disk both answer
-    /// `false` and the fix is indistinguishable from the bug, which is the same reason
-    /// `caseSensitivityWalkingUp` was split out to be tested directly above.
+    /// The undo's case check asks about `item.from`, the path being restored to, which is usually
+    /// absent. `volumeSupportsCaseSensitiveNames(for:)` throws there and falls back to `false`,
+    /// which makes `sameItemAsMoved` true on a case-sensitive volume and waves the undo past the
+    /// occupant guard. So it must use the walking probe. A source scan, because on a
+    /// case-insensitive disk both probes answer `false` and can't be told apart by behaviour.
     @Test func theUndosCaseCheckUsesTheProbeThatSurvivesAnAbsentPath() throws {
         let url = URL(fileURLWithPath: #filePath)          // …/Tests/Sync/<this>.swift
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -81,9 +67,8 @@ import Events
     // MARK: The sanitizer's own output must be storable everywhere
 
     @Test func sanitizingAnExoticTrailingSpaceDoesNotLeaveAPlainOne() {
-        // The fold turns every exotic space into an ASCII one, ends included — so on a provider with
-        // no affix rule the proposed fix for "report\u{00A0}" was "report ", still invisibly
-        // different from "report" and exactly what Dropbox and OneDrive refuse to store.
+        // The fold turns every exotic space into an ASCII one, ends included, so without a trim the
+        // fix for "report\u{00A0}" would be "report ": what Dropbox and OneDrive refuse to store.
         let risky = NameNormalizer.evaluate(name: "report\u{00A0}", relativePath: "report\u{00A0}",
                                             absolutePath: "/root/report\u{00A0}", isDirectory: false,
                                             provider: .iCloud)
@@ -93,8 +78,8 @@ import Events
     }
 
     @Test func aNameOfNothingButExoticSpacesBecomesUntitled() {
-        // Folded to " ", which is not empty — so the `untitled` fallback never fired and the fix on
-        // offer was a single-space name.
+        // Folded to " ", which is not empty, so without the trim the `untitled` fallback never fires
+        // and the fix on offer is a single-space name.
         let risky = NameNormalizer.evaluate(name: "\u{00A0}", relativePath: "\u{00A0}",
                                             absolutePath: "/root/\u{00A0}", isDirectory: false,
                                             provider: .iCloud)
@@ -102,9 +87,8 @@ import Events
     }
 
     @Test func aPlainTrailingSpaceOnAPermissiveProviderIsStillNotFlagged() {
-        // The trim is scoped to names the fold actually changed. Trimming unconditionally would
-        // start reporting every plain-trailing-space name on iCloud as risky — a much wider claim
-        // than this detector makes.
+        // The trim is scoped to names the fold changed. Trimming always would flag every
+        // plain-trailing-space name on iCloud as risky, a far wider claim than this detector makes.
         let risky = NameNormalizer.evaluate(name: "report ", relativePath: "report ",
                                             absolutePath: "/root/report ", isDirectory: false,
                                             provider: .iCloud)
@@ -141,8 +125,8 @@ import Events
                                                            key: key, describing: "automation rules")
 
         #expect(decoded == nil, "undecodable data must not read as a successfully-empty store")
-        // The raw bytes are set aside, so the next edit's overwrite is no longer the end of them —
-        // the failure mode was that a corrupt store silently became [] and was then replaced.
+        // The raw bytes are set aside, so the next edit's overwrite can't silently replace a
+        // corrupt store with [].
         #expect(defaults.data(forKey: key + ".unreadable") == Data("not json at all".utf8))
     }
 
@@ -178,17 +162,17 @@ import Events
     // MARK: Regressions found reviewing the fixes above
 
     @Test func aBroadProviderOverrideDoesNotRetypeEveryLocalFolder() {
-        // A provider's Location is user-settable to any folder. Pointed at the home directory, the
-        // claim used to swallow every path under it, so `synccloud sync -L ~/scratch -R ~/scratch2`
-        // — two purely local folders — silently started skipping every name OneDrive forbids.
+        // A provider's Location can be any folder. Pointed at home, a claim on every path under it
+        // would make `synccloud sync -L ~/scratch -R ~/scratch2`, two local folders, silently skip
+        // every name OneDrive forbids.
         let overridden = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
                                         rootPath: "/Users/u", type: .oneDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: overridden) == nil)
     }
 
     @Test func aFolderNamedCloudStorageElsewhereIsNotAProviderAccount() {
-        // The widening matched a bare "CloudStorage" component ANYWHERE, so a project folder that
-        // happens to be called that handed its siblings Dropbox's rules.
+        // A bare "CloudStorage" component anywhere must not count, or a project folder of that name
+        // hands its siblings Dropbox's rules.
         let providers = [CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
                                        rootPath: "/Users/u/Projects/CloudStorage/notes/deep/root", type: .dropBox)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/other",
@@ -199,11 +183,9 @@ import Events
     }
 
     @Test func aProviderOnAVolumeRootStillClaimsItsOwnTree() {
-        // The over-correction. The guard was a DEPTH rule ("more than three components"), which
-        // also caught `/Volumes/<mount>` — an ordinary provider Location, and the shape Google
-        // Drive itself used to mount at. That provider then claimed nothing, not even its own
-        // tree, so a path-addressed CLI root inside it fell back to `.iCloud`'s empty rule set and
-        // silently lost the destination-name guard the claim exists to carry.
+        // `/Volumes/<mount>` is an ordinary provider Location. A depth rule would make it claim
+        // nothing, not even its own tree, so a CLI root inside it would fall back to `.iCloud`'s
+        // empty rule set and lose the destination-name guard.
         let providers = [CloudProvider(id: "GoogleDrive", displayName: "Google Drive", imageName: "googledrive",
                                        rootPath: "/Volumes/GoogleDrive", type: .googleDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Volumes/GoogleDrive/Reports/q1.txt",
@@ -213,9 +195,8 @@ import Events
     }
 
     @Test func aProviderPointedAtASubfolderOfHomeClaimsOnlyThatSubfolder() {
-        // The under-correction, from the same depth rule: `~/Documents` is four components, so it
-        // sailed through — even though it swallows as much local ground as `~` does. What matters
-        // is what the root CONTAINS, so this claims its own tree and nothing beside it.
+        // `~/Documents` is deep enough to pass a depth rule yet covers as much local ground as `~`.
+        // What matters is what the root contains, so it claims its own tree and nothing beside it.
         let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
                                        rootPath: "/Users/u/Documents", type: .oneDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/deck.txt", among: providers) == .oneDrive)
@@ -242,9 +223,8 @@ import Events
     }
 
     @MainActor @Test func anUnreadableLegacyStoreDoesNotBurnTheOneWayMigrationFlag() throws {
-        // The migration sets a permanent "already migrated" flag and nothing consults the legacy
-        // store afterwards. Reading an unreadable store as "no rules" therefore orphaned every
-        // remembered rule the user had taught, forever, on one failed decode.
+        // The migration sets a permanent "already migrated" flag and never reads the legacy store
+        // again, so treating an unreadable store as "no rules" would orphan every taught rule.
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { wipeDefaultsSuite(suiteName) }
@@ -273,8 +253,8 @@ import Events
     }
 
     @MainActor @Test func twoStoresSharingAKeyNameEachKeepTheirOwnBackup() throws {
-        // The one-shot report gate was keyed on the key NAME alone, so whichever store was read
-        // first silenced — and skipped the backup for — every other store holding that key.
+        // The one-shot report gate must not key on the key name alone, or the first store read
+        // silences, and skips the backup for, every other store holding that key.
         let nameA = "review-fixes-\(UUID().uuidString)"
         let nameB = "review-fixes-\(UUID().uuidString)"
         let a = try #require(UserDefaults(suiteName: nameA))
@@ -305,10 +285,9 @@ import Events
     }
 
     @MainActor @Test func rereadingACorruptStoreDoesNotRewriteItsBackupEveryTime() throws {
-        // These getters are hot — a scan reads them per file — so an unconditional backup `set`
-        // re-wrote the whole payload to cfprefsd tens of thousands of times per scan for as long
-        // as the store stayed corrupt, which is precisely when the disk is least worth hammering.
-        // The rate limit on the LOG line never covered this; the write was deliberately ungated.
+        // These getters are hot (a scan reads them per file), so an unconditional backup `set` would
+        // rewrite the payload to cfprefsd thousands of times per scan while the store is corrupt.
+        // The log line's rate limit doesn't cover the write.
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(CountingDefaults(suiteName: suiteName))
         defer { wipeDefaultsSuite(suiteName) }

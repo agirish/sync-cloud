@@ -2,14 +2,15 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Organize's heavy steps moved off the main thread, and what each move had to keep exactly.
+/// Organize's heavy steps run off the main thread, and must keep their results exactly.
 ///
-/// The orders and sets below are compared against the comparator they replaced, written out here,
-/// because the point of each change is that nothing a person sees moves — and a resumed document
-/// survey compares its saved plan with a new one string for string.
+/// The orders and sets below are compared against a reference comparator written out here, since
+/// nothing a person sees may move, and a resumed document survey compares its saved plan with a
+/// new one string for string.
 @Suite struct OrganizeOffMainTests {
 
-    /// The comparator `relativeFolderPaths` and `documentsToRead` used before, verbatim.
+    /// The reference: the depth-then-order comparator `relativeFolderPaths` and `documentsToRead`
+    /// must still match, written out verbatim.
     static func oldOrder(_ paths: [String], then inOrder: (String, String) -> Bool) -> [String] {
         paths.sorted { a, b in
             let da = a.split(separator: "/").count, db = b.split(separator: "/").count
@@ -18,10 +19,10 @@ import Testing
         }
     }
 
-    /// Paths where "depth" is easy to get subtly wrong: doubled and trailing slashes (empty
-    /// components are not counted), a leading slash, and a combining accent straight after a slash —
-    /// which `split` on `Character` treats as part of the slash's grapheme, so that `/` does not
-    /// separate. A byte-counting depth would order every one of these differently.
+    /// Paths where "depth" is easy to get wrong: doubled and trailing slashes (empty components
+    /// aren't counted), a leading slash, and a combining accent straight after a slash, which
+    /// `split` on `Character` treats as part of the slash's grapheme, so that `/` doesn't separate.
+    /// A byte-counting depth would order every one of these differently.
     static let awkward = ["a//b", "/abs/x", "a/\u{301}b/c", "z", "a/b/", "b/a", "a/b", "é/x",
                           "e\u{301}/y", "A/b/c/d", "a b/c", "1/2/3", "10/2", "2/10", "", "/",
                           "x/../y", "./q", "Finance/US", "Finance", "finance/us/2024", "Ünïcode/ß"]
@@ -65,8 +66,8 @@ import Testing
         ContentHashRecord(path: path, mtime: 0, size: 1, hex: hex, storedAt: Date(timeIntervalSince1970: 0))
     }
 
-    /// The per-lookup existence check gives the answer the build-time one gave, for every identity —
-    /// including one whose every copy is gone and one with a copy in the excluded folder.
+    /// The existence check at lookup gives the same answer as checking at build time, for every
+    /// identity, including one whose every copy is gone and one with a copy in the excluded folder.
     @Test func checkingExistenceAtLookupMatchesCheckingItAtBuild() {
         let hashes = [Self.record("/P/TODO/a.pdf", "h1"), Self.record("/P/Work/Pay/b.pdf", "h1"),
                       Self.record("/P/Gone/c.pdf", "h1"), Self.record("/P/Gone/d.pdf", "h2"),
@@ -112,10 +113,10 @@ import Testing
                          providerRoot: root.path)
     }
 
-    /// **The index is reused while its files are unchanged, and a copy deleted since still stops
-    /// vouching.** Caching the index on its files' dates is only safe because existence is no
-    /// longer baked into it: the index files do not change when a filed copy is deleted, so a
-    /// cached index with the check built in would keep citing a folder that no longer holds it.
+    /// The index is reused while its files are unchanged, and a copy deleted since still stops
+    /// vouching. Caching on the index files' dates is safe only because existence is checked at
+    /// lookup: the index files don't change when a filed copy is deleted, so an index with the
+    /// check built in would keep citing a folder that no longer holds it.
     @Test func aCachedIndexStillSeesAFiledCopyDeleted() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledCache")
         defer { try? FileManager.default.removeItem(at: root) }

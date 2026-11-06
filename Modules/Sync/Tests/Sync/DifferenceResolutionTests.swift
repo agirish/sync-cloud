@@ -24,7 +24,7 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         // Same size, dates a day apart: the run matches the right file's date to the left's and
-        // copies nothing (review E6), so "it ran" reads as the right file taking `leftDate`.
+        // copies nothing, so "it ran" reads as the right file taking `leftDate`.
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.modificationDate: Self.leftDate, .size: 10], contents: nil)
         mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(
@@ -49,9 +49,9 @@ import Foundation
         return (manager, mockFM, diff)
     }
 
-    /// The order SwiftUI ran in the field: the dialog's `isPresented` setter fires BEFORE the
-    /// confirm button action. Before the fix, the setter's synchronous cleanup nil'ed
-    /// `verifiedIdenticalForCopy`, so the confirm action's guard bailed and nothing was copied.
+    /// The order SwiftUI really uses: the dialog's `isPresented` setter fires before the confirm
+    /// button action. If the setter cleared `verifiedIdenticalForCopy` synchronously, the confirm
+    /// action's guard would bail and nothing would be copied.
     @MainActor
     @Test func testConfirmVerifiedCopyCopiesEvenWhenDismissBindingFiresFirst() async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
@@ -103,7 +103,7 @@ import Foundation
 
         await dismissCleanup.value
         // Cancel hides the rows through a detached `Task { applyFilters() }`, so the effect lands
-        // on a later main-actor turn. Poll for it: a fixed sleep flaked on a loaded CI runner.
+        // on a later main-actor turn. Poll for it: a fixed sleep flakes under load.
         await waitUntil("cancelled verified copy hides its rows") { manager.differences.isEmpty }
 
         #expect(mockFM.trashedPaths.isEmpty)
@@ -142,7 +142,7 @@ import Foundation
         #expect(manager.differences.isEmpty)
 
         await manager.applyFilters()
-        #expect(manager.differences.isEmpty)   // regression: used to reappear from rawDifferences
+        #expect(manager.differences.isEmpty)   // must not reappear from rawDifferences
         #expect(manager.rawDifferences.isEmpty)
     }
 
@@ -265,10 +265,8 @@ import Foundation
 
         // The folder was prompted despite the file's "Apply to all" — not auto-resolved from cache.
         #expect(prompted == ["a.txt", "folder"])
-        // The dst-only file inside the folder survives — proof the folder was never replaced (a
-        // wholesale replace moves the old folder, and keep.txt with it, aside then trashes it).
-        // (The file a.txt's own replace legitimately trashes its rollback backup, so trashedPaths
-        // is not empty here — that's the file path working, not the folder being destroyed.)
+        // The dst-only file survives, so the folder was never replaced. `trashedPaths` is not
+        // checked: a.txt's own replace legitimately trashes its rollback backup.
         #expect(mockFM.virtualDisk["/dst/folder/keep.txt"] != nil)
     }
 
@@ -411,15 +409,14 @@ import Foundation
         await slowLoad.value
         try #require(!gate.releasedByTimeout, "the gate timed out: the slow walk was never actually held in flight")
 
-        #expect(!manager.isLoadingLeftTree)    // regression: spinner used to stick forever
+        #expect(!manager.isLoadingLeftTree)    // the spinner must not stick
         #expect(manager.leftTree.count == 1)
         #expect(manager.leftTree.first?.name == "a.txt")
     }
 
-    /// A load cancelled with NO successor to inherit its spinner (e.g. the refresh that owned it
-    /// was cancelled and nothing reloads the pane) must clear the flag itself — otherwise the
-    /// pane sticks on "Scanning Directory…" until the user re-navigates. Mirrors the right pane,
-    /// where this was observed.
+    /// A load cancelled with no successor to inherit its spinner (say, its refresh was cancelled
+    /// and nothing reloads the pane) must clear the flag itself, or the pane sticks on "Scanning
+    /// Directory…" until the user navigates. Uses the right pane, the mirror of the test above.
     @MainActor
     @Test(.parksAThread) func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
         let mockFM = MockFileManager()
@@ -440,12 +437,12 @@ import Foundation
         await load.value
         try #require(!gate.releasedByTimeout, "the gate timed out: the walk was never actually held in flight")
 
-        #expect(!manager.isLoadingRightTree)   // regression: a cancelled load used to strand the spinner
+        #expect(!manager.isLoadingRightTree)   // a cancelled load must not strand the spinner
     }
 
     /// The batch stat pass runs before the first collision prompt, and a prompt holds the run
     /// for an unbounded time. A destination created externally during that wait must still get
-    /// its own overwrite prompt — with only the stale pre-prompt stat it was silently replaced.
+    /// its own overwrite prompt; trusting the stale pre-prompt stat would replace it silently.
     @MainActor
     @Test func testSyncAllPromptsForDestinationCreatedDuringEarlierPrompt() async throws {
         let mockFM = MockFileManager()
@@ -521,11 +518,9 @@ import Foundation
             return (.replace, false)
         }
 
-        // **Hold the first run in its stat pass**, its first `fileExists`, so it has certainly
-        // started and certainly not finished when the second arrives. This was 1,000
-        // `Task.yield()`s waiting for `activeProgress`: a bet that the first run's task would be
-        // scheduled within them, which hosted CI's 3 vCPUs lost twice on 2026-10-30 (`5f693fd6d`;
-        // `ea9112808` on a re-dispatch, green on its push) with every other assertion passing.
+        // Hold the first run at its first `fileExists`, so it has certainly started and not
+        // finished when the second arrives. Yielding until `activeProgress` appears is a bet on
+        // scheduling that a loaded runner loses.
         let gate = ParkGate()
         let parked = LockedBox(false)
         mockFM.beforeFileExists = { _ in
@@ -537,11 +532,10 @@ import Foundation
         await awaitSignal(gate.entered, "the first run never reached its stat pass")
         #expect(manager.activeProgress != nil)
 
-        // Second run while the first is parked: must return without doing anything — and
-        // SILENTLY, which is what names the guard that dropped it. The first run also holds
-        // `syncingDifferenceIds`, so with the re-entrancy drop removed the next guard refuses the
-        // run instead and every count below still holds; that guard posts a banner, the drop
-        // does not (as in `testVerifiedCopyExcludesConcurrentBulkRuns`).
+        // A second run while the first is parked must do nothing, silently. Silence is what names
+        // the re-entrancy drop: without it the `syncingDifferenceIds` guard refuses the run, every
+        // count below still holds, but it posts a banner (as in
+        // `testVerifiedCopyExcludesConcurrentBulkRuns`).
         await manager.syncAll(direction: .copyToRight)
         #expect(manager.banner == nil, "a re-entrant run is dropped silently — a banner means another guard refused it")
         gate.release.signal()
@@ -653,13 +647,10 @@ import Foundation
         var midRunObservation: Task<Void, Never>?
     }
 
-    /// `bulkSyncProgress` is published for the IO phase of the run and torn down on exit, and
-    /// `activeProgress` is up from the first prompt until completion. `bulkSyncProgress` is only
-    /// set after the prompt loop, so the resolver seam can't see it directly — instead a task
-    /// scheduled from inside the resolver runs at syncAll's next MainActor suspension (the IO
-    /// await, which comes after the value is published) and observes it there. Cross-run
-    /// clobbering of `activeProgress` needs no test: the reentrancy guard returns before a
-    /// second run ever touches it, and the teardown only clears the run's own progress.
+    /// `bulkSyncProgress` is published for the run's IO phase and torn down on exit;
+    /// `activeProgress` is up from the first prompt until completion. `bulkSyncProgress` is set
+    /// only after the prompt loop, so a task scheduled from the resolver observes it at syncAll's
+    /// next main-actor suspension, the IO await.
     @MainActor
     @Test func testSyncAllPublishesBulkProgressDuringRunAndClearsItAfter() async throws {
         let (manager, mockFM, _) = try makeBulkCollisionFixture(names: ["a.txt"])

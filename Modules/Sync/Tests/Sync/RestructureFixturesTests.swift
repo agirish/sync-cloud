@@ -2,12 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The three in-repo Restructure fixtures, decoded by the real decoder (ROADMAP v5 §5.8).
-///
-/// Lifted from the live profile and the 6 Aug reorg log on 2026-08-28 — folder names and counts
-/// only, no file names, no content. Their job is to let CI pin every detector's count on a real
-/// tree without a machine-pinned suite: a count that moves on a fixture moves for a reason someone
-/// has to write down.
+/// The three in-repo Restructure fixtures, decoded by the real decoder. Lifted from the live
+/// profile and a real reorg log: folder names and counts only, no file names, no content. They let
+/// CI pin every detector's count on a real tree without a machine-pinned suite, so a count that
+/// moves on a fixture moves for a reason someone has to write down.
 @Suite struct RestructureFixturesTests {
 
     static func profile(named name: String) throws -> FolderProfile {
@@ -19,8 +17,7 @@ import Foundation
     // MARK: The flagship family
 
     /// `Finance/US/Income Tax`, every depth: 17 direct members, 24 distinct child names, and the
-    /// one shape finding the live tree produces. Numbers re-verified against the live profile on
-    /// 2026-08-28 before lifting.
+    /// one shape finding the live tree produces.
     @Test func theFlagshipFixtureDecodesAndHoldsTheFamily() throws {
         let profile = try Self.profile(named: "restructure-flagship")
         #expect(profile.folders.count == 235)
@@ -43,8 +40,8 @@ import Foundation
         // Three vouched schemes out of seventeen siblings — the number the detector's own doc
         // calibrates its silence bar against.
         #expect(flagship.schemes.count == 3)
-        // §5.1's count fix, on both drop paths: the subtitle counts the FAMILY. 11 vouched +
-        // 5 unvouched drift + 1 with no vocabulary at all (`CA State`, 3 files, 0 folders) = 17.
+        // On both drop paths the subtitle counts the whole family: 11 vouched + 5 unvouched drift
+        // + 1 with no vocabulary at all (`CA State`, 3 files, 0 folders) = 17.
         #expect(flagship.memberCount == 17)
         #expect(flagship.drift.count == 5)
         #expect(flagship.shapeless == ["CA State"])
@@ -52,10 +49,9 @@ import Foundation
 
     // MARK: The reference tree
 
-    /// The whole 3,013-folder tree, structural fields only. **This is the doc's "keep this number
-    /// current" sentence made executable**: the shipped shape detector returns exactly one finding
-    /// on the real tree, and a second one appearing (or that one vanishing) on a re-lift is a
-    /// change someone has to explain, not a count to update in passing.
+    /// The whole 3,013-folder tree, structural fields only. The shape detector returns exactly one
+    /// finding on it, and a second appearing (or that one vanishing) on a re-lift is a change
+    /// someone has to explain, not a count to update in passing.
 
     @Test func theReferenceTreeHoldsExactlyOneShapeFinding() throws {
         let profile = try Self.profile(named: "restructure-reference-tree")
@@ -68,9 +64,9 @@ import Foundation
     // MARK: The 6 Aug oracle
 
     /// The two families the 6 Aug run brought into agreement, reconstructed pre-rename, with the
-    /// log's four `rename-dir` operations as the expected output. §5.4's proof consumes this: the
-    /// mapping `Application → Petition` under H-1B (and the reverse under H-4) must derive exactly
-    /// these operations with these `filesCarried`, and no `move-file`.
+    /// log's four `rename-dir` operations as the expected output. The mapping
+    /// `Application → Petition` under H-1B (and the reverse under H-4) must derive exactly these
+    /// operations with these `filesCarried`, and no `move-file`.
     @Test func theOracleFixtureDecodesAndItsSourcesCarryTheLoggedCounts() throws {
         let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
                                                  withExtension: "json", subdirectory: "Fixtures"))

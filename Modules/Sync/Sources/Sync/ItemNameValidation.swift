@@ -3,14 +3,11 @@ import Foundation
 // MARK: - File/folder name validation (pure, shared by the engine and the UI prompts)
 
 extension FileSyncManager {
-    /// Checks whether `name` is usable as a single file or folder name.
-    ///
-    /// Returns a human-readable failure reason suitable for an alert, or `nil` when the
-    /// name is acceptable. `renameItem`/`createFolder` append the name to a directory URL,
-    /// so a "/" would silently address a different location and "." / ".." would traverse
-    /// out of the visible folder (`FileManager.moveItem` resolves ".." in destinations).
-    /// ":" is rejected to match Finder, which maps it to "/" per HFS+ semantics. A leading
-    /// dot is fine — hidden files are legitimate names.
+    /// Checks whether `name` is usable as a single file or folder name: a reason for an alert, or
+    /// `nil` when acceptable. `renameItem` and `createFolder` append the name to a directory URL, so
+    /// "/" would address another location and "." or ".." would leave the folder (`moveItem`
+    /// resolves ".." in destinations). ":" is refused as in Finder, which maps it to "/". A leading
+    /// dot is fine.
     public nonisolated static func validateItemName(_ name: String) -> String? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -28,9 +25,8 @@ extension FileSyncManager {
         if trimmed.contains("\0") {
             return "Names can’t contain that character."
         }
-        // The disk's own limit, counted as the disk counts it: APFS keeps 255 UTF-16 units of the
-        // name in its decomposed form, which is what a path sends (é is two there). A longer name
-        // failed only when written, as "the file name is invalid".
+        // The disk's limit, counted as the disk counts it: 255 UTF-16 units of the decomposed form
+        // a path sends (é is two). Otherwise a long name fails only at the write, as "invalid".
         if name.decomposedStringWithCanonicalMapping.utf16.count > 255 {
             return "Names can’t be longer than 255 characters."
         }

@@ -2,29 +2,24 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Closes coverage gap A from the data-corruption review: cancelling a copy/move/delete mid-run
-/// had NO test, even though "cancel copy / cancel move" is a core flow. These pin the contract of
-/// the `progress.isCancelled` check in `transferItems`/`deleteItems`: the item already in flight
-/// completes ATOMICALLY (no half-written file, no stray `.tmp_`), while every not-yet-started item
-/// is skipped.
+/// Cancelling a copy, move or delete mid-run. Pins the `progress.isCancelled` check in
+/// `transferItems` and `deleteItems`: the item in flight completes whole (no half-written file, no
+/// stray `.tmp_`), and every item not yet started is skipped.
 ///
-/// **Against the mock, which copies whole.** Since RD24 a REAL copy also watches Cancel inside the
-/// item and abandons it in its staging file — the mock's `copyItem(at:to:observer:)` is the protocol
-/// default, checked only before it starts, so these still describe the between-items half. The
-/// mid-item half is pinned on a real disk in `ObservedCopyTests`.
+/// Against the mock, which copies whole. A real copy also watches Cancel inside the item and
+/// abandons it in its staging file; the mock's `copyItem(at:to:observer:)` checks only before it
+/// starts, so these cover the between-items half. `ObservedCopyTests` pins the mid-item half.
 @Suite struct CancellationTests {
 
-    /// Blocks the FIRST call to one chosen primitive on a gate, signalling `entered` when that call
-    /// is reached — so a test can hold exactly one item in flight, cancel the operation's Progress,
-    /// then release it and observe that no further items were processed.
+    /// Blocks the first call to one chosen primitive, signalling `entered`, so a test can hold one
+    /// item in flight, cancel the Progress, release it, and see that no further items ran.
     private final class FirstOpGate: FileManaging, @unchecked Sendable {
         enum Op { case copy, move, trash }
         private let inner: MockFileManager
         private let gatedOp: Op
-        /// The park itself, so the bound RECORDS a timeout instead of discarding it. Bounding the
-        /// wait only stops a mis-wired test from hanging; on its own it replaces the hang with
-        /// something worse, because the parked item resumes by itself and every assertion below
-        /// still reads as if the test had held it. Tests `try #require(!fm.releasedByTimeout)`.
+        /// The park, which records a timeout rather than discarding it: an item that resumed on its
+        /// own would pass every assertion as if it had been held. Tests
+        /// `try #require(!fm.releasedByTimeout)`.
         private let gate = ParkGate()
         private let lock = NSLock()
         private var gated = false

@@ -1,13 +1,13 @@
 import Foundation
 
-/// Turns the Messages API’s server-sent events into one finished response (RD69).
+/// Turns the Messages API’s server-sent events into one finished response.
 ///
-/// **It reads `data:` lines and nothing else.** Every Anthropic event carries its whole payload,
+/// It reads `data:` lines and nothing else. Every Anthropic event carries its whole payload,
 /// type included, on a single `data:` line, so the `event:` line and the blank line that ends an
 /// event add nothing. Keying on the data line alone also keeps this correct when the line reader
 /// drops blank lines, which a line-splitting byte stream is free to do.
 ///
-/// **Blocks are kept as the API sent them**, every field included, because the next request must
+/// Blocks are kept as the API sent them, every field included, because the next request must
 /// send the assistant turn back unchanged: a thinking block’s signature, a fallback block, or a
 /// block type this build has never heard of all have to survive the round trip. Only the deltas
 /// this type knows how to apply are applied; everything else rides along untouched.
@@ -131,7 +131,7 @@ public struct AskClaudeStreamAccumulator: Sendable {
                               message: event["error"]?["message"]?.stringValue ?? "The stream reported an error.")
             return nil
         default:
-            // `ping`, and any event type added after this was written.
+            // `ping`, and any event type this build doesn't know.
             return nil
         }
     }
@@ -150,7 +150,7 @@ public struct AskClaudeStreamAccumulator: Sendable {
 
     /// The assistant turn’s content, in the order the API numbered it, ready to send back.
     ///
-    /// **After a mid-answer fallback, the declined model's reasoning and tool calls are left out**:
+    /// After a mid-answer fallback, the declined model's reasoning and tool calls are left out:
     /// the API asks that `thinking`, `redacted_thinking` and `tool_use` blocks before the last
     /// `fallback` block not be echoed, and a tool call the declined model planned must not run.
     public var content: [JSONFragment] {

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §11's deferred verbs need a selection-to-finding resolver, and this is it (proposal O10).
+/// The menu's Restructure verbs need a selection-to-finding resolver, and this is it.
 @Suite struct RestructureVerbResolverTests {
 
     private static let root = "/Users/x/Documents"
@@ -23,7 +23,7 @@ import Testing
 
     // MARK: Which finding
 
-    /// The folder's OWN finding wins — someone who selected it means it.
+    /// The folder's own finding wins: someone who selected it means it.
     @Test func anExactSubjectMatchIsPreferred() throws {
         let findings = [Self.shape("Finance"), Self.shape("Finance/US/Income Tax")]
         let found = try #require(RestructureVerbResolver.finding(
@@ -41,7 +41,7 @@ import Testing
         #expect(found.subject == "Finance/US/Income Tax")
     }
 
-    /// **The NEAREST ancestor**, when a folder sits inside two nested families. The closer one is
+    /// The nearest ancestor, when a folder sits inside two nested families. The closer one is
     /// the one the user can see themselves inside.
     @Test func theNearestAncestorWins() throws {
         let findings = [Self.shape("Finance"), Self.shape("Finance/US/Income Tax")]
@@ -72,8 +72,8 @@ import Testing
 
     // MARK: Which verb
 
-    /// **`plan` follows the card's own routing**, so a menu item cannot offer a surface the lens
-    /// would withhold — duplicated taxonomy has a finding and no plan surface.
+    /// `plan` follows the card's own routing, so a menu item cannot offer a surface the lens would
+    /// withhold: duplicated taxonomy has a finding and no plan surface.
     @Test func planFollowsTheSameRoutingTheCardDoes() {
         let taxonomy = StructureFinding(
             kind: .duplicatedTaxonomy, family: "Work/Acme", subject: "Work/Acme/Forms",
@@ -113,7 +113,7 @@ import Testing
     // MARK: The root
 
     /// The root arrives tilde-abbreviated from the profile and absolute from the pane. Both are
-    /// expanded — the mismatch that made `Plan…` derive nothing on every real profile once.
+    /// expanded, or `Plan…` derives nothing on every real profile.
     @Test func bothSpellingsOfTheRootResolve() {
         let home = NSHomeDirectory()
         #expect(RestructureVerbResolver.relativePath(of: "\(home)/Documents/Finance",
@@ -127,8 +127,8 @@ import Testing
 
     // MARK: The one answer both the menu and the workspace read
 
-    /// **A refusal, not a greyed item.** A plan's first act is to save a draft; when the store
-    /// cannot be read the card withholds its trigger, and the menu used to offer it anyway.
+    /// A refusal, not a greyed item. A plan's first act is to save a draft; when the store can't be
+    /// read the card withholds its trigger, and the menu must too.
     @Test func anUnreadableStoreRefusesThePlanVerbWithASentence() {
         let findings = [Self.shape("Finance/US/Income Tax")]
         let folder = "\(Self.root)/Finance/US/Income Tax"
@@ -140,11 +140,9 @@ import Testing
         }
         #expect(sentence.contains("read-only"), "the sentence says what the state is")
 
-        // **And the scaffold refuses too, for its own reason.** It was exempt in the first
-        // version of this rule — "it does not save a draft, so the plan store is not its
-        // problem" — which was wrong: a scaffold IS a landing, and `restructureLandingRefusal`
-        // refuses one whose ledger record could not be kept. The menu item was left enabled over
-        // a handler that warned and did nothing.
+        // And the scaffold refuses too, for its own reason: it saves no draft, but it is a
+        // landing, and `restructureLandingRefusal` refuses one whose ledger record could not be
+        // kept. Left enabled, the menu item would run a handler that warns and does nothing.
         let scaffold = RestructureVerbResolver.resolve(
             .setUp, folder: "\(Self.root)/Health/Dental/2026", root: Self.root,
             in: [Self.backlog("Health/Dental/2026")], storeIsReadable: false)
@@ -161,9 +159,9 @@ import Testing
                 "and it runs when the store can be written")
     }
 
-    /// **A landed scaffold is no longer on offer.** The card swaps its button for "Scaffolded —
-    /// the survey hasn't caught up yet"; the menu item stayed enabled and minted a second ledger
-    /// record whose landing created nothing.
+    /// A landed scaffold is no longer on offer. The card swaps its button for "Scaffolded — the
+    /// survey hasn't caught up yet", and the menu item must follow, or it mints a second ledger
+    /// record whose landing creates nothing.
     @Test func aScaffoldThatLandedIsNoLongerOffered() {
         let findings = [Self.backlog("Health/Dental/2026")]
         let folder = "\(Self.root)/Health/Dental/2026"

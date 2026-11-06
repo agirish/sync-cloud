@@ -3,16 +3,14 @@ import Testing
 import Events
 @testable import Sync
 
-/// **"Undo Last Run" pairs a run with the group that run registered, and reverses only the run it
-/// showed** (FR26).
+/// "Undo Last Run" pairs a run with the group that run registered, and reverses only the run it
+/// showed. Two ways it could describe one run and reverse another:
 ///
-/// Two ways it described one run and reversed another:
-///
-/// 1. A run armed its pairing only after awaiting its identity walks, so the undo name it read was
-///    whatever topped the stack at the end of that tail. A rename made during the tail was paired
-///    with the run's records: the preview listed the run, and Undo reversed the rename.
-/// 2. The confirmation is a modal alert, and runs keep finishing behind it. A second "Sync run"
-///    re-armed the pairing under the same name, so Undo reversed a run the alert never listed.
+/// 1. If the run armed its pairing only after awaiting its identity walks, it would pair with
+///    whatever topped the stack by then, so a rename made during that tail would be listed as the
+///    run and reversed by Undo.
+/// 2. The confirmation is a modal alert and runs keep finishing behind it. A second "Sync run"
+///    re-arms the pairing under the same name, so Undo could reverse a run the alert never listed.
 @MainActor
 @Suite struct SyncRunPairingTimingTests {
 
@@ -35,8 +33,8 @@ import Events
         um.endUndoGrouping()
     }
 
-    /// Parks the identity walk — the first stat of the landed copy made off the main thread — so
-    /// the run's tail can be held open while the test acts on the undo stack.
+    /// Parks the identity walk (the first off-main stat of the landed copy) so the run's tail
+    /// stays open while the test acts on the undo stack.
     private final class WalkGateDisk: FileManaging, @unchecked Sendable {
         let inner: MockFileManager
         let gatedPath: String
@@ -80,7 +78,7 @@ import Events
         }
     }
 
-    /// (1) A rename registered while the run's identity walk is still out is NOT paired with the
+    /// (1) A rename registered while the run's identity walk is still out is not paired with the
     /// run: the pairing names the run's own group, the rename now tops the stack, and "Undo Last
     /// Run" refuses rather than reversing the rename under the run's description.
     @Test(.parksAThread) func aStepRegisteredDuringTheRunsTailIsNotPairedWithTheRun() async throws {
@@ -120,9 +118,8 @@ import Events
         #expect(!rename.undone, "Undo Last Run reversed the rename")
     }
 
-    /// (2) A second same-named run arming while the confirmation for the first is up: the second
-    /// run arms while `confirm` — the modal — is up, and the yes undoes nothing and comes back as
-    /// the refusal.
+    /// (2) A second same-named run arms while `confirm`, the modal, is up: the yes undoes nothing
+    /// and comes back as the refusal.
     @Test func theHistoryWindowsConfirmationRefusesARunThatFinishedBehindIt() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
@@ -142,7 +139,7 @@ import Events
                 "got \(String(describing: refusal))")
     }
 
-    /// The control: confirming the run that IS on top reverses it.
+    /// The control: confirming the run that is on top reverses it.
     @Test func aConfirmationForTheRunOnTopUndoesIt() throws {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }

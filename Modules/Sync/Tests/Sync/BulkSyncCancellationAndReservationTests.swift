@@ -3,39 +3,29 @@ import Foundation
 import Events
 @testable import Sync
 
-/// The two untested halves of "Apply all" — the app's single most destructive surface.
+/// Two parts of "Apply all", the app's most destructive surface.
 ///
-/// 1. **Mid-run cancellation.** `CancellationTests` covers the serial `transferItems`/`deleteItems`
-///    loops; nothing cancelled a PARALLEL bulk run. The contract of the worker loop's
-///    `while !progressRef.progress.isCancelled` (`processInParallel`) is that cancellation is
-///    observed only BETWEEN items: every worker's in-flight item completes atomically, no worker
-///    takes a new one afterwards, and the run then reports and records exactly what landed —
-///    not the total it set out to do.
-/// 2. **Batch destination reservation.** `reservedTargets`/`reservedKey` exist because targets are
-///    resolved up front but the copies run in parallel, so a disk-only uniqueness check cannot see
-///    another item's pending target; its own comment calls the failure "silent data loss". The
-///    reservation is only HALF covered: `BulkOperationsTests` pins the post-loop
-///    `reservedTargets.contains` guard, but nothing exercises the reserved set from inside
-///    `generateUniqueURL` — the ordering pinned here.
+/// 1. Mid-run cancellation of a parallel bulk run (`CancellationTests` covers the serial loops).
+///    `processInParallel` observes cancellation only between items: each in-flight item completes
+///    whole, no worker takes another, and the run reports and records exactly what landed.
+/// 2. Batch destination reservation. Targets are resolved up front but copied in parallel, so a
+///    disk-only uniqueness check can't see another item's pending target: silent data loss.
+///    `BulkOperationsTests` pins the post-loop `reservedTargets.contains` guard; this pins the
+///    reserved set inside `generateUniqueURL`.
 @Suite struct BulkSyncCancellationAndReservationTests {
 
     // MARK: Helpers
 
-    /// Cancels the run at the one instant that makes the assertion deterministic: when ALL
-    /// `width` workers are inside a copy, so none can be looping back for another item. The
-    /// arrivals rendezvous on a barrier; the last one cancels the run's `Progress` and frees
-    /// the rest.
+    /// Cancels the run when all `width` workers are inside a copy, so none can loop back for
+    /// another item. Arrivals rendezvous on a barrier; the last cancels the run's `Progress` and
+    /// frees the rest.
     ///
-    /// The cancellation is performed by the gate itself, on the worker's own thread, rather than
-    /// by the test reacting to a signal — a test-side cancel has to be scheduled on the MainActor,
-    /// which under the full parallel suite (900 tests, most of them `@MainActor`) can be starved
-    /// for many seconds while the workers sit parked. The gate never needs the MainActor, so the
-    /// cancel lands at the same point whether the suite runs alone or under load.
+    /// The gate cancels on the worker's own thread: a test-side cancel would need the main actor,
+    /// which a full parallel run can starve for seconds while the workers sit parked.
     ///
-    /// Only the `safeCopyItem` staging call is intercepted — `MockFileManager.moveItem` reaches
-    /// its own `copyItem` internally, below this wrapper — so one arrival means one item.
-    /// An arrival BEYOND `width` never waits: a regression that keeps taking items must fail
-    /// on the assertions, not by deadlocking.
+    /// Only the `safeCopyItem` staging call is intercepted (`MockFileManager.moveItem` calls its
+    /// own `copyItem` below this wrapper), so one arrival is one item. An arrival beyond `width`
+    /// never waits, so a regression that keeps taking items fails the assertions, not by deadlock.
     private final class BarrierCancelGate: FileManaging, @unchecked Sendable {
         let inner: MockFileManager
         private let width: Int
@@ -45,12 +35,10 @@ import Events
         private let progressBox = LockedBox<Progress?>(nil)
         private var timedOut = false
 
-        /// True if a worker gave up at the barrier, or if the cancelling worker never got the
-        /// run's Progress. Both bounds exist so a mis-wire fails instead of hanging — but a
-        /// discarded bound is worse than none: the rendezvous silently degrades into four
-        /// independent copies, no cancel ever lands, and "the gate never engaged" becomes
-        /// indistinguishable from "cancellation was observed and four items still landed",
-        /// which is precisely what these tests assert. Tests `try #require(!gate.releasedByTimeout)`.
+        /// True if a worker gave up at the barrier or the cancelling worker never got the run's
+        /// Progress. The bounds keep a mis-wire from hanging, but must be recorded: otherwise a gate
+        /// that never engaged looks like a cancel after which four items landed, which is what these
+        /// tests assert. Tests `try #require(!gate.releasedByTimeout)`.
         var releasedByTimeout: Bool {
             lock.lock(); defer { lock.unlock() }
             return timedOut
@@ -60,8 +48,8 @@ import Events
 
         init(inner: MockFileManager, width: Int) { self.inner = inner; self.width = width }
 
-        /// Hands the gate the run's Progress. Called by the test as soon as the run publishes one;
-        /// the gate waits for it, so installing it late cannot make the cancel land early.
+        /// Hands the gate the run's Progress once the run publishes one. The gate waits for it, so
+        /// installing it late can't make the cancel land early.
         func installProgress(_ progress: Progress) { progressBox.withLock { $0 = progress } }
 
         private func awaitProgress() -> Progress? {
@@ -134,9 +122,9 @@ import Events
 
     // MARK: 1. Mid-run cancellation of a parallel bulk run
 
-    /// Needs more than four cores. The four workers must all block inside a copy at once, the
-    /// cooperative pool is as wide as the core count, and the release needs a thread of its own:
-    /// on GitHub's 3-vCPU VMs the rendezvous could never form and the barrier timed out every run.
+    /// Needs more than four cores: the four workers block inside a copy at once, the cooperative
+    /// pool is as wide as the core count, and the release needs a thread of its own. On a 3-vCPU
+    /// hosted runner the rendezvous can't form.
     @MainActor
     @Test(.parksThreads(4),
           .enabled(if: cooperativePoolWidth > 4,
@@ -145,8 +133,8 @@ import Events
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        // Six items against a worker pool of four: two can never be taken once the four in flight
-        // are parked, so "stopped taking new items" is observable rather than timing-dependent.
+        // Six items, four workers: two can't be taken while four are parked, so "stopped taking
+        // new items" is observable, not timing-dependent.
         let names = (1...6).map { "f\($0).txt" }
         for (index, name) in names.enumerated() { seed(disk, "/src/\(name)", size: 100 + index) }
 
@@ -157,14 +145,14 @@ import Events
         manager.differences = diffs
 
         let run = Task { await manager.syncAll(direction: .copyToRight) }
-        // Hand the gate the run's Progress; it cancels once all four workers are inside a copy —
-        // the instant at which items 5 and 6 are provably still in the queue.
+        // The gate cancels once all four workers are inside a copy, while items 5 and 6 are
+        // still queued.
         await waitUntil("the run publishes a cancellable Progress") { manager.activeProgress != nil }
         gate.installProgress(try #require(manager.activeProgress))
         await run.value
         try #require(!gate.releasedByTimeout, "the barrier timed out: the four workers never rendezvoused, so no cancel landed mid-run")
 
-        // Exactly the four in-flight items landed — each one whole, none half-written.
+        // Exactly the four in-flight items landed, each whole.
         let landed = files(disk, under: "/dst")
         #expect(landed.count == 4, "only the in-flight items may complete, got \(landed.sorted())")
         #expect(landed.isSubset(of: Set(names)))
@@ -172,13 +160,13 @@ import Events
         // A copy leaves every source in place.
         #expect(files(disk, under: "/src") == Set(names))
 
-        // The run reports honestly: the two never-taken items are still listed as unresolved, and
-        // they are exactly the ones absent from the destination.
+        // The two never-taken items are still listed, and are exactly the ones not at the
+        // destination.
         let remaining = Set(manager.differences.map(\.relativePath))
         #expect(remaining == Set(names).subtracting(landed))
         #expect(Set(manager.rawDifferences.map(\.relativePath)) == remaining,
                 "the raw list must drop the same items, or a filter change resurrects synced rows")
-        // …and records honestly: four history records, not six.
+        // Four history records, not six.
         #expect(manager.lastRecordedRunRecords.count == 4)
         #expect(Set(manager.lastRecordedRunRecords.compactMap { $0.destPath.map { ($0 as NSString).lastPathComponent } }) == landed)
         // A cancel is not a failure: no alert, and the banner counts what actually landed.
@@ -195,14 +183,10 @@ import Events
 
     @MainActor
     @Test func aKeepBothTargetNeverLandsOnAnotherItemsRealDestination() async throws {
-        // `BulkOperationsTests.testSyncAllKeepBothDoesNotCollideWithAnotherBatchTarget` already
-        // covers one ordering — keep-both item FIRST, so the second item's plain target is pushed
-        // aside by the post-loop `reservedTargets.contains` guard. This is the MIRROR ordering,
-        // which nothing covered: the plain-target item comes first and reserves "/dst/note 2.txt",
-        // and the keep-both item must then skip straight past that reserved name while it is being
-        // uniquified. That half lives inside `generateUniqueURL(reserved:)`, which no test reaches
-        // with a non-empty `reserved` set — the post-loop guard cannot stand in for it, because a
-        // keep-both name is chosen before the guard ever looks.
+        // The mirror of `BulkOperationsTests.testSyncAllKeepBothDoesNotCollideWithAnotherBatchTarget`
+        // (keep-both first, caught by the post-loop guard). Here the plain-target item reserves
+        // "/dst/note 2.txt" first, and the keep-both item must skip that name while uniquifying,
+        // inside `generateUniqueURL(reserved:)`: its name is chosen before the post-loop guard looks.
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -242,17 +226,14 @@ import Events
 
     @MainActor
     @Test func aCaseSensitiveDestinationDoesNotSpeakForACaseInsensitiveOne() async throws {
-        // One batch can span volumes — a nested mount inside the destination root, or a pane rooted
-        // at /Volumes. The case-sensitivity answer used to be taken ONCE, from `candidates.first`,
-        // and then applied to every candidate's reservation key. So a first item landing on a
-        // case-SENSITIVE mount switched off case folding for items landing on the case-INSENSITIVE
-        // boot volume: two targets differing only by case both passed the in-memory uniqueness
-        // check, and the parallel workers wrote to the same file. With `isMove` both sources are
-        // consumed and one file's contents are gone — a success banner, no Trash entry, nothing to
-        // undo.
+        // One batch can span volumes (a nested mount in the destination, or a pane at /Volumes), so
+        // case sensitivity is asked per destination. One answer for the whole batch would let a
+        // case-sensitive first item switch off folding on a case-insensitive volume: two names
+        // differing only by case would pass the uniqueness check and the workers write one file.
+        // With `isMove` one file's contents are gone, with a success banner and nothing to undo.
         //
-        // The probe is injected because the bug needs two volumes and a test machine has one; the
-        // production probe answers per destination the same way this stub does.
+        // The probe is injected because this needs two volumes; production answers per
+        // destination the same way.
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/plain"), withIntermediateDirectories: true)
@@ -270,8 +251,8 @@ import Events
             probedParents.withLock { $0.append(parent) }
             return parent == "/dst/mounted"
         }
-        // Ordered so the case-SENSITIVE destination is the one `candidates.first` would have
-        // answered for — the exact arrangement that used to disable folding for the other two.
+        // The case-sensitive destination comes first, so a batch-wide answer taken from
+        // `candidates.first` would disable folding for the other two.
         let diffs = [
             diff("first.txt", inSubfolder: "mounted", size: 111),
             diff("README.txt", inSubfolder: "plain", size: 222),
@@ -282,37 +263,28 @@ import Events
 
         await manager.syncAll(direction: .copyToRight)
 
-        // The observable protection is the NAME the batch reserves, which is what this asserts:
-        // the virtual disk keys by exact string and so is inherently case-sensitive, meaning it
-        // cannot itself reproduce the collapse a real case-insensitive volume performs. On such a
-        // volume "README.txt" and "Readme.txt" ARE one file, so a batch that reserves both verbatim
-        // hands two workers the same destination. Folding the /dst/plain keys is what pushes the
-        // second one to a distinct name — and that name is visible here.
+        // Asserts the name the batch reserves: the virtual disk is case-sensitive, so it can't
+        // collapse names the way a real case-insensitive volume does, where "README.txt" and
+        // "Readme.txt" are one file. Folding the /dst/plain keys moves the second to its own name.
         #expect(files(disk, under: "/dst/plain") == ["README.txt", "Readme 2.txt"],
                 "the case-insensitive destination must fold, so the second variant gets its own name")
         #expect(size(disk, "/dst/mounted/first.txt") == 111)
         #expect(size(disk, "/dst/plain/README.txt") == 222)
         #expect(size(disk, "/dst/plain/Readme 2.txt") == 333)
         #expect(manager.currentError == nil)
-        // Structural half of the same claim, and the one no downstream interplay can mask: BOTH
-        // destinations were asked about. A batch that takes one answer from `candidates.first`
-        // probes a single parent, whatever it then does with it. (Memoized per parent, so the
-        // three items yield exactly these two.)
+        // Both destinations were asked about; a batch-wide answer would probe one parent. Memoized
+        // per parent, so three items give exactly these two.
         #expect(Set(probedParents.withLock { $0 }) == ["/dst/mounted", "/dst/plain"])
     }
 
     @MainActor
     @Test func aCaseSensitiveDestinationStillKeepsBothSpellingsVerbatim() async throws {
-        // The control, and the reason the probe was taught to answer at all: when the destination
-        // really IS case-sensitive, two case variants are two different names and neither should be
-        // uniquified to "… 2".
+        // The control: on a case-sensitive destination two case variants are two names, and
+        // neither is uniquified to "… 2".
         //
-        // Worth knowing what this does NOT catch: a build that folds unconditionally still passes,
-        // because the reserved set would then hold folded keys while `generateUniqueURL` is handed
-        // this destination's own (case-sensitive) rule, so its lookup misses and the uniquify
-        // no-ops. The two only ever disagree under such a mutation — production derives both from
-        // one per-destination answer. The dangerous direction (failing to fold where the volume
-        // collapses case) is pinned by the test above.
+        // Folding unconditionally still passes here: the reserved keys would be folded while
+        // `generateUniqueURL` gets this destination's case-sensitive rule, so its lookup misses.
+        // The dangerous direction, not folding where the volume collapses case, is the test above.
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst/mounted"), withIntermediateDirectories: true)

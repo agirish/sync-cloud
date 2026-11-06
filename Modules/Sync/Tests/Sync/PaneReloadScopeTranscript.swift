@@ -2,32 +2,23 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// A **controlled fixture, driven twice** — once against the code as it stands and once against the
-/// change — so that "pane-scoped invalidation is behaviour-preserving" is a measurement rather than
-/// an argument. `CLAUDE.md` requires exactly this for a refactor of the scan layer, and the usual
-/// vehicle does not work here: `SyncCloudCLI` reaches `FileDiffEngine` directly and never touches
-/// `FileSyncManager`, so diffing the CLI binary would exercise none of the changed code. The subject
-/// has to be the manager itself.
+/// A controlled fixture for proving a change to pane reloading is behaviour-preserving
+/// (`CLAUDE.md` §5). The CLI reaches `FileDiffEngine` directly and never touches
+/// `FileSyncManager`, so diffing its binary would exercise none of this; the subject is the
+/// manager itself.
 ///
-/// It writes a canonical transcript to `$SYNCCLOUD_TRANSCRIPT` and asserts nothing about its
-/// contents. Run it at `HEAD`, keep the file, apply the change, run it again, `diff` the two: the
-/// intended delta is that a tab switch on ONE pane stops bumping the OTHER pane's tree version and
-/// stops clearing its loaded-focus marker. Every other line — trees, item counts, differences,
+/// It writes a canonical transcript to `$SYNCCLOUD_TRANSCRIPT` and asserts nothing about it. Run
+/// it before and after the change and `diff` the two: trees, item counts, differences,
 /// `hasScanned`, the prefetch cache's keys, and the state after a file operation, a forced rescan
-/// and a sort change — must be identical, and that is the half that makes the diff worth running.
-///
-/// The transcript records **tree versions** because they are the observable proxy for "did this pane
-/// reload": every adopt bumps one. A saving that did not show up here would be a saving that did not
-/// happen.
+/// and a sort change must match, apart from the intended delta. Tree versions are recorded as the
+/// proxy for "did this pane reload": every adopt bumps one.
 @Suite struct PaneReloadScopeTranscript {
 
     /// Two roots that differ, so the scan has something to report and a stale comparison would show.
     private static func makeFixture() throws -> (root: URL, left: URL, right: URL) {
-        // **A directory of its own per call.** Three tests in this suite build a fixture, and
-        // swift-testing runs them in parallel by default — CI does not pass `--no-parallel`. On one
-        // shared path each would `removeItem` the others' trees mid-walk, which is a flake that
-        // only ever appears on the machine that runs them concurrently. The transcript is
-        // path-relative, so a per-call name costs its diff nothing.
+        // A directory per call: the tests here run in parallel, and on one shared path each would
+        // `removeItem` the others' trees mid-walk. The transcript is path-relative, so a per-call
+        // name doesn't affect its diff.
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("synccloud-reload-scope-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
@@ -46,13 +37,9 @@ import Foundation
         try "L".write(to: left.appendingPathComponent("Finance/US/tax.pdf"), atomically: true, encoding: .utf8)
         try "L".write(to: left.appendingPathComponent("Finance/India/pan.pdf"), atomically: true, encoding: .utf8)
         try "R".write(to: right.appendingPathComponent("Finance/US/tax.pdf"), atomically: true, encoding: .utf8)
-        // **Resolved only now that the directories exist.** `NSTemporaryDirectory()` hands back the
-        // `/var` symlink while the walk reports `/private/var`, and `resolvingSymlinksInPath()` is a
-        // no-op on a path that is not there yet — so resolving before `createDirectory` left the
-        // root unresolved, matching no tree node, and the transcript carried absolute temp paths in
-        // every tree line. The relativised header fields still looked right, which is what made it
-        // look like a formatting quirk rather than the fixture describing a different directory
-        // from the one it had just built.
+        // Resolved only once the directories exist: `resolvingSymlinksInPath()` is a no-op on a
+        // path that isn't there yet, and an unresolved root would match no tree node, leaving
+        // absolute temp paths in every tree line.
         let resolved = root.resolvingSymlinksInPath()
         return (resolved,
                 resolved.appendingPathComponent("left", isDirectory: true),
@@ -65,21 +52,11 @@ import Foundation
     /// directory's name, which changes per run and would swamp the diff.
     @MainActor
     private static func snapshot(_ label: String, _ m: FileSyncManager, root: URL) -> String {
-        // **Both spellings of the temp root.** `NSTemporaryDirectory()` is under `/var`, which is a
-        // symlink to `/private/var`, and the two halves of this transcript disagree about which one
-        // they use: the manager echoes back the provider paths it was handed (`/var/…`) while the
-        // directory walk reports what the filesystem resolves them to (`/private/var/…`).
-        // `resolvingSymlinksInPath()` does not settle it — measured, before AND after the
-        // directories exist, it returns the `/var` form either way. Stripping either prefix is what
-        // makes the transcript path-free, and a header field relativising while every tree line
-        // stayed absolute is exactly what that mismatch looks like.
-        // …and **with or without the leading slash**, because `FileDifference.relativePath` for
-        // this fixture was the absolute path minus its first character: the warm map stripped the
-        // `/var` root off ids the walk's listing had resolved to `/private/var`. It keys by the
-        // tree's shape now (`FileDiffEngine.filesInfo(fromTree:basePath:)`), so a transcript
-        // written since reads relative; the branch stays so an older one still compares. That field
-        // was the one thing left un-relativised, which did not show while the fixture had a fixed
-        // directory name and made the transcript unreproducible the moment it got a per-run one.
+        // Both spellings of the temp root: the manager echoes the provider paths it was handed
+        // (`/var/…`) while the walk reports resolved ones (`/private/var/…`), and
+        // `resolvingSymlinksInPath()` returns the `/var` form either way. Each is stripped with or
+        // without its leading slash, so a transcript whose `FileDifference.relativePath` lost its
+        // first character still compares.
         func rel(_ path: String) -> String {
             for base in [root.path, "/private" + root.path] {
                 if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }
@@ -123,18 +100,9 @@ import Foundation
         return lines.joined(separator: "\n")
     }
 
-    /// **A `.leftOnly` refresh must not walk the right pane** — the saving itself, asserted rather
-    /// than merely diffed.
-    ///
-    /// The transcript above measures it, but a transcript is a thing a person reads: a change that
-    /// made `.leftOnly` quietly load both panes would show up there as a smaller diff and pass every
-    /// test in the suite. Proven by changing the disk under the right pane and requiring the pane
-    /// NOT to notice: a walk would pick the new file up, so still-7 is the only outcome that means
-    /// "this pane was not walked".
-    ///
-    /// **Both directions**, because the two arms of the scope are separate code: a `.rightOnly`
-    /// that walked the left would be invisible to a test that only ever moves the left pane, and
-    /// Compare's right pane switches tabs exactly as often as its left one.
+    /// A one-pane refresh must not walk the other pane, asserted rather than left to a transcript
+    /// someone reads. The disk changes under the still pane, and the pane must not notice: a walk
+    /// would pick the new file up. Both directions, because each arm of the scope is separate code.
     @MainActor
     @Test(arguments: [true, false])
     func aScopedRefreshLeavesTheOtherPaneExactlyAsItWas(movingLeft: Bool) async throws {
@@ -154,8 +122,8 @@ import Foundation
         let versionBefore = stillVersion()
         #expect(countBefore > 0, "the fixture never loaded, so this proves nothing")
 
-        // The disk changes under the pane that is NOT moving, and the prefetch cache goes with it —
-        // so a walk genuinely would see the new file.
+        // The disk changes under the still pane, and the prefetch cache goes, so a walk would see
+        // the new file.
         try "new".write(to: stillRoot.appendingPathComponent("appeared.txt"),
                         atomically: true, encoding: .utf8)
         m.prefetchedTrees.removeAll()
@@ -174,20 +142,17 @@ import Foundation
         #expect((movingLeft ? m.leftRelativePath : m.rightRelativePath) == "Finance/US")
         #expect((movingLeft ? m.leftItemCount : m.rightItemCount) == 1)
 
-        // The control: a `.both` refresh picks the new file up, so the assertion above is about the
-        // SCOPE and not about a fixture that could never change.
+        // Control: a `.both` refresh picks the new file up, so the assertion above is about the
+        // scope, not a fixture that could never change.
         await m.refreshTreesAndScan(left: left, right: right)
         #expect(stillCount() == countBefore + 1,
                 "a full refresh missed a file that appeared on disk")
     }
 
-    /// **A one-pane refresh must not cancel a two-pane one down to nothing.**
-    ///
-    /// `refreshTreesAndScan` supersedes whatever is in flight. That was safe while every refresh
-    /// loaded both panes; a scoped one is not. Switching tabs while the launch load — or any scan,
-    /// which runs about a second on a 39k-node tree — is still walking would cancel the right
-    /// pane's load and start nothing in its place, leaving it blank. The scopes are unioned, so any
-    /// disagreement with the refresh already running widens the new one to `.both`.
+    /// A one-pane refresh must not cancel a two-pane one down to nothing. `refreshTreesAndScan`
+    /// supersedes whatever is in flight, so a tab switch during the launch load or a scan would
+    /// cancel the other pane's load and start nothing in its place, leaving it blank. The scopes
+    /// are unioned, so a refresh that disagrees with the running one widens to `.both`.
     @MainActor
     @Test func aScopedRefreshWidensRatherThanCancellingAWiderOne() async throws {
         let fixture = try Self.makeFixture()
@@ -198,13 +163,12 @@ import Foundation
         let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
                                   rootPath: fixture.right.path, type: .localFolder)
 
-        // Stand in for a `.both` refresh already in flight — the key is what the supersede logic
-        // reads, and it is the only part of an in-flight refresh this decision depends on. Taken
-        // BEFORE the pane moves, as the real one would have been.
+        // Stands in for a `.both` refresh in flight: the key is all the supersede logic reads.
+        // Taken before the pane moves, as the real one would be.
         m.activeRefreshKey = m.makeRefreshKey(left: left, right: right, reloading: .both)
 
         // …then the tab switch: the left pane moves, so the new key differs and this supersedes
-        // rather than dedupes. Without the union that is where the right pane's load is lost.
+        // rather than dedupes. Without the union the right pane's load is lost here.
         m.focusOn(relativePath: "Finance/US", isLeft: true)
         await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
 
@@ -214,13 +178,9 @@ import Foundation
         #expect(m.rightItemCount > 0)
     }
 
-    /// A left-pane tab switch, as the app performs one.
-    ///
-    /// **This is the only part of the driver the change touches**, and it is stated in one place so
-    /// the diff is readable. Before: `invalidateComparisonState()` (both panes' trees) then a
-    /// two-pane refresh. After: the moving pane's tree and the shared comparison, then a one-pane
-    /// refresh. Steps 01 and 04–06 use byte-identical driver code across both runs — they are the
-    /// controls, and they are what shows the change did not alter what a load or a scan produces.
+    /// A left-pane tab switch, as the app performs one: drop the moving pane's tree and the shared
+    /// comparison, move the pane, then a one-pane refresh. Kept in one place so a change to it reads
+    /// clearly in the diff; steps 01 and 04–06 don't use it and are the controls.
     @MainActor
     private func tabSwitch(_ m: FileSyncManager, to focus: String,
                            left: CloudProvider, right: CloudProvider) async {
@@ -232,11 +192,9 @@ import Foundation
 
     /// The script. Each step is a thing a user does; the transcript is taken after each.
     ///
-    /// The last three steps are the ones that keep the optimisation honest: a file operation, a
-    /// forced rescan and a sort change must each still rebuild BOTH panes. Every staleness source in
-    /// this manager clears `prefetchedTrees` and nothing else — not the live tree, not the
-    /// loaded-focus marker — so a "this pane already has that focus, skip it" shortcut would show
-    /// pre-operation state here. That is why the change does not take one.
+    /// The last three steps check that a file operation, a forced rescan and a sort change each
+    /// still rebuild both panes. Every staleness source clears `prefetchedTrees` and nothing else,
+    /// so a "this pane already has that focus, skip it" shortcut would show pre-operation state here.
     @MainActor
     @Test func writeTranscript() async throws {
         guard let out = ProcessInfo.processInfo.environment["SYNCCLOUD_TRANSCRIPT"] else {
@@ -259,21 +217,15 @@ import Foundation
         await m.refreshTreesAndScan(left: left, right: right)
         record("01 initial refresh")
 
-        // A tab switch on the LEFT pane, exactly as `applyTab` performs one: drop what the switch
-        // invalidates, move the pane, then reload. This is the sequence the change alters.
+        // A tab switch on the left pane, as `applyTab` performs one.
         await tabSwitch(m, to: "Finance/US", left: left, right: right)
         record("02 left tab switch to Finance/US")
 
         await tabSwitch(m, to: "", left: left, right: right)
         record("03 left tab switch back to the root")
 
-        // A file operation: the disk changed, so BOTH panes must rebuild.
-        //
-        // **It writes into the RIGHT root as well**, and that is the whole value of this step. The
-        // first version touched only the left, so `right.itemCount` read 7 in every row of both
-        // transcripts — the control would have passed with the right pane's reload deleted
-        // outright, which is the one thing it exists to catch. A file only the moving pane can see
-        // proves nothing about the pane standing still.
+        // A file operation: the disk changed, so both panes must rebuild. It writes into the right
+        // root too, or the control would pass with the right pane's reload deleted outright.
         try "new".write(to: fixture.left.appendingPathComponent("added-by-op.txt"),
                         atomically: true, encoding: .utf8)
         try "new".write(to: fixture.right.appendingPathComponent("added-on-the-right.txt"),

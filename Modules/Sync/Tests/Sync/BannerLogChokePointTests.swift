@@ -3,27 +3,18 @@ import Testing
 @testable import Sync
 @testable import Events
 
-/// The `banner` didSet is the one place every user-visible refusal and completion toast passes
-/// through, and it now logs each one. These tests pin that choke point — a dozen guards across the
-/// manager refuse operations with nothing but a banner, so this single seam is what keeps "I
-/// clicked sync and nothing happened" diagnosable from the log.
+/// The `banner` didSet logs every user-visible refusal and completion toast. Many guards refuse
+/// with nothing but a banner, so this one seam keeps "I clicked sync and nothing happened"
+/// diagnosable from the log.
 ///
-/// **Read off DISK, not off `Logger.shared.entries`.** The first cut of this suite asserted over
-/// the in-memory array and went red on CI at `b96299f5` reporting `[.warning, .error]` where it
-/// wanted `[.info, .warning, .error]` — `removed [Events.LogLevel.info]`, i.e. the entry this test
-/// had itself published moments earlier. `entries` is trimmed to the newest 1000 and every suite
-/// in the process writes to it, so a full parallel package run evicts the front of a window while
-/// the test that opened it is still running. That is `logLines(tag:during:)`'s whole subject, and
-/// this suite is a textbook instance of it: multi-step, cumulative, and asserting on entries it
-/// published several awaits ago. The per-process log FILE keeps every line in call order.
+/// Reads the log file, not `Logger.shared.entries`: that array keeps only the newest 1000 and
+/// every suite writes to it, so a parallel run can evict this test's early entries before it
+/// asserts (`logLines(tag:during:)`). The per-process file keeps every line in order.
 @Suite struct BannerLogChokePointTests {
 
-    /// The levels of the `[banner] <marker>` lines written inside `body`, in call order.
-    ///
-    /// Prefix, not equality, on the message: `warning`/`error` append a `| Location: …` suffix
-    /// that `info` does not, and an exact match silently misses exactly those two severities.
-    /// The marker is a per-test UUID, so the filter cannot pick up a sibling suite's banners —
-    /// the disk log is per-process and carries every suite's lines.
+    /// The levels of the `[banner] <marker>` lines written inside `body`, in call order. Matches by
+    /// prefix: `warning` and `error` append a `| Location: …` suffix that an exact match would
+    /// miss. The marker is a per-test UUID, so sibling suites' banners in the shared log don't count.
     @MainActor
     private func bannerLevels(marker: String, during body: () -> Void) async throws -> [String] {
         let tag = UUID().uuidString
@@ -83,8 +74,8 @@ import Testing
         #expect(levels == ["WARN"])
     }
 
-    /// Two back-to-back banners with the SAME message are two events — per-publish identity is
-    /// deliberately part of `OperationBanner`'s equality, and the log must agree with the UI.
+    /// Two banners with the same message are two events: per-publish identity is part of
+    /// `OperationBanner`'s equality, and the log must agree with the UI.
     @MainActor
     @Test func aRepeatedMessageWithANewIdentityLogsAgain() async throws {
         let manager = FileSyncManager()

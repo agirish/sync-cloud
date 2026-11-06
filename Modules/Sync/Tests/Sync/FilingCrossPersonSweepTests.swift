@@ -2,20 +2,16 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **The cross-person rule guarded one input, and the cards were not it.**
+/// The cross-person rule applied to the cards themselves, not only to model answers.
 ///
-/// `applyVerdicts` consulted it before promoting a backend verdict, and "Try another" before
-/// accepting one. Both are the model's answers — and when the rule fires in either place it
-/// declines the model and restores the home the keyword engine or the router had already put on the
-/// card, which nothing had ever tested. The router's own protection is a −3.0 score penalty: a
-/// preference, not a refusal.
+/// `applyVerdicts` and "Try another" consult it before accepting a backend verdict, and when it
+/// fires they restore the home the keyword engine or the router had put on the card. The router's
+/// own protection is a −3.0 score penalty: a preference, not a refusal. With no Apple Intelligence
+/// (the default install) the classifier returns `[:]`, `applyVerdicts` short-circuits, and every
+/// card shows a router or keyword home, so without the sweep the rule reaches no card.
 ///
-/// So on a machine with no Apple Intelligence the rule was reachable on no card at all: the
-/// classifier returns `[:]`, every `applyVerdicts` short-circuits on the empty dictionary, and every
-/// card shows a router or keyword home. That is the default install.
-///
-/// These pin the sweep itself and — the half that matters, because a rule extracted for testability
-/// is one revert from being unused — the two call sites that produce homes without a verdict.
+/// These pin the sweep and the two call sites that produce homes without a verdict, since a rule
+/// extracted for testability is one revert from being unused.
 @Suite struct FilingCrossPersonSweepTests {
 
     static let root = "/root"
@@ -75,7 +71,7 @@ import Testing
         #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Daughter")
     }
 
-    /// **Removal, not demotion.** A card whose only home is someone else's folder is the case the
+    /// Removal, not demotion. A card whose only home is someone else's folder is the case the
     /// rule most exists for, and demoting a sole candidate leaves it leading. No home is the
     /// answer: the queue already renders that state, and the user can still file it by hand.
     @Test func aCardWhoseOnlyHomeIsAnothersFolderIsLeftWithNone() throws {
@@ -85,7 +81,7 @@ import Testing
         #expect(card.best == nil)
     }
 
-    /// **A home the user taught is an instruction, not a guess** — the same exemption
+    /// A home the user taught is an instruction, not a guess: the same exemption
     /// `applyVerdicts` opens with. `remembered` covers both a learned rule and an automation the
     /// user wrote, and an automation resolving `{person}` through this very registry would
     /// otherwise be refused by it.
@@ -154,8 +150,8 @@ import Testing
     }
 
     /// A tree with Son's OCI folder and a loose document named for Daughter. No classifier is
-    /// injected, so `applyVerdicts` never runs — which is the ordinary state on a machine without
-    /// Apple Intelligence, and was the state in which the rule could not fire at all.
+    /// injected, so `applyVerdicts` never runs: the ordinary state on a machine without Apple
+    /// Intelligence.
     static func makeTree() throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "CrossPersonSweep")
         try write(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
@@ -178,8 +174,8 @@ import Testing
         return (m, root)
     }
 
-    /// **The scan.** Without the sweep the card leads with `…/OCI/Son` — the keyword engine put
-    /// it there on the strength of "oci", and nothing downstream looks at whose folder it is.
+    /// The scan. Without the sweep the card leads with `…/OCI/Son`: the keyword engine put it there
+    /// on the strength of "oci", and nothing downstream looks at whose folder it is.
     @Test func theScanRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -199,13 +195,12 @@ import Testing
         #expect(log.events.first?.namedPerson == "daughter")
     }
 
-    /// **One page sample, so the scan and a later re-ask agree about who a document is about.**
+    /// One page sample, so the scan and a later re-ask agree about who a document is about.
     ///
-    /// The rule reads the page only for a file whose own NAME names nobody, and what it is handed
-    /// differs by surface: the scan had the extractor's full return (up to 20,000 characters) while
-    /// "Try another" and the OCR re-read get `filingPageSamples`, truncated to the 400 the scorer
-    /// was measured on. A name printed past that cut therefore attributed the document during the
-    /// scan and not on a re-ask — two answers to one question about one file.
+    /// The rule reads the page only for a file whose own name names nobody. "Try another" and the
+    /// OCR re-read get `filingPageSamples`, cut to the 400 characters the scorer was measured on, so
+    /// the scan uses the same cut, not the extractor's full return (up to 20,000). Otherwise a name
+    /// printed past the cut attributes the document in the scan and not on a re-ask.
     ///
     /// Here the name sits past the cut, so nothing may be refused. The card keeps its home.
     @Test func aNamePastTheSampleCutDoesNotDecideTheScan() async throws {
@@ -235,10 +230,10 @@ import Testing
         #expect(card.candidates.contains { $0.path.hasSuffix("/OCI/Son") })
     }
 
-    /// **The OCR re-read.** `readScan` routes one card and writes the home straight onto it — no
-    /// `applyVerdicts`, so before the sweep it was a second live way into someone else's folder.
-    /// And the file it exists for is a scan with no text layer, which is the rule's own worked
-    /// example: `Son - eOCI.pdf` extracts nothing.
+    /// The OCR re-read. `readScan` routes one card and writes the home straight onto it, with no
+    /// `applyVerdicts`, so without the sweep it is a second way into someone else's folder. The
+    /// file it exists for is a scan with no text layer, the rule's own worked example:
+    /// `Son - eOCI.pdf` extracts nothing.
     @Test func theOCRReReadRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }

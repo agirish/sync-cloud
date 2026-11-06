@@ -1,42 +1,23 @@
 import Events
 import Foundation
 
-/// One document survey, from a work list to a set of read documents — pausably, resumably, and
-/// without ever writing a partial corpus.
+/// One document survey, from a work list to a set of read documents: pausable, resumable, and
+/// never writing a partial corpus.
 ///
-/// ## What it is and is not responsible for
+/// **It turns a plan into tokens; it doesn't merge, rebuild or write a memory.** The memory's bytes
+/// are hashed into ``FilingProfileStore/fingerprint(id:in:)``, so it is written once at the end; a
+/// mid-survey write would move the fingerprint and discard every cached cloud verdict. That keeps
+/// this type drivable from injected closures, with no `FileSyncManager`, main actor or disk beyond
+/// its checkpoint.
 ///
-/// **It turns a plan into tokens. It does not merge, rebuild or write a memory.** That seam is
-/// deliberate and it is where the constraints live: the memory is a full rebuild whose bytes are
-/// hashed into ``FilingProfileStore/fingerprint(id:in:)``, so it is written **once, at the end**,
-/// from a complete corpus — a mid-survey write would not merely be wasted work, it would move the
-/// fingerprint and discard every cached cloud verdict, once per checkpoint. Keeping that out of
-/// here means this type can be driven entirely from injected closures, with no `FileSyncManager`,
-/// no main actor and no disk beyond its own checkpoint.
+/// **One document at a time, on purpose.** Every PDFKit parse takes ``PDFKitSerialAccess``'s single
+/// lane, so extra workers only queue, and concurrent PDFKit can return different text for the same
+/// document, giving tokens that differ between runs. And Pause must land between documents; a
+/// batch in flight would carry on regardless.
 ///
-/// ## One at a time, on purpose
-///
-/// `FileSyncManager.extractSnippets` reads four at a time and is right to: a scan reads a few
-/// hundred files and wants them quickly. This reads one at a time, for two unrelated reasons that
-/// happen to agree.
-///
-/// The first is that **concurrency buys nothing here and costs correctness**. Every PDFKit parse in
-/// the process takes ``PDFKitSerialAccess``'s single lane, so extra workers queue rather than
-/// overlap — and driving PDFKit concurrently *changes the text it returns*: 0.83% of documents came
-/// back different six-at-a-time over a 10,286-document tree, and one statement produced 18 distinct
-/// texts across 180 concurrent reads. A corpus built on unstable text is a corpus whose tokens
-/// differ between runs, under a verdict key that cannot see the question changed.
-///
-/// The second is that **a batch cannot be stopped in the middle of itself.** Pause has to land
-/// between documents, and every document in flight when the user presses Pause is work that carries
-/// on regardless. One at a time makes "paused" mean what it says.
-///
-/// ## Cancel and pause are different, and the difference is hours
-///
-/// The corpus is checkpointed, so resuming costs nothing and cancelling costs everything already
-/// read. Nothing in here cancels on a condition it could wait out: yielding to the duplicate scan,
-/// a hot Mac, a sleeping display and the user's own Pause all suspend, and only an explicit stop or
-/// task cancellation ends the run.
+/// Pause is not cancel: resuming costs nothing, cancelling costs everything read. Waiting for the
+/// duplicate scan, a hot Mac, a sleeping display or the user's Pause all suspend; only an explicit
+/// stop or task cancellation ends the run.
 public actor DocumentSurveyRun {
 
     // MARK: - What the caller supplies
@@ -47,32 +28,26 @@ public actor DocumentSurveyRun {
         /// Page-1 text for an absolute path, or nil when there was nothing to read. The app hands
         /// over `ContentSignalExtractor.snippet(forFileAt:)`, which takes the PDFKit lane itself.
         public var readDocument: @Sendable (String) async -> String?
-        /// Whether a path's content is actually on this disk. **Asked before the read and again
-        /// after a blank one**, because a provider can evict a file in between and a blank stamp is
-        /// permanent — see `readOne(at:)`.
+        /// Whether a path's content is actually on this disk. Asked before the read and again
+        /// after a blank one, because a provider can evict a file in between and a blank stamp is
+        /// permanent (`readOne(at:)`).
         public var isAvailable: @Sendable (String) -> Bool
-        /// Brings a document that is not on this disk onto it, returning once it is there or once
-        /// it gives up; nil never fetches, which is every reading of the primary survey's tree.
-        ///
-        /// **Set only for a source's own survey** (GL, 2026-10-31): there the person asked for the
-        /// cloud-only documents to be downloaded and read, and the sheet said how many. Availability
-        /// is asked again after it, so a download that never lands is counted unavailable, not blank.
+        /// Downloads a document that isn't on this disk, returning once it is there or gives up;
+        /// nil never fetches, as for the primary survey's tree. Set only for a source's own survey,
+        /// where the person asked for cloud-only documents to be downloaded. Availability is asked
+        /// again after, so a download that never lands counts as unavailable, not blank.
         public var fetch: (@Sendable (String) async -> Void)?
-        /// Why the run should not be reading right now, or nil to carry on.
-        ///
-        /// **Async, and that is a correctness requirement rather than a convenience.** The real
-        /// answer is assembled from `FileSyncManager`'s six lifecycles and two counters, which are
-        /// `@MainActor` state; this run is its own actor, so reading them means a hop, and a hop
-        /// means `await`. Making it synchronous would force the driver into
-        /// `MainActor.assumeIsolated`, which from here does not hop — it traps.
+        /// Why the run should not be reading right now, or nil to carry on. **Must stay async**:
+        /// the answer comes from `@MainActor` state, and a synchronous version would need
+        /// `MainActor.assumeIsolated`, which traps from this actor instead of hopping.
         public var shouldPause: @Sendable () async -> DocumentSurveyPause?
-        /// Awaited between polls while paused. The app sleeps; a test can clear its own signal here
-        /// rather than racing a clock — `docs/flaky-tests.md` mechanism 5 is what this avoids.
+        /// Awaited between polls while paused. The app sleeps; a test clears its own signal here
+        /// rather than racing a clock ("Tests racing a real-time window", `docs/flaky-tests.md`).
         public var whilePaused: @Sendable () async -> Void
         /// Injected rather than read from a clock, for the same reason. Drives the ETA basis.
         public var now: @Sendable () -> Date
         /// Where progress goes. Called only for reports ``ProgressPublishGate`` admits, plus every
-        /// phase change, so a 7,558-document run publishes about 101 times and not 7,558.
+        /// phase change, so a run publishes about a hundred times, not once per document.
         public var publish: @Sendable (DocumentSurveyProgress) -> Void
 
         public init(readDocument: @escaping @Sendable (String) async -> String?,
@@ -96,10 +71,8 @@ public actor DocumentSurveyRun {
 
     /// What a run did, in the terms the completion summary reports.
     ///
-    /// **Every count is of documents this run *decided*, and they sum to the plan.** A summary that
-    /// reports only what it managed reads as complete when it was not — the rule
-    /// ``FileSyncManager/FilingSurveyReport/summary`` already follows for unavailable documents,
-    /// applied at the scale where it matters most.
+    /// Every count is of documents this run decided, and they sum to the plan, so a summary can't
+    /// read as complete when it wasn't (as ``FileSyncManager/FilingSurveyReport/summary`` reports).
     public struct Report: Sendable, Equatable {
         /// Tokens for every document that was opened and yielded something, plus the blank stamps.
         /// Keyed by path relative to the root, ready to hand to ``FilingSurvey/merge(corpus:tree:read:)``.
@@ -144,34 +117,28 @@ public actor DocumentSurveyRun {
     private var nextIndex: Int
     private var unavailable = 0
     private var startedAt: Date
-    /// Seconds spent reading, pauses excluded — the ETA's basis. Accumulated per document rather
-    /// than measured end to end, which is what makes excluding the pauses possible at all.
+    /// Seconds spent reading, pauses excluded: the ETA's basis. Accumulated per document, which is
+    /// what lets pauses be excluded.
     private var readingSeconds: TimeInterval = 0
-    /// The pause reason last published, so a reason that CHANGES mid-pause republishes while a
-    /// steady one does not. Without it, "paused while Duplicates runs" would stay on the card after
-    /// Duplicates finished and the display went to sleep — a true sentence about the wrong cause.
+    /// The pause reason last published, so a reason that changes mid-pause republishes and a steady
+    /// one doesn't. Otherwise the card could keep naming a cause that has already cleared.
     private var lastPublishedPause: DocumentSurveyPause?
     private var userPaused = false
     private var stopRequested = false
     private var gate = ProgressPublishGate()
 
-    /// How often progress reaches disk. **A count, not a timer** — the same reason
-    /// ``ProgressPublishGate`` counts percent: a clock seam is a thing for a test to race, and
-    /// `docs/flaky-tests.md` records what that costs here.
+    /// How often progress reaches disk, in documents. A count, not a timer, like
+    /// ``ProgressPublishGate``'s percent: a clock is something for a test to race
+    /// (`docs/flaky-tests.md`).
     public static let defaultCheckpointEvery = 25
 
     // MARK: - Starting
 
     /// A fresh run over `plan`, or one resumed from a checkpoint on disk.
     ///
-    /// `directory` is where the checkpoint lives; pass nil for a run that keeps nothing (a test, a
-    /// preview) — it then has no resume and no refusal, which is the honest behaviour for a run
-    /// whose progress is not being kept.
-    ///
-    /// **`stamps` is the walk's answer, handed in.** A document's size and mtime are read during a
-    /// walk that is happening anyway; re-`stat`ing 7,558 files to build the same dictionary would
-    /// be work for nothing, and worse, would be reading them at a different instant from the walk
-    /// the plan came from.
+    /// `directory` is where the checkpoint lives; nil for a run that keeps nothing (a test, a
+    /// preview), which then has no resume and no refusal. `stamps` comes from the walk that made the
+    /// plan, so sizes and mtimes match it and nothing is stat'ed twice.
     public init(profileId: String, root: URL, salt: String, plan: [String],
                 stamps: [String: FilingSurvey.Stamp], environment: Environment,
                 directory: URL? = nil,
@@ -191,12 +158,9 @@ public actor DocumentSurveyRun {
 
     /// Adopts a checkpoint from disk, or says why it will not.
     ///
-    /// **Called before `run()`, and its answer is the whole of decision 3.** A checkpoint that
-    /// resumes is *offered*, never started: the offer card promises "nothing starts it but a
-    /// click", and a background pass that restarts itself at the next launch makes that sentence
-    /// false. What this does is establish that there is something to offer.
-    ///
-    /// Returns nil when there was nothing to adopt and nothing wrong — an ordinary first run.
+    /// Called before `run()`. A resumable checkpoint is offered, never started: the offer card
+    /// promises "nothing starts it but a click". This only establishes that there is something to
+    /// offer. Returns nil when there was nothing to adopt and nothing wrong.
     @discardableResult
     public func adoptCheckpoint() -> Refusal? {
         guard let directory else { return nil }
@@ -210,21 +174,13 @@ public actor DocumentSurveyRun {
                 return .checkpointIsForAnotherRun
             }
             read = checkpoint.read
-            // **The index is only meaningful against the plan it was counted in.**
-            // `resumes(profileId:rootPath:salt:)` settles whose run this is; it says nothing about
-            // whether the tree still holds the same documents. Between sittings files are added,
-            // deleted and renamed, so `documentsToRead` returns a different list — and an index
-            // from the old list points at an unrelated document in the new one. Everything before
-            // it is then never visited, and the run still reports itself complete: work skipped,
-            // reported as done, which is the exact dishonesty this feature keeps guarding against.
-            //
-            // Keeping the READ is always right — those documents were read, whatever the plan says
-            // now — so a changed plan restarts the index and leans on the skip in `run()`, which
-            // costs one dictionary lookup per already-read document.
+            // **The index means something only against the plan it was counted in.** Between
+            // sittings the tree changes, and an old index into a new plan would skip documents yet
+            // report the run complete. The read documents are always kept, so a changed plan
+            // restarts the index and relies on `run()` skipping what was already read.
             if checkpoint.plan == plan {
-                // Clamped through `progress`, which already refuses an index the plan cannot hold
-                // — the file is on disk and can be hand-edited, and a crash on resume is a worse
-                // answer than a survey that believes it is finished.
+                // Clamped through `progress`: the file can be hand-edited, and an index past the
+                // end must not crash the resume.
                 nextIndex = checkpoint.progress.done
             } else {
                 Logger.shared.info("Document survey: the tree changed since this survey was "
@@ -234,10 +190,8 @@ public actor DocumentSurveyRun {
                 nextIndex = 0
             }
             startedAt = checkpoint.startedAt
-            // **Carried, because the summary claims to be honest about exactly this number.**
-            // `read` was adopted and this was not, so a resumed survey reported every
-            // not-downloaded document from the first sitting as if it had never happened — the one
-            // count `DocumentSurveyReport.summary` exists to state plainly.
+            // Carried, so a resumed survey's summary still counts the first sitting's unavailable
+            // documents.
             unavailable = checkpoint.documentsUnavailable
             return nil
         }
@@ -252,7 +206,7 @@ public actor DocumentSurveyRun {
         userPaused = true
     }
 
-    /// Undoes ``pause()``. **Only that**: a reason the machine supplied is the environment's to
+    /// Undoes ``pause()`` and nothing else: a reason the machine supplied is the environment's to
     /// clear, or *Resume now*'s to waive (``DocumentSurveyOverride``).
     public func resume() {
         userPaused = false
@@ -263,9 +217,8 @@ public actor DocumentSurveyRun {
 
     /// Ends the run at the next document boundary, keeping the checkpoint.
     ///
-    /// **Stop is not cancel and neither is destructive.** The checkpoint stays, so this is "stop for
-    /// now" — the state decision 3 says the app returns to at the next launch, offering a Resume
-    /// rather than taking one.
+    /// Stop is not cancel, and neither is destructive: the checkpoint stays, so the next launch
+    /// offers a Resume rather than taking one.
     public func stop() {
         stopRequested = true
     }
@@ -286,18 +239,14 @@ public actor DocumentSurveyRun {
             if Task.isCancelled { break }
             if stopRequested { break }
 
-            // Pause is polled at the document boundary, which is the only place it can land: a
-            // read already in flight finishes regardless, so checking mid-read would report a
-            // pause the run is not yet honouring.
+            // Pause is polled at the document boundary, the only place it can land: a read in
+            // flight finishes regardless.
             var wasPaused = false
             while let reason = await effectivePause() {
                 if !wasPaused || lastPublishedPause != reason {
                     environment.publish(progressNow(phase: .paused(reason)))
-                    // **Logged here, once per reason, and nowhere else.** A pass that runs for
-                    // hours unattended is one whose log has to answer "why did it sit still all
-                    // night?", and `~/sync-cloud.log` is how this app is debugged. Once per
-                    // REASON rather than per poll: a pause that lasts eight hours is one line,
-                    // not 28,800.
+                    // Logged once per reason, not per poll, so the log can answer "why did it
+                    // sit still all night?" in one line.
                     Logger.shared.info("Document survey: paused at \(nextIndex) of "
                                        + "\(plan.count) — \(reason.sentence)")
                     lastPublishedPause = reason
@@ -307,11 +256,8 @@ public actor DocumentSurveyRun {
                 if Task.isCancelled || stopRequested { break }
             }
             if Task.isCancelled || stopRequested { break }
-            // **Published the instant the pause clears, ahead of the gate.** The gate admits on
-            // whole percent, so without this the card kept saying "paused — the display is asleep"
-            // until the count crossed the next percent — about 75 documents, over a minute, on a
-            // 7,558-document run. A card that says paused under a survey that is reading is the
-            // same failure as one that says reading under a survey that has stopped.
+            // Published as the pause clears, ahead of the gate, which admits only on whole
+            // percent: otherwise the card would say "paused" until the next percent.
             if wasPaused {
                 lastPublishedPause = nil
                 Logger.shared.info("Document survey: reading again from \(nextIndex) of \(plan.count)")
@@ -319,8 +265,7 @@ public actor DocumentSurveyRun {
             }
 
             let path = plan[nextIndex]
-            // Already read in an earlier sitting. Cheap enough to ask on every document that it
-            // needs no separate fast path, and it is what makes a restarted index safe.
+            // Already read in an earlier sitting. This check is what makes a restarted index safe.
             if read[path] == nil {
                 await readOne(at: path)
             }
@@ -333,10 +278,9 @@ public actor DocumentSurveyRun {
         }
 
         let finished = nextIndex >= plan.count
-        // The checkpoint is written on the way out either way. On a stop it is what a resume reads;
-        // on completion it is deliberately left for the DRIVER to discard, after the corpus has
-        // landed — a crash between the two leaves a resumable checkpoint beside a complete corpus,
-        // and the next run finds the tree already covered. The other order leaves neither.
+        // The checkpoint is written on the way out either way. On a stop a resume reads it; on
+        // completion the driver discards it only after the corpus lands, so a crash between the
+        // two leaves a checkpoint beside a complete corpus rather than neither.
         writeCheckpoint()
 
         if finished { environment.publish(progressNow(phase: .finishing)) }
@@ -351,10 +295,8 @@ public actor DocumentSurveyRun {
     // MARK: - One document
 
     private func readOne(at path: String) async {
-        // **Counted, not silently dropped.** The plan comes from the same walk as the stamps, so
-        // this cannot fire today — but if it ever does, returning without counting would leave the
-        // report's figures not summing to the plan, and `summary` states them as though they do.
-        // Counted as unavailable because that is what it is: a document the survey did not read.
+        // Counted, not dropped, so the report still sums to the plan. Unreachable while the plan
+        // and stamps come from one walk.
         guard let stamp = stamps[path] else {
             Logger.shared.warning("Document survey: \(path) is in the plan with no stamp from the "
                                   + "walk — not read, and counted as unavailable.")
@@ -363,9 +305,9 @@ public actor DocumentSurveyRun {
         }
         let absolute = root.appendingPathComponent(path).path
 
-        // Asked before the read: opening a cloud placeholder is what makes the provider fetch it,
-        // and a survey must never download the user's offloaded library to look at page one —
-        // unless it was asked to (`fetch`), and then the download is timed with the read.
+        // Asked before the read: opening a cloud placeholder makes the provider download it, and a
+        // survey must never download an offloaded library unless asked to (`fetch`), in which case
+        // the download is timed with the read.
         var available = environment.isAvailable(absolute)
         var fetchBegan: Date?
         if !available, let fetch = environment.fetch {
@@ -382,13 +324,9 @@ public actor DocumentSurveyRun {
         let text = await environment.readDocument(absolute) ?? ""
         readingSeconds += max(0, environment.now().timeIntervalSince(began))
 
-        // **A blank stamp is permanent, so it is only earned by a file that was there.**
-        // Availability was asked above and the read takes time; a file the provider evicts in
-        // between extracts as "" — and the stamp recording that is keyed on size and mtime, neither
-        // of which moves when the content comes back. The write-off would therefore never
-        // invalidate: the exact outcome `isAvailable` exists to prevent, reached through a stale
-        // answer. Re-asked only for the blanks, because a document that produced text plainly had
-        // its content on disk.
+        // **A blank stamp is permanent, so only a file that was there earns it.** A file evicted
+        // during the read extracts as "", and its stamp (size and mtime) won't change when the
+        // content returns, so it would be written off for good. Re-asked only for blanks.
         if text.isEmpty, !environment.isAvailable(absolute) {
             unavailable += 1
             return
@@ -400,9 +338,8 @@ public actor DocumentSurveyRun {
     // MARK: - Odds and ends
 
     private func effectivePause() async -> DocumentSurveyPause? {
-        // The user's own Pause wins over an environmental one: they pressed a button, and a card
-        // reading "paused while Duplicates runs" under a Pause they just pressed would be the app
-        // explaining away their own action.
+        // The user's own Pause wins over an environmental one, so the card names the button they
+        // pressed rather than another cause.
         if userPaused { return .user }
         return await environment.shouldPause()
     }
@@ -419,10 +356,9 @@ public actor DocumentSurveyRun {
         return parent.isEmpty ? nil : parent
     }
 
-    /// Progress to disk. **Failure is logged, never thrown, and never stops the run.**
-    /// A survey that cannot checkpoint has stopped being resumable, which is a real loss — but it
-    /// is a smaller loss than abandoning two hours of reading that is otherwise going fine, and the
-    /// tokens are still in memory and still land in the corpus at the end.
+    /// Progress to disk. Failure is logged, never thrown, and never stops the run: losing
+    /// resumability is smaller than abandoning hours of reading, and the tokens still reach the
+    /// corpus at the end.
     private func writeCheckpoint() {
         guard let directory else { return }
         let checkpoint = DocumentSurveyCheckpoint(

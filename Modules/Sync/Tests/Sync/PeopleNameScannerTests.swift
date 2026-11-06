@@ -2,21 +2,14 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The disk-reading half of person-name learning.
-///
-/// `PersonNameLearning` — the pure rule over `folder → filenames` — is covered by
-/// ``PersonLearningTests``. This covers the part that stages a real tree and reads it, and in
-/// particular the two rules that only exist here because they are about the filesystem: an
-/// unreadable folder must not cost the sweep, and a subfolder's *name* is not a document's name.
+/// The disk-reading half of person-name learning; the pure rule, `PersonNameLearning`, is covered
+/// by ``PersonLearningTests``. This stages real trees, and guards the two filesystem rules: an
+/// unreadable folder must not cost the sweep, and a subfolder's name is not a document's name.
 @Suite struct PeopleNameScannerTests {
 
-    // Same household shape the learning suite uses, so a form that reaches the rule from here is
-    // one that suite would recognise: Granny deliberately lacks "Granny Elder".
-    //
-    // **Father is load-bearing, not padding.** A run is a name only when every word in it is one
-    // somebody in the household answers to, and the household's only source of "Elder" is his
-    // full name — drop him and "Granny Elder" stops being a name at all, which is how the first
-    // draft of this fixture silently offered nothing for the sweep tests to find.
+    // The learning suite's household shape: Granny deliberately lacks "Granny Elder". Father is
+    // needed: a run is a name only if every word is one somebody answers to, and his full name is
+    // the only source of "Elder". Without him the sweep tests have nothing to find.
     static let household = PersonRegistry(people: [
         Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
         Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
@@ -64,9 +57,8 @@ import Testing
         #expect(names["School/Daughter"] == ["Report.pdf"])
     }
 
-    /// **A subfolder's name is not a document's name.** Without the directory check a folder called
-    /// "Granny Elder" sitting inside Granny's folder would vouch for the very form the sweep is
-    /// trying to learn — the folder naming itself as evidence about itself.
+    /// A subfolder's name is not a document's name. Without the directory check, a folder called
+    /// "Granny Elder" inside Granny's would vouch for the very form the sweep is trying to learn.
     @Test func aSubfolderNameIsNotReadAsAFileName() throws {
         let root = try Self.stage(["Family/Granny": ["Statement.pdf"],
                                    "Family/Granny/Granny Elder": ["Inner.pdf"]])
@@ -91,8 +83,8 @@ import Testing
         #expect(names["Family/Granny"] == ["Real.pdf"])
     }
 
-    /// An empty folder is absent from the map rather than present-and-empty — the rule downstream
-    /// counts folders it read something from.
+    /// An empty folder is absent from the map, not present and empty: the rule downstream counts
+    /// folders it read something from.
     @Test func aFolderWithNoFilesIsOmitted() throws {
         let root = try Self.stage(["Family/Granny": [], "School/Daughter": ["Report.pdf"]])
         defer { try? FileManager.default.removeItem(at: root) }
@@ -108,19 +100,15 @@ import Testing
 
     // MARK: - The rule this type exists to keep
 
-    /// **One unreadable folder must not cost the other four hundred.** A person's folder on an
-    /// evicted iCloud path is an ordinary state; the documented promise is that the sweep skips it
-    /// and keeps going. Staged as a folder that simply is not there, which is what a `contentsOfDirectory`
-    /// on an unreachable path reports.
-    ///
-    /// The fixture is arranged so the assertion cannot pass by accident: the *first* folder in
-    /// sorted order is the missing one, so a sweep that gave up on failure would return nothing at
-    /// all rather than a smaller map.
+    /// One unreadable folder must not cost the rest. A person's folder on an evicted iCloud path is
+    /// ordinary, and the sweep skips it and keeps going. Staged as a missing folder, which is what
+    /// `contentsOfDirectory` reports for an unreachable path. It sorts first, so a sweep that gave
+    /// up on failure would return nothing.
     @Test func anUnreadableFolderIsSkippedAndTheRestStillRead() throws {
         let root = try Self.stage(["Family/Granny": ["Granny Elder - 2015.pdf"],
                                    "School/Daughter": ["Report.pdf"]])
         defer { try? FileManager.default.removeItem(at: root) }
-        // Named in the profile, absent from the tree — "Archive" sorts before both real folders.
+        // Named in the profile, absent from the tree; "Archive" sorts before both real folders.
         let profile = Self.profile(folders: [("Archive/Gone", "Granny"), ("Family/Granny", "Granny"),
                                              ("School/Daughter", "Daughter")])
 
@@ -132,9 +120,8 @@ import Testing
         #expect(names["School/Daughter"] == ["Report.pdf"])
     }
 
-    /// The whole sweep, end to end: read the tree, then learn from it. Pins that `suggestions`
-    /// actually feeds what it read into the rule — the seam where a wiring slip would leave the
-    /// rule correct and the feature dead.
+    /// The whole sweep, end to end: `suggestions` must feed what it read into the rule, or the rule
+    /// stays correct and the feature dead.
     @Test func theSweepLearnsFromWhatItRead() throws {
         let root = try Self.stage(["Family/Granny": ["Granny Elder - Old.pdf",
                                                      "Granny Elder - 2015.pdf"],
@@ -152,7 +139,7 @@ import Testing
         #expect(suggestion.occurrences == 3)
     }
 
-    /// A dismissed form is not offered again — the parameter is threaded, not dropped on the floor.
+    /// A dismissed form is not offered again: the parameter reaches the rule.
     @Test func aDismissedFormIsNotOffered() throws {
         let root = try Self.stage(["Family/Granny": ["Granny Elder - Old.pdf",
                                                      "Granny Elder - 2015.pdf"]])

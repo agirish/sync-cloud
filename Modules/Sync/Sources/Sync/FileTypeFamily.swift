@@ -1,16 +1,13 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// The kinds a pane's type filter groups extensions under — "Images", "PDFs", "Apps & installers".
+/// The kinds a pane's type filter groups extensions under: "Images", "PDFs", "Apps & installers".
 ///
-/// **Its own table, not `FileKind`'s.** `FileKind` (Automations) answers "what is this file" for a
-/// rule's `{kind}` token, in six singular words, and folds spreadsheets, slides and plain text into
-/// "Document". The filter's list is read by a person choosing what to see, so it splits those out,
-/// adds Apps & installers apart from Archives (a `.dmg` in Downloads is a thing you install once
-/// and throw away; a `.zip` usually holds documents), and needs plural titles and count nouns.
-/// `FileTypeFamilyTests` pins that the two agree wherever both have an answer.
-///
-/// Case order is the order the type list draws, so it is part of the contract.
+/// Its own table, not `FileKind`'s: `FileKind` (Automations) names a file for a rule's `{kind}`
+/// token in six singular words and folds spreadsheets, slides and text into "Document". A person
+/// choosing what to see needs those split out, Apps & installers apart from Archives, and plural
+/// titles. `FileTypeFamilyTests` pins that the two agree wherever both answer. Case order is the
+/// order the type list draws, so it is part of the contract.
 public enum FileTypeFamily: String, CaseIterable, Sendable, Codable, Hashable {
     case images, pdfs, documents, spreadsheets, presentations, movies, audio
     case appsAndInstallers, archives, textAndCode, noExtension, other
@@ -52,18 +49,14 @@ public enum FileTypeFamily: String, CaseIterable, Sendable, Codable, Hashable {
         return "\(count.formatted()) \(count == 1 ? one : many)"
     }
 
-    /// The extension a name is filed under: its last component, lowercased, `""` for none.
-    ///
-    /// Last component only, so `.tar.gz` files under `gz`. A dotfile (`.DS_Store`) has no extension
-    /// of its own — `NSString.pathExtension` already reads a leading dot as part of the name.
+    /// The extension a name is filed under: its last component, lowercased, `""` for none. So
+    /// `.tar.gz` files under `gz`, and a dotfile (`.DS_Store`) has none.
     public static func fileExtension(ofName name: String) -> String {
         (name as NSString).pathExtension.lowercased()
     }
 
-    /// The kind an extension (as `fileExtension(ofName:)` returns it) belongs to.
-    ///
-    /// Extension-only, so it answers for cloud-only files whose bytes are not on this Mac, and the
-    /// same extension always lands in the same kind whatever type identifier one file's walk saw.
+    /// The kind an extension (as `fileExtension(ofName:)` returns it) belongs to. Extension-only,
+    /// so it answers for cloud-only files and the same extension always lands in the same kind.
     public static func of(extension ext: String) -> FileTypeFamily {
         if ext.isEmpty { return .noExtension }
         if let known = named[ext] { return known }

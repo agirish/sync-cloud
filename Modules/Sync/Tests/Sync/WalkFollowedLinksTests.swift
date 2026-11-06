@@ -3,9 +3,9 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// **What a walk records about the folder links it follows** — the provenance the targeted cache
-/// drop (`dropPrefetchedTrees(holding:)`) and the app's "which pane holds this file" read, so that
-/// neither has to traverse a tree to answer.
+/// What a walk records about the folder links it follows: the provenance the targeted cache drop
+/// (`dropPrefetchedTrees(holding:)`) and the app's "which pane holds this file" read, so neither
+/// has to traverse a tree to answer.
 ///
 /// Below a folder symlink the walk's ids come back resolved, so a write spelled the way a pane row
 /// names it is under no prefix of the root. The walk is the one place that knows it went through
@@ -36,8 +36,8 @@ import Combine
         return (base, r, t, u, q)
     }
 
-    /// The spelling a target is recorded in — `resolvingSymlinksInPath`'s, which takes `/private`
-    /// off a temp root, because it is the spelling `folder(_:holds:)` asks a written path in too.
+    /// The spelling a target is recorded in: `resolvingSymlinksInPath`'s, which takes `/private`
+    /// off a temp root, because `folder(_:holds:)` asks a written path in that spelling too.
     private static func resolved(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
 
     private static func followed(walking url: URL, maxDepth: Int? = nil) async -> Set<String> {
@@ -49,11 +49,11 @@ import Combine
 
     // MARK: - The walk
 
-    /// **Each folder link the walk listed outside its root, nested ones included.** `T` through
-    /// `link`, and `U` through `link2`, which the walk reaches only inside `T`. Not `inside`, whose
-    /// target the walk lists under `R` anyway, and not `loop`, which the cycle guard never lists. A
-    /// relative link records where it really leads. And a walk through no link records nothing:
-    /// the temp root's `/private`, which the resolver takes off, is not a link.
+    /// Each folder link the walk listed outside its root is recorded, nested ones included: `T`
+    /// through `link`, and `U` through `link2`, reached only inside `T`. Not `inside`, whose target
+    /// the walk lists under `R` anyway, and not `loop`, which the cycle guard never lists. A
+    /// relative link records where it really leads. A walk through no link records nothing: the
+    /// temp root's `/private`, which the resolver takes off, is not a link.
     @Test func aWalkRecordsEachFolderLinkItListedOutsideItsRoot() async throws {
         let f = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -64,7 +64,7 @@ import Combine
         #expect(await Self.followed(walking: f.u).isEmpty, "a walk through no link recorded one")
     }
 
-    /// **A root reached through a link records where it resolves**: a pane on the link itself, or
+    /// A root reached through a link records where it resolves: a pane on the link itself, or
     /// focused below it, lists ids spelled where the link leads from its first level down. Its own
     /// nested link is recorded beside it.
     @Test func aRootReachedThroughALinkRecordsWhereItResolves() async throws {
@@ -76,8 +76,8 @@ import Combine
                 == [Self.resolved(f.t.appendingPathComponent("sub")), Self.resolved(f.u)], "a root below one")
     }
 
-    /// **A link the walk did not list is not recorded.** The shallow first paint stops at the
-    /// root's children, so `link` is reported and never read — nothing of `T`'s is in that tree.
+    /// A link the walk didn't list is not recorded. The shallow first paint stops at the root's
+    /// children, so `link` is reported and never read, and nothing of `T`'s is in that tree.
     @Test func aShallowWalkRecordsNoLinkItDidNotList() async throws {
         let f = try Self.makeFixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -86,9 +86,9 @@ import Combine
 
     // MARK: - Where the record travels
 
-    /// **The cache entry carries its walk's targets, and the pane carries the walk it shows** —
-    /// the pane's for the app, which asks after a write has already emptied the cache entry. Set by
-    /// every publish, the cache hit included; moved by a swap; cleared with the pane's tree.
+    /// The cache entry carries its walk's targets, and the pane carries those of the walk it shows,
+    /// for the app, which asks after a write has already emptied the cache entry. Set by every
+    /// publish, the cache hit included; moved by a swap; cleared with the pane's tree.
     @MainActor
     @Test func theEntryAndThePaneCarryTheWalksTargets() async throws {
         let f = try Self.makeFixture()
@@ -120,10 +120,9 @@ import Combine
         #expect(m.rightTreeLinkTargets.isEmpty, "a dropped right tree's targets outlived it")
     }
 
-    /// **The shallow first paint publishes its root's record too.** A pane focused below a link
-    /// draws rows spelled where the link leads from that first paint, seconds before the deep walk
-    /// lands — and a document opened from one of them is saved under that spelling. Each publish
-    /// of the pane's tree is watched, and the record read as it lands.
+    /// The shallow first paint publishes its root's record too. A pane focused below a link draws
+    /// rows spelled where the link leads from that first paint, seconds before the deep walk, and a
+    /// document opened from one is saved under that spelling. Each publish is watched as it lands.
     @MainActor
     @Test func theShallowFirstPaintCarriesItsRootsRecord() async throws {
         let f = try Self.makeFixture()
@@ -140,10 +139,9 @@ import Combine
         #expect(seen.last == [sub, Self.resolved(f.u)], "the deep tree did not carry its walk's record: \(seen)")
     }
 
-    /// **A slice inherits its root's targets**, as it inherits the root's stopped bit and read
-    /// stamp: it is part of that walk. Liberally — the record does not say where in the tree each
-    /// link sits, so a slice holding none of them over-reports, which costs a needless drop and
-    /// never a stale tree.
+    /// A slice inherits its root's targets, as it inherits the root's stopped bit and read stamp:
+    /// it is part of that walk. The record doesn't say where each link sits, so a slice holding
+    /// none over-reports, which costs a needless drop, never a stale tree.
     @MainActor
     @Test func aSliceInheritsItsRootsTargets() async throws {
         let f = try Self.makeFixture()
@@ -162,9 +160,9 @@ import Combine
         #expect(m.leftTreeLinkTargets == reach, "the pane on the slice lost its root's targets")
     }
 
-    /// **A graft adds the link its one listing followed.** A column opening a link the walk left
-    /// unread lists `T` for the first time, so the cache entry it writes back and the pane both
-    /// learn `T` with it — or the next write there would leave that grafted tree stale.
+    /// A graft adds the link its listing followed. A column opening a link the walk left unread
+    /// lists `T` for the first time, so the cache entry it writes back and the pane both learn `T`,
+    /// or the next write there would leave the grafted tree stale.
     @MainActor
     @Test func aGraftAddsTheLinkItsListingFollowed() async throws {
         let f = try Self.makeFixture()
@@ -191,8 +189,8 @@ import Combine
 
     // MARK: - What clears it
 
-    /// **Both drop verbs take the targets with the entry**, and the one-folder form drops an entry
-    /// for a write under its targets alone — `/r` is no prefix of `/t/sub`. Synthetic entries; the
+    /// Both drop verbs take the targets with the entry, and the one-folder form drops an entry for
+    /// a write under its targets alone (`/r` is no prefix of `/t/sub`). Synthetic entries; the
     /// table is empty so the machine's own links never answer.
     @MainActor
     @Test func bothDropVerbsTakeTheTargetsWithTheEntry() {

@@ -4,33 +4,22 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The deep half of the copy-undo drift guard.
+/// The deep half of the copy-undo drift guard. The shallow `.directory` identity (own date plus
+/// immediate child count) sees nothing below depth 1, so an edit deep inside a copied folder would
+/// read `.unchanged` and ⌘Z would trash the only copy of it, permanently on a Trash-less volume.
 ///
-/// The shallow `.directory` identity — own modification date plus immediate child count — catches
-/// a child added, removed or replaced at depth 1 and NOTHING below that. Its own doc admitted it:
-/// an edit "deep inside an untouched subtree … leaves both values identical", so the guard
-/// answered `.unchanged` for a case it did not really check. Concretely: copy `Project/`
-/// elsewhere, edit `Project copy/src/deep/notes.md`, press ⌘Z hours later — the copy is trashed
-/// as `.unchanged`, taking the only instance of the edit with it, permanently (after a confirm)
-/// on a Trash-less volume.
+/// `deepSnapshot` digests every descendant's relative path, kind, size and mtime as a
+/// `.directoryTree`, so a deep edit refuses the undo. These tests hold its edges: a deep edit
+/// refuses (by size, and by date alone); an untouched tree still undoes; an unreadable descendant
+/// is `.indeterminate` and refuses; and the digest ignores enumeration order, the Unicode form of
+/// names, and Finder's `.DS_Store`s. The registration walk's contract (off the main thread, undo
+/// armed before it resolves) is at the bottom.
 ///
-/// `deepSnapshot` closes it for the copy-undo: a `.directoryTree` identity digests every
-/// descendant's (relative path, kind, size, mtime), so the deep edit changes the recorded
-/// identity and the undo REFUSES. The tests below hold the edges of that: the deep edit refuses
-/// (by size, and by date alone), the untouched tree still undoes (a guard that refuses
-/// everything is not a guard), an unreadable descendant is `.indeterminate` and refuses rather
-/// than guesses, and the digest is a function of the tree — not of the enumeration order, not
-/// of the Unicode form the walk spells names in, and not of the `.DS_Store`s Finder scribbles
-/// into every folder it opens. The registration walk's own contract — off the main thread, undo
-/// armed before it resolves — is held at the bottom.
+/// Each end-to-end test first requires the shallow `ItemIdentity.snapshot` to still read
+/// `.unchanged` after the tampering, so it exercises what only the deep identity can see.
 ///
-/// Each end-to-end test plants a SHALLOW-blindness precondition — `ItemIdentity.snapshot` of the
-/// copied root still answers `.unchanged` after the tampering — so the fixture provably exercises
-/// the gap the shallow identity cannot see, not a shape the old guard already caught.
-///
-/// No `.serialized`: every assertion here reads this suite's own manager's banner or its own mock
-/// disk — except the one registration-warning test, whose `Logger.shared` match is keyed on a
-/// per-run UUID path — so there is nothing a parallel neighbour could satisfy.
+/// No `.serialized`: every assertion reads this suite's own banner or mock disk, and the one
+/// `Logger.shared` match is keyed on a per-run UUID path.
 @Suite struct DeepFolderIdentityTests {
 
     @MainActor
@@ -50,9 +39,9 @@ import Testing
                                  contents: nil)
     }
 
-    /// `<srcRoot>/project/src/deep/notes.md` — three directory levels, so the edited file sits
-    /// two levels below the copied root and cannot move the root's own date or child count.
-    /// `contents` chains are populated because the mock's `copyItem` deep-copies by them.
+    /// `<srcRoot>/project/src/deep/notes.md`: the edited file sits two levels below the copied
+    /// root, so it can't move the root's date or child count. `contents` is filled in because the
+    /// mock's `copyItem` deep-copies by it.
     private func plantDeepSource(on fm: MockFileManager, under srcRoot: String) throws {
         try fm.createDirectory(at: URL(fileURLWithPath: srcRoot), withIntermediateDirectories: true)
         fm.virtualDisk["\(srcRoot)/project"] =
@@ -64,8 +53,8 @@ import Testing
         fm.virtualDisk["\(srcRoot)/project/src/deep/notes.md"] = file(4)
     }
 
-    /// Copies the planted tree to `dstRoot` through the real operation (which registers the undo
-    /// under test) and proves the whole tree arrived.
+    /// Copies the planted tree to `dstRoot` through the real operation, which registers the undo
+    /// under test, and checks the whole tree arrived.
     @MainActor
     private func copyDeepTree(manager: FileSyncManager, fm: MockFileManager,
                               from srcRoot: String, to dstRoot: String) async throws {
@@ -76,10 +65,8 @@ import Testing
                      "the fixture's deep tree must have been copied in full")
     }
 
-    /// The SHALLOW identity of the copied root, taken before the tampering — what the old guard
-    /// would have recorded at registration. Each refusal test re-asks it AFTER the tampering and
-    /// requires `.unchanged`: that is what makes the test a test of the deep guard rather than a
-    /// second copy of the depth-1 tests that already pass.
+    /// The shallow identity of the copied root, taken before the tampering. Each refusal test
+    /// re-asks it afterwards and requires `.unchanged`, so it tests the deep guard and not depth 1.
     private func shallowIdentity(_ fm: MockFileManager, root: String) throws -> ItemIdentity {
         let shallow = ItemIdentity.snapshot(at: URL(fileURLWithPath: root), fileManager: fm)
         guard case .directory = shallow else {
@@ -91,9 +78,8 @@ import Testing
 
     // MARK: 1 — THE bug: an edit two levels down refuses the undo
 
-    /// Copy a folder, edit a file two levels deep so its SIZE changes, ⌘Z: the shallow identity
-    /// (top-level date and child count both untouched) answered `.unchanged` and the copy was
-    /// trashed — with the only instance of the edit inside it.
+    /// Copy a folder, change a file's size two levels deep, ⌘Z: the undo refuses. The shallow
+    /// identity reads `.unchanged` here and would trash the only copy of the edit.
     @MainActor
     @Test func copyUndoRefusesADeepEditThatChangedAFilesSize() async throws {
         let manager = makeManager()
@@ -101,8 +87,8 @@ import Testing
         try plantDeepSource(on: fm, under: "/deepid-src")
         try await copyDeepTree(manager: manager, fm: fm, from: "/deepid-src", to: "/deepid-dst")
 
-        // The user edits the deep file inside the COPY; the edit grows it. Nothing at the copied
-        // root moves: same immediate children, same (nil) directory date.
+        // The user grows the deep file inside the copy. Nothing at the copied root moves: same
+        // immediate children, same (nil) directory date.
         let shallowAtRegistration = try shallowIdentity(fm, root: "/deepid-dst/project")
         fm.virtualDisk["/deepid-dst/project/src/deep/notes.md"] =
             file(999, modified: Date(timeIntervalSince1970: 9_999))
@@ -125,9 +111,8 @@ import Testing
         #expect(fm.virtualDisk["/deepid-src/project"] != nil, "the source is untouched by an undo")
     }
 
-    /// The harder half of the same edit: SAME size, only the modification date moved — a
-    /// same-length rewrite two levels down. Size-blind AND count-blind; only the per-file date in
-    /// the deep digest can see it.
+    /// The harder half: same size, only the date moved, a same-length rewrite two levels down.
+    /// Only the per-file date in the deep digest can see it.
     @MainActor
     @Test func copyUndoRefusesADeepEditThatChangedOnlyAFilesDate() async throws {
         let manager = makeManager()
@@ -135,7 +120,7 @@ import Testing
         try plantDeepSource(on: fm, under: "/deepdate-src")
         try await copyDeepTree(manager: manager, fm: fm, from: "/deepdate-src", to: "/deepdate-dst")
 
-        // Same 4 bytes, later timestamp — the deep twin of `copyUndoRefusesASameSizeEditOfTheCopy`.
+        // Same 4 bytes, later timestamp: the deep twin of `copyUndoRefusesASameSizeEditOfTheCopy`.
         let shallowAtRegistration = try shallowIdentity(fm, root: "/deepdate-dst/project")
         fm.virtualDisk["/deepdate-dst/project/src/deep/notes.md"] =
             file(4, modified: Date(timeIntervalSince1970: 9_999))
@@ -160,9 +145,9 @@ import Testing
 
     // MARK: 2 — no false refusals
 
-    /// The other direction, or the fix is an outage: an untouched deep tree must still undo. The
-    /// digest is computed twice — registration and verification — over a walk APFS orders
-    /// however it likes, so this is also the end-to-end proof the two computations agree.
+    /// The other direction: an untouched deep tree still undoes. The digest is computed at
+    /// registration and at verification over walks APFS may order differently, so this also shows
+    /// end to end that the two agree.
     @MainActor
     @Test func copyUndoOfAnUntouchedDeepTreeStillRemovesIt() async throws {
         let manager = makeManager()
@@ -185,11 +170,9 @@ import Testing
 
     // MARK: 3 — a tree that cannot be re-walked refuses, it does not guess
 
-    /// A DEEP subdirectory of the copy becomes unlistable between the copy and the ⌘Z. The
-    /// recursive re-walk comes back partial (`.listedWithUnreadableDescendants`), partial proves
-    /// nothing about the withheld part, and the verdict is `.indeterminate` — which REFUSES. The
-    /// shallow identity never opened that subdirectory, so before the deep guard this shape was
-    /// waved straight through to the trash.
+    /// A deep subfolder of the copy becomes unlistable before ⌘Z. The re-walk comes back partial
+    /// (`.listedWithUnreadableDescendants`), which proves nothing about the withheld part, so the
+    /// verdict is `.indeterminate` and the undo refuses. The shallow identity never opens it.
     @MainActor
     @Test func copyUndoRefusesWhenADeepDescendantCannotBeReRead() async throws {
         let manager = makeManager()
@@ -218,19 +201,13 @@ import Testing
 
     // MARK: 4 — the digest is a function of the tree, not of the walk
 
-    /// Two trees with identical contents built in OPPOSITE creation orders — and one of them
-    /// snapshotted twice — produce one identity. APFS guarantees no enumeration order, so if the
-    /// digest ever came to depend on the order entries are yielded or created, registration and
-    /// verification would disagree about an untouched tree and every folder-copy undo would
-    /// falsely refuse.
+    /// Two trees with identical contents built in opposite creation orders, one snapshotted twice,
+    /// produce one identity. APFS guarantees no enumeration order, so an order-dependent digest
+    /// would make every folder-copy undo falsely refuse.
     ///
-    /// What this does NOT pin, proven by mutation (2026-08-21): the digest's sort line. The real
-    /// enumerator happens to yield a stable order whatever the creation order, so this passed
-    /// with `lines.sort` deleted — the very hazard its comment warned about for the mock's sorted
-    /// enumeration was true of the real one too. It stays as the end-to-end proof that two real
-    /// walks of one tree agree; the sort itself is pinned by
-    /// `theDigestDoesNotDependOnTheOrderTheWalkYieldsEntriesIn`, whose enumerator can actually
-    /// vary the order.
+    /// This doesn't pin the digest's sort: the real enumerator yields a stable order, so it passes
+    /// with `lines.sort` deleted. It shows two real walks agree; the sort is pinned by
+    /// `theDigestDoesNotDependOnTheOrderTheWalkYieldsEntriesIn`, whose enumerator varies the order.
     @Test func deepIdentityIsStableAcrossCreationOrderAndRepeatedWalks() throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityStable")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -267,10 +244,9 @@ import Testing
 
     // MARK: The seam itself, on a real tree
 
-    /// The direct counterpart of `ItemIdentityTests.aChangeDeepInsideASubtreeIsNotNoticed`, which
-    /// pins the shallow identity's documented limit: the very edit the shallow snapshot answers
-    /// `.unchanged` for, the deep one answers `.changed` for — on the same fixture, both halves
-    /// asserted side by side so neither can drift into vacuity.
+    /// The counterpart of `ItemIdentityTests.aChangeDeepInsideASubtreeIsNotNoticed`: the edit the
+    /// shallow snapshot calls `.unchanged`, the deep one calls `.changed`, both asserted on one
+    /// fixture so neither goes vacuous.
     @Test func aDeepEditIsNoticedByTheDeepIdentityWhereTheShallowOneIsBlind() throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityEdit")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -294,16 +270,10 @@ import Testing
 
     // MARK: 5 — the canonical serialization, pinned through a walk that can actually vary
 
-    /// One tree, walked forwards and walked BACKWARDS, produces one identity. This is the test
-    /// the sort line answers to: `deepSnapshot`'s digest sorts its lines precisely because APFS
-    /// promises no enumeration order, but no real walk will demonstrate the hazard on demand —
-    /// the real enumerator yields a stable order, and so does the mock. `ReshapedWalkFileManager`
-    /// hands the REAL tree's entries back reversed, which is an order APFS is entitled to produce
-    /// tomorrow.
-    ///
-    /// Mutation-checked (2026-08-21): with `lines.sort` deleted from `deepSnapshot`, this fails
-    /// (`forward != backward`) while the creation-order test above still passes. Restore the sort
-    /// and it is green again — this test, not that one, is the sort's pin.
+    /// One tree, walked forwards and backwards, produces one identity: the pin for
+    /// `deepSnapshot`'s sort, which exists because APFS promises no enumeration order. Real and
+    /// mock walks both yield a stable order, so `ReshapedWalkFileManager` hands the real tree's
+    /// entries back reversed, an order APFS may produce. Deleting `lines.sort` must fail this.
     @Test func theDigestDoesNotDependOnTheOrderTheWalkYieldsEntriesIn() throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityWalkOrder")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -318,8 +288,8 @@ import Testing
         let backward = ItemIdentity.deepSnapshot(
             at: root, fileManager: ReshapedWalkFileManager(reorder: { $0.reversed() }))
 
-        // `.indeterminate == .indeterminate` would pass the equality below vacuously, so the
-        // shape is required first: a fake that broke the walk must fail loudly, not agree quietly.
+        // `.indeterminate == .indeterminate` would pass vacuously, so require the shape first: a
+        // fake that broke the walk must fail, not agree.
         guard case .directoryTree = forward else {
             Issue.record("expected a deep directory identity, got \(forward)")
             return
@@ -330,24 +300,17 @@ import Testing
 
     // MARK: 6 — the Unicode form a name reaches the digest in is not part of the identity
 
-    /// The rule at its seam: one relative path handed over decomposed (NFD, "é" as U+0065 U+0301)
-    /// and handed over precomposed (NFC) must digest under ONE spelling, byte for byte — the
-    /// digest hashes UTF-8 bytes, and APFS/HFS+ lookups are normalization-insensitive, so one
-    /// on-disk name hashing two ways would make registration and verification disagree about an
-    /// untouched tree.
+    /// One relative path handed over decomposed (NFD, "é" as U+0065 U+0301) or precomposed (NFC)
+    /// digests under one spelling, byte for byte. The digest hashes UTF-8 and APFS/HFS+ lookups
+    /// ignore normalization, so one name hashing two ways would falsely refuse an untouched tree.
     ///
-    /// At the SEAM (`ItemIdentity.canonicalDigestSpelling`), because no end-to-end fixture can
-    /// reach the rule: `listing(of:)` re-spells every entry through `appendingPathComponent`,
-    /// which converts through the file-system representation and hands `deepSnapshot` the
-    /// decomposed form whatever is on disk — measured, and exactly why deleting the
-    /// precomposition passed every pre-existing test (this suite's end-to-end twin below
-    /// included). That pipeline normalization is incidental and undocumented; this test is what
-    /// notices the day it stops holding the digest up.
+    /// Tested at the seam (`ItemIdentity.canonicalDigestSpelling`) because no end-to-end fixture
+    /// reaches it: `listing(of:)` re-spells every entry through `appendingPathComponent`, which
+    /// hands `deepSnapshot` the decomposed form whatever is on disk. That incidental normalization
+    /// is undocumented; this test notices if it stops holding the digest up.
     ///
-    /// Compared as UTF-8 byte arrays throughout: Swift `String ==` is itself
-    /// canonical-equivalence-based, so a String comparison here would pass with the rule deleted
-    /// — the vacuity this test exists to end. Mutation-checked (2026-08-21): with
-    /// `canonicalDigestSpelling` returning its input unchanged, this fails; restored, green.
+    /// Compared as UTF-8 bytes, since `String ==` uses canonical equivalence and would pass with
+    /// the rule gone. Making `canonicalDigestSpelling` return its input must fail this.
     @Test func oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling() throws {
         let nfd = "sub/deep/re\u{0065}\u{0301}sume\u{0301}.txt"   // "résumé.txt", é decomposed
         let nfc = nfd.precomposedStringWithCanonicalMapping
@@ -359,17 +322,13 @@ import Testing
                 "one name reported in either Unicode form must digest as one spelling — two spellings would falsely refuse the undo of an untouched folder walked once per form")
     }
 
-    /// The user-level half: a decomposed non-ASCII filename deep in a REAL tree answers
-    /// `.unchanged` on re-walk, and is one identity with a twin tree whose same name was stored
-    /// PRECOMPOSED — written with raw NFC bytes through POSIX `open`, bypassing Foundation's
-    /// path decomposition, which is the shape an SMB or non-Foundation writer leaves on APFS
-    /// (normalization-preserving storage, normalization-insensitive lookup). macOS file APIs may
-    /// hand back either form; that variability is exactly what this pins against.
+    /// The user-level half: a decomposed non-ASCII filename deep in a real tree reads `.unchanged`
+    /// on re-walk, and matches a twin whose name was stored precomposed through POSIX `open`, as an
+    /// SMB or non-Foundation writer leaves it on APFS. macOS APIs may hand back either form.
     ///
-    /// Known limit, stated: today `listing(of:)` happens to canonicalize both trees' spellings
-    /// before the digest sees them, so this passes even with the precomposition deleted — the
-    /// seam test above is the one that fails then. This one holds the invariant end-to-end
-    /// against whichever layer does the canonicalizing.
+    /// `listing(of:)` currently canonicalizes both spellings before the digest, so this passes even
+    /// without the precomposition (the seam test above fails then). It holds the invariant end to
+    /// end, whichever layer canonicalizes.
     @Test func aDecomposedDeepFilenameIsOneIdentityWithItsPrecomposedTwin() throws {
         let nfdName = "re\u{0065}\u{0301}sume\u{0301}.txt"
         let nfcName = nfdName.precomposedStringWithCanonicalMapping
@@ -396,9 +355,8 @@ import Testing
         try #require(fd >= 0, "fixture check: the POSIX create of the NFC-spelled twin must succeed")
         _ = Array("payload".utf8).withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
         close(fd)
-        // Same mtime on both leaves, or the digests differ for the honest reason and the test
-        // measures the clock instead of the spelling. The lookup is normalization-insensitive,
-        // so the NFD-spelled path reaches the NFC-stored file.
+        // Same mtime on both leaves, or the test measures the clock, not the spelling. The lookup
+        // ignores normalization, so the NFD path reaches the NFC-stored file.
         for root in [a, b] {
             try fm.setAttributes([.modificationDate: stamp],
                                  ofItemAtPath: root.appendingPathComponent("sub/deep/\(nfdName)").path)
@@ -417,17 +375,12 @@ import Testing
 
     // MARK: 7 — OS noise is not part of the identity; tooling trees ARE
 
-    /// The seam, on a real tree, holding both halves of the ignored-names rule.
-    ///
-    /// OS noise — `.DS_Store` at two depths, `Thumbs.db` — appearing after the recording leaves
-    /// the identity untouched: digesting Finder's droppings refused ⌘Z for every folder the user
-    /// so much as opened, forever. That is `ItemIdentity.deepIdentityIgnoredNames`, and it is
-    /// deliberately NOT the duplicates finder's `defaultIgnoredNames`: that set also skips
-    /// `.git`, `.build` and `node_modules`, which is right for a DISCOVERY filter (a false skip
-    /// costs a missed duplicate) and wrong for this DESTRUCTION guard — a `node_modules` skip
-    /// meant an edit the user made inside the copy's `node_modules` was trashed by ⌘Z under an
-    /// `.unchanged` verdict, taking the only instance of the edit. So the second half: an edit
-    /// INSIDE a tooling subtree the copy carried is drift, and the undo refuses.
+    /// Both halves of the ignored-names rule, on a real tree. OS noise (`.DS_Store` at two depths,
+    /// `Thumbs.db`) added after the recording leaves the identity alone, or ⌘Z would refuse every
+    /// folder Finder opened. That is `ItemIdentity.deepIdentityIgnoredNames`, deliberately not the
+    /// duplicates finder's `defaultIgnoredNames`, which also skips `.git`, `.build` and
+    /// `node_modules`: fine for discovery, wrong for a guard before destruction. So an edit inside
+    /// a tooling subtree the copy carried is drift, and the undo refuses.
     @Test func osNoiseDoesNotChangeTheDeepIdentityButAnEditInsideAToolingTreeDoes() throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityIgnored")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -435,7 +388,7 @@ import Testing
         let deep = folder.appendingPathComponent("a/b")
         try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
         try Data("payload".utf8).write(to: deep.appendingPathComponent("leaf.txt"))
-        // The copy CARRIES a dependency subtree — recorded as part of the tree it lands as.
+        // The copy carries a dependency subtree, recorded as part of the tree.
         let pkg = folder.appendingPathComponent("node_modules/pkg")
         try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
         try Data("module.exports = {}".utf8).write(to: pkg.appendingPathComponent("index.js"))
@@ -456,16 +409,15 @@ import Testing
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .unchanged,
                 "OS noise must not shift the identity: digesting it refuses ⌘Z for every folder Finder ever opened")
 
-        // The user edits INSIDE the tooling subtree. Under the old rule (the duplicates finder's
-        // set) this was invisible — .unchanged — and ⌘Z destroyed the edit with the copy.
+        // The user edits inside the tooling subtree. With the duplicates finder's set this would
+        // read .unchanged, and ⌘Z would destroy the edit with the copy.
         try Data("module.exports = { edited: true }".utf8).write(to: pkg.appendingPathComponent("index.js"))
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .changed,
                 "an edit inside node_modules is the user's work like any other — .unchanged here is ⌘Z trashing the only copy of it")
     }
 
-    /// The same convention end-to-end: Finder writes a `.DS_Store` deep inside the copy between
-    /// the copy and the ⌘Z — which is what Finder does to every folder the user so much as looks
-    /// at — and the undo still removes the untouched copy instead of refusing it forever.
+    /// The same rule end to end: Finder writes a `.DS_Store` deep inside the copy before ⌘Z, as
+    /// it does in any folder the user looks at, and the undo still removes the untouched copy.
     @MainActor
     @Test func copyUndoStillRemovesACopyFinderScribbledADSStoreInto() async throws {
         let manager = makeManager()
@@ -473,8 +425,8 @@ import Testing
         try plantDeepSource(on: fm, under: "/deepds-src")
         try await copyDeepTree(manager: manager, fm: fm, from: "/deepds-src", to: "/deepds-dst")
 
-        // Finder visits the copy: a .DS_Store lands two levels down. Registered in the parent's
-        // contents too, so the mock's deep copy/remove stay faithful to a real disk.
+        // Finder visits the copy: a .DS_Store lands two levels down, also listed in the parent's
+        // contents so the mock's deep copy and remove match a real disk.
         fm.virtualDisk["/deepds-dst/project/src/deep/.DS_Store"] = file(6148)
         if var deepStub = fm.virtualDisk["/deepds-dst/project/src/deep"] {
             deepStub.contents?.append(".DS_Store")
@@ -496,10 +448,9 @@ import Testing
 
     // MARK: The registration walk's own contract
 
-    /// The deep walk `registerCopyUndo(items:)` takes at registration never touches the main
-    /// thread. Inline it was the one main-actor stall in the chain — `FileSyncManager` is
-    /// `@MainActor`, so a 40,200-node copy froze the UI for the ~1.8 s its recursive
-    /// listing+stat costs on this machine (measured 2026-08-21), and SMB/iCloud for minutes.
+    /// The deep walk `registerCopyUndo(items:actionName:fileManager:)` takes at registration never
+    /// touches the main thread. `FileSyncManager` is `@MainActor`, so inline it would freeze the UI
+    /// for seconds on a big local copy and minutes on SMB or iCloud.
     @MainActor
     @Test func theRegistrationIdentityWalkNeverTouchesTheMainThread() async throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityOffMain")
@@ -523,15 +474,11 @@ import Testing
                 "the registration walk must never run on the main thread — that is the whole point of detaching it")
     }
 
-    /// The other half of the off-main contract: the undo is registered BEFORE the walk resolves,
-    /// so a ⌘Z racing the walk pops this undo and its handler waits for the identity instead of
-    /// no-oping (or worse, undoing the operation before it). The returned walk task is
-    /// deliberately dropped here — this test is the caller that cannot await.
-    ///
-    /// The race is HELD, not hoped for: `FirstAttributesGate` parks the walk in its very first
-    /// stat, so the ⌘Z provably lands while the identity is unresolved. The previous version
-    /// relied on scheduler luck — the walk usually won, the test then exercised the resolved
-    /// fast path, and it passed either way, which is no pin at all.
+    /// The other half: the undo is registered before the walk resolves, so a ⌘Z racing the walk
+    /// pops this undo and its handler waits for the identity instead of no-oping (or undoing the
+    /// operation before it). The walk task is dropped on purpose: this is the caller that can't
+    /// await. The race is held, not hoped for: `FirstAttributesGate` parks the walk in its first
+    /// stat, so the ⌘Z lands while the identity is unresolved.
     @MainActor
     @Test(.parksAThread) func anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping() async throws {
         let manager = makeManager()
@@ -546,10 +493,9 @@ import Testing
             items: [(source: URL(fileURLWithPath: "/undowait-src/project"),
                      destination: URL(fileURLWithPath: "/undowait-dst/project"), overwritten: nil)],
             actionName: "Copy 1 Item", fileManager: fm)
-        // The walk is now provably mid-flight: parked in its opening stat, identity unresolved.
+        // The walk is mid-flight: parked in its opening stat, identity unresolved.
         await awaitSignal(fm.entered, "the identity walk never reached its first stat — the gate cannot have held the race")
-        // No await between registration and ⌘Z: this is the racing user, deterministically ahead
-        // of the resolution.
+        // No await between registration and ⌘Z: the racing user, ahead of the resolution.
         manager.undoManager?.undo()
         await waitUntil("the undo op is in flight") { manager.activeFileOperationsCount == 1 }
         #expect(mock.virtualDisk["/undowait-dst/project"] != nil,
@@ -569,27 +515,22 @@ import Testing
 
     // MARK: 8 — the registration window is per ITEM, not per batch
 
-    /// THE batch-window bug: `registerCopyUndo` used to walk every item only after the WHOLE
-    /// transfer loop returned, and that loop blocks mid-batch on user prompts — so the window
-    /// between "this item's copy landed" and "its identity was recorded" was user-unbounded.
-    /// Copy folders A and B; A lands; B's collision prompt sits open while the user edits a file
-    /// deep inside A's landed copy; prompt answered; the post-batch walk then records the
-    /// POST-EDIT state as A's baseline — and ⌘Z reads `.unchanged` and trashes the edited copy.
+    /// Each item's identity walk starts the moment its own copy lands, inside the transfer loop.
+    /// The loop blocks on user prompts, so a walk after the whole batch would leave an unbounded
+    /// window: copy folders A and B, and while B's collision prompt is open the user edits a file
+    /// deep in A's copy; that edit becomes A's baseline, and ⌘Z reads `.unchanged` and trashes it.
     ///
-    /// Each item's walk must start the moment ITS OWN copy lands, inside the loop. The fixture
-    /// holds the ordering deterministically: the collision resolver (the open prompt) waits —
-    /// bounded — until the walk has statted the deep file's pre-edit state, then applies the
-    /// edit. On the fixed code that wait completes in milliseconds; on the old shape no walk can
-    /// run while the prompt is open (registration needs the loop to finish, and the loop is
-    /// blocked in this very resolver), so the wait times out and the `#require` names the defect.
+    /// The fixture holds the order: before the prompt, a bounded wait lets the walk stat the deep
+    /// file's pre-edit state, then the prompt applies the edit. With a post-batch walk, no walk can
+    /// run while the prompt is open, so the wait times out and the `#require` names the defect.
     @MainActor
     @Test func anEditDuringALaterItemsCollisionPromptRefusesTheUndoOfTheEarlierItem() async throws {
         let manager = makeManager()
         let fm = MockFileManager()
         try plantDeepSource(on: fm, under: "/promptwin-src")
-        // The second item: a plain file that COLLIDES at the destination, holding the batch open
-        // at a prompt AFTER the folder's copy has already landed. Name chosen longer than the
-        // folder's so `pruneNestedNodes`' length sort keeps the folder first.
+        // The second item: a file that collides at the destination, holding the batch at a prompt
+        // after the folder's copy has landed. Its name is longer than the folder's so
+        // `pruneNestedNodes`' length sort keeps the folder first.
         fm.virtualDisk["/promptwin-src/zz-collide.txt"] = file(5)
         try fm.createDirectory(at: URL(fileURLWithPath: "/promptwin-dst"), withIntermediateDirectories: true)
         fm.virtualDisk["/promptwin-dst/zz-collide.txt"] = file(7)
@@ -602,14 +543,12 @@ import Testing
         let promptFired = LockedBox(false)
         let walkRanDuringPrompt = LockedBox(false)
 
-        // **The wait for the walk happens HERE, off the main thread, not inside the resolver.**
-        // The resolver is `@MainActor` and synchronous, so a spin in it blocks the MAIN THREAD
-        // for as long as the walk takes — and for the whole 5 s budget on the failure path,
-        // stalling every main-actor test running alongside this one. `beforeFileExists` runs on
-        // the operation's own worker thread, before the batch's collision stat for item 2 and
-        // therefore before the prompt, and holds no lock — so the walk (which needs the mock's
-        // recursive lock for every `attributesOfItem`) runs on freely while this parks. Parking
-        // inside `onFileExists` instead would hold that lock and deadlock the walk it waits for.
+        // The wait for the walk happens here, off the main thread, not in the resolver: the
+        // resolver is `@MainActor` and synchronous, so spinning there blocks the main thread (for
+        // the whole 5 s on failure) and stalls every main-actor test beside this one.
+        // `beforeFileExists` runs on the operation's worker thread before item 2's collision stat,
+        // holding no lock, so the walk (which takes the mock's lock per `attributesOfItem`) runs on.
+        // **Don't park in `onFileExists`:** it holds that lock and would deadlock the walk.
         let collidingTarget = "/promptwin-dst/zz-collide.txt"
         let parkedOut = LockedBox(false)
         fm.beforeFileExists = { path in
@@ -623,12 +562,12 @@ import Testing
 
         manager.collisionResolver = { _ in
             promptFired.withLock { $0 = true }
-            // The user, mid-batch: the folder's copy has landed and its walk has already read the
-            // pre-edit state (parked for above), and now they edit a file deep inside it while
-            // this prompt sits open — so the edit deterministically postdates the recording.
+            // The user, mid-batch: the folder's copy has landed and its walk has read the pre-edit
+            // state (waited for above), and now they edit a file deep inside it while this prompt
+            // is open, so the edit postdates the recording.
             walkRanDuringPrompt.withLock { $0 = walkReadTheDeepFile.withLock { $0 } }
-            // The walk may still be inside the mock, so this write must take the mock's lock —
-            // which `setStub` does, as does every access to `virtualDisk` itself.
+            // The walk may still be inside the mock, so this write takes the mock's lock, as
+            // `setStub` and every `virtualDisk` access do.
             fm.setStub(MockFileManager.FileStub(
                 isDirectory: false,
                 attributes: [FileAttributeKey.size: 999,
@@ -668,11 +607,10 @@ import Testing
 
     // MARK: 9 — the redo→undo leg records at the same depth
 
-    /// Copy → undo → redo → edit DEEP inside the re-copy → undo again: the second undo must
-    /// refuse. The redo re-registers the next undo's identity itself (inside its own loop), and
-    /// nothing else pinned that it records DEEP: mutating its `deepSnapshot` back to `snapshot`
-    /// passed the entire suite, because every copy-redo test used file fixtures — for a FILE the
-    /// two snapshots are definitionally identical. This is the folder pin for that leg.
+    /// Copy, undo, redo, edit deep inside the re-copy, undo again: the second undo refuses. The
+    /// redo records the next undo's identity itself, and must record it deep. Other copy-redo tests
+    /// use files, where both snapshots are the same, so changing the redo's `deepSnapshot` to
+    /// `snapshot` must fail this one.
     @MainActor
     @Test func aDeepEditAfterARedoRefusesTheSecondUndo() async throws {
         let manager = makeManager()
@@ -694,8 +632,8 @@ import Testing
         try #require(fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"] != nil,
                      "fixture check: the redo must have re-copied the whole tree")
 
-        // The user edits deep inside the RE-copy; nothing at its root moves — the exact edit the
-        // shallow identity cannot see, same precondition discipline as the first-leg tests.
+        // The user edits deep inside the re-copy; nothing at its root moves, so the shallow
+        // identity can't see it (the same precondition as the first-leg tests).
         let shallowAfterRedo = try shallowIdentity(fm, root: "/redodeep-dst/project")
         fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"] =
             file(999, modified: Date(timeIntervalSince1970: 9_999))
@@ -719,14 +657,12 @@ import Testing
 
     // MARK: 10 — a registration-time .indeterminate says why, when it is knowable
 
-    /// An unreadable descendant at REGISTRATION time is a permanent refusal for that item: hours
-    /// later ⌘Z shows a banner that cannot say why, and until this the log's only line was the
-    /// refusal itself. The registration must leave one warning naming the item — and the failing
-    /// descendant, which the listing reports and the walk used to discard.
+    /// An unreadable descendant at registration means a permanent refusal for that item, and the
+    /// ⌘Z banner hours later can't say why. So registration logs one warning naming the item and
+    /// the failing descendant the listing reports.
     ///
-    /// This is the suite's one assertion against `Logger.shared` (a process-global): the paths
-    /// carry a per-run UUID so no parallel neighbour can satisfy or pollute the match, per the
-    /// `LoggingGapTests` discipline.
+    /// The paths carry a per-run UUID so no parallel neighbour can satisfy or pollute the match,
+    /// as in `LoggingGapTests`.
     @MainActor
     @Test func anUnreadableDescendantAtRegistrationLogsWhyTheEventualUndoWillRefuse() async throws {
         let manager = makeManager()
@@ -743,10 +679,9 @@ import Testing
             actionName: "Copy 1 Item", fileManager: fm)
         await walk.value
 
-        // `LogCapture`, not `Logger.shared.entries`: the buffer keeps the newest 1000 lines
-        // process-wide, so a full-package run whose other suites log enough evicts this warning
-        // and the assertion below reads an empty window (mechanism 12). A capture accumulates at
-        // publish time, so a later trim cannot take it away. It also awaits the FIFO flush.
+        // `LogCapture`, not `Logger.shared.entries`, whose newest-1000 buffer other suites can
+        // evict this warning from (`docs/flaky-tests.md`, "A log assertion reading a window that
+        // has already rolled"). A capture keeps what it saw, and awaits the FIFO flush.
         let entry = await log.entries.last {
             $0.message.contains("\(root)/project") && $0.level == .warning
         }
@@ -756,23 +691,15 @@ import Testing
                 "the failing descendant is known (the listing reports it) and must be named; got \(String(describing: entry?.message))")
     }
 
-    /// …and a BATCH of them says it ONCE.
-    ///
-    /// `Logger.shared.entries` keeps the last 1000, so a registration over an unreadable tree —
-    /// one permissions problem, one unmounted network volume, one provider that stopped answering
-    /// — used to emit a warning per item and push the context that would explain the cause out of
-    /// the buffer. Same report shape as `SyncHistoryStore.appendBatch`'s dropped records: count
-    /// them, name the first.
-    ///
-    /// The per-run UUID in the paths is what keeps this honest against a process-global logger,
-    /// per the `LoggingGapTests` discipline: nothing but this run can match, so a count of the
-    /// matching lines is a count of THIS batch's lines.
+    /// …and a batch of them says it once. One cause (a permissions problem, an unmounted volume, a
+    /// provider that stopped answering) would otherwise log a warning per item and push the context
+    /// explaining it out of the 1000-entry buffer. Same shape as `SyncHistoryStore.appendBatch`'s
+    /// dropped records: count them, name the first. The per-run UUID means only this batch matches.
     @MainActor
     @Test func aBatchOfUnreadableRegistrationsLogsOneLineNamingTheFirstAndTheCount() async throws {
-        // Opened BEFORE the call under test — it is a window, not a query. `Logger.shared`'s
-        // buffer keeps the newest 1000 lines process-wide, so in a full-package run another
-        // suite's logging evicts these warnings and the assertions below read an empty window
-        // (mechanism 12). A capture accumulates at publish time; a later trim cannot reach it.
+        // Opened before the call under test: it is a window, not a query. A capture keeps what it
+        // sees, which `Logger.shared`'s shared newest-1000 buffer doesn't (`docs/flaky-tests.md`,
+        // "A log assertion reading a window that has already rolled").
         let log = LogCapture()
         let manager = makeManager()
         let fm = MockFileManager()
@@ -804,10 +731,9 @@ import Testing
     }
 }
 
-/// Parks the walk's FIRST `attributesOfItem` — the opening stat of `deepSnapshot` — so a test
-/// can provably interleave with a registration walk mid-flight. The mirror of `FirstStatGate`
-/// (which gates `fileExists` over the real filesystem), over the mock disk; same bounded-park,
-/// recorded-timeout contract: check `releasedByTimeout` after the work completes.
+/// Parks the walk's first `attributesOfItem`, the opening stat of `deepSnapshot`, so a test can
+/// act while a registration walk is mid-flight. `FirstStatGate`'s counterpart over the mock disk,
+/// with the same bounded park and recorded timeout: check `releasedByTimeout` afterwards.
 private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
     private let inner: MockFileManager
     let entered = DispatchSemaphore(value: 0)
@@ -818,8 +744,8 @@ private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
 
     init(inner: MockFileManager) { self.inner = inner }
 
-    /// True if the parked stat gave up waiting instead of being released — a held race that
-    /// silently un-held itself, which the test must surface rather than pass through.
+    /// True if the parked stat gave up waiting instead of being released: a held race that let go
+    /// by itself, which the test must surface.
     var releasedByTimeout: Bool {
         lock.lock(); defer { lock.unlock() }
         return timedOut
@@ -830,8 +756,8 @@ private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
         guard first else { return }
         entered.signal()
         // In scheduler turns as well as seconds: the release comes after the test's ⌘Z and a
-        // `waitUntil`, which a loaded runner paces in turns (flaky-tests.md, "A park's bound
-        // counted seconds while its release waited for scheduler turns").
+        // `waitUntil`, which a loaded runner paces in turns (`docs/flaky-tests.md`, "A park's
+        // bound counted seconds while its release waited for scheduler turns").
         if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
             lock.lock(); timedOut = true; lock.unlock()
         }
@@ -868,16 +794,13 @@ private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
     }
 }
 
-/// A `FileManaging` that walks the REAL filesystem but hands each enumeration back REORDERED.
-/// `deepSnapshot`'s digest claims independence from enumeration order, and no walk of the real
-/// filesystem can vary the order on demand — the real enumerator yields a stable order whatever
-/// the creation order, so tests driving `FileManager.default` alone passed with the sort line
-/// deleted. This double is what makes that deletion fail.
+/// A `FileManaging` that walks the real filesystem but hands each enumeration back reordered.
+/// The real enumerator yields a stable order, so only a double like this can make deleting
+/// `deepSnapshot`'s sort fail.
 ///
-/// It deliberately does NOT try to vary the Unicode SPELLING of what it yields: `listing(of:)`
-/// re-spells every entry through `appendingPathComponent`, which decomposes, so a respelling
-/// here never survives to the digest — that rule is pinned at its seam instead
-/// (`oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling`).
+/// It doesn't vary the Unicode spelling: `listing(of:)` re-spells every entry through
+/// `appendingPathComponent`, which decomposes, so a respelling never reaches the digest. That rule
+/// is pinned at its seam (`oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling`).
 private struct ReshapedWalkFileManager: FileManaging {
     let reorder: @Sendable ([URL]) -> [URL]
 
@@ -915,7 +838,7 @@ private struct ReshapedWalkFileManager: FileManaging {
                     options mask: FileManager.DirectoryEnumerationOptions,
                     errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         // `.producesRelativePathURLs` is forced so every entry carries the relative path this
-        // reshapes; `listing(of:)` — the only consumer under test — always asks for it anyway.
+        // reshapes; `listing(of:)`, the only consumer under test, always asks for it anyway.
         guard let real = base.enumerator(at: url, includingPropertiesForKeys: keys,
                                          options: mask.union(.producesRelativePathURLs),
                                          errorHandler: handler) else { return nil }
@@ -929,10 +852,9 @@ private struct ReshapedWalkFileManager: FileManaging {
     }
 }
 
-/// Forwards everything to the real `FileManager` and records, for each enumeration and each
-/// stat, whether it ran on the main thread — the seam
-/// `theRegistrationIdentityWalkNeverTouchesTheMainThread` reads. A count of zero recordings is a
-/// broken fixture, not a pass; the test `#require`s it non-empty.
+/// Forwards to the real `FileManager` and records, per enumeration and stat, whether it ran on the
+/// main thread, for `theRegistrationIdentityWalkNeverTouchesTheMainThread`. Zero recordings is a
+/// broken fixture, not a pass, so the test requires some.
 private final class WalkThreadRecordingFileManager: FileManaging, @unchecked Sendable {
     private let base = FileManager.default
     private let lock = NSLock()

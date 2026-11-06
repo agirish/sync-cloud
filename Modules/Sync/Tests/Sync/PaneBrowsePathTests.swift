@@ -3,17 +3,15 @@ import Foundation
 import Events
 @testable import Sync
 
-/// `PaneBrowsePath` is the Columns view's position *inside* a loaded tree, kept deliberately
-/// separate from the pane's `relativePath` (its comparison scope). Two behaviours here are
-/// load-bearing rather than conveniences:
+/// `PaneBrowsePath` is the Columns view's position inside a loaded tree, kept separate from the
+/// pane's `relativePath` (its comparison scope). Two behaviours are load-bearing:
 ///
-///   - `currentDirectory` is what New Folder, paste and background drops target. If it can name a
-///     path that does not exist, those operations act somewhere the user cannot see.
-///   - `pruned` is the only thing standing between a republish that deletes a folder and a column
-///     stack still pointing into it.
+///   - `currentDirectory` is what New Folder, paste and background drops target. If it names a
+///     path that doesn't exist, those operations act somewhere the user can't see.
+///   - `pruned` is what stops a column stack pointing into a folder a republish deleted.
 ///
-/// The fixtures build real `PaneChildrenIndex` values rather than stubbing lookups, so the two
-/// types are pinned against each other the way the pane uses them.
+/// The fixtures build real `PaneChildrenIndex` values, so the two types are tested together the
+/// way the pane uses them.
 @Suite struct PaneBrowsePathTests {
 
     private let root = "/r"
@@ -30,8 +28,8 @@ import Events
 
     // MARK: - Resting state
 
-    /// Empty is the pane that exists today: one column listing the tree root. If this ever
-    /// produced zero columns, the default view would render nothing at all.
+    /// Empty is the resting pane: one column listing the tree root. Zero columns would render
+    /// nothing at all.
     @Test func testRestingPathIsOneColumnAtTheRoot() {
         let path = PaneBrowsePath()
         #expect(path.isEmpty)
@@ -125,8 +123,8 @@ import Events
         #expect(path.pruned(against: index(), treeRoot: root) == path)
     }
 
-    /// The regression this exists for: a folder disappears under the user's feet. The stack must
-    /// fall back to the deepest surviving ancestor, not to the root and not stay where it was.
+    /// A folder disappears under the user's feet: the stack falls back to the deepest surviving
+    /// ancestor, not to the root and not staying where it was.
     @Test func testPruneStopsAtTheFirstMissingFolder() {
         let path = PaneBrowsePath(components: ["Documents", "Gone", "Deeper"])
         let pruned = path.pruned(against: index(), treeRoot: root)
@@ -154,8 +152,7 @@ import Events
         #expect(path.pruned(against: PaneChildrenIndex.empty(side: .left), treeRoot: root).isEmpty)
     }
 
-    /// Mutation guard: a `pruned` that returned `self` unconditionally would pass every
-    /// keep-case above. Pin that a dropped component actually changes the value.
+    /// Fails if `pruned` returns `self` unconditionally, which every keep-case above would allow.
     @Test func testPruneReturnsADifferentValueWhenItDropsSomething() {
         let path = PaneBrowsePath(components: ["Documents", "Gone"])
         #expect(path.pruned(against: index(), treeRoot: root) != path)
@@ -163,10 +160,9 @@ import Events
 
     // MARK: - Pruning the forward stack
 
-    /// The hole the live stack's prune left open. Walk into a folder, step back out with `‹`, then
-    /// have that folder deleted: the components are empty so the prune had nothing to drop, but
-    /// `›` stayed lit pointing at the dead folder — and advancing put `currentDirectory` (where
-    /// New Folder and paste act) on a path that no longer exists.
+    /// Walk into a folder, step back out with `‹`, then have that folder deleted. The live stack
+    /// has nothing to drop, but `›` must not stay lit: advancing would put `currentDirectory`
+    /// (where New Folder and paste act) on a path that no longer exists.
     @Test func testPruneDropsAForwardEntryWhoseFolderIsGone() {
         var path = PaneBrowsePath(components: ["Documents", "Gone"])
         path.popLast()
@@ -222,8 +218,7 @@ import Events
         #expect(pruned.canAdvance == false)
     }
 
-    /// Mutation guard for the forward walk: a prune that simply cleared the forward stack would
-    /// pass every drop case above. Pin that a still-valid forward entry survives.
+    /// Fails if the prune simply clears the forward stack, which every drop case above would allow.
     @Test func testPruneKeepsAValidForwardEntryEvenWhenTheStackIsAtRest() {
         var path = PaneBrowsePath(components: ["Photos"])
         path.popLast()

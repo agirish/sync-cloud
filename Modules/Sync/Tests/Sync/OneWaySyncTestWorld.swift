@@ -1,8 +1,8 @@
 import Foundation
 @testable import Sync
 
-/// Two parents in sync, for RD67 planner tests: every recorded file is on both sides exactly as
-/// recorded, and a test changes one side or the other before planning.
+/// Two parents in sync, for one-way sync planner tests: every recorded file is on both sides
+/// exactly as recorded, and a test changes one side or the other before planning.
 ///
 /// A recorded file numbered n (1-based, in `files` order) has iCloud ID n, Dropbox ID n + 10,000,
 /// 2,000 bytes, date `t0` and hash "h<n>"; its record key is n. Folders carry an inode alone on

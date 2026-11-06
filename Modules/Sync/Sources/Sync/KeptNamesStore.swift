@@ -1,43 +1,26 @@
 import Foundation
 import Events
 
-/// The names the user has said they *meant* — cloud-hostile, deliberately, and not to be reported
-/// again.
+/// The names the user has said they meant, cloud-hostile on purpose, and not to be reported again.
+/// Durable because the row badge shows every time the file is on screen; Organize's per-scan
+/// dismissal (``FileSyncManager/dismissRiskyName(_:)``) would leave a mark the user can't answer.
 ///
-/// **Why this has to be durable, and why it did not exist before.** Organize's list can already
-/// dismiss a row (``FileSyncManager/dismissRiskyName(_:)``), but that dismissal lasts as long as the
-/// results do: the next scan re-finds the name and you skip it again. That was survivable while the
-/// only way to meet a risky name was to go looking for one. The row badge changes the arithmetic —
-/// it is rendered every time the file is on screen, forever — so without somewhere to record "I
-/// meant that name", a name you deliberately chose becomes a permanent amber mark you cannot answer.
+/// Keyed on the name, not the path: the risk is a property of the name, so moving or copying the
+/// file must not ask again. Keeping one `Q3: final.pdf` keeps every file with that name.
 ///
-/// **Keyed on the NAME, not the path.** The offence is entirely a property of the name: two files
-/// called `Q3: final.pdf` are risky for exactly the same reason, and moving one of them changes
-/// nothing about why it was flagged. Keying on the path would re-nag the moment the file moved or
-/// was copied — re-asking a question the user already answered, which is the specific failure this
-/// type exists to prevent. The cost of the choice is that keeping one `Q3: final.pdf` also keeps a
-/// different file with the identical name; that is the same decision about the same string, so it is
-/// the answer the user gave.
+/// Not scoped per provider. The verdict is per provider, but two panes often show the same folder
+/// on two providers, and a per-provider keep would leave the badge on one side only.
 ///
-/// **Not scoped per provider, deliberately.** The *verdict* is per (name, provider) — a name iCloud
-/// accepts and OneDrive rejects is risky only on OneDrive — but the *decision* is not. The app's
-/// dominant workflow is two panes over two providers showing the same folder, so a per-provider keep
-/// would silence the badge on one side and leave it standing on the other, for the same file, on
-/// screen at the same time. That is the nagging, wearing a scope.
-///
-/// **What keeping does NOT do.** It suppresses the badge and drops the row from Organize's list; it
-/// does not touch the file, and it is reversible from the same row menu that set it ("Stop Allowing
-/// This Name"). It is a statement about the name, not a repair of it.
+/// Keeping hides the badge and the Organize row; it never touches the file, and "Stop Allowing
+/// This Name" on the same row menu reverses it.
 @MainActor
 public final class KeptNamesStore: ObservableObject {
-    /// The kept names, exactly as they are on disk. Published so a badge and a lens both re-render
-    /// the instant one is added or withdrawn.
+    /// The kept names, exactly as on disk. Published so badges and lenses re-render on each change.
     @Published public private(set) var names: Set<String> = []
 
     private let userDefaults: UserDefaults
 
-    /// Versioned so a future change of key shape (should keeping ever become provider-scoped) can
-    /// tell an old set from a new one instead of silently reinterpreting it.
+    /// Versioned so a future key shape (say, per provider) can tell an old set from a new one.
     nonisolated static let defaultsKey = "keptRiskyNames_v1"
 
     public init(userDefaults: UserDefaults = .standard) {
@@ -45,12 +28,9 @@ public final class KeptNamesStore: ObservableObject {
         names = Set(userDefaults.stringArray(forKey: Self.defaultsKey) ?? [])
     }
 
-    /// Whether `name` has been deliberately kept.
-    ///
-    /// Compares with Swift's canonical `==` (through `Set<String>`), the same equality
-    /// ``NameNormalizer/evaluate(name:relativePath:absolutePath:isDirectory:provider:)`` gates on —
-    /// so a name stored NFC and met NFD is the same kept name, as APFS, which finds a name by
-    /// either form, treats it.
+    /// Whether `name` has been deliberately kept. Uses Swift's canonical `==`, as
+    /// ``NameNormalizer/evaluate(name:relativePath:absolutePath:isDirectory:provider:)`` does, so NFC
+    /// and NFD spellings are the same kept name, as they are to APFS.
     public func isKept(_ name: String) -> Bool { names.contains(name) }
 
     public func keep(_ name: String) {
@@ -67,12 +47,9 @@ public final class KeptNamesStore: ObservableObject {
         Logger.shared.info("Stopped keeping risky name “\(name)” — it will be reported again")
     }
 
-    /// Withdraw every keep at once — Settings' "Clear All".
-    ///
-    /// One mutation rather than a loop over `stopKeeping`. `names` is `@Published` and
-    /// ``FileSyncManager/keptNamesStore`` reconciles `riskyNames` on each publish, so clearing N
-    /// names one at a time would re-filter the whole finding N times and write N lines to the log
-    /// for what the user did once.
+    /// Withdraws every keep at once, for Settings' "Clear All". One mutation, not a loop over
+    /// `stopKeeping`: each publish makes ``FileSyncManager/keptNamesStore`` re-filter `riskyNames`,
+    /// so a loop would re-filter and log once per name.
     public func stopKeepingAll() {
         guard !names.isEmpty else { return }
         let count = names.count

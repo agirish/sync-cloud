@@ -2,36 +2,26 @@ import Foundation
 
 /// The month and year a raw filename already carries, when it carries exactly one of each.
 ///
-/// Most of the rename backlog needs no model call, because the provider put the date in the name on
-/// the way out: `9829custbill07182023.pdf`, `20240128-statements-8857.pdf`,
-/// `STMTCMB100_20201101_5203_Elder.PDF`, `ATTBill_1897_Feb2022.pdf`, `DetailedBillApr2025.pdf`.
+/// Providers often put the date in the name (`9829custbill07182023.pdf`,
+/// `20240128-statements-8857.pdf`, `ATTBill_1897_Feb2022.pdf`), so many renames need no model call.
 /// This mines it, purely, with no disk and no clock.
 ///
-/// ## It says no far more often than it says yes, and that is the design
-///
-/// Of the 76 raw files sitting in the tree's `ordinal-month` folders, **only seven name a single
-/// month**. The rest are year-end summaries (`Year End Summary 2016.pdf`), fiscal ranges
-/// (`Apr 2009 - Mar 2010.pdf`), account paperwork (`Interest Certificate.pdf`, `Tags.pdf`), UUID
-/// exports and digit soup (`16106593108981703151004183789428.pdf`). **None of those belong in a
-/// monthly slot**, and a miner that guessed a month for them would propose 69 wrong renames to win
-/// seven right ones.
-///
-/// So every rule here is a *multiplicity* rule: a name naming two distinct months is a range and has
-/// no slot; a name naming two distinct years has no year. `Jan-Dec 2019.pdf` and
-/// `01 JUL 2020 TO 30 SEP 2020.pdf` are rejected by that alone, while
-/// `01 FEB 2020 TO 29 FEB 2020.pdf` — two month tokens naming the *same* month — is accepted. That
-/// is why the rule counts DISTINCT values rather than tokens.
+/// It says no far more often than yes, by design: most raw files in month folders are year-end
+/// summaries, fiscal ranges, paperwork or digit soup, and a guessed month would be a wrong rename.
+/// So every rule counts distinct values: two distinct months is a range, two distinct years has no
+/// year. `Jan-Dec 2019.pdf` is rejected, while `01 FEB 2020 TO 29 FEB 2020.pdf` (one month, twice)
+/// is accepted.
 public enum FileNameDate {
 
     /// A month and year mined from a name, with the evidence that produced it.
     public struct Mined: Sendable, Equatable {
         public let month: Int
-        /// The day, when the name pinned one. **Only day-keyed folders read it** — a month-keyed
-        /// folder's slot is the month, so a day it happens to know changes nothing there.
+        /// The day, when the name pinned one. Only day-keyed folders read it; a month-keyed folder's
+        /// slot is the month.
         public let day: Int?
         public let year: Int
-        /// How it was found, for the row subtitle — the user is reviewing a proposed rename and
-        /// "from `07182023` in the name" is the difference between trusting it and not.
+        /// How it was found, for the row subtitle, so the user reviewing a proposed rename can see
+        /// why ("from `07182023` in the name").
         public let evidence: String
 
         public init(month: Int, day: Int? = nil, year: Int, evidence: String) {
@@ -44,33 +34,28 @@ public enum FileNameDate {
 
     /// The single month and year `fileName` names, or nil.
     ///
-    /// Two independent readings are taken — a compact 8-digit datestamp, and a spelled month beside
-    /// a 4-digit year — and **when both fire they must agree**. A name carrying a datestamp for one
-    /// month and a word for another is not a name this pass understands.
+    /// Three independent readings are taken (an 8-digit datestamp, a delimited date, and a spelled
+    /// month beside a 4-digit year), and every one that fires must agree. A name whose readings
+    /// disagree is not one this pass understands.
     public static func mine(_ fileName: String) -> Mined? {
         let stem = (fileName as NSString).deletingPathExtension
         let runs = tokenRuns(stem)
 
-        // Three independent readings, and **every one that fires must agree on the month and the
-        // year**. Kept as a unanimity rule over a list rather than the pairwise `switch` this used
-        // to be: a third reading would have needed a nine-arm switch, and the arm that matters —
-        // "two readings disagree, so this name is not one this pass understands" — is easy to get
-        // subtly wrong when it is spelled nine times.
+        // A unanimity rule over a list, so a new reading can't get the "they disagree" case wrong.
         let readings = [datestamp(in: runs), delimitedDate(in: runs), spelledMonth(in: runs)]
             .compactMap { $0 }
         guard let first = readings.first,
               readings.allSatisfy({ $0.month == first.month && $0.year == first.year })
         else { return nil }
 
-        // A day is reported only when the readings that found one agree about it. A reading that
-        // found no day abstains rather than vetoing — `Jun 2019` beside `06152019` is a name whose
-        // day is known once, not a contradiction.
+        // A day is reported only when the readings that found one agree. A reading with no day
+        // abstains rather than vetoes: `Jun 2019` beside `06152019` is not a contradiction.
         let days = Set(readings.compactMap(\.day))
         return Mined(month: first.month, day: days.count == 1 ? days.first : nil,
                      year: first.year, evidence: first.evidence)
     }
 
-    /// A date the name carries that both conventions could have written (FR46): the two readings
+    /// A date the name carries that both conventions could have written: the two readings
     /// ``mine(_:)`` refused to choose between.
     public struct Ambiguity: Sendable, Equatable {
         /// The stamp as it appears in the name — `05062023`, `05-06-2023`.
@@ -82,9 +67,8 @@ public enum FileNameDate {
     }
 
     /// The first year-last stamp in `fileName` whose two leading pairs could be read either way
-    /// round, or nil — so a skip can say "ambiguous" with both dates rather than "no month and
-    /// year", of a name with a date plainly in it. The same shapes ``datestamp(in:)`` and
-    /// ``delimitedDate(in:)`` abstain on.
+    /// round, or nil, so a skip can say "ambiguous" with both dates rather than "no month and
+    /// year". The same shapes ``datestamp(in:)`` and ``delimitedDate(in:)`` abstain on.
     public static func ambiguity(_ fileName: String) -> Ambiguity? {
         let runs = tokenRuns((fileName as NSString).deletingPathExtension)
         func reading(_ first: Int, _ second: Int, _ year: Int, _ evidence: String) -> Ambiguity? {
@@ -112,9 +96,8 @@ public enum FileNameDate {
 
     /// `stem` split into maximal runs of letters and of digits, discarding everything else.
     ///
-    /// The letter/digit boundary is a separator in its own right, which is what makes `Feb2022` and
-    /// `DetailedBillApr2025` reachable — neither has a delimiter in it, and splitting only on
-    /// punctuation would hand the month-and-year reader a single opaque token.
+    /// The letter/digit boundary is a separator too, so glued names like `Feb2022` and
+    /// `DetailedBillApr2025` split into a month and a year.
     static func tokenRuns(_ stem: String) -> [Substring] {
         var runs: [Substring] = []
         var start: String.Index? = nil
@@ -142,29 +125,18 @@ public enum FileNameDate {
 
     // MARK: Reading 1 — a compact datestamp
 
-    /// The month and year from a **delimited 8-digit run**, read as `YYYYMMDD` or `MMDDYYYY`.
+    /// The month and year from a delimited 8-digit run, read as `YYYYMMDD` or `MMDDYYYY`.
     ///
-    /// `YYYYMMDD` and `MMDDYYYY` can never both be valid: `YYYYMMDD` requires the first two digits
-    /// to be `19`, `20` or `21`, and `MMDDYYYY` requires them to be a month, `01`–`12`. The ranges
-    /// are disjoint.
-    ///
-    /// **`MMDDYYYY` and `DDMMYYYY` are not disjoint, and a stamp both could be is refused (FR46).**
-    /// A `DDMMYYYY` name with a day over 12, like `18072023`, matches no reading and is refused on
-    /// shape alone. One with a day of 12 or less, like `Statement_05062023.pdf` (5 June, written
-    /// day-first), is a valid `MMDDYYYY` too — and was read as May. Nothing in the name says which
-    /// convention wrote it, so when both leading pairs are 12 or less and differ, this reading
-    /// abstains rather than guess; `05052023` reads the same either way and is kept. A spelled month
-    /// elsewhere in the name still answers through its own reading.
-    ///
-    /// The run must be **exactly** 8 digits. `8666160540530062020.pdf` and
-    /// `16106593108981703151004183789428.pdf` are account references and export ids that happen to
-    /// contain digit sequences reading as dates; requiring a whole delimited run keeps them out.
+    /// `YYYYMMDD` and `MMDDYYYY` never both fit: the first two digits are `19`–`21` for one and a
+    /// month for the other. `MMDDYYYY` and `DDMMYYYY` can both fit (`05062023`), and nothing in the
+    /// name says which wrote it, so when both leading pairs are 12 or less and differ this abstains
+    /// rather than guess. `05052023` reads the same either way and is kept. A day over 12
+    /// (`18072023`) matches no reading. The run must be exactly 8 digits, so account numbers and
+    /// export ids that contain date-like digits stay out.
     static func datestamp(in runs: [Substring]) -> Mined? {
         var found: Set<Int> = []      // month * 10000 + year, so a repeat of the SAME date is one value
-        // Days are counted separately, and deliberately do NOT join the key above. Two stamps for
-        // one month — `20240115` and `20240120` — collapse to a single month-and-year answer today,
-        // and folding the day into `found` would turn that into a refusal. The day is the thing
-        // that is unknown there, not the month.
+        // Days are kept out of the key above: two stamps in one month (`20240115`, `20240120`) still
+        // name one month, and only the day is unknown.
         var days: Set<Int> = []
         var evidence = ""
         for run in runs where run.count == 8 && run.allSatisfy(\.isNumber) {
@@ -186,21 +158,13 @@ public enum FileNameDate {
 
     // MARK: Reading 3 — a delimited date
 
-    /// The date from **three adjacent numeric runs** shaped `YYYY MM DD` or `MM DD YYYY`.
+    /// The date from three adjacent numeric runs shaped `YYYY MM DD` or `MM DD YYYY`.
     ///
-    /// This is what reaches `Payslip_2026-06-15.pdf`, and without it the file the whole day-keyed
-    /// convention exists for names no month at all: its runs are `Payslip · 2026 · 06 · 15`, which
-    /// carries no 8-digit stamp and no spelled month, so ``mine`` returned nil for it.
-    ///
-    /// **Shape-disjoint, exactly as ``datestamp`` is.** A `(4,2,2)` window can only be read
-    /// year-first and a `(2,2,4)` window only year-last, so those two never compete for one window.
-    /// `DD MM YYYY` is refused as it is there (FR46): `15 06 2026` matches no reading, and
-    /// `05-06-2023` — month-first May 6th or day-first 5 June — is ambiguous, so this reading
-    /// abstains on it rather than read it month-first. Only a stamp whose two leading pairs are
-    /// equal, or one of them over 12, is read.
-    ///
-    /// Requiring the runs to be *adjacent* and *exactly* those widths is what keeps account numbers
-    /// out: `STMTCMB100_20201101_5203` runs as `100 · 20201101 · 5203`, whose widths are 3, 8 and 4.
+    /// Reaches names like `Payslip_2026-06-15.pdf`, which carry no 8-digit stamp and no spelled
+    /// month. Shape-disjoint like ``datestamp``: `(4,2,2)` reads year-first, `(2,2,4)` year-last.
+    /// `15 06 2026` matches no reading, and an ambiguous `05-06-2023` makes it abstain, as there.
+    /// Adjacent runs of exactly those widths keep account numbers out
+    /// (`STMTCMB100_20201101_5203` runs 3, 8 and 4 wide).
     static func delimitedDate(in runs: [Substring]) -> Mined? {
         var found: Set<Int> = []      // month * 10000 + year, matching `datestamp`'s key
         var days: Set<Int> = []
@@ -228,8 +192,8 @@ public enum FileNameDate {
     static func isMonth(_ m: Int) -> Bool { (1...12).contains(m) }
     static func isDay(_ d: Int) -> Bool { (1...31).contains(d) }
 
-    /// Whether a year-last stamp's leading pair could be read either way round (FR46): both are
-    /// months, and they differ, so month-first and day-first name two different dates.
+    /// Whether a year-last stamp's leading pair could be read either way round: both are months
+    /// and they differ, so month-first and day-first name two different dates.
     static func isAmbiguousDayMonth(_ first: Int, _ second: Int) -> Bool {
         isMonth(first) && isMonth(second) && first != second
     }
@@ -238,10 +202,9 @@ public enum FileNameDate {
 
     /// The month and year from a spelled month token and a 4-digit year token.
     ///
-    /// A letter run counts as a month when it *is* a month word (`Feb`, `February`) or **ends with
-    /// one** (`DetailedBillApr`). The suffix rule is what reaches the glued provider names, and it is
-    /// held in check by requiring a plausible year elsewhere in the name and by the distinct-value
-    /// rules below — a stray suffix match on its own proposes nothing.
+    /// A letter run counts as a month when it is a month word (`Feb`, `February`) or ends with one
+    /// at a word boundary (`DetailedBillApr`; see ``monthSuffix(_:)``). A plausible year and the
+    /// distinct-value rule below must hold too.
     static func spelledMonth(in runs: [Substring]) -> Mined? {
         var months: Set<Int> = []
         var years: Set<Int> = []
@@ -254,7 +217,7 @@ public enum FileNameDate {
                 monthWord = String(run)
             }
         }
-        // Exactly one distinct month AND one distinct year. Two months is a range (`Jan-Dec 2019`),
+        // Exactly one distinct month and one distinct year. Two months is a range (`Jan-Dec 2019`),
         // two years is a fiscal span (`Apr 2009 - Mar 2010`), and neither has a monthly slot.
         guard months.count == 1, years.count == 1,
               let m = months.first, let y = years.first else { return nil }
@@ -262,9 +225,9 @@ public enum FileNameDate {
                      evidence: "“\(monthWord) \(y)” in the name")
     }
 
-    /// The day in a `Mon DD YYYY` run sequence — **positional, for the same reason
-    /// ``OrdinalMonthName/day(in:month:year:)`` is.** A small number elsewhere in a name is a
-    /// duplicate marker or an account fragment far more often than it is a day.
+    /// The day in a `Mon DD YYYY` run sequence. Positional, like
+    /// ``OrdinalMonthName/day(in:month:year:)``: a small number elsewhere in a name is more often a
+    /// duplicate marker or an account fragment than a day.
     static func dayBetweenMonthAndYear(in runs: [Substring], year: Int) -> Int? {
         var days: Set<Int> = []
         for i in runs.indices.dropFirst().dropLast() {
@@ -279,52 +242,32 @@ public enum FileNameDate {
         return days.count == 1 ? days.first : nil
     }
 
-    /// 1–12 when a letter run **is** a month name, or ends with one *at a word boundary*.
+    /// 1–12 when a letter run is a month name, or ends with one at a word boundary.
     ///
-    /// The suffix rule exists to reach glued provider names — `DetailedBillApr` — and it read any
-    /// letter run ending in those three letters, which ordinary words do: `Kumar` was March,
-    /// `Rajan` was January, `codec` was December. That is not hypothetical in this household's
-    /// tree; `Sanjay Kumar 2023.pdf` has a lone plausible year beside it, which is all
-    /// ``spelledMonth`` needs to mine a whole date and propose renaming the file `03. Mar 2023`.
-    /// The "held in check by requiring a plausible year" the comment above claims is exactly the
-    /// check a `<Name> <Year>.pdf` satisfies.
+    /// The suffix reaches glued provider names (`DetailedBillApr`), but ordinary words end in
+    /// month letters too: `Kumar`, `Rajan`, `codec`. `Sanjay Kumar 2023.pdf` has a year beside it,
+    /// so a bare suffix would rename it `03. Mar 2023`. Inside one letter run only a change of case
+    /// marks a word boundary, so two shapes qualify:
     ///
-    /// So the suffix must begin where a word begins, and inside a single letter run the only thing
-    /// that marks a word boundary is a change of case. Two shapes qualify:
+    /// - a title-cased month (`…Bill|Apr`, `HDFC|Apr`, `IRS|Mar`): its own casing is the boundary.
+    /// - an all-caps month after a lowercase character. `KU|MAR` has none and is a surname.
     ///
-    /// - a **title-cased month** — `…Bill|Apr`, `HDFC|Apr`, `IRS|Mar`. The month's own casing is
-    ///   the boundary, so an acronym in front of it does not hide one.
-    /// - an **all-caps month** preceded by a lowercase character. `KU|MAR` has no such character
-    ///   and is a surname; nothing in an all-caps run separates a word from a month.
-    ///
-    /// The deliberate cost is the fully caseless run: `detailedbillapr` and `BILLAPR` are no longer
-    /// read as months. Provider names carry their casing one way or the other; family names are the
-    /// population being protected.
+    /// The cost is caseless runs: `detailedbillapr` and `BILLAPR` aren't read as months. Protecting
+    /// family names is worth it.
     static func monthSuffix(_ run: String) -> Int? {
         let lower = run.lowercased()
         if let m = OrdinalMonthName.monthIndex(lower) { return m }
 
-        /// Whether `name` ends `run` at a word boundary, or is the whole run.
-        ///
-        /// The first draft asked only that the month start with a capital, which is unconditionally
-        /// true inside an ALL-CAPS run — so `KUMAR` was still March, `RAJAN` still January, `NAPR`
-        /// still April: every example the rule was written to stop, surviving in upper case. (1,749
-        /// files on the real tree carry an all-caps run of four or more characters, three of them
-        /// a vendor token ending `APR`.) The second asked for a lowercase character *before* the month, which
-        /// fixed those and took `HDFCApr`, `AMEXApr` and `IRSMar` with them — an acronym in front of
-        /// a title-cased month is a boundary a reader has no trouble seeing.
-        ///
-        /// So: a title-cased month carries its own boundary; an all-caps month needs a lowercase
-        /// character in front of it.
+        /// Whether `name` ends `run` at a word boundary, or is the whole run. A title-cased month
+        /// carries its own boundary; an all-caps month needs a lowercase character in front of it.
+        /// A capital alone isn't enough (`KUMAR` would be March), and requiring lowercase before
+        /// every month would lose `HDFCApr` and `IRSMar`.
         func endsAtAWordBoundary(_ name: String) -> Bool {
             guard lower.hasSuffix(name) else { return false }
             guard name.count < run.count else { return true }
-            // The offsets below are computed on `lower` and used to index `run`, which is only
-            // sound while lowercasing preserves the character count. It does for every scalar this
-            // reaches today (probed across the BMP and beyond), but it is an ICU-shaped assumption
-            // rather than a guarantee — and a silent misalignment here would mine a date from the
-            // wrong characters. Refusing is the safe direction: a month that is not read is a
-            // rename not proposed.
+            // Offsets from `lower` index `run`, sound only while lowercasing keeps the character
+            // count. That holds today but isn't guaranteed, and a misalignment would mine a date from
+            // the wrong characters, so refuse: a month not read is only a rename not proposed.
             guard lower.count == run.count else { return false }
             let start = run.index(run.endIndex, offsetBy: -name.count)
             guard run[start].isUppercase else { return false }
@@ -332,8 +275,7 @@ public enum FileNameDate {
             return titleCased || run[run.index(before: start)].isLowercase
         }
 
-        // Longest candidate first, so `...September` is not read as the `Sep` inside it — same
-        // month here, but the abbreviation would be the reported evidence for a spelled-out name.
+        // Longest first, so `...September` isn't reported as the `Sep` inside it.
         for name in OrdinalMonthName.monthFullNames.sorted(by: { $0.count > $1.count })
         where endsAtAWordBoundary(name) {
             return OrdinalMonthName.monthFullNames.firstIndex(of: name).map { $0 + 1 }

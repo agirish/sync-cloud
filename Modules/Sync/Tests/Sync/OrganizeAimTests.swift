@@ -4,11 +4,10 @@ import Foundation
 
 /// Where Organize is aimed, and when the pane has left it.
 ///
-/// **The precedence is the deliverable, so every case here distinguishes it from its neighbours.**
-/// A fixture where the scope, the scanned root and the provider root name the same folder cannot
-/// tell a three-rung chain from a one-rung one — it passes against any of them — so each rung is
-/// asserted with the rungs below it set to something *different*, and the answer names which one
-/// won.
+/// The precedence is what this pins, so every case tells it from its neighbours: a fixture where
+/// the scope, the scanned root and the provider root name the same folder passes against a
+/// one-rung chain too. Each rung is asserted with the rungs below it set to something different,
+/// and the answer names which one won.
 @Suite struct OrganizeAimTests {
 
     static let root = "/Users/x/Documents"
@@ -34,16 +33,16 @@ import Foundation
     }
 
     @Test func theProviderRootIsTheSubjectWhenNothingIsScopedOrScanned() {
-        // **The rung that was missing.** This used to answer nil, and a nil subject is what made
-        // `paneMovedAway` false everywhere before the first scan.
+        // Without this rung the subject would be nil, and a nil subject makes `paneMovedAway`
+        // false everywhere before the first scan.
         #expect(OrganizeAim.subject(scope: nil, scannedRoot: nil, providerRoot: Self.root)
                 == Self.root)
     }
 
     @Test func emptyStringsAreSkippedLikeAbsentOnes() {
-        // Every one of these arrives from a defaults read or a settings value, where "" is the
-        // ordinary absent state — a subject of "" would compare unequal to any real folder and
-        // report the pane as permanently moved.
+        // Each of these comes from a defaults read or a settings value, where "" is the ordinary
+        // absent state; a subject of "" would compare unequal to any real folder and report the
+        // pane as permanently moved.
         #expect(OrganizeAim.subject(scope: nil, scannedRoot: "", providerRoot: Self.root)
                 == Self.root)
         #expect(OrganizeAim.subject(scope: nil, scannedRoot: "", providerRoot: "") == nil)
@@ -53,16 +52,15 @@ import Foundation
     // MARK: Has the pane moved off it?
 
     @Test func browsingAwayFromTheProviderRootReadsAsMovedBeforeAnyScan() {
-        // The reported defect, at the level the rule owns it: nothing scanned, nothing scoped, the
-        // pane in a subfolder. The offer has to be available or there is no way to aim Organize
-        // from its own header.
+        // Nothing scanned, nothing scoped, the pane in a subfolder: the offer must be available, or
+        // there is no way to aim Organize from its own header.
         #expect(OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil, scannedRoot: nil,
                                           providerRoot: Self.root))
     }
 
     @Test func sittingAtTheProviderRootIsNotMoved() {
-        // The other direction of the same guard, and the one that keeps the fix from drawing a
-        // button in the state it should not: unscoped Organize already answers about everything.
+        // The other direction of the same guard, which keeps the button out of a state where it
+        // has no use: unscoped Organize already answers about everything.
         #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.root, scope: nil, scannedRoot: nil,
                                            providerRoot: Self.root))
     }
@@ -101,21 +99,21 @@ import Foundation
     // MARK: One folder, three spellings
 
     @Test func theComparisonSeesThroughTildesAndTrailingSlashes() {
-        // The three inputs come from three different places — a persisted scope, a lens's scanned
-        // root, a settings value — and only `OrganizeScope` guarantees an expanded path. A pane
-        // sitting exactly on its subject must not read as moved because one side spelled it `~`.
+        // The three inputs come from three places (a persisted scope, a lens's scanned root, a
+        // settings value), and only `OrganizeScope` guarantees an expanded path. A pane sitting on
+        // its subject must not read as moved because one side spelled it `~`.
         let home = NSHomeDirectory()
         #expect(!OrganizeAim.paneMovedAway(paneFolder: "\(home)/Documents", scope: nil,
                                            scannedRoot: "~/Documents", providerRoot: nil))
         #expect(!OrganizeAim.paneMovedAway(paneFolder: "\(home)/Documents/", scope: nil,
                                            scannedRoot: "\(home)/Documents", providerRoot: nil))
-        // And it is not simply blind: a genuinely different folder still reads as moved.
+        // And it isn't simply blind: a different folder still reads as moved.
         #expect(OrganizeAim.paneMovedAway(paneFolder: "\(home)/Documents/Legal", scope: nil,
                                           scannedRoot: "~/Documents", providerRoot: nil))
     }
 
     @Test func aSiblingWithASharedPrefixIsNotTheSameFolder() {
-        // Path comparison, not string prefixing: `/a/bc` is not `/a/b`.
+        // Path comparison, not string prefixing: `/a/bc` isn't `/a/b`.
         #expect(OrganizeAim.paneMovedAway(paneFolder: Self.root + "/Legalese", scope: nil,
                                           scannedRoot: Self.legal, providerRoot: Self.root))
     }

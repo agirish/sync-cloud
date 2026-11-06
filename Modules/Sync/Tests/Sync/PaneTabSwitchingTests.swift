@@ -2,26 +2,18 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Switching tabs against a real `FileSyncManager`, which is where the feature's one non-obvious
-/// rule lives: **the active tab is the pane**, so a switch has to park the live position before it
-/// applies the incoming one.
-///
-/// Every test here would still pass with `captureActive` deleted if it only checked where the pane
-/// LANDS. So each one walks away and comes back: the second half of every assertion is that the
-/// tab you left is still where you left it, which is the half that fails when a capture goes
-/// missing.
+/// Switching tabs against a real `FileSyncManager`. The active tab is the pane, so a switch must
+/// park the live position before it applies the incoming one. Checking only where the pane lands
+/// would pass with `captureActive` deleted, so each test walks away and comes back and checks the
+/// tab it left is still where it was left.
 @Suite struct PaneTabSwitchingTests {
 
-    /// **One pane holds a selection at a time, and a tab carrying its own has to keep that true.**
+    /// One pane holds a selection at a time, and a tab arriving with its own must keep that true:
+    /// the transfer verbs rely on it, and it decides what ⌘⌫ and the copy arrows act on.
     ///
-    /// `applyTab` restored this pane's selection and left the sibling's alone, so switching to a tab
-    /// that remembered a selection put both panes in a selected state — which the transfer verbs'
-    /// documented invariant says cannot happen, and which decides what ⌘⌫ and the copy arrows act on.
-    ///
-    /// Both directions are checked, because only asserting the clear would pass a version that
-    /// cleared the sibling unconditionally: an *empty* arriving selection leaves the invariant
-    /// already satisfied — one pane selected, the other one — so clearing there would throw away a
-    /// selection the user made and the tab switch never touched.
+    /// Both directions are checked, so clearing the sibling unconditionally fails too: an empty
+    /// arriving selection already satisfies the rule, and clearing there would discard a selection
+    /// the switch never touched.
     @MainActor
     @Test func arrivingWithASelectionClearsTheSiblingsAndArrivingWithoutOneLeavesIt() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -90,9 +82,8 @@ import Foundation
         #expect(manager.leftBrowsePath.relativePath == "Photos/2019")
     }
 
-    /// Back in a tab walks that tab's own history. Two tabs sharing one history would let Back
-    /// step into a folder this tab has never been in — a move you could not explain from anything
-    /// on screen.
+    /// Back in a tab walks that tab's own history. A shared history would let Back step into a
+    /// folder this tab has never been in.
     @MainActor
     @Test func historyIsPerTab() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -149,8 +140,8 @@ import Foundation
         #expect(manager.leftRelativePath == "C")
     }
 
-    /// Closing a PARKED tab must not move the pane — and, the part that breaks silently, must not
-    /// write the live pane's state into whichever tab slides into the vacated slot.
+    /// Closing a parked tab must not move the pane, nor (the part that breaks silently) write the
+    /// live pane's state into whichever tab slides into the vacated slot.
     @MainActor
     @Test func closingAParkedTabLeavesTheLivePaneWhereItIs() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "A"),
@@ -246,15 +237,12 @@ import Foundation
 
     // MARK: The verbs that had no manager-level test at all
     //
-    // Each of the five below was written because a mutation survived the whole 2,173-test suite:
-    // `closeOtherTabs` never moving the pane, `duplicateTab` doing nothing, `setTabPinned` doing
-    // nothing, `captureTab` ignoring the search snapshot, and `applyTab` no longer clearing the
-    // comparison state. The model half of each was covered; the manager half — the half that moves
-    // the actual pane — was not, which is the seam this file exists to hold.
+    // The model half of each verb is tested elsewhere; these pin the manager half, which moves the
+    // actual pane. Each fails if its verb stops moving the pane, does nothing, ignores the search
+    // snapshot, or stops clearing the comparison.
 
-    /// **Close Other Tabs from a PARKED tab has to move the pane.** The gesture is "leave me with
-    /// this one", so the pane must end up looking at the tab that survived — not still showing a
-    /// folder whose chip has just been closed out from under it.
+    /// Close Other Tabs from a parked tab moves the pane to the tab that survived, not leaving it
+    /// on a folder whose chip was just closed.
     @MainActor
     @Test func closingTheOtherTabsFromAParkedOneMovesThePaneToIt() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
@@ -272,8 +260,7 @@ import Foundation
                 "the pane is still showing the folder of a tab that no longer exists")
     }
 
-    /// …and from the tab already live it must NOT move — the return is the host's signal to skip a
-    /// reload, and a reload here would be work for a pane that has not gone anywhere.
+    /// …and from the live tab it must not move: the nil return tells the host to skip a reload.
     @MainActor
     @Test func closingTheOtherTabsFromTheLiveOneLeavesThePanePut() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -287,9 +274,8 @@ import Foundation
         #expect(manager.leftRelativePath == "Finance", "the pane moved when nothing asked it to")
     }
 
-    /// Duplicate opens a second chip on the same folder and goes there. The half that fails when
-    /// `duplicate` is a no-op is the COUNT — landing on the right folder is what the pane was
-    /// already showing.
+    /// Duplicate opens a second chip on the same folder and goes there. The count is what fails if
+    /// `duplicate` is a no-op; the folder is where the pane already was.
     @MainActor
     @Test func duplicatingATabOpensASecondChipOnTheSameFolderAndGoesThere() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud")])
@@ -305,15 +291,9 @@ import Foundation
         #expect(manager.leftPaneTabs.tabs[0].combinedRelativePath == "Finance/US")
     }
 
-    /// Pinning through the manager reaches the list — and, because pinning REORDERS, the pane must
-    /// still be on the tab it was on. That second half is the one a no-op mutation cannot fail, so
-    /// it is asserted against a tab that genuinely moves position.
-    ///
-    /// **Asserted on identity, not on paths.** The first draft named the three tabs by folder and
-    /// expected them back in that order; it failed with `["C", "", "B"]`, because switching away
-    /// from the first tab captures the LIVE pane into it and this pane had been nowhere. That is
-    /// the design working — the active tab is the pane, not a value beside it — so the fixture is
-    /// what was wrong, and ids are the thing pinning is actually supposed to preserve.
+    /// Pinning through the manager reaches the list, and because pinning reorders, the pane must
+    /// stay on its tab; the pinned tab genuinely moves so a no-op fails. Asserted on ids, not paths:
+    /// switching away captures the live pane into the outgoing tab, so paths would change anyway.
     @MainActor
     @Test func pinningThroughTheManagerReordersTheStripWithoutMovingThePane() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
@@ -336,9 +316,8 @@ import Foundation
         #expect(manager.leftPaneTabs.active.id == liveBefore, "unpinning moved the pane")
     }
 
-    /// **The search field travels with the tab**, and the manager can only read it through the
-    /// host's `paneSearchSnapshot` hook. Nothing else in the suite installs that hook, so without
-    /// this the whole channel could be cut and every test would still pass.
+    /// The search field travels with the tab, read through the host's `paneSearchSnapshot` hook.
+    /// Nothing else in the suite installs that hook.
     @MainActor
     @Test func aParkedTabKeepsTheSearchTheHostReportsForIt() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -358,14 +337,9 @@ import Foundation
         #expect(manager.leftPaneTabs.active.id == second)
     }
 
-    /// **A switch inside one source at one scope keeps the pane's tree.**
-    ///
-    /// The tree is a walk of one root at one focus. Moving between two tabs that share both is a
-    /// move *inside* the tree the pane already has, so dropping it buys a full re-walk to rebuild
-    /// something identical — which is the visible "every tab switch refreshes the pane", and which
-    /// also republishes the tree empty-then-shallow, straight into the republish prune that
-    /// flattens the column stack the switch just restored. Two user-visible bugs from one
-    /// over-broad invalidation.
+    /// A switch inside one source at one scope keeps the pane's tree. Dropping it would re-walk
+    /// something identical (a visible refresh on every switch) and republish the tree
+    /// empty-then-shallow, into the prune that would flatten the column stack just restored.
     @MainActor
     @Test func switchingInsideOneSourceKeepsTheTreeItIsAlreadyShowing() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -380,8 +354,7 @@ import Foundation
                 "the pane was marked unloaded, so its next republish prunes the restored stack")
     }
 
-    /// …and a switch that DOES change the source drops it, because then it is the wrong tree: it
-    /// walks a root the pane is leaving, and every path in it names a file under that root.
+    /// …and a switch that changes the source drops it: it walks a root the pane is leaving.
     @MainActor
     @Test func switchingToAnotherSourceDropsTheTree() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "Dropbox")])
@@ -394,10 +367,9 @@ import Foundation
                 "the pane kept a tree walked from the source it just left")
     }
 
-    /// **Moving to another folder in the same source keeps the fast-path cache**, which is what
-    /// makes the arriving tab paint from memory instead of from a ~100ms disk walk. The cache is
-    /// keyed by absolute path, so every subtree in it still describes the same folders on the same
-    /// disk — the same reason breadcrumb and drill-down navigation are already instant.
+    /// Moving to another folder in the same source keeps the fast-path cache, so the arriving tab
+    /// paints from memory instead of a disk walk. The cache is keyed by absolute path, so every
+    /// subtree in it still describes the same folders.
     @MainActor
     @Test func switchingFolderInsideOneSourceKeepsTheCacheThatMakesItPaintInstantly() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
@@ -412,9 +384,8 @@ import Foundation
                 "the arriving folder's cached tree was thrown away, so the pane must walk the disk for it")
     }
 
-    /// …and a SOURCE change drops it, because then the cache describes a disk the pane has left —
-    /// all but the OTHER pane's walk, which that pane is showing and the Compare after the switch
-    /// reads. Dropped, the scan found one side cached and walked both folders from disk
+    /// …and a source change drops it, all but the other pane's walk, which that pane shows and the
+    /// next Compare reads. Without it the scan would walk both folders from disk
     /// (`SourceSwitchKeepsTheStillPaneTests`).
     @MainActor
     @Test func switchingSourceDropsTheCacheButTheOtherPanesWalk() async throws {
@@ -434,13 +405,9 @@ import Foundation
                 "the pane kept cached subtrees of the source it just left, or dropped the other pane's walk")
     }
 
-    /// **A tab switch reloads only the pane it moved.** The other pane's tree is a walk of a root
-    /// and a focus the switch did not touch, so walking it again rebuilds something identical — on
-    /// a real strip that measured 15–36ms of every switch spent on a pane nobody moved.
-    ///
-    /// `.both` stays the default for every other caller, which is what keeps a file operation, a
-    /// forced rescan and a sort change rebuilding both panes. See `PaneReloadScopeTranscript` for
-    /// the controlled fixture diff that measures exactly that.
+    /// A tab switch reloads only the pane it moved; walking the other again would rebuild something
+    /// identical. `.both` stays the default for every other caller, so a file operation, a forced
+    /// rescan and a sort change still rebuild both panes (`PaneReloadScopeTranscript`).
     @MainActor
     @Test func aTabSwitchInvalidatesOnlyThePaneItMoved() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
@@ -465,8 +432,8 @@ import Foundation
         #expect(!manager.hasScanned)
     }
 
-    /// And the scope the host hands the refresh names that same pane — one rule, or a pane ends up
-    /// invalidated and never reloaded.
+    /// The scope the host hands the refresh names that same pane, or a pane is invalidated and
+    /// never reloaded.
     @MainActor
     @Test func theReloadScopeNamesTheMovedPane() {
         #expect(FileSyncManager.PaneReloadScope.movedPane(isLeft: true) == .leftOnly)
@@ -483,25 +450,19 @@ import Foundation
 
     // MARK: A tab whose source has been removed
 
-    /// **A dead tab is discarded, not merely warned about.**
-    ///
-    /// The verbs apply a tab before the host can rule on its source, so by the time the host finds
-    /// the source gone the pane is already pointed at that tab's folder path under the LIVE source's
-    /// root — a path that usually exists nowhere. The branch used to only log, with a comment
-    /// claiming the pane "stayed on its current source": true of the source, false of the folder,
-    /// and the false half is the one that showed as an empty pane.
+    /// A dead tab is discarded, not merely warned about. The verbs apply a tab before the host can
+    /// rule on its source, so by then the pane points at that tab's folder path under the live
+    /// source's root, usually a path that exists nowhere, and shows an empty pane.
     @MainActor
     @Test func discardingADeadTabLeavesThePaneOnALiveOne() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
                                      PaneTab(providerId: "GoneDrive", relativePath: "Ghost")])
         let dead = manager.leftPaneTabs.tabs[1].id
-        // The live pane has to actually BE at "Keep": switching away captures the pane into the
-        // outgoing tab, so a fixture that only names the folder in the tab's initializer has that
-        // name overwritten by wherever the pane really is — the active tab is the pane.
+        // The live pane must actually be at "Keep": switching away captures the pane into the
+        // outgoing tab, overwriting the folder named in the tab's initializer.
         manager.focusOn(relativePath: "Keep", isLeft: true)
         manager.switchTab(to: dead, isLeft: true, currentProviderId: "iCloud")
-        // The pane has already been pointed at the dead tab's path — that is the state the host
-        // discovers the problem in, and the one this has to get out of.
+        // The pane already points at the dead tab's path: the state the host finds the problem in.
         #expect(manager.leftRelativePath == "Ghost")
 
         let landed = try #require(manager.discardTab(id: dead, isLeft: true,
@@ -514,8 +475,8 @@ import Foundation
                 "the pane was left on the removed source's folder path")
     }
 
-    /// The last tab is never closed — a pane always holds one — so a dead one is rebuilt on the
-    /// pane's own source at its root, the one location certain to exist.
+    /// The last tab is never closed, so a dead one is rebuilt on the pane's own source at its root,
+    /// the one location certain to exist.
     @MainActor
     @Test func discardingTheOnlyTabRebuildsItOnTheLiveSourceAtItsRoot() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "Ghost")])
@@ -532,22 +493,17 @@ import Foundation
         #expect(manager.leftRelativePath == "", "the pane stayed inside the removed source's folder")
     }
 
-    /// **An id this pane does not hold discards NOTHING**, and the strip is left exactly as it was.
-    ///
-    /// The rebuild used to sit behind one guard with the last-tab case
-    /// (`if list.count > 1, list.index(of: id) != nil`), so its `else` answered two questions with
-    /// one destructive branch: a strip of four handed an unknown id lost all four tabs *and* its
-    /// reopen stack to a single fresh tab at the root. No caller reaches it — every verb returns a
-    /// tab that is in the list — which is exactly why it is worth pinning: an inert guard whose
-    /// failure mode is "throw the user's tabs away" is one refactor from being a live one.
+    /// An id this pane does not hold discards nothing, and the strip is left exactly as it was.
+    /// Folded into the last-tab rebuild, an unknown id would replace the whole strip and its reopen
+    /// stack with one fresh tab. No caller passes one today, but a guard whose failure throws the
+    /// user's tabs away is one refactor from live.
     @MainActor
     @Test func discardingATabThisPaneDoesNotHoldChangesNothing() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "A"),
                                      PaneTab(providerId: "iCloud", relativePath: "B"),
                                      PaneTab(providerId: "iCloud", relativePath: "C")])
         manager.focusOn(relativePath: "A", isLeft: true)
-        // A closed tab gives the reopen stack something to lose, so a wipe cannot pass by leaving
-        // an already-empty one empty.
+        // A closed tab gives the reopen stack something to lose, so a wipe can't pass unseen.
         manager.closeTab(id: manager.leftPaneTabs.tabs[2].id, isLeft: true, currentProviderId: "iCloud")
         let before = manager.leftPaneTabs
 
@@ -559,16 +515,9 @@ import Foundation
         #expect(manager.leftRelativePath == "A", "the pane moved for a tab that does not exist")
     }
 
-    /// **A discarded tab does NOT go on the reopen stack, so Reopen Closed Tab drains.**
-    ///
-    /// It used to: `discardTab` removed through `close(at:)`, which records. So the press popped
-    /// the dead tab, the host applied it, found the source still missing and discarded it again —
-    /// pushing it straight back. Measured at five presses with the stack unchanged every time and
-    /// `canReopen` true throughout: a menu item enabled forever, offering a tab that could never
-    /// come back, and `discardDeadTabs` fed it several at once.
-    ///
-    /// The loop is what this reproduces, not just the flag — a test on `canReopen` alone would
-    /// pass with the stack merely trimmed somewhere else.
+    /// A discarded tab does not go on the reopen stack, so Reopen Closed Tab drains. If it did,
+    /// each press would pop the dead tab, the host would discard it again and push it back, and the
+    /// menu item would stay enabled forever. The test drives that loop, not just `canReopen`.
     @MainActor
     @Test func aDiscardedTabIsNotOfferedBackByReopenClosedTab() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
@@ -586,11 +535,8 @@ import Foundation
                 "Reopen Closed Tab brought back a tab whose source is gone")
     }
 
-    /// …and the stack the user built by closing tabs BY HAND survives the rebuild.
-    ///
-    /// The last-tab branch replaced the list with a fresh `PaneTabList`, whose `recentlyClosed` is
-    /// empty — so discarding one dead tab took every tab the user had genuinely closed with it. The
-    /// rebuild is replacing the pane's *position*; the session's closed tabs are not its business.
+    /// …and the tabs the user closed by hand survive the rebuild. The last-tab branch replaces the
+    /// pane's position; a fresh `PaneTabList` would also empty `recentlyClosed`.
     @MainActor
     @Test func rebuildingTheLastTabKeepsWhatTheUserClosedByHand() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "A"),
@@ -610,16 +556,10 @@ import Foundation
         #expect(back.combinedRelativePath == "B")
     }
 
-    /// **Every dead tab behind the first one goes too.**
-    ///
-    /// The fallback is a neighbour, and neighbours come from the same session — remove a source
-    /// with two tabs open on it and discarding the first landed the pane straight onto the second,
-    /// which is just as dead. `applyTab` had by then pointed the pane at *that* tab's folder path
-    /// under the live source's root, so the empty pane a single discard exists to remove came
-    /// straight back; it self-healed one click at a time.
-    ///
-    /// The fixture is the shape that failed: the live tab is the FIRST dead one, so the pane must
-    /// walk past a second before it reaches ground.
+    /// Every dead tab behind the first one goes too. The fallback is a neighbour, and with two tabs
+    /// open on a removed source, discarding the first would land the pane on the second, just as
+    /// dead, and the empty pane would come straight back. The live tab here is the first dead one,
+    /// so the pane must walk past a second.
     @MainActor
     @Test func discardingADeadTabAlsoDropsTheDeadOneItWouldLandOn() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
@@ -663,13 +603,10 @@ import Foundation
                 "the neighbour to the right does not inherit the pane")
     }
 
-    /// **The tab a discard lands on need not be on the pane's own source.**
-    ///
-    /// The premise behind `tabAction`'s adopt-after-discard: `discardDeadTabs` stops at the first
-    /// neighbour the pane *can show*, and "can show" is a wider set than "is currently on". Without
-    /// this, the host's `.unavailable` branch looked complete — it takes the landed tab's search
-    /// field — while leaving the pane pointed at the old source, showing the landed tab's folder
-    /// path under the wrong root and then saving that tab with the wrong source id.
+    /// The tab a discard lands on need not be on the pane's own source: `discardDeadTabs` stops at
+    /// the first neighbour the pane can show, a wider set than "is currently on". This is why
+    /// `tabAction` adopts after a discard; otherwise the pane would show the landed tab's folder
+    /// under the wrong root and save that tab with the wrong source id.
     @MainActor
     @Test func aDiscardCanLandOnATabFromAThirdLiveSource() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud", relativePath: "Keep"),
@@ -688,16 +625,15 @@ import Foundation
         let landed = try #require(outcome.landed)
         #expect(landed.providerId == "GoogleDrive",
                 "the pane landed on a source that is neither the dead tab's nor its own")
-        // Stated as the inequality the HOST depends on, against the value it was handed, rather
-        // than against the literal above — `!= "iCloud"` was implied by `== "GoogleDrive"` and so
-        // could never fail on its own.
+        // The inequality the host depends on, against the value it was handed. Implied by the
+        // line above, but it states the host's reason.
         #expect(landed.providerId != "iCloud",
                 "so the host cannot assume the landing is on currentProviderId — it must adopt")
         #expect(landed.combinedRelativePath == "Docs")
     }
 
-    /// A strip whose every tab is on a removed source ends on ONE tab at the live source's root —
-    /// the rebuild branch — rather than looping or leaving a dead one live.
+    /// A strip whose every tab is on a removed source ends on one tab at the live source's root
+    /// (the rebuild branch), rather than looping or leaving a dead one live.
     @MainActor
     @Test func discardingEveryDeadTabLandsOnTheLiveSourcesRoot() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "GoneDrive", relativePath: "A"),
@@ -716,16 +652,9 @@ import Foundation
         #expect(manager.leftRelativePath == "")
     }
 
-    /// **A tab switch drops the comparison.** The differences, the trees and the verification
-    /// results were computed for the folder pair the pane is leaving; carried across a switch they
-    /// would show one pane's new contents against the other pane's answer to the old question —
-    /// and a stale "in sync" is the most expensive wrong answer this app can give.
-    ///
-    /// **The two tabs must be at different folders**, which the first version of this test got
-    /// wrong: it used two tabs at the root, so nothing about the comparison's subject changed and
-    /// the assertion was really "a switch always clears". That is not the claim — the claim is in
-    /// the name, *built for the old folder* — and once a same-folder switch correctly stopped
-    /// clearing anything, the fixture was the thing that had to move.
+    /// A tab switch to another folder drops the comparison: it was computed for the folder pair the
+    /// pane is leaving, and a stale "in sync" is the most expensive wrong answer this app can give.
+    /// The tabs are at different folders, since a same-folder switch keeps the comparison.
     @MainActor
     @Test func switchingTabsThrowsAwayTheComparisonBuiltForTheOldFolder() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
@@ -746,11 +675,9 @@ import Foundation
                 "the pane claims a scan it ran against the tab it just left")
     }
 
-    /// …and the other side, which is what the user actually asked for: **a switch inside one folder
-    /// keeps the comparison and asks for no scan.** The differences are about a pair of focused
-    /// folders; a tab that shares the focus shares the answer. Refreshing is the Refresh button's
-    /// job, and drilling through columns — which moves the same column stack a tab carries — has
-    /// never rescanned either.
+    /// …and a switch inside one folder keeps the comparison and asks for no scan: a tab that shares
+    /// the focus shares the answer. Refreshing is the Refresh button's job, and drilling through
+    /// columns, which moves the same stack a tab carries, doesn't rescan either.
     @MainActor
     @Test func switchingInsideOneFolderKeepsTheComparisonAndAsksForNoScan() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])

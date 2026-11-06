@@ -1,22 +1,16 @@
 import Foundation
 
-/// **A comparison that covered only part of a side**, and therefore reports fewer differences than
-/// exist — the fact the Differences table has to say out loud.
+/// A comparison that covered only part of a side, and so reports fewer differences than exist:
+/// the Differences table has to say so.
 ///
-/// Two causes, one consequence. A side's root is marked unexplored when it could not be listed at
-/// all (permission denied), and — since the walk was bounded in v4.4 — when the walk stopped at
-/// `FileSyncManager.paneNodeBudget` entries. `FileDiffEngine.compare` reads that mark as "this
-/// side's view is unknown" and mints **no Missing row against it**, which is the only honest
-/// treatment: it cannot tell an absence from something it never read.
+/// A side's root is marked unexplored when it couldn't be listed (permission denied) or when the
+/// walk stopped at `FileSyncManager.paneNodeBudget` entries. `FileDiffEngine.compare` then mints no
+/// Missing row against that side, since it can't tell an absence from something it never read.
+/// The table looks normal and its count reads as a total when it is only a floor, so the banner
+/// this type words is the only on-screen sign.
 ///
-/// **The consequence is invisible in the result.** Every "missing on left" row disappears when the
-/// left is partial, and what remains is a normal-looking table with a normal-looking count. Nothing
-/// on screen said so — the only signal was a `warning` in `~/sync-cloud.log`, which is not where
-/// anyone is looking when they press Copy. A number that is quietly a floor reads as a total, and
-/// this app's whole job is telling someone what differs.
-///
-/// The wording lives here, pure and `Sendable`, so it can be asserted without a window — the same
-/// reason `SyncOperationAlerts.largeWalkMessage` was split out of its alert.
+/// Pure and `Sendable` so the wording can be asserted without a window, like
+/// `SyncOperationAlerts.largeWalkMessage`.
 public struct PartialComparison: Equatable, Sendable {
     /// Whether the left side's root came back unread — wholly, not one folder inside it.
     public let left: Bool
@@ -31,31 +25,25 @@ public struct PartialComparison: Equatable, Sendable {
 
     public var isComplete: Bool { !left && !right }
 
-    /// **Built from the comparison maps**, off the one key that means "this whole side is unknown".
-    ///
-    /// Deliberately NOT "does any directory carry the mark": an ordinary unreadable folder deep in
-    /// a tree is common, and `compare` already suppresses exactly the rows under it and nothing
-    /// else. That is precise, and a banner over every scan of a disk with one locked folder in it
-    /// is the kind of warning people learn to stop reading. Only the whole-side case loses rows the
-    /// user has no other way to find out about.
+    /// Built from the comparison maps, off the `""` key that means "this whole side is unknown".
+    /// Deliberately not "any directory carries the mark": one locked folder deep in a tree is
+    /// common, `compare` already suppresses just the rows under it, and a banner on every such scan
+    /// would teach people to ignore it.
     public static func of(left: [String: FileDiffEngine.FileInfo],
                           right: [String: FileDiffEngine.FileInfo]) -> PartialComparison {
         PartialComparison(left: left[""]?.isUnexplored == true,
                           right: right[""]?.isUnexplored == true)
     }
 
-    /// The warm-branch overload: the maps **plus each cached tree's provenance**, because a
-    /// budget-stopped pane walk is partial coverage the maps alone cannot show. The root was
-    /// readable, so no `""` record exists — the truncation lives in per-directory `isUnexplored`
-    /// marks that an ordinary locked folder also wears, which is exactly the noise the plain
-    /// overload declines to banner on. The provenance bit is what separates them.
+    /// The warm-branch overload: the maps plus each cached tree's provenance. A budget-stopped
+    /// pane walk had a readable root, so there is no `""` record; its truncation shows only as
+    /// per-directory `isUnexplored` marks, which a locked folder also wears. The walk-stopped bit
+    /// tells them apart.
     ///
-    /// The conjunction is load-bearing in both directions. Without the map check, a stopped walk
-    /// whose every unexplored directory has since been grafted in (columns opened them) would
-    /// banner a comparison that really did cover everything. Without the bit, a tree with one
-    /// locked folder would banner on every scan — the warning people learn to stop reading.
-    /// This changes the BANNER only: row suppression stays per-directory on the warm branch,
-    /// the deliberate asymmetry `getFilesInDirectory`'s note records.
+    /// Both halves are needed: without the map check, a stopped walk whose unexplored folders have
+    /// all since been grafted in would banner a complete comparison; without the bit, one locked
+    /// folder would banner every scan. This changes the banner only; row suppression stays
+    /// per-directory (see `getFilesInDirectory`).
     public static func of(left: [String: FileDiffEngine.FileInfo],
                           right: [String: FileDiffEngine.FileInfo],
                           leftWalkStopped: Bool,
@@ -71,26 +59,14 @@ public struct PartialComparison: Equatable, Sendable {
 
     /// What the banner reads, or nil when the comparison was complete.
     ///
-    /// Names the side by its **source**, not by "left" and "right": the panes can be swapped, and
-    /// the sentence has to survive being read a minute later. (`swapPanes` mirrors this value with
-    /// the providers for the same reason.)
+    /// Names each side by its source, not "left" or "right", since the panes can be swapped
+    /// (`swapPanes` mirrors this value with the providers for the same reason).
     ///
-    /// **Both losses are named, because there are two.** The obvious one is the suppression:
-    /// `compare` mints no Missing row against a side whose view is unknown, so nothing shows as
-    /// missing there. The other is quieter — a walk stopped by the node budget did not record the
-    /// entries past it at all, so those files are in no map, produce no rows in EITHER direction,
-    /// and are not compared. An earlier wording named only the first ("anything present only on the
-    /// other side is not listed"), which reads as a precise, bounded caveat about one direction and
-    /// is a promise the result cannot keep.
+    /// Names both losses: nothing shows as missing on that side, and entries past a node-budget
+    /// stop are in no map at all, so they produce no rows in either direction.
     ///
-    /// **It names no CAUSE, because this type cannot tell them apart.** `of(left:right:)` reads one
-    /// boolean per side off the `""` record, and `FileDiffEngine.compare` mints that same record for
-    /// both a root it could not list and a walk it had to stop — deliberately, so the suppression
-    /// rule has one input. So the earlier "too large to read in full" was right for the budget case
-    /// and false for the permission-denied one, which is the case where the reader most needs to
-    /// know it is a permission problem and not a size problem. "Not read in full" is true of both.
-    /// Naming the cause needs the cause carried through the record; it is not free, and a wrong
-    /// cause is worse than none.
+    /// Names no cause: the `""` record is the same for an unlistable root and a stopped walk, so
+    /// "too large" would be false for a permission problem. "Not read in full" is true of both.
     public func message(leftName: String, rightName: String) -> String? {
         let names = [left ? leftName : nil, right ? rightName : nil].compactMap { $0 }
         guard !names.isEmpty else { return nil }
@@ -101,7 +77,6 @@ public struct PartialComparison: Equatable, Sendable {
             + "nothing is reported as missing on \(side), and whatever went unread was not compared."
     }
 
-    /// The headline above it. One sentence, and it says what is wrong with the NUMBER, because the
-    /// number is what someone acts on.
+    /// The headline above it: what is wrong with the number, since the number is what people act on.
     public var title: String { "This comparison is incomplete" }
 }

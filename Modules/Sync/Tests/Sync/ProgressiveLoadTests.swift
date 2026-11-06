@@ -71,8 +71,8 @@ import Testing
         await manager.loadTree(path: "/src", isLeft: true)
         #expect(manager.leftTree.map(\.name).sorted() == ["file1.txt", "subDir"])
 
-        // Mutate the virtual disk: if the drill-down re-walked the disk it would see the
-        // change; the cached slice (valid until an operation invalidates it) still has it.
+        // Mutate the virtual disk: a drill-down that re-walked would see the change, while the
+        // cached slice (valid until an operation invalidates it) still has the file.
         mockFM.virtualDisk.removeValue(forKey: "/src/subDir/file2.txt")
 
         manager.leftRelativePath = "subDir"
@@ -83,16 +83,14 @@ import Testing
 
     // MARK: Refresh dedup (launch-race empty-pane guard)
 
-    /// The launch bootstrap fires two identical refreshes (the explicit initial one plus the
-    /// provider-id onChange that resets navigation). The second must be deduped, not
-    /// cancel-and-restart the first — that race could strand a pane's load, leaving it blank
-    /// until the user re-navigated.
+    /// The launch bootstrap fires two identical refreshes (the initial one plus the provider-id
+    /// onChange that resets navigation). The second must be deduped, not cancel and restart the
+    /// first, which can strand a pane's load and leave it blank until the user re-navigates.
     @MainActor
     @Test(.parksAThread) func testConcurrentIdenticalRefreshIsDedupedSoNeitherPaneIsStranded() async throws {
         let mockFM = MockFileManager()
         // The first refresh's first listing parks here until released, so the duplicate provably
-        // arrives while the first holds its key and is still loading. This slept 10ms and hoped:
-        // `enumeratorDelay` kept the first in flight, and the sleep guessed that it had started.
+        // arrives while the first holds its key and is still loading. A sleep would only guess.
         let gate = ParkGate()
         mockFM.enumeratorGate = gate
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
@@ -128,16 +126,14 @@ import Testing
         #expect(manager.activeRefreshKey == nil)
     }
 
-    /// Regression: the cleanup at the end of `refreshTreesAndScan` matched on key alone, so a
-    /// STALE refresh unwinding late could clear a NEWER same-key refresh's dedupe key while it
-    /// still ran — a following duplicate then wasn't deduped and cancel-restarted it, reopening
-    /// the strand race the dedupe exists to close. Sequence: A(K1) superseded by B(K2), C(K1)
-    /// registers K1 again, A finally unwinds; A must not release C's key.
+    /// A stale refresh unwinding late must not clear a newer same-key refresh's dedupe key, or the
+    /// next duplicate cancel-restarts it and reopens the strand race. Matching the cleanup on key
+    /// alone fails this. Sequence: A(K1) superseded by B(K2), C(K1) registers K1 again, A unwinds.
     ///
-    /// Needs more than three cores: A, B and C each hold a walk's pool thread at once, the pool is as
-    /// wide as the core count, and any other test holding one thread then keeps C from starting. On
-    /// GitHub's 3-vCPU VMs the holds timed out that way (2026-10-30), as the rendezvous in
-    /// `BulkSyncCancellationAndReservationTests` did every run.
+    /// Needs more than three cores: A, B and C each hold a walk's pool thread at once, the pool is
+    /// as wide as the core count, and any other test holding a thread then keeps C from starting.
+    /// On a 3-vCPU hosted runner the holds time out, as `BulkSyncCancellationAndReservationTests`'
+    /// rendezvous does.
     @MainActor
     @Test(.parksThreads(3),
           .enabled(if: cooperativePoolWidth > 3,
@@ -146,12 +142,9 @@ import Testing
         final class CompletionFlag { var done = false }
 
         let mockFM = MockFileManager()
-        // Each refresh is HELD at its own left root's listing until the test lets it go, so the
-        // interleaving below is a fact rather than a race: A parks at /left, B at /left2, C at
-        // /left again, each armed only once the one before it has parked. This ran on
-        // `enumeratorDelay = 0.1`, waited to SEE each refresh's key — windows, B's one listing
-        // long — and then required C to be walking still after A and B had unwound, which only a
-        // slow enough walk made true.
+        // Each refresh is held at its own left root's listing until the test lets it go, so the
+        // interleaving below is a fact, not a race: A parks at /left, B at /left2, C at /left
+        // again, each armed only once the one before has parked.
         let armed = LockedBox<[String: ParkGate]>([:])
         mockFM.onEnumerate = { url in
             // Taken out under the lock, parked outside it: the park blocks this walk's thread only.
@@ -171,7 +164,7 @@ import Testing
         let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", rootPath: "/left2", type: .iCloud)
         let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", rootPath: "/right2", type: .iCloud)
 
-        // A (K1) — held mid-load, to be superseded while its detached walk is still out.
+        // A (K1): held mid-load, to be superseded while its detached walk is still out.
         armed.withLock { $0["/left"] = holdA }
         let a = Task { await manager.refreshTreesAndScan(left: l1, right: r1) }
         await awaitSignal(holdA.entered, "A never reached its walk")
@@ -239,12 +232,12 @@ import Testing
         manager.isLoadingLeftTree = true
 
         manager.pruneSelection()
-        // The selection survives — the mid-load tree is not authoritative.
+        // The selection survives: the mid-load tree is not authoritative.
         #expect(manager.selectedLeftPaths == ["/src/deep/file.txt"])
 
         manager.isLoadingLeftTree = false
         manager.pruneSelection()
-        // Once the load settles, pruning applies as before.
+        // Once the load settles, pruning applies.
         #expect(manager.selectedLeftPaths.isEmpty)
     }
 }

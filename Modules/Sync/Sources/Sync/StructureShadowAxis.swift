@@ -3,15 +3,12 @@ import Foundation
 /// A year hiding inside a role name, beside siblings that spell it bare (ROADMAP v5 §4.3, built
 /// as one of §5.2's detectors).
 ///
-/// `IRS Docs - 2023` beside `2023` is a year folder that should be `2023` — and its fix is a
-/// **merge** when the bare year already exists, a rename when it does not. This is a report, not
-/// a repair to the shape detector's accuracy: adding the rule to `isAxisValued` and re-running
-/// the whole detector returns the identical finding set (measured 2026-08-16), so the value is
-/// naming the folder, and the rule can afford to be narrow.
+/// `IRS Docs - 2023` beside `2023` is a year folder that should be `2023`: a merge when the bare
+/// year exists, a rename when it doesn't. A report, not a fix to the shape detector (adding the
+/// rule to `isAxisValued` doesn't change its findings), so its value is naming the folder.
 ///
-/// **And it has to be the narrow one.** 302 folders on the reference tree carry a four-digit year
-/// in a name that is not a bare year, and almost all are correct — `01. Jan 2019` monthly
-/// statements, `2005 - 2006` Indian fiscal years. Two conditions keep it quiet:
+/// It must stay narrow: hundreds of names carry a non-bare year correctly (`01. Jan 2019`
+/// statements, `2005 - 2006` fiscal years). Two conditions keep it quiet:
 /// - the name carries **exactly one** year token — two is a range, which is an axis value of its
 ///   own, never a shadow of a single year;
 /// - a **bare-year sibling exists** in the same family, so the family itself testifies that bare

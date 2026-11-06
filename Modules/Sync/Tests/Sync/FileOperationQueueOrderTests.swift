@@ -2,40 +2,26 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// **`enqueueFileOperation` is the serial queue every user file operation reaches the disk
-/// through, and the order it runs them in is a safety property.**
+/// `enqueueFileOperation` is the serial queue every user file operation reaches the disk through,
+/// and the order it runs them in is a safety property.
 ///
-/// The undo stack is where that matters most. A merge's ⌘Z pops two registrations in a
-/// deliberate order — restore the redundant copies out of the Trash FIRST, delete the folded
-/// files out of the keeper SECOND — so that a restore which fails (its location reoccupied, its
-/// Trash backup gone) still leaves the folded files in the keeper rather than leaving the user
-/// with neither copy. Both handlers run synchronously inside `undo()` and each spawns a `Task`
-/// that calls `enqueueFileOperation`. Registration order and task-start order are both
-/// deterministic; the queue was the link that was not.
+/// A merge's ⌘Z pops two registrations in a deliberate order: restore the redundant copies out of
+/// the Trash first, delete the folded files out of the keeper second, so a failed restore still
+/// leaves the folded files in the keeper rather than neither copy. Both handlers run inside
+/// `undo()` and each spawns a `Task` that calls `enqueueFileOperation`, so the queue must keep
+/// that order. Any hop off the main actor before the slot is claimed in `fileOperationTask` (even
+/// `await MainActor.run { … }`, a nonisolated async function, SE-0338) lets two callers return in
+/// either order and chain on the same predecessor, running concurrently or in reverse.
 ///
-/// It ran `await MainActor.run { … }` before claiming its slot in `fileOperationTask`. That
-/// method is already `@MainActor`, so the block bought no isolation — but `MainActor.run` is a
-/// *nonisolated* async function, so awaiting it from the main actor hops off to the generic
-/// executor and back (SE-0338). Two callers that entered in a fixed order returned from that
-/// round trip in whatever order the pool released them, and the later one could read
-/// `fileOperationTask` before the earlier one had written it — chaining both operations on the
-/// same predecessor, so they ran concurrently or in reverse.
-///
-/// This suite is the pin. It is a repeat-trial test on purpose: the defect was a race with a
-/// measured rate of ~3% per pair on an IDLE machine (8/300 and 12/300 in two runs before the
-/// fix), so a single pair would have passed 97% of the time and pinned nothing. 300 pairs put
-/// the miss probability at roughly 0.97^300 ≈ 1e-4 while costing a few seconds.
+/// Repeat trials on purpose: that race hit about 3% of pairs on an idle machine, so one pair
+/// proves nothing; 300 put the miss chance near 1e-4 for a few seconds.
 @Suite struct FileOperationQueueOrderTests {
 
-    /// Two operations requested in a fixed order, from two main-actor tasks spawned in that
-    /// order — exactly the shape `undo()` produces — must RUN in that order, and must not
-    /// overlap.
-    ///
-    /// Both halves are asserted because the same race produces both: the loser of the
-    /// `fileOperationTask` read/write can either land ahead of the winner (inversion) or chain
-    /// on the same predecessor as it (overlap, which is the serialization itself failing). The
-    /// bodies mark entry and exit and take a `Task.yield()` in between — a queue turn, never a
-    /// wall-clock window — so an overlap has somewhere to show itself.
+    /// Two operations requested in a fixed order from two main-actor tasks spawned in that order,
+    /// the shape `undo()` produces, must run in that order and must not overlap. The same race
+    /// causes both: the loser can land ahead of the winner, or chain on the same predecessor and
+    /// overlap. Each body yields between entry and exit (a queue turn, never a wall-clock window)
+    /// so an overlap has somewhere to show.
     @MainActor
     @Test func theOperationRequestedSecondNeverRunsFirstOrAlongsideTheFirst() async throws {
         let manager = FileSyncManager(fileManager: FileManager.default)
@@ -60,9 +46,8 @@ import Foundation
             }
 
             // `preCountFileOperation()` then `Task { enqueueFileOperation(alreadyCounted:) }` is
-            // the undo/redo handlers' own shape, copied deliberately: the counter has to move
-            // before the task is scheduled, so the drain wait below is a real gate rather than
-            // the quiescence it would otherwise be.
+            // the undo/redo handlers' own shape: the counter moves before the task is scheduled,
+            // so the drain wait below is a real gate.
             manager.preCountFileOperation()
             Task { await manager.enqueueFileOperation(alreadyCounted: true) { await body(1) } }
             manager.preCountFileOperation()
@@ -77,10 +62,8 @@ import Foundation
             if seen != ["in1", "out1", "in2", "out2"] {
                 if seen.first == "in2" { inversions += 1 } else { overlapping += 1 }
             }
-            // Counted separately from the log-shape reading above, and reported separately: one
-            // trial can fail both readings (an interleaved log AND two bodies inside at once),
-            // and adding them into one counter let the message claim more overlapping pairs than
-            // there were pairs.
+            // Counted apart from the log reading: one trial can fail both, and a single counter
+            // would report more overlapping pairs than there were pairs.
             if maxInside.withLock({ $0 }) > 1 { concurrent += 1 }
         }
         let overlaps = max(overlapping, concurrent)
@@ -95,22 +78,14 @@ import Foundation
                 "two operations queued back-to-back overlapped in \(overlaps) of \(completed) pairs (\(overlapping) by interleaved log, \(concurrent) by two bodies inside at once) — the queue is not serializing them")
     }
 
-    /// **The order held across a deliberately INVERTED, off-the-main-actor enqueue.**
+    /// The order holds across an inverted enqueue from off the main actor.
     ///
-    /// The test above pins the order for callers that are already on the main actor, which every
-    /// call site is today — but nothing in `enqueueFileOperation` enforces that, and the guarantee
-    /// it rests on ("equal-priority main-actor jobs are FIFO", plus the caller's isolation) is not
-    /// checkable at a call site. A `Task.detached { await manager.enqueueFileOperation { … } }`
-    /// reinstates the hop, and with it the race, without a word.
-    ///
-    /// `claimFileOperationSlot()` is what makes the order structural: it is synchronous, so the
-    /// caller fixes its position in its own main-actor turn, before the `Task` that runs the work
-    /// exists. This test claims slot 1 then slot 2 and then enqueues them from detached tasks in
-    /// the WRONG order — slot 2's body handed over first, from off the main actor, which is the
-    /// worst case the old shape could produce — and the operations must still run 1 then 2.
-    ///
-    /// 300 trials for the same reason as above: the defect this shape exists to make impossible
-    /// had a measured rate of ~3% per pair, and a single pair would have passed 97% of the time.
+    /// Every call site is on the main actor today, but nothing in `enqueueFileOperation` enforces
+    /// it, and a `Task.detached { await manager.enqueueFileOperation { … } }` would bring the race
+    /// back silently. `claimFileOperationSlot()` makes the order structural: it is synchronous, so
+    /// the caller fixes its position in its own main-actor turn, before the work's `Task` exists.
+    /// This claims slots 1 and 2, then enqueues them from detached tasks in the wrong order; they
+    /// must still run 1 then 2. 300 trials for the same reason as above.
     @MainActor
     @Test func slotsRunInClaimOrderEvenWhenEnqueuedOutOfOrderFromOffTheMainActor() async throws {
         let manager = FileSyncManager(fileManager: FileManager.default)
@@ -151,12 +126,9 @@ import Foundation
                 "the slot claimed FIRST did not run first in \(outOfOrder) of \(completed) pairs — the queue order is following the enqueue, not the claim, so a caller off the main actor can still reorder a merge's ⌘Z pair")
     }
 
-    /// The safety valve on the claim: a slot that is never enqueued must not wedge the queue
-    /// behind it forever. Dropping the reference releases the position.
-    ///
-    /// Without this, `claimFileOperationSlot` would be a primitive whose misuse is unbounded —
-    /// one early `return` between the claim and the enqueue and every later file operation in the
-    /// session hangs, with no error and nothing to see.
+    /// The safety valve on the claim: a slot that is never enqueued must not wedge the queue behind
+    /// it. Dropping the reference releases the position; otherwise one early `return` between the
+    /// claim and the enqueue would hang every later file operation, silently.
     @MainActor
     @Test func aClaimedSlotThatIsNeverEnqueuedReleasesTheQueue() async throws {
         let manager = FileSyncManager(fileManager: FileManager.default)
@@ -168,9 +140,8 @@ import Foundation
             manager.cancelPreCountedFileOperation()   // the claim counted; nothing will decrement it
         }
 
-        // Spawned rather than awaited directly: the failure mode this pins is a queue that never
-        // moves, and `await enqueueFileOperation` on a wedged queue HANGS. A bounded wait turns
-        // that into a named failure in seconds instead of a stalled suite.
+        // Spawned, not awaited: on a wedged queue `await enqueueFileOperation` hangs, and a bounded
+        // wait turns that into a named failure instead of a stalled suite.
         let queued = Task { await manager.enqueueFileOperation { ran.withLock { $0 = true } } }
         await waitUntil("the operation queued after the abandoned claim runs") { ran.withLock { $0 } }
         #expect(ran.withLock { $0 } == true,

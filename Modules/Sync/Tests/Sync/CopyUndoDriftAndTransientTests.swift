@@ -4,23 +4,14 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
-/// Pins the two copy-undo gaps closed in round 4:
+/// Pins two copy-undo guards:
 ///
-/// 1. **Drift guard** — `registerCopyUndo` snapshots each copied item's identity at
-///    registration; the undo REFUSES to trash a destination that is no longer that item —
-///    replaced or edited since — matching the "still the same item?" guards the move- and
-///    delete-undos already carry. A refused item stays out of the redo params.
-///
-///    The snapshot was a byte size when this suite was written, and these comments described
-///    it that way. `f16aa66a` replaced it with `ItemIdentity`, which covers DIRECTORIES (own
-///    modification date + immediate child count) as well as files, and compares a file's
-///    modification date alongside its size. So "directories carry no snapshot" and "the drift
-///    guard is files-only by design" — both written below — stopped being true then, and are
-///    corrected here rather than left asserting the opposite of the code they document.
-/// 2. **Transient trash failures** — a busy/locked destination (EBUSY et al.) is reported as
-///    retryable instead of escalating to the permanent-delete prompt, the same
-///    `isTransientTrashFailure` distinction `deleteItems` applies. `registerCreateFolderUndo`
-///    gets the identical treatment.
+/// 1. Drift: `registerCopyUndo` records each copied item's `ItemIdentity` (files and folders), and
+///    the undo refuses to trash a destination that is no longer that item, as the move- and
+///    delete-undos do. A refused item stays out of the redo params.
+/// 2. Transient trash failures: a busy or locked destination (EBUSY and the like) is reported as
+///    retryable rather than escalating to the permanent-delete prompt, by the same
+///    `isTransientTrashFailure` rule `deleteItems` uses. `registerCreateFolderUndo` does the same.
 @Suite struct CopyUndoDriftAndTransientTests {
 
     @MainActor
@@ -43,9 +34,9 @@ import EventsTestSupport
 
     // MARK: Drift guard
 
-    /// The copied file was replaced by a different-size item before the undo: the undo must
-    /// refuse to trash it (warning banner), leave it on disk, keep its overwritten backup in
-    /// the Trash, and keep it out of the redo params (redo is a no-op for it).
+    /// The copy was replaced by a different-size item before the undo: the undo refuses to trash
+    /// it (warning banner), leaves it on disk, keeps its overwritten backup in the Trash, and keeps
+    /// it out of the redo params.
     @MainActor
     @Test func copyUndoRefusesWhenDestinationSizeDrifted() async throws {
         let manager = makeManager()
@@ -78,11 +69,9 @@ import EventsTestSupport
         // Redo must skip the refused item: nothing is re-copied over the drifted survivor.
         manager.banner = nil
         manager.undoManager?.redo()
-        // The drain is the whole gate, and a real one rather than the quiescence that cannot tell
-        // "finished" from "not started": `registerCopyRedo`'s handler runs synchronously inside
-        // `redo()` and pre-counts the operation before spawning its Task — unconditionally, even
-        // with no params to act on — and `enqueueFileOperation` decrements only once its body has
-        // returned. A flat 200ms used to follow this line and settled nothing the drain had not.
+        // The drain is a real gate: `registerCopyRedo`'s handler pre-counts the operation inside
+        // `redo()`, even with no params, and `enqueueFileOperation` decrements only after its
+        // body returns, so a zero count means finished, not "not started".
         await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 777)
     }
@@ -111,12 +100,10 @@ import EventsTestSupport
 
     // MARK: Duplicate registrations
 
-    /// The duplicate-registration guard must hold on the PERMANENT-delete path too: one path
-    /// registered twice (the second copy replaced the first) on a Trash-less volume puts BOTH
-    /// items into trashFailures. Without the guard there, item A's removeItem + backup restore
-    /// was followed by item B's removeItem PERMANENTLY UNLINKING the just-restored pre-batch
-    /// original — silent data loss with a clean log — and the confirmation prompt named the
-    /// same file twice.
+    /// The duplicate-registration guard holds on the permanent-delete path too. One path
+    /// registered twice (the second copy replaced the first) on a Trash-less volume puts both items
+    /// in `trashFailures`; without the guard, item B's `removeItem` would permanently unlink the
+    /// pre-batch original item A just restored (silent data loss), and the prompt names it twice.
     @MainActor
     @Test func copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce() async throws {
         let manager = makeManager()
@@ -144,16 +131,14 @@ import EventsTestSupport
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
         #expect(promptedPaths == ["/dst/f.txt"])         // named once, not per registration — and by PATH
-        // The pre-batch original survived its restore — item B must not have unlinked it.
+        // The pre-batch original survived its restore: item B must not unlink it.
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5)
     }
 
-    /// The duplicate gate must also recognize CASE-VARIANT registrations of one on-disk file
-    /// (the destination volume folds case; the registered strings need not). After the first
-    /// variant is handled, the second's exact string misses the set — and the vanished branch
-    /// then restored ITS backup, resurrecting content the undo had just removed. The folded
-    /// check is volume-gated: on a case-sensitive destination two variants are two real files
-    /// and the exact behavior stands.
+    /// The duplicate gate also recognizes case-variant registrations of one on-disk file. After the
+    /// first variant is handled, the second's exact string misses the set, and the vanished branch
+    /// would restore its backup, resurrecting content the undo just removed. The folded check is
+    /// volume-gated: on a case-sensitive destination two variants are two real files.
     @MainActor
     @Test func copyUndoCaseVariantDuplicateNeverResurrectsThroughTheVanishedBranch() async throws {
         let manager = makeManager()
@@ -168,28 +153,23 @@ import EventsTestSupport
                                         FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)],
                                 toPath: "/dst", fileManager: mockFM)
 
-        // The user deletes the lowercase variant, then undoes. (The mock disk is exact-string,
-        // so the two variants are separate keys; the REAL destination volume — which gates the
-        // folded check — is the case-insensitive macOS default, where they name one file.)
+        // The user deletes the lowercase variant, then undoes. The mock disk keeps the variants as
+        // separate keys, but the real volume that gates the folded check is the case-insensitive
+        // macOS default, where they name one file.
         try mockFM.removeItem(at: URL(fileURLWithPath: "/dst/f.txt"))
         manager.undoManager?.undo()
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        // The folded duplicate gate must swallow the second variant: no backup resurrection
-        // at the vanished path.
+        // The folded gate swallows the second variant: no backup resurrected at the vanished path.
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }
 
     // MARK: Vanished copies
 
-    /// A copied DIRECTORY the user already deleted themselves must not raise the phantom
-    /// permanent-delete prompt on ⌘Z. When this was written, directories carried no size
-    /// snapshot at all, so the missing item fell through to `trashItem`, whose no-such-file
-    /// error is NOT in the transient list — escalating to a "permanently delete?" confirmation
-    /// naming an item that is not on disk. A directory now DOES carry an identity, so the
-    /// missing copy would today reach the drift guard and refuse with a "changed" banner
-    /// instead; the explicit `fileExists` branch ahead of the guard is what keeps this path a
-    /// clean no-op either way, and that branch is what this test pins.
+    /// A copied folder the user already deleted raises no phantom permanent-delete prompt on ⌘Z.
+    /// The `fileExists` branch ahead of the drift guard makes it a clean no-op: without it the
+    /// missing copy would reach the guard and refuse with a "changed" banner, and a no-such-file
+    /// error from `trashItem` isn't transient, so it would escalate to the prompt.
     @MainActor
     @Test func copyUndoOfVanishedDirectorySkipsThePermanentDeletePrompt() async throws {
         let manager = makeManager()
@@ -214,9 +194,8 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/folder"] == nil)    // still gone; nothing resurrected
     }
 
-    /// The vanished-copy undo still restores the overwritten backup: the destination path is
-    /// free, so the original the copy displaced belongs back — skipping it stranded the backup
-    /// in the Trash forever.
+    /// The vanished-copy undo still restores the overwritten backup: the path is free, so the
+    /// original the copy displaced goes back rather than staying stranded in the Trash.
     @MainActor
     @Test func copyUndoOfVanishedFileRestoresTheOverwrittenBackup() async throws {
         let manager = makeManager()
@@ -240,8 +219,8 @@ import EventsTestSupport
 
     // MARK: Transient trash failures
 
-    /// A transiently busy copy (EBUSY on trash) must NOT reach the permanent-delete prompt:
-    /// the item stays on disk for a retry and a warning banner is raised.
+    /// A transiently busy copy (EBUSY on trash) never reaches the permanent-delete prompt: the item
+    /// stays on disk for a retry and a warning banner is raised.
     @MainActor
     @Test func copyUndoTransientTrashFailureNeverPromptsPermanentDelete() async throws {
         let manager = makeManager()
@@ -250,8 +229,8 @@ import EventsTestSupport
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/f.txt"] = file(100)
 
-        // The permanent-delete prompt must never fire for a transient failure — even one that
-        // would answer "yes". Installed BEFORE the copy so the undo registration captures it.
+        // The prompt must never fire for a transient failure, even one that would answer yes.
+        // Installed before the copy so the undo registration captures it.
         var promptFired = false
         manager.permanentDeleteConfirmer = { _ in
             promptFired = true
@@ -271,15 +250,15 @@ import EventsTestSupport
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(manager.banner?.message.contains("looks busy") == true)
-        // The copy survives on disk — not trashed, not permanently removed. (safeCopyItem's
-        // .tmp_ staging cleanup shows up in attemptedRemovePaths; only the real file matters.)
+        // The copy survives, neither trashed nor removed. `safeCopyItem`'s `.tmp_` cleanup shows
+        // in `attemptedRemovePaths`; only the real file matters.
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
         #expect(!mockFM.attemptedRemovePaths.contains("/dst/f.txt"))
         #expect(promptFired == false)
     }
 
-    /// A genuinely Trash-less volume (ENOTSUP) still escalates to the confirmation, preserving
-    /// the pre-existing permanent-delete fallback for real Trash-less volumes.
+    /// A genuinely Trash-less volume (ENOTSUP) still escalates to the permanent-delete
+    /// confirmation.
     @MainActor
     @Test func copyUndoNonTransientTrashFailureStillEscalates() async throws {
         let manager = makeManager() // confirmer declines
@@ -296,14 +275,14 @@ import EventsTestSupport
 
         manager.undoManager?.undo()
         await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
-        // Declined permanent delete: the copy stays, exactly as before this change.
+        // Declined permanent delete: the copy stays.
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
     }
 
     // MARK: Create-folder undo
 
-    /// Undoing New Folder with a transiently busy folder must not offer the permanent-delete
-    /// prompt either — the folder stays for a retry, with a warning banner.
+    /// Undoing New Folder on a transiently busy folder doesn't offer the permanent-delete prompt
+    /// either: the folder stays for a retry, with a warning banner.
     @MainActor
     @Test func createFolderUndoTransientTrashFailureNeverPromptsPermanentDelete() async throws {
         let manager = makeManager()
@@ -332,8 +311,8 @@ import EventsTestSupport
         #expect(promptFired == false)
     }
 
-    /// Control: a trash-less volume (ENOTSUP) still prompts, and a confirmed prompt removes the
-    /// folder permanently — the pre-existing fallback.
+    /// Control: a Trash-less volume (ENOTSUP) still prompts, and a confirmed prompt removes the
+    /// folder permanently.
     @MainActor
     @Test func createFolderUndoNonTransientFailureStillPromptsAndRemoves() async throws {
         let manager = makeManager()
@@ -358,10 +337,9 @@ import EventsTestSupport
         #expect(promptFired == true)
     }
 
-    /// FR24. Undoing New Folder — alone, or as the last step of a Restructure ⌘Z — removes the
-    /// folder only when it is empty. A file still inside got there after the folder was made: the
-    /// user put it there, or the group's move-back refused it as changed and SAID it left it in
-    /// place, a sentence the trash right after it made false.
+    /// Undoing New Folder, alone or as the last step of a Restructure ⌘Z, removes the folder only
+    /// when it is empty. A file inside arrived after the folder was made: the user put it there, or
+    /// the group's move-back refused it and said it was left in place, which a trash would make false.
     @MainActor
     @Test func createFolderUndoLeavesAFolderThatHoldsAFile() async throws {
         let manager = makeManager()
@@ -381,7 +359,7 @@ import EventsTestSupport
         #expect(manager.banner?.message.contains("isn’t empty") == true)
     }
 
-    /// A link is content too — one the user put in the folder, pointing anywhere or nowhere.
+    /// A link is content too: the user put it in the folder, pointing anywhere or nowhere.
     @Test func createFolderUndoLeavesAFolderHoldingOnlyALink() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr24l-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -392,9 +370,9 @@ import EventsTestSupport
         #expect(FileSyncManager.visibleFileCount(atPath: folder.path, fm: FileManager.default) == 1)
     }
 
-    /// The other direction: Finder's droppings and what the OS keeps under a `.Trashes` hold
-    /// nothing, so the folder the action made still goes. A real folder, as below.
-    /// `.Trashes` is U1's: the undo's own walk skipped the name but counted what is inside it.
+    /// The other direction: Finder's droppings and what the OS keeps under `.Trashes` don't count,
+    /// so the folder the action made still goes. Skipping `.Trashes` must skip what is inside it
+    /// too. A real folder, as below.
     @MainActor
     @Test func createFolderUndoStillRemovesAFolderHoldingOnlyNoise() async throws {
         let base = try makeCanonicalTempRoot(prefix: "fr24n")
@@ -412,10 +390,9 @@ import EventsTestSupport
         #expect(!FileManager.default.fileExists(atPath: folder.path), "banner: \(String(describing: manager.banner?.message))")
     }
 
-    /// **L4: folders the user made inside are content, empty or not.** The 6.1 notes promise the
-    /// folder stays "if anything is still inside it", but the count ignores empty folders, so a
-    /// tree of folders with no file in it yet went to the Trash. A real folder: the mock's entries
-    /// do not say which of them are folders, so an empty subfolder would read as a file.
+    /// Folders the user made inside are content, empty or not: the folder stays "if anything is
+    /// still inside it", so a tree of folders with no file yet must not go to the Trash. A real
+    /// folder, since the mock's entries don't say which are folders.
     @MainActor
     @Test func createFolderUndoLeavesAFolderHoldingOnlyEmptyFolders() async throws {
         let base = try makeCanonicalTempRoot(prefix: "l4f")
@@ -433,10 +410,10 @@ import EventsTestSupport
         #expect(manager.banner?.message == "Undo left “Archive” in place — it isn’t empty")
     }
 
-    /// **…and a folder an action made inside it still goes with it.** A landing that creates
-    /// `Archive` and `Archive/2026` registers both in one ⌘Z, parent first — the order
-    /// `applyPlan` and the scaffold keep — so the child's undo runs first and the parent is
-    /// empty by its turn. Counting folders as content (L4) rests on that order.
+    /// …and a folder an action made inside it still goes with it. A landing that creates `Archive`
+    /// and `Archive/2026` registers both in one ⌘Z, parent first (as `applyPlan` and the scaffold
+    /// do), so the child's undo runs first and the parent is empty by its turn. Counting folders as
+    /// content rests on that order.
     @MainActor
     @Test func oneUndoStillRemovesAFolderAndTheFolderMadeInsideIt() async throws {
         let base = try makeCanonicalTempRoot(prefix: "l4n")
@@ -459,10 +436,9 @@ import EventsTestSupport
         #expect(disk.names == ["2026", "Archive"], "the undone folders never reached the test's own Trash")
     }
 
-    /// **U1: a cloud-only folder inside is asked for first, bounded.** The undo walked the folder
-    /// with a plain enumerator, so a dataless subfolder whose app has stopped held the serial file
-    /// queue — and everything behind it — until the app answered. It now reads as unknown within
-    /// the reads' deadline, and the folder is left in place, said so.
+    /// A cloud-only folder inside is read with a bound. A plain enumerator would let a dataless
+    /// subfolder whose app has stopped hold the serial file queue, and everything behind it, until
+    /// the app answers. It reads as unknown within the deadline, and the folder is left in place.
     @MainActor
     @Test(.parksAThread) func createFolderUndoGivesUpOnAFolderInsideThatDoesNotAnswer() async throws {
         let f = UnansweredFolderTests.Fixture(root: "/fr24-dataless")
@@ -477,15 +453,14 @@ import EventsTestSupport
         await waitUntil("the undo sat on the provider past the deadline") { manager.activeFileOperationsCount == 0 }
         #expect(disk.providerReads == 1, "premise: the undo never reached the folder that does not answer")
         #expect(disk.fileExists(atPath: cloud.path))
-        // L2: unread, not "not empty" — nobody knows what is in it.
+        // Unread, not "not empty": nobody knows what is in it.
         #expect(manager.banner?.message == "Undo left “Cloud” in place — its contents couldn’t be read",
                 "\(String(describing: manager.banner?.message))")
     }
 
-    /// The gap this pair closes: when the CONFIRMED permanent delete then fails, the folder is
-    /// still on disk after the user has agreed to destroy it — and `try?` swallowed that outcome
-    /// entirely. No banner, no log line, nothing: the undo simply appeared to have worked. The
-    /// copy-undo's twin of this branch has always reported through `reportUndoRemoveFailure`.
+    /// A confirmed permanent delete that then fails is reported: the folder is still on disk after
+    /// the user agreed to destroy it, and silence would make the undo look done. The copy-undo
+    /// reports its twin through `reportUndoRemoveFailure`.
     @MainActor
     @Test func createFolderUndoReportsAConfirmedPermanentDeleteThatFailed() async throws {
         let log = LogCapture()
@@ -509,16 +484,15 @@ import EventsTestSupport
 
         #expect(manager.banner?.message.contains("Undo couldn’t remove") == true)
         #expect(manager.banner?.message.contains("New Folder") == true)
-        // The folder is still there — which is exactly why silence was wrong.
+        // The folder is still there, which is why silence would be wrong.
         #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
         #expect(await log.entries.contains {
             $0.level == .error && $0.message.contains("Undo (New Folder): FAILED to permanently delete")
         })
     }
 
-    /// The other silent exit: the user DECLINES the permanent delete, so the folder stays. That is
-    /// a legitimate outcome, but it left no trace at all — the log jumped from "User triggered
-    /// Undo: New Folder" to nothing, reading as a completed undo.
+    /// The user declines the permanent delete, so the folder stays. Legitimate, but it is logged,
+    /// or "User triggered Undo: New Folder" followed by nothing reads as a completed undo.
     @MainActor
     @Test func createFolderUndoRecordsThatTheUserDeclinedThePermanentDelete() async throws {
         let log = LogCapture()

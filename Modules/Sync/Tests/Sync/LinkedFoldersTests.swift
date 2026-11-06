@@ -2,14 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **A folder that lives outside a root and is linked into it by name** — iCloud Drive's `Desktop`
-/// and `Documents` — and the one table (`PathBoundary.LinkedFolders`) that lets root-relative
-/// paths reach it under its real spelling.
-///
-/// Every function that consults the table takes it as a parameter, so nothing here reads the
-/// machine's own links; the fixture root `/r` links `Documents` to `/home/Documents`, which exists
-/// nowhere. The walk tests are the exception and build a real link in a temp directory, because
-/// the substitution they pin happens at a real listing.
+/// A folder that lives outside a root and is linked into it by name (iCloud Drive's `Desktop` and
+/// `Documents`), and the one table, `PathBoundary.LinkedFolders`, that lets root-relative paths
+/// reach it under its real spelling. Every function that consults the table takes it as a
+/// parameter, so nothing here reads the machine's own links: the fixture root `/r` links
+/// `Documents` to `/home/Documents`, which exists nowhere. The walk tests build a real link in a
+/// temp directory, because the substitution they pin happens at a real listing.
 @Suite struct LinkedFoldersTests {
 
     static let root = "/r"
@@ -18,11 +16,11 @@ import Testing
 
     // MARK: - PathBoundary
 
-    /// **A root that needs no normalizing is looked up as given, and gets the same answer.** The
-    /// lookup runs on every prefix miss — with a scope set, most paths a Duplicates or Restructure
-    /// render checks — and normalizing each time cost 7–14 ms a render. Every spelling here is
-    /// compared with what `normalizedRoot` makes of it: the tilde forms and trailing slashes still
-    /// take the long way, and a combining accent after a final slash is not a trailing slash.
+    /// A root that needs no normalizing is looked up as given, and gets the same answer. The lookup
+    /// runs on every prefix miss (most paths a scoped Duplicates or Restructure render checks), so
+    /// normalizing each time would cost milliseconds a render. Every spelling is checked against
+    /// `normalizedRoot`: tilde forms and trailing slashes still take the long way, and a combining
+    /// accent after a final slash is not a trailing slash.
     @Test func theRootIsLookedUpAsGivenOnlyWhenNormalizingWouldNotChangeIt() {
         let home = NSHomeDirectory()
         let links: PathBoundary.LinkedFolders = [
@@ -51,15 +49,15 @@ import Testing
         #expect(PathBoundary.relativize("/home/Desktop/a.txt", under: Self.root, links: Self.links) == "Desktop/a.txt")
     }
 
-    /// Both spellings of one folder give one relative path — the link-side one by prefix math, so a
-    /// caller holding either cannot be told two different things.
+    /// Both spellings of one folder give one relative path (the link-side one by prefix math), so a
+    /// caller holding either can't be told two different things.
     @Test func theLinkSideSpellingRelativizesTheSameWay() {
         #expect(PathBoundary.relativize("/r/Documents/Family", under: Self.root, links: Self.links)
                 == "Documents/Family")
     }
 
-    /// A sibling of the linked folder that merely shares its prefix is still outside — the table
-    /// does not loosen the boundary rule.
+    /// A sibling of the linked folder that merely shares its prefix is still outside: the table
+    /// doesn't loosen the boundary rule.
     @Test func theLinkedFolderKeepsTheComponentBoundary() {
         #expect(PathBoundary.relativize("/home/DocumentsBackup/x", under: Self.root, links: Self.links) == nil)
         #expect(PathBoundary.relativize("/home/other", under: Self.root, links: Self.links) == nil)
@@ -75,10 +73,10 @@ import Testing
         #expect(PathBoundary.join(root: Self.root, relative: "Documents/Family", links: Self.links)
                 == "/home/Documents/Family")
         #expect(PathBoundary.join(root: Self.root, relative: "Documents", links: Self.links) == "/home/Documents")
-        // Not a link: plain composition, exactly as before the table existed.
+        // Not a link: plain composition.
         #expect(PathBoundary.join(root: Self.root, relative: "Word/x", links: Self.links) == "/r/Word/x")
         #expect(PathBoundary.join(root: Self.root, relative: "", links: Self.links) == "/r")
-        // Only the FIRST component is a link name; a deeper `Documents` is an ordinary folder.
+        // Only the first component is a link name; a deeper `Documents` is an ordinary folder.
         #expect(PathBoundary.join(root: Self.root, relative: "Word/Documents/x", links: Self.links)
                 == "/r/Word/Documents/x")
     }
@@ -91,8 +89,8 @@ import Testing
         }
     }
 
-    /// The table is keyed by the normalized root, so the spelling a caller happens to hold — a
-    /// trailing slash, a tilde — still finds it.
+    /// The table is keyed by the normalized root, so the spelling a caller happens to hold (a
+    /// trailing slash, a tilde) still finds it.
     @Test func theTableIsFoundUnderAnyNormalizedSpellingOfTheRoot() {
         #expect(PathBoundary.join(root: "/r/", relative: "Documents/x", links: Self.links) == "/home/Documents/x")
         #expect(PathBoundary.relativize("/home/Documents/x", under: "/r/", links: Self.links) == "Documents/x")
@@ -118,7 +116,7 @@ import Testing
         #expect(table == ["/r": ["Desktop": "/home/Desktop", "Documents": "/home/Documents"]])
     }
 
-    /// A link that points back INTO the root is not a folder kept outside it, and recording it
+    /// A link that points back into the root is not a folder kept outside it, and recording it
     /// would make one folder reachable by two relative paths.
     @Test func discoveryIgnoresALinkThatResolvesInsideTheRoot() {
         let table = PathBoundary.discoverLinkedFolders(atRoot: "/r", names: ["Documents"]) { _ in "/r/Real/Documents" }
@@ -126,8 +124,8 @@ import Testing
     }
 
     /// The walk names a row after the folder it lists, so a link whose target is named differently
-    /// would draw a row reading one name under a crumb reading another. Not recorded — and then the
-    /// walk lists it as the link it is, exactly as before the table existed.
+    /// would draw a row reading one name under a crumb reading another. Not recorded, so the walk
+    /// lists it as the link it is.
     @Test func discoveryIgnoresALinkWhoseTargetDoesNotKeepItsName() {
         let table = PathBoundary.discoverLinkedFolders(atRoot: "/r", names: ["Documents"]) { _ in "/home/Docs" }
         #expect(table.isEmpty)
@@ -159,9 +157,9 @@ import Testing
                 == ["/other", "/other/Documents", "/other/Documents/Invoices"])
     }
 
-    /// The tree a pane republishes against, named the way the walk names it — the linked folder
-    /// under its REAL spelling, because `childURLs(of:)` substitutes it at the container listing —
-    /// and indexed through the same table the columns compose with, as the pane's index is.
+    /// The tree a pane republishes against, named the way the walk names it (the linked folder
+    /// under its real spelling, since `childURLs(of:)` substitutes it at the container listing) and
+    /// indexed through the same table the columns compose with, as the pane's index is.
     private static func containerIndex() -> PaneChildrenIndex {
         let invoices = FileNode(id: "/home/Documents/Invoices", name: "Invoices", isDirectory: true,
                                 children: [FileNode(id: "/home/Documents/Invoices/a.pdf",
@@ -173,13 +171,11 @@ import Testing
                                  treeRoot: Self.root, links: Self.links)
     }
 
-    /// **`pruned` and `columnDirectories` must agree about a path, and for a linked first
-    /// component they did not.** `pruned` composed lexically, asked the index about
-    /// `/r/Documents` — a path the walk never keys, since it lists the link as the folder it
-    /// points at — was told "not a directory", and threw the whole stack away. Every republish
-    /// does this, so browsing into `Documents` from the iCloud Drive root collapsed back to the
-    /// root on the next refresh, and `currentDirectory` (where New Folder and paste act) went
-    /// with it. Measured against the real container 2026-09-08: `["Documents", "Home"]` → `[]`.
+    /// `pruned` and `columnDirectories` must agree about a path under a linked first component.
+    /// Composed lexically, `pruned` would ask the index about `/r/Documents`, a path the walk never
+    /// keys, be told "not a directory", and throw the stack away. Every republish prunes, so
+    /// browsing into `Documents` from the iCloud Drive root would collapse back to the root, and
+    /// `currentDirectory` (where New Folder and paste act) with it.
     @Test func aColumnStackUnderALinkedFolderSurvivesARepublish() {
         let path = PaneBrowsePath(components: ["Documents", "Invoices"])
         let pruned = path.pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
@@ -190,15 +186,15 @@ import Testing
         let stale = PaneBrowsePath(components: ["Documents", "Invoices", "Gone"])
         #expect(stale.pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
                 .components == ["Documents", "Invoices"])
-        // And an unlinked first component is unaffected — `/r/Word` composes lexically, as before.
+        // And an unlinked first component is unaffected: `/r/Word` composes lexically.
         #expect(PaneBrowsePath(components: ["Word"])
                 .pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
                 .components == ["Word"])
     }
 
     /// `‹` all the way out leaves the live stack empty, so the entry `›` would walk back into is
-    /// itself a first component and needs the same resolution. Without it the forward arrow went
-    /// dead the moment you stepped out of a linked folder.
+    /// itself a first component and needs the same resolution, or the forward arrow goes dead the
+    /// moment you step out of a linked folder.
     @Test func theForwardStackOutOfALinkedFolderSurvivesARepublish() {
         var path = PaneBrowsePath(components: ["Documents", "Invoices"])
         path.popLast()
@@ -234,7 +230,7 @@ import Testing
 
         DestinationRecents.record(inbox.path, providerRoot: Self.root, in: defaults, links: links)
         #expect(DestinationRecents.load(providerRoot: Self.root, in: defaults) == [inbox.path])
-        // Outside the provider, and not through a link: not remembered, as before.
+        // Outside the provider, and not through a link: not remembered.
         DestinationRecents.record(base.path, providerRoot: Self.root, in: defaults, links: links)
         #expect(DestinationRecents.load(providerRoot: Self.root, in: defaults) == [inbox.path])
     }
@@ -252,7 +248,7 @@ import Testing
                                                     providers: (left: icloud, right: other), links: [:]) == nil)
     }
 
-    /// `landingPath` composes through the table by default — the seam every pane, the CLI and the
+    /// `landingPath` composes through the table by default, the seam every pane, the CLI and the
     /// lens anchor read. Pinned with the machine's own table left out, on a root nothing links.
     @Test func aLandingFolderThatIsNotLinkedComposesLexically() {
         let provider = CloudProvider(id: "x", displayName: "x", imageName: "icloud",
@@ -262,8 +258,8 @@ import Testing
 
     // MARK: - The walk
 
-    /// A real link in a temp directory: with the table, the walk lists the linked folder AS the
-    /// folder it points at — real id, a real directory, children walked; without it, the link.
+    /// A real link in a temp directory: with the table, the walk lists the linked folder as the
+    /// folder it points at (real id, a real directory, children walked); without it, the link.
     @Test func theWalkListsALinkedFolderAsTheFolderItPointsAt() async throws {
         let fm = FileManager.default
         let base = try makeCanonicalTempRoot(prefix: "LinkedFoldersTests")
@@ -291,14 +287,11 @@ import Testing
         #expect(link.isSymbolicLink == true)
     }
 
-    /// **A pane FOCUSED on the linked folder walks the folder itself**, so the substitution at
-    /// the container's listing never runs — the focus URL has to carry the resolution instead.
-    ///
-    /// This is the "empty column" report, end to end: composed lexically the walk started at
-    /// `<container>/Documents`, every node under it was named the link way, and the children index
-    /// — keyed from the pane's own `currentPath`, which goes through `join` — was asked about the
-    /// real spelling. The root column answered from `treeRoot`'s own key and every column past it
-    /// drew "Empty" over a folder full of files.
+    /// A pane focused on the linked folder walks the folder itself, so the substitution at the
+    /// container's listing never runs, and the focus URL has to carry the resolution instead.
+    /// Composed lexically, the walk would start at `<container>/Documents` and name every node the
+    /// link way, while the children index (keyed from `currentPath`, through `join`) is asked about
+    /// the real spelling, so every column past the root would draw "Empty" over a full folder.
     @Test func aFocusedLoadWalksWhereTheLinkedFolderReallyIs() async throws {
         let fm = FileManager.default
         let base = try makeCanonicalTempRoot(prefix: "LinkedFoldersTests")
@@ -329,9 +322,9 @@ import Testing
         #expect(index.children(atPath: directories[1])?.map(\.node.name) == ["note.txt"])
     }
 
-    /// Every root the table does not name composes exactly as it always did, and an empty root —
-    /// a provider dropped from settings with its tree still on screen — falls back rather than
-    /// composing onto nothing.
+    /// Every root the table doesn't name composes as it always did, and an empty root (a provider
+    /// dropped from settings with its tree still on screen) falls back rather than composing onto
+    /// nothing.
     @Test func anUnlinkedFocusComposesLexicallyAndAnEmptyRootFallsBack() {
         let fallback = URL(fileURLWithPath: "/fallback")
         #expect(FileSyncManager.focusURL(root: "/other", relative: "Documents/Invoices",
@@ -373,16 +366,13 @@ import Testing
         return (base, container, real, other, [container.path: ["Documents": real.path]])
     }
 
-    /// **A Compare focused on the linked folder scans where the pane looks.** The pane walks and
-    /// caches it under its real path; the scan composed its own path lexically, missed that
-    /// entry, and walked the link itself — which lists nothing — so the left side read as
-    /// authoritatively empty and every item on the right became "Folder missing on left". On the
-    /// real pair that was the same 15 differences on every launch into iCloud vs Dropbox.
-    ///
-    /// Asserted against the pane's own spelling (`PaneLogic.fullPath` is `PathBoundary.join`):
-    /// the not-scanned card and the owed-comparison route compose that way, so a summary written
-    /// under the link's spelling matched neither.
-    /// Run with the linked folder on either side: each side's path is composed on its own line.
+    /// A Compare focused on the linked folder scans where the pane looks. The pane walks and caches
+    /// it under its real path; a scan that composed lexically would miss that entry and walk the
+    /// link itself, which lists nothing, so the left side would read as empty and every item on the
+    /// right as "Folder missing on left". Asserted against the pane's own spelling
+    /// (`PaneLogic.fullPath` is `PathBoundary.join`), which the not-scanned card and the
+    /// owed-comparison route also use. Run with the linked folder on either side, since each side's
+    /// path is composed on its own line.
     @MainActor
     @Test(arguments: [true, false])
     func aCompareFocusedOnALinkedFolderScansWhereThePaneLooks(linkedOnTheLeft: Bool) async throws {
@@ -412,11 +402,10 @@ import Testing
                 "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
     }
 
-    /// **At the container itself, a warm Compare keys the linked folder through its name.** The
-    /// pane's walk lists `Documents` as the folder it points at, so its nodes carry the real path —
-    /// which the container is no prefix of — and keyed by plain prefix they came out near-absolute:
-    /// every file in the linked folder became a row offering to copy it into
-    /// `<other side>/<its absolute path>`, and the same files under `Documents/` read as missing.
+    /// At the container itself, a warm Compare keys the linked folder through its name. The pane's
+    /// walk lists `Documents` by the real path, which the container is no prefix of; keyed by plain
+    /// prefix, every file in it would become a row copying it to `<other side>/<its absolute
+    /// path>`, and the same files under `Documents/` would read as missing.
     @MainActor
     @Test func aWarmCompareAtTheContainerKeysTheLinkedFolderThroughItsName() async throws {
         let pair = try Self.linkedPair(prefix: "LinkedFoldersTests")
@@ -438,14 +427,12 @@ import Testing
                 "\(m.rawDifferences.map { "\($0.relativePath): \($0.description)" })")
     }
 
-    /// **And with the base ABOVE the container.** The same warm Compare, with the left pane on the
-    /// container's parent (a Compare on `~/Library`) or on a Home-shaped base that also holds the
-    /// folder the link leads to, against a mirror holding the same files as real folders, so any
-    /// row at all is a keying error. Above the container, the linked folder keyed off its real
-    /// path, and two rows came back: one copying it to `<mirror>/<that path>`, one copying the
-    /// mirror's `container/Documents` into the left's. At Home its keys landed on `Documents/…`,
-    /// the container's copy vanished, and the second row stood alone — a copy into the left's
-    /// `container/Documents`, which is the link, so onto the real folder it mirrors.
+    /// And with the base above the container: the left pane on the container's parent (a Compare
+    /// on `~/Library`) or on a Home-shaped base that also holds the folder the link leads to,
+    /// against a mirror holding the same files as real folders, so any row at all is a keying
+    /// error. Keyed off its real path, the linked folder would yield a row copying it to
+    /// `<mirror>/<that path>`, or at Home land on `Documents/…` and leave a row copying into the
+    /// left's `container/Documents`, which is the link, and so onto the real folder it mirrors.
     @MainActor
     @Test(arguments: [false, true])
     func aWarmCompareAboveTheContainerKeysTheLinkedFolderWhereItSits(baseHoldsTheTarget: Bool) async throws {

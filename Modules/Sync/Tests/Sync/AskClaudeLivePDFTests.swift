@@ -5,18 +5,18 @@ import Testing
 /// The key the live check spends, from the environment and nowhere else.
 private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_LIVE_KEY"].flatMap { $0.isEmpty ? nil : $0 }
 
-/// **What Claude actually does with the `pdf` tool, asked for real** (TE294 step 4, decision IG).
+/// What Claude actually does with the `pdf` tool, asked for real.
 ///
 /// Every other Ask Claude test scripts the model's answer; this one sends real questions to the
 /// Messages API and checks the tool calls that come back, and the answer's words where they matter:
-/// never "done" before their click, never a repeat of what the card says, and no "nothing" in a
-/// refusal (Haiku once said "I can only copy nothing, edit nothing"). Only the tools are stubbed —
-/// nothing on disk is read or changed.
+/// never "done" before their click, never a repeat of what the card says, and no garbled negation
+/// in a refusal ("I can only copy nothing"). Only the tools are stubbed; nothing on disk is read or
+/// changed.
 ///
-/// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key — never the
-/// Keychain, which a test must never touch — and never on CI. It spends real money: each question
-/// is short and most of each request is cached, and the run prints what it cost. A skipped run is
-/// a vacuous green: the gate quotes the count line, 19 prompts × 2 models × 3 runs.
+/// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key (never the
+/// Keychain, which a test must never touch) and never on CI. It spends real money, and prints what
+/// it cost. A skipped run is a vacuous green: the gate quotes the count line, 19 prompts × 2 models
+/// × 3 runs.
 @Suite(.serialized, .enabled(if: askClaudeLiveKey != nil, "no ASK_CLAUDE_LIVE_KEY — the live check is skipped"))
 struct AskClaudeLivePDFTests {
     static let key = askClaudeLiveKey

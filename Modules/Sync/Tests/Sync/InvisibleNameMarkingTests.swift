@@ -2,13 +2,10 @@ import Testing
 @testable import Sync
 
 /// Pins the risky-name marking shared by the Rename lens's card and the kept-names list in
-/// Settings ▸ Organize. Both exist for one job — making an invisible character visible before the
-/// user decides what to do about it — so "which scalars get a marker" is the feature itself, and a
-/// name that renders one marker for two trailing spaces understates the very risk it was opened to
-/// show.
-///
-/// `markingAgreesWithNameDisplayOnPlainSpaces` stays in FileExplorer's `NameDisplayTests`: it is a
-/// claim about agreement with `NameDisplay`, which is a FileExplorer type.
+/// Settings ▸ Organize. Both exist to make an invisible character visible before the user decides,
+/// so which scalars get a marker is the feature itself: one marker for two trailing spaces
+/// understates the risk. `markingAgreesWithNameDisplayOnPlainSpaces` lives in FileExplorer's
+/// `NameDisplayTests`, since `NameDisplay` is a FileExplorer type.
 @Suite struct InvisibleNameMarkingTests {
 
     private func rendered(_ name: String) -> String {
@@ -29,9 +26,8 @@ import Testing
     }
 
     @Test func everySpaceInATrailingRunIsMarked() {
-        // The defect: only the OUTERMOST scalar was treated as an edge, so this drew one "␣"
-        // followed by a still-invisible space — the name reads as having one trailing space when
-        // it has two.
+        // Every scalar of the run is an edge, not just the outermost: one "␣" plus an invisible
+        // space would read as one trailing space when there are two.
         #expect(rendered("Swimming  ") == "Swimming␣␣")
         #expect(markerCount("Swimming  ") == 2)
         #expect(rendered("Swimming   ") == "Swimming␣␣␣")
@@ -65,11 +61,8 @@ import Testing
     }
 
     @Test func zeroWidthScalarsGetTheirOwnMarker() {
-        // All four, not a sample. Moving this rule into Sync replaced its own mirrored literal
-        // (`[0x200B, 0x200C, 0x200D, 0xFEFF]` as UInt32 values) with `NameNormalizer.zeroWidthScalars`
-        // — the set that decides a name is risky in the first place. The two are the same four
-        // scalars; enumerating them is what proves that rather than assuming it, and ZWNJ and ZWJ
-        // were previously covered by neither this test nor any other.
+        // All four, not a sample: the marking uses `NameNormalizer.zeroWidthScalars`, the set that
+        // decides a name is risky, and listing them here proves it holds exactly these four.
         for scalar in ["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}"] {
             #expect(rendered("a\(scalar)b") == "a◌b", "\(scalar.unicodeScalars.first!.value) went unmarked")
             #expect(markerCount("a\(scalar)b") == 1)

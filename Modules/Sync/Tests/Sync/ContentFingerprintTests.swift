@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The pure fingerprint rules. Every fixture here is built so that the expected answer differs from
-/// what the rule would produce if the rule were removed — a fixture whose expectation equals the
-/// fallback cannot fail.
+/// The pure fingerprint rules. Each fixture's expected answer differs from what the code would give
+/// without the rule, since a fixture whose expectation equals the fallback can't fail.
 @Suite struct ContentFingerprintTests {
 
     private func doc(_ text: String, fields: [String] = [], pageCount: Int? = nil,
@@ -20,8 +19,8 @@ import Testing
     // MARK: The claim it makes
 
     @Test func twoRendersOfOneDocumentAgreeDespiteDifferentBytes() {
-        // The whole feature in one assertion: same text, and the digest says so. The two sides are
-        // separate String values, so nothing here can pass by identity.
+        // Same text, same digest. The two sides are separate String values, so this can't pass by
+        // identity.
         let a = doc(body)
         let b = doc(String(body.reversed().reversed()))
         #expect(ContentFingerprint.digest(of: a) != nil)
@@ -34,17 +33,15 @@ import Testing
     }
 
     @Test func theDigestIsOverTheSORTEDMultiset() {
-        // Extraction order is what a re-render changes, so the same tokens in another order are
-        // the same document. Both fixtures hold the same words — only their order differs — and
-        // the tokens are distinct enough that an ordered hash would separate them.
+        // A re-render changes extraction order, so the same tokens in another order are the same
+        // document. The tokens are distinct enough that an ordered hash would separate them.
         let forward = doc("alpha bravo charlie delta echo foxtrot golf hotel india")
         let shuffled = doc("india hotel golf foxtrot echo delta charlie bravo alpha")
         #expect(ContentFingerprint.digest(of: forward) == ContentFingerprint.digest(of: shuffled))
     }
 
     @Test func repetitionCountsSoASetWouldNotDo() {
-        // A multiset, not a set. Same distinct tokens on both sides; only how often one repeats
-        // differs, which a set-based digest could not see.
+        // A multiset, not a set: only how often one token repeats differs, which a set can't see.
         let once = doc("alpha bravo charlie delta echo foxtrot golf hotel india")
         let twice = doc("alpha alpha bravo charlie delta echo foxtrot golf hotel india")
         #expect(ContentFingerprint.digest(of: once) != ContentFingerprint.digest(of: twice))
@@ -53,8 +50,8 @@ import Testing
     // MARK: Ingredients, each pinned separately
 
     @Test func filledFormFieldsSeparateAFilledFormFromItsBlankTemplate() {
-        // The biggest of the precision levers on the real tree: 14 groups of 267 were a filled form
-        // beside its own blank, because AcroForm values are not in the page text.
+        // The biggest precision lever on a real tree: AcroForm values aren't in the page text, so
+        // without them a filled form matches its own blank.
         let blank = doc(body)
         let filled = doc(body, fields: ["applicantName=Daughter"])
         #expect(ContentFingerprint.digest(of: blank) != ContentFingerprint.digest(of: filled))
@@ -73,10 +70,9 @@ import Testing
     }
 
     @Test func pageCountSeparatesDocumentsThatDifferOnlyBeyondTheReadCap() {
-        // The page cap is our own doing, so the hole it opens is ours to close: two documents whose
-        // first `maxPagesRead` pages match and which then diverge would otherwise be called the
-        // same. This case does not occur on the surveyed tree — the page count removed no group
-        // there — so it is pinned here rather than by the corpus.
+        // The page cap opens a hole the page count closes: two documents whose first
+        // `maxPagesRead` pages match and then diverge would otherwise be called the same. The
+        // corpus has no such pair, so it is pinned here.
         let pages = Array(repeating: body, count: ContentFingerprint.maxPagesRead)
         let boxes = Array(repeating: "612x792", count: ContentFingerprint.maxPagesRead)
         let short = ExtractedDocument(pages: pages, pageCount: ContentFingerprint.maxPagesRead,
@@ -87,8 +83,8 @@ import Testing
     }
 
     @Test func textBeyondTheReadCapIsNotRead() {
-        // The other half of the cap: pages past it must not reach the digest, or the cap is not a
-        // cap. Same page count on both sides so this cannot pass via the field above.
+        // Pages past the cap must not reach the digest. Same page count on both sides, so this
+        // can't pass through the page count.
         let head = Array(repeating: body, count: ContentFingerprint.maxPagesRead)
         let boxes = Array(repeating: "612x792", count: ContentFingerprint.maxPagesRead)
         let plain = ExtractedDocument(pages: head + ["nothing here"], pageCount: 30, pageBoxes: boxes)
@@ -107,11 +103,9 @@ import Testing
     }
 
     @Test func textlessScansOfTheSameShapeAreNotOneDocument() {
-        // What the floor is insurance against, rather than something the tree exhibits: as the
-        // text thins, the digest approaches page count + geometry and stops being about the
-        // document. These two are DIFFERENT documents of the same shape, and one token between
-        // them is not identity. (Measured, the floor removes no group from the real tree — see
-        // `ContentFingerprint.minimumTokens`, whose first justification was an extraction race.)
+        // What the floor insures against: as the text thins, the digest approaches page count plus
+        // geometry and stops being about the document. These are different documents of one shape,
+        // and one token between them is not identity. See `ContentFingerprint.minimumTokens`.
         let boxes = ["612x792", "612x792"]
         let q1 = ExtractedDocument(pages: ["1", ""], pageCount: 2, pageBoxes: boxes)
         let q4 = ExtractedDocument(pages: ["1", ""], pageCount: 2, pageBoxes: boxes)
@@ -143,10 +137,9 @@ import Testing
     // MARK: Glyph soup is identity, not noise
 
     @Test func undecodableGlyphSoupStillFingerprints() {
-        // `FilingSurvey.isDecodable` refuses text like this because glyph soup would become a
-        // folder's rarest anchors. Porting that reflex here would have dropped 11 groups measured
-        // on the real tree, ten of them real — two downloads of one soupy document produce the
-        // SAME soup, which is a perfectly good identity.
+        // `FilingSurvey.isDecodable` refuses text like this, since glyph soup would become a
+        // folder's rarest anchors. Here it stays: two downloads of one soupy document produce the
+        // same soup, which is a good identity, and refusing it drops real groups.
         let soup = "d9 lm g8 a1 zz q4 kk p2 vv nn"
         #expect(FilingSurvey.isDecodable(soup) == false)
         #expect(ContentFingerprint.digest(of: doc(soup)) != nil)
@@ -170,19 +163,15 @@ import Testing
     // MARK: Scheme
 
     @Test func theCanonicalFormIsPinnedByAGoldenDigest() {
-        // Digests outlive a launch in a cache, so a change to what is hashed must not be able to
-        // masquerade as an old answer — the cache would serve entries from the previous rule and
-        // silently group under two schemes at once. Asserting `scheme == "pdf-text-1"` alone did
-        // NOT catch that: a mutation that dropped the scheme from the hashed string left that
-        // assertion passing. A golden over the whole canonical form is what actually holds it, and
-        // it fails for ANY change — token rule, separator, ingredient, or scheme — which is the
-        // point: each one is a reason to bump the scheme.
+        // Digests outlive a launch in a cache, so a change to what is hashed must not pass as an old
+        // answer, or the cache groups under two schemes at once. Asserting the scheme name alone
+        // misses dropping the scheme from the hashed string; a golden over the whole canonical form
+        // fails for any change (token rule, separator, ingredient, scheme), each a reason to bump it.
         let pinned = ExtractedDocument(pages: ["Account statement, amount due 124.50 on 2026-03-14"],
                                        formFieldValues: ["name=Elder"],
                                        pageCount: 2, pageBoxes: ["612x792"])
         #expect(ContentFingerprint.scheme == "pdf-text-1")
-        // Golden re-taken when the pinned INPUT's name literal was scrubbed. The hashed
-        // ingredients and the scheme are unchanged, so this is not a rule change.
+        // A change to this golden needs a new scheme, unless only the pinned input changed.
         #expect(ContentFingerprint.digest(of: pinned)
                 == "c43767b9557d1ec98400468d5b000ed15c1275f630691c656e4a82a525a1becf")
     }

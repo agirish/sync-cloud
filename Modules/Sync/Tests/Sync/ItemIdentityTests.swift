@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The seam that replaces `fileSizeSnapshot`'s `Int?` — whose nil means "directory", "missing",
-/// "unstatable" and "unreadable size" alike, and whose call sites then guard with `if let`, so the
-/// unknown SKIPS the check instead of refusing.
-///
-/// Two properties carry the whole point and are asserted directly below: a directory produces a
-/// real identity rather than nothing, and an unreadable item produces `.indeterminate` rather than
-/// anything a caller could mistake for `.unchanged`.
+/// Pins `ItemIdentity`, the drift check that `fileSizeSnapshot`'s `Int?` can't be: its nil means
+/// directory, missing and unreadable alike, so an `if let` guard skips the check instead of
+/// refusing. The two properties that matter: a directory gets a real identity, and an unreadable
+/// item gets `.indeterminate`, never anything a caller could mistake for `.unchanged`.
 @Suite struct ItemIdentityTests {
 
     private func chmod(_ url: URL, _ mode: Int) throws {
@@ -25,7 +22,7 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("a".utf8).write(to: folder.appendingPathComponent("one.txt"))
 
-        // The snapshot this replaces, on the same folder, for the record.
+        // The size snapshot on the same folder, for contrast.
         #expect(FileSyncManager.fileSizeSnapshot(at: folder, fileManager: FileManager.default) == nil,
                 "the size snapshot answers nil for a directory — which is why the guard skipped")
 
@@ -48,8 +45,8 @@ import Testing
         let recorded = ItemIdentity.snapshot(at: folder, fileManager: FileManager.default)
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .unchanged)
 
-        // The reported scenario: files arrive in a copied folder between the copy and the undo,
-        // through Finder, which never touches the undo stack.
+        // Files arrive in a copied folder between the copy and the undo, through Finder, which
+        // never touches the undo stack.
         try Data("b".utf8).write(to: folder.appendingPathComponent("two.txt"))
 
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .changed)
@@ -106,9 +103,9 @@ import Testing
         #expect(recorded.drift(at: file, fileManager: FileManager.default) == .changed)
     }
 
-    /// `attributesOfItem` does not follow links, so a symlink pointing at a directory arrives with
-    /// type symbolicLink and the link's own size — measured at 98 bytes. Folded into `.file` it
-    /// would look like an ordinary small file, quietly skipping the child-count guard.
+    /// `attributesOfItem` doesn't follow links, so a symlink to a directory arrives as
+    /// symbolicLink with the link's own small size. Folded into `.file` it would look like an
+    /// ordinary small file and skip the child-count guard.
     @Test func aSymlinkToADirectoryIsNotMistakenForAFile() throws {
         let base = try makeCanonicalTempRoot(prefix: "IdentitySymlink")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -132,18 +129,12 @@ import Testing
         }
     }
 
-    /// **The trap.** `compare` is equality-based, so two `.absent` sides vote `.unchanged` — a
-    /// pair in which NEITHER side was ever verified answers "go ahead". For a path that genuinely
-    /// was absent and still is, that is correct; for a caller that recorded `.absent` because it
-    /// read the WRONG path, it is a guard that has silently switched itself off.
-    ///
-    /// That is the exact mechanism behind the nested-rename regression
-    /// (`UndoDriftIdentityTests.undoOfANestedNormalizePassReversesTheChildRenameToo`): the
-    /// move-undo snapshotted a path an ancestor rename had already invalidated, recording
-    /// `.absent`. There the destination did exist at undo time, so the pair compared `.changed`
-    /// and the undo was refused; had it been missing on both sides, the same bad snapshot would
-    /// have waved an entirely unverified move-back through instead. Both halves are stated here so
-    /// the property is a decision on the record rather than an accident of `==`.
+    /// A trap: `compare` is equality-based, so two `.absent` sides answer `.unchanged` though
+    /// neither was verified. Right for a path that was absent and still is; for a caller that
+    /// recorded `.absent` by reading the wrong path (say, one an ancestor rename invalidated, as
+    /// in `UndoDriftIdentityTests.undoOfANestedNormalizePassReversesTheChildRenameToo`), the guard
+    /// silently switches itself off. Pinned so the behaviour is a decision, not an accident of
+    /// `==`.
     @Test func twoUnverifiedAbsencesCompareUnchangedWhichIsTheTrap() {
         #expect(ItemIdentity.compare(recorded: .absent, current: .absent) == .unchanged)
         // An absence on ONE side only is drift, in both directions.
@@ -158,8 +149,8 @@ import Testing
         #expect(ItemIdentity.compare(recorded: .indeterminate, current: .indeterminate) == .indeterminate)
     }
 
-    /// A file replaced by a directory of the same name is drift, which an `Int?` comparison reads
-    /// as nil-and-therefore-skip.
+    /// A file replaced by a same-named directory is drift; an `Int?` comparison would read nil
+    /// and skip.
     @Test func aFileReplacedByADirectoryIsDrift() {
         let recorded = ItemIdentity.file(size: 4, modified: nil)
         let current = ItemIdentity.directory(childNames: "", fileNumber: nil)
@@ -177,12 +168,11 @@ import Testing
         #expect(recorded.drift(at: file, fileManager: FileManager.default) == .unchanged)
     }
 
-    /// The documented limit of the SHALLOW identity, asserted so it is a known position rather
-    /// than an assumption: a change deep inside an untouched subtree leaves the folder's own date
-    /// and child count identical, and `snapshot` answers `.unchanged`. A caller that cannot
-    /// afford that records `deepSnapshot` instead — the copy-undo does, and
+    /// The shallow identity's known limit: a change deep inside a subtree leaves the folder's own
+    /// date and child count identical, so `snapshot` answers `.unchanged`. A caller that can't
+    /// afford that records `deepSnapshot` (the copy-undo does);
     /// `DeepFolderIdentityTests.aDeepEditIsNoticedByTheDeepIdentityWhereTheShallowOneIsBlind`
-    /// holds both depths against this same fixture shape.
+    /// checks both depths on this fixture shape.
     @Test func aChangeDeepInsideASubtreeIsNotNoticed() throws {
         let base = try makeCanonicalTempRoot(prefix: "IdentityDeep")
         defer { try? FileManager.default.removeItem(at: base) }

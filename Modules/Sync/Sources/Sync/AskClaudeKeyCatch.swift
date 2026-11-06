@@ -1,9 +1,9 @@
 import Foundation
 
-/// An Anthropic API key pasted into Ask Claude's message box (TE290 step 7): caught before the
-/// message is sent, so a key never reaches Claude, the chat's file, or the remembered questions.
+/// An Anthropic API key pasted into Ask Claude's message box, caught before the message is sent,
+/// so a key never reaches Claude, the chat's file, or the remembered questions.
 ///
-/// **Caught when the message holds `sk-ant-` followed by 20 or more key characters** — letters,
+/// Caught when the message holds `sk-ant-` followed by 20 or more key characters: letters,
 /// digits, `-` and `_`, which is what Anthropic's keys are made of. Fewer is a mention of the
 /// prefix, not a key, and goes through.
 public enum AskClaudeKeyCatch {
@@ -24,9 +24,9 @@ public enum AskClaudeKeyCatch {
         return String(joined[found])
     }
 
-    /// Where each key is in `text`, with the lines a paste broke it onto (v7.0 review): a key
-    /// broken after 20 characters matched on its first line alone, so Save as API Key stored part
-    /// of it and the masked card showed the rest. A line after a key is more of it when it holds
+    /// Where each key is in `text`, with the lines a paste broke it onto. A key broken after 20
+    /// characters matches on its first line alone, so without this Save as API Key would store part
+    /// of it and the masked card show the rest. A line after a key is more of it when it holds
     /// only key characters and isn't a plain word ("thanks") or another key.
     private static func spans(in text: String) -> [Range<String.Index>] {
         var spans: [Range<String.Index>] = []

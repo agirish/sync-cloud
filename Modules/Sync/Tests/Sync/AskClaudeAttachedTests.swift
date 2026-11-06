@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What they right-clicked to ask about, on the screen card (TE263).
+/// What they right-clicked to ask about, on the screen card.
 @Suite struct AskClaudeAttachedTests {
 
     private func row(_ path: String, folder: Bool = false) -> AskClaudeScreen.Row {

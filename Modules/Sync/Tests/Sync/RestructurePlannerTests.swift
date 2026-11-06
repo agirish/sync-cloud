@@ -24,8 +24,8 @@ private struct FakeTree {
     }
 }
 
-/// §5.4's derivation rules, one law per test — and the 6 Aug oracle, which is the release's
-/// definition of "derived correctly".
+/// The planner's derivation rules, one law per test, and the 6 Aug oracle, which defines "derived
+/// correctly".
 @Suite struct RestructurePlannerTests {
 
     private static func derive(family: String, members: [String], mapping: RestructureMapping,
@@ -38,10 +38,10 @@ private struct FakeTree {
 
     // MARK: - The 6 Aug oracle
 
-    /// The proof §5.4 names: the fixture reduced from that day's log, the mapping as it was
-    /// decided, and the derived manifest must be **exactly the log's four `rename-dir` operations
-    /// with their `filesCarried`, and no `move-file`** — three families, each mapped its own way,
-    /// because the direction the 6 Aug fix went existed nowhere in the tree.
+    /// The fixture reduced from that day's log, the mapping as it was decided, and the derived
+    /// manifest must be exactly the log's four `rename-dir` operations with their `filesCarried`,
+    /// and no `move-file`. Three families, each mapped its own way, because the direction that fix
+    /// went existed nowhere in the tree.
     @Test func theOracleDerivesToExactlyTheLogsFourRenames() throws {
         let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
                                                  withExtension: "json", subdirectory: "Fixtures"))
@@ -63,7 +63,7 @@ private struct FakeTree {
         let expected = try JSONDecoder().decode([ExpectedOp].self, from: expectedData)
         #expect(expected.count == 4)
 
-        // Per family, the mapping as §5.4 records it: Application → Petition under H-1B;
+        // Per family, the mapping as decided: Application → Petition under H-1B;
         // Petition → Application under H-4 (H-4 EAD carries no Petition in this range); and the
         // DS-160 spelling fix under the visa family.
         let plans: [(family: String, mapping: RestructureMapping)] = [
@@ -115,7 +115,7 @@ private struct FakeTree {
 
     // MARK: - The flagship proof: merges, keep, collision
 
-    /// §5.4's second proof, on the flagship family's own names: converging 2013 onto the 2016
+    /// The flagship family, on its own names: converging 2013 onto the 2016
     /// vocabulary needs a merge (two sources onto `Forms`), `keep` lists what the target has no
     /// slot for, and a seeded name collision surfaces as a counted ledger line, never a lost file.
     @Test func theFlagshipConvergenceCarriesMergesKeepsAndACountedCollision() throws {
@@ -192,8 +192,8 @@ private struct FakeTree {
         #expect(json.contains("move-file") && json.contains("collisionExpected"))
     }
 
-    /// An applied collision's inverse restores the file's ORIGINAL name — `collidedInto` is its
-    /// own fact on the action precisely so the inverse can read it (§5.4).
+    /// An applied collision's inverse restores the file's original name: `collidedInto` is its own
+    /// fact on the action so the inverse can read it.
     @Test func aCollidedMovesInverseRestoresTheOriginalName() {
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m1", createdAt: "t", family: "F", kind: .shape,
@@ -210,7 +210,7 @@ private struct FakeTree {
     // MARK: - Ordering
 
     /// A folder is vacated before its name is filled: `Forms → Tax Records` must run before
-    /// `Federal Tax → Forms` (§5.4's own example).
+    /// `Federal Tax → Forms`.
     @Test func aFolderIsVacatedBeforeItsNameIsFilled() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -252,8 +252,8 @@ private struct FakeTree {
         #expect(manifest.inverse.inverse == manifest)
     }
 
-    /// A case-only rename stays ONE `rename-dir` — apply's `safeMoveItem` owns the two-step for
-    /// case-insensitive volumes; the manifest does not pre-chew it (§5.4).
+    /// A case-only rename stays one `rename-dir`: apply's `safeMoveItem` owns the two-step for
+    /// case-insensitive volumes, and the manifest does not pre-chew it.
     @Test func aCaseOnlyRenameIsOneAction() throws {
         let tree = FakeTree(files: ["F": [], "F/2016": [], "F/2016/forms": ["a.pdf"]])
         let manifest = try Self.derive(
@@ -286,11 +286,10 @@ private struct FakeTree {
                 == ["F/2016/Small/a.pdf"])
     }
 
-    /// The chosen rename comes FIRST in its group regardless of how the sources sort — it is the
-    /// action that CREATES the target directory, and the first spelling walked sources in sorted
-    /// order, so `Apple`'s merge was emitted before `Zebra`'s rename and every merged file
-    /// failed at apply against a parent that did not exist yet. (The test above could not see it:
-    /// `Big` happens to sort before `Small`.)
+    /// The chosen rename comes first in its group regardless of how the sources sort: it creates
+    /// the target directory, so a merge emitted before it (`Apple` before `Zebra`) would fail every
+    /// file at apply against a parent that doesn't exist yet. The test above can't see this: `Big`
+    /// sorts before `Small`.
     @Test func theRenamePrecedesItsGroupsMergesWhateverTheSortSays() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -313,10 +312,9 @@ private struct FakeTree {
                 "every merge writes into the directory the rename creates")
     }
 
-    /// A target occupied by a sibling differing only by case, which the mapping does NOT step
-    /// up, refuses at derivation — on the case-insensitive volumes this app targets the rename
-    /// could never land, and the first spelling derived it anyway, minting a reviewed plan whose
-    /// apply skipped with the false sentence "appeared since the plan".
+    /// A target occupied by a sibling differing only by case, which the mapping does not step up,
+    /// refuses at derivation: on the case-insensitive volumes this app targets the rename could
+    /// never land, and its apply would skip with the false sentence "appeared since the plan".
     @Test func aTargetTakenByAKeptCaseTwinRefuses() {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -340,7 +338,7 @@ private struct FakeTree {
         #expect(member == "2016")
     }
 
-    /// When a case twin of the target is one of the group's own sources, IT must be the rename —
+    /// When a case twin of the target is one of the group's own sources, it must be the rename,
     /// whatever the file counts say: while `forms/` stands the volume cannot create `Forms/`,
     /// and "merging" `forms` into `Forms` would move its files onto themselves.
     @Test func aCaseTwinSourceIsAlwaysTheChosenRename() throws {
@@ -363,12 +361,11 @@ private struct FakeTree {
                 == ["F/2016/Files/b.pdf", "F/2016/Files/c.pdf", "F/2016/Files/d.pdf"])
     }
 
-    /// Drain before fill, the MERGE half of the ordering rule: a standing folder that is both a
-    /// merge source (its files leave for T) and a merge target (X's files arrive) must be
-    /// drained first — its outbound moves were listed at plan time, and files arriving first
-    /// would trip the apply's unlisted-veto on the very folder the plan is emptying. Plain
-    /// target-name sort ran the fill first whenever the filled name sorted before the drain's
-    /// target.
+    /// Drain before fill, the merge half of the ordering rule: a standing folder that is both a
+    /// merge source (its files leave for T) and a merge target (X's files arrive) must be drained
+    /// first. Its outbound moves were listed at plan time, and files arriving first would trip the
+    /// apply's unlisted-veto on the very folder the plan is emptying. A plain target-name sort would
+    /// run the fill first whenever the filled name sorts before the drain's target.
     @Test func aFolderDrainedByOneGroupIsDrainedBeforeAnotherFillsIt() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -376,8 +373,8 @@ private struct FakeTree {
             "F/2016/Trove": ["t.pdf"],
             "F/2016/Extra": ["x.pdf"],
         ])
-        // Slips → Trove (fill of Trove... no: drain of Slips into standing Trove) and
-        // Extra → Slips (fill of standing Slips) — Slips must be drained before Extra arrives.
+        // Slips → Trove (drain of Slips into standing Trove) and Extra → Slips (fill of standing
+        // Slips): Slips must be drained before Extra arrives.
         let manifest = try Self.derive(
             family: "F", members: ["2016"],
             mapping: RestructureMapping(rows: [
@@ -391,7 +388,7 @@ private struct FakeTree {
 
 
     /// A same-named subfolder on both sides merges one level down; two levels down it is `keep`
-    /// and reported rather than guessed at (§5.4's collision policy for subfolders).
+    /// and reported rather than guessed at (the collision policy for subfolders).
     @Test func sameNamedSubfoldersMergeOneLevelDownThenKeep() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -415,11 +412,11 @@ private struct FakeTree {
         }, "two levels down is kept and reported")
     }
 
-    /// FR22. The same merge when the two subfolders differ only by case: on a case-insensitive
-    /// volume `Payments/receipts/` occupies `Receipts`, so the merge goes one level down into it,
-    /// under the spelling on disk. Read by exact case, the plan carried `Payment/Receipts/` whole
-    /// onto it ("Carried whole") and the apply skipped it as "appeared since the plan". One level
-    /// further down, `OLD` against its twin `old` is kept, as an exact twin is, not carried onto it.
+    /// The same merge when the two subfolders differ only by case: on a case-insensitive volume
+    /// `Payments/receipts/` occupies `Receipts`, so the merge goes one level down into it, under
+    /// the spelling on disk. Read by exact case, the plan would carry `Payment/Receipts/` whole onto
+    /// it and the apply would skip it as "appeared since the plan". One level further down, `OLD`
+    /// against its twin `old` is kept, as an exact twin is, not carried onto it.
     @Test func caseVariantSubfoldersMergeOneLevelDownToo() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -446,10 +443,10 @@ private struct FakeTree {
         }, "two levels down, a case twin is kept, not carried whole onto it")
     }
 
-    /// FR22, for files: names that differ only by case clash, at both levels a merge writes. On
-    /// a case-insensitive volume `receipt.pdf` standing in the target takes `Receipt.PDF`'s
-    /// name, so the apply lands it under a unique one; read by exact case, the plan promised it
-    /// no clash. A name no file in the target wears, in any case, still clashes with nothing.
+    /// The same for files: names that differ only by case clash, at both levels a merge writes. On
+    /// a case-insensitive volume `receipt.pdf` standing in the target takes `Receipt.PDF`'s name,
+    /// so the apply lands it under a unique one and the plan must predict the clash. A name no file
+    /// in the target wears, in any case, still clashes with nothing.
     @Test func caseVariantFileNamesArePlannedAsCollisions() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -550,13 +547,10 @@ private struct FakeTree {
                 "shallowest only, sorted; a rename drains nothing — it carries")
     }
 
-    /// **The shallowest-only rule, over the shapes the O(n²) filter it replaced could get wrong.**
-    ///
-    /// The old filter compared every drained folder against every other with `hasPrefix`; this
-    /// walks each path's own ancestors instead. Same answers, and these are the cases where a
-    /// careless rewrite differs: a sibling whose NAME is a prefix of another's (`F/Small2` is not
-    /// under `F/Small`), a grandchild whose parent is drained but whose grandparent is not, and a
-    /// chain three deep where only the top survives.
+    /// The shallowest-only rule, which walks each path's own ancestors, over the shapes a careless
+    /// version gets wrong: a sibling whose name is a prefix of another's (`F/Small2` is not under
+    /// `F/Small`), a grandchild whose parent is drained but whose grandparent is not, and a chain
+    /// three deep where only the top survives.
     @Test func emptiedFoldersDropsOnlyGenuineDescendants() {
         func drained(_ sources: [String]) -> [String] {
             RestructureLedger.emptiedFolders(of: RestructureManifest(
@@ -574,12 +568,11 @@ private struct FakeTree {
 
     // MARK: - Parallel families (§5.4 step 2's pointer)
 
-    /// The 6 Aug case itself: H-4's mapping vocabulary is shared by H-1B, and the sheet must say
-    /// so — fixing one family alone leaves the parallel one disagreeing. At the default bar of
-    /// three shared names, H-4 EAD and I-140 (two names each, `Application`/`Approval` and
-    /// `Petition`/`Approval`) sit BELOW it deliberately: two generic role names recur correctly
-    /// all over a filed tree, and a pointer that fires everywhere is one nobody reads. The bar is
-    /// a first guess to revisit with real use, which is why it is a parameter.
+    /// The 6 Aug case itself: H-4's mapping vocabulary is shared by H-1B, and the sheet must say so,
+    /// or fixing one family leaves the parallel one disagreeing. At the default bar of three shared
+    /// names, H-4 EAD and I-140 (two names each, `Application`/`Approval` and `Petition`/`Approval`)
+    /// sit below it on purpose: two generic role names recur all over a filed tree, and a pointer
+    /// that fires everywhere is one nobody reads. The bar is a parameter, to revisit with real use.
     @Test func parallelFamiliesNamesTheSiblingSharingTheVocabulary() throws {
         let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
                                                  withExtension: "json", subdirectory: "Fixtures"))
@@ -601,8 +594,8 @@ private struct FakeTree {
 
     // MARK: - The editor's row list
 
-    /// One row per distinct source name across every member — 24 on the flagship family's 17
-    /// members, the number §5.4 sizes the editor by, pinned against the in-repo fixture.
+    /// One row per distinct source name across every member: 24 on the flagship family's 17
+    /// members, the number the editor is sized by, pinned against the in-repo fixture.
     @Test func theFlagshipFamilyHasTwentyFourDistinctChildNames() throws {
         let url = try #require(Bundle.module.url(forResource: "restructure-flagship",
                                                  withExtension: "json", subdirectory: "Fixtures"))
@@ -622,12 +615,11 @@ private struct FakeTree {
 
     // MARK: - The target as the plan itself fills it
 
-    /// A merge source's derivation must see what the group's own earlier actions put at the
-    /// target. Here the target is CREATED by the chosen rename, whose payload includes a
-    /// `Receipts/` subfolder and a `same.pdf` — plan-time reads of the absent target saw
-    /// neither, so the plan emitted a whole-folder `move-dir` for the sibling's `Receipts/`
-    /// (which could only skip at apply as "appeared since the plan") and promised `same.pdf`
-    /// collision-free.
+    /// A merge source's derivation must see what the group's own earlier actions put at the target.
+    /// Here the target is created by the chosen rename, whose payload includes a `Receipts/`
+    /// subfolder and a `same.pdf`. Reading the absent target at plan time would emit a whole-folder
+    /// `move-dir` for the sibling's `Receipts/` (which could only skip at apply) and promise
+    /// `same.pdf` collision-free.
     @Test func aRenameCreatedTargetsPayloadCountsAsLanded() throws {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -658,7 +650,7 @@ private struct FakeTree {
     }
 
     /// Two merge sources sharing a subfolder name the standing target lacks: the first carries
-    /// it whole, and the SECOND must merge into what the first landed — a second `move-dir` to
+    /// it whole, and the second must merge into what the first landed: a second `move-dir` to
     /// the same destination could only skip at apply.
     @Test func twoSourcesSharingASubfolderLandOnceThenMergeInto() throws {
         let tree = FakeTree(files: [
@@ -689,9 +681,9 @@ private struct FakeTree {
                 "Alpha's landing already put an a.pdf there — the second source sees it")
     }
 
-    /// A mapping that lists one source twice is refused, never trapped on —
-    /// `Dictionary(uniqueKeysWithValues:)` used to fatalError here, and `RestructureMapping`
-    /// is public input that nothing forces to be unique.
+    /// A mapping that lists one source twice is refused, never trapped on:
+    /// `Dictionary(uniqueKeysWithValues:)` would fatalError, and `RestructureMapping` is public
+    /// input that nothing forces to be unique.
     @Test func aDuplicateMappingRowRefusesInsteadOfTrapping() {
         let tree = FakeTree(files: ["F": [], "F/2016": [], "F/2016/A": ["a.pdf"]])
         let result = RestructurePlanner.manifest(
@@ -706,7 +698,7 @@ private struct FakeTree {
         }
     }
 
-    /// A path-shaped target refuses at derivation — targets land as SIBLINGS inside the member,
+    /// A path-shaped target refuses at derivation: targets land as siblings inside the member,
     /// and the apply's `absolute()` is a bare append with no boundary math, so `Tax/2024` or
     /// `../Shared` would aim a rename outside the family (or outside the profile root
     /// entirely). The sheet's custom-name field and the refine parser share the same rule at
@@ -740,11 +732,10 @@ private struct FakeTree {
         #expect(!RestructurePlanner.isValidTargetName("a:b"))
     }
 
-    /// The unresolvable-order refusal, DERIVED rather than hand-built: a vacancy ring through
-    /// a multi-source group (`A → B`, `B → A`, plus `C → B`) cannot be broken by the temp-name
-    /// step — that break is only sound for pure renames — so the derivation refuses. The only
-    /// prior coverage rendered the refusal's SENTENCE from a hand-constructed value; nothing
-    /// proved the planner can produce it.
+    /// The unresolvable-order refusal, derived rather than hand-built: a vacancy ring through a
+    /// multi-source group (`A → B`, `B → A`, plus `C → B`) can't be broken by the temp-name step,
+    /// which is only sound for pure renames, so the derivation refuses. This proves the planner can
+    /// produce it, not just that the sentence renders.
     @Test func aRingThroughAMultiSourceGroupRefusesAsUnresolvable() {
         let tree = FakeTree(files: [
             "F": [], "F/2016": [],
@@ -763,10 +754,10 @@ private struct FakeTree {
         }
     }
 
-    /// A target whose name a FILE wears in the member refuses — the occupancy model was
-    /// folder-only, so `Federal Tax → Forms` beside a stray FILE named `Forms` derived a
-    /// rename the apply then skipped as "appeared since the plan": false drift evidence for a
-    /// clash that stood at plan time, and every merge into the group failed behind it.
+    /// A target whose name a file wears in the member refuses. A folder-only occupancy model would
+    /// derive `Federal Tax → Forms` beside a stray file named `Forms`, which the apply skips as
+    /// "appeared since the plan" (false drift for a clash that stood at plan time), failing every
+    /// merge into the group behind it.
     @Test func aTargetWornByAFileRefuses() {
         let tree = FakeTree(files: [
             "F": [], "F/2016": ["Forms"],
@@ -783,7 +774,7 @@ private struct FakeTree {
         }
     }
 
-    /// A FILE in the target wearing a source subfolder's name: the merge keeps and reports
+    /// A file in the target wearing a source subfolder's name: the merge keeps and reports
     /// instead of planning a whole-carry that could never land — `subfolderOrigins` is
     /// folder-shaped and could not see the file.
     @Test func aFileWearingACarriedSubfoldersNameKeepsInsteadOfCarrying() throws {
@@ -822,7 +813,7 @@ private struct FakeTree {
         #expect(manifest.actions.count == 3)
     }
 
-    /// A standing target that an EARLIER group drains must be read as the drain left it, not
+    /// A standing target that an earlier group drains must be read as the drain left it, not
     /// as the plan-time disk: `X → T1` empties `X`, so `A → X` merges into an empty folder —
     /// no false collisions against files that just left, and a subfolder `X` carried whole to
     /// `T1` no longer occupies its name, so `A`'s same-named subfolder lands whole.
@@ -849,8 +840,8 @@ private struct FakeTree {
         }, "X/S was carried whole to T1/S, so A/S lands whole — a one-level merge into a gone folder could only skip")
     }
 
-    /// The half of the drain that LEAVES something: a subfolder merged one level down (because
-    /// the drain's own target already had it) leaves its SHELL at the source, which still
+    /// The half of the drain that leaves something: a subfolder merged one level down (because
+    /// the drain's own target already had it) leaves its shell at the source, which still
     /// occupies its name — a later arrival with the same name merges into the shell, against
     /// its post-drain (empty) contents.
     @Test func aMergedAwaySubfoldersShellStillOccupiesItsName() throws {
@@ -881,9 +872,8 @@ private struct FakeTree {
                 "the shell is empty — its s1.pdf left with the drain")
     }
 
-    /// `memoized()` reads each listing once, however often the derivation re-asks — the plan
-    /// sheet re-derives per keystroke, and a disk-backed view re-listed every directory each
-    /// time.
+    /// `memoized()` reads each listing once, however often the derivation re-asks: the plan sheet
+    /// re-derives per keystroke, and a disk-backed view would re-list every directory each time.
     @Test func aMemoizedViewReadsEachListingOnce() {
         var reads = 0
         let counting = RestructureTreeView(
@@ -897,9 +887,9 @@ private struct FakeTree {
         #expect(reads == 3, "one read per closure per path, not per call")
     }
 
-    /// A view that can answer both halves of a directory at once is memoized as ONE listing, not
-    /// three — the sheet asks a mapped source for its folders, its files and its count, and three
-    /// per-closure caches meant three reads of the same directory.
+    /// A view that can answer both halves of a directory at once is memoized as one listing, not
+    /// three: the sheet asks a mapped source for its folders, its files and its count, and three
+    /// per-closure caches would mean three reads of the same directory.
     @Test func aListingBackedMemoizedViewReadsEachDirectoryOnce() {
         var reads = 0
         let counting = RestructureTreeView(listing: { _ in
@@ -945,9 +935,8 @@ private struct FakeTree {
         return root
     }
 
-    /// **The listing splits folders from files the way the per-entry `fileExists` probe did.**
-    /// The probe is gone — directory-ness now comes out of the bulk enumeration's prefetched
-    /// `.isDirectoryKey` — and this is what pins the two answers as the same one.
+    /// The listing splits folders from files, by the bulk enumeration's prefetched
+    /// `.isDirectoryKey` rather than a per-entry `fileExists` probe.
     @Test func theDiskViewSeparatesFoldersFromFiles() throws {
         let root = try Self.makeDiskTree(["F/a.pdf", "F/b.pdf", "F/Sub/c.pdf", "F/Empty/"])
         defer { try? FileManager.default.removeItem(at: root) }
@@ -960,9 +949,8 @@ private struct FakeTree {
         #expect(view.childFolders("Nope") == nil, "a path the view has never heard of is nil")
     }
 
-    /// Dotted names stay out, exactly as the old `!name.hasPrefix(".")` filter kept them out —
-    /// and `.skipsHiddenFiles`, which would ALSO drop an ordinary name carrying the hidden flag,
-    /// is deliberately not what the enumeration asks for.
+    /// Dotted names stay out, and nothing else does: the enumeration does not ask for
+    /// `.skipsHiddenFiles`, which would also drop an ordinary name carrying the hidden flag.
     @Test func theDiskViewSkipsDottedNamesAndNothingElse() throws {
         let root = try Self.makeDiskTree(["F/.DS_Store", "F/.git/config", "F/real.pdf",
                                           "F/Visible/"])
@@ -972,14 +960,13 @@ private struct FakeTree {
         #expect(view.childFolders("F") == ["Visible"])
     }
 
-    /// **Links are probed one by one, because the two APIs disagree about them.**
-    ///
-    /// Measured on this machine: `URL.resourceValues` does not follow a symbolic link, so a link
-    /// to a DIRECTORY reads `isDirectory == false` and a DANGLING link reads `false` rather than
-    /// throwing — while `fileExists(atPath:)` follows it. So a dangling link must still be asked
-    /// about, or it would be planned as a `move-file` for nothing. A link that resolves is listed
-    /// with the files even when it points at a folder: as a folder, a merge went one level down
-    /// THROUGH it and moved the target's files (FR2), where a `move-file` renames the link alone.
+    /// Links are probed one by one, because the two APIs disagree about them.
+    /// `URL.resourceValues` does not follow a symbolic link, so a link to a directory reads
+    /// `isDirectory == false` and a dangling link reads `false` rather than throwing, while
+    /// `fileExists(atPath:)` follows it. So a dangling link must still be asked about, or it would
+    /// be planned as a `move-file` for nothing. A link that resolves is listed with the files even
+    /// when it points at a folder: as a folder, a merge would go through it and move the target's
+    /// files, where a `move-file` renames the link alone.
     @Test func theDiskViewListsEveryLinkThatResolvesAsAnItem() throws {
         let root = try Self.makeDiskTree(["F/real.pdf", "F/Sub/inner.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1011,7 +998,7 @@ private struct FakeTree {
         #expect(view.files("F") == ["Return.pages"])
     }
 
-    /// Nothing INSIDE a package is a folder either (review R3): a plan through `Return.pages/Data`
+    /// Nothing inside a package is a folder either: a plan through `Return.pages/Data`
     /// would move a document's insides. The view lists no path below one — unknown, which the
     /// planner refuses on — while a plain folder beside it still lists.
     @Test func theDiskViewListsNothingInsideAPackage() throws {
@@ -1027,9 +1014,9 @@ private struct FakeTree {
         #expect(view.files("F/Plain/Sub") == ["b.pdf"])
     }
 
-    /// The names the enumeration reports are the names the old path-based listing reported —
-    /// byte for byte, decomposed spellings included. The two Foundation calls are different APIs
-    /// and a normalising difference between them would silently repoint every derived operation.
+    /// The names the enumeration reports match a path-based listing byte for byte, decomposed
+    /// spellings included. The two Foundation calls are different APIs, and a normalising
+    /// difference between them would silently repoint every derived operation.
     @Test func theDiskViewNamesMatchThePathBasedListing() throws {
         // A decomposed "é" (e + U+0301) beside a composed one, plus a space and a dash — the
         // spellings a filed tree actually carries.

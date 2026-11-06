@@ -16,19 +16,15 @@ import Testing
 
     // MARK: Bug: queued scan's results were discarded when drained on a cancelled task
 
-    /// The only production path that queues a pending scan: refresh A is mid-walk when refresh B
-    /// arrives; B cancels A's task, and B's scanDirectories sees `isScanning` and queues. A's
-    /// un-cancellable walk finishes and drains B's request — that drain must run B's scan on a
-    /// task that does NOT inherit A's cancellation, or B's fresh differences are silently dropped
-    /// and the list keeps showing the previous folder's rows.
+    /// Refresh A is mid-walk when refresh B arrives: B cancels A's task and queues, since A still
+    /// holds `isScanning`. A's walk drains B's request, and that drain must not inherit A's
+    /// cancellation, or B's differences are dropped and the list keeps the previous folder's rows.
     @MainActor
     @Test(.parksAThread) func testScanQueuedFromCancelledPredecessorStillPublishes() async throws {
         let mockFM = MockFileManager()
-        // A's walk parks here until released, so A holds the scanning slot while B arrives — the
-        // precondition this test is about. `enumeratorDelay = 0.15` made that likely, not certain:
-        // on a loaded full-package run (2026-09-26) the wait to SEE A's ~150ms window gave up after
-        // 50 polls without catching it, the way `BulkOperationsTests.testLatestQueuedScanWins`
-        // failed on CI that day.
+        // A's walk parks here until released, so A holds the scanning slot while B arrives. A
+        // gate, not an enumerator delay: a delay only makes that window likely, and a loaded run
+        // can miss it.
         let gate = ParkGate()
         mockFM.enumeratorGate = gate
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/oldL"), withIntermediateDirectories: true)
@@ -84,14 +80,10 @@ import Testing
         }
     }
 
-    /// Wraps a mock disk with an enumerator that counts the entries it hands out and PARKS inside
-    /// the second one until the test lets go — so the test can cancel while the walk is certainly
-    /// mid-walk, and then count how far it read on.
-    ///
-    /// This replaced a per-entry sleep (100 entries × 40 ms) and a "cancel lands within 2 s"
-    /// budget, which a loaded run missed by 1.3 s and once by 8 s with nothing wrong
-    /// (`docs/flaky-tests.md`, "Tests racing a real-time window"). Entries are the unit the
-    /// cancellation check is written in — it runs once per entry — so they are what is counted.
+    /// Wraps a mock disk with an enumerator that counts the entries it hands out and parks inside
+    /// the second until the test lets go, so the test cancels while the walk is certainly mid-walk
+    /// and then counts how far it read on. Entries, not seconds, because the cancellation check runs
+    /// once per entry (`docs/flaky-tests.md`, "Tests racing a real-time window").
     private final class GatedWalkFileManager: FileManaging, @unchecked Sendable {
         private let inner: MockFileManager
         fileprivate let gate = ParkGate()
@@ -145,12 +137,9 @@ import Testing
         }
     }
 
-    /// Cancelling a running scan must propagate into the detached disk walks: the walk stops at its
-    /// next entry and the scan publishes nothing.
-    ///
-    /// The cancel lands while the walk is parked inside entry 2 of 100. The walk checks for
-    /// cancellation before it records each entry, so a cancel that reached it stops it right there,
-    /// with 2 handed out; one that did not reads on to 100.
+    /// Cancelling a running scan must reach the detached disk walks: the walk stops at its next
+    /// entry and the scan publishes nothing. The cancel lands while the walk is parked inside entry
+    /// 2 of 100, so a walk that saw it stops at 2 and one that didn't reads on to 100.
     @MainActor
     @Test(.parksAThread) func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
         let mockFM = MockFileManager()
@@ -182,16 +171,10 @@ import Testing
 
     // MARK: - The user's Cancel
 
-    /// `cancelScan()` cancels the in-flight refresh task — the link that turns a button press into
-    /// a stopped scan.
-    ///
-    /// Driven against the task handle rather than a slow filesystem on purpose. The end of that
-    /// chain — a cancelled task aborts the disk walk and publishes nothing — is already held
-    /// deterministically by `testCancellingScanAbortsTheDiskWalkPromptly` above; an end-to-end
-    /// version here would have to make a whole `refreshTreesAndScan` slow, and the only lever for
-    /// that (a sleeping enumerator, which this file used to carry) sleeps on whatever thread the
-    /// enumerator runs on, which starves the very main actor a test has to poll from. The first cut
-    /// did exactly that and never observed `isScanning` at all.
+    /// `cancelScan()` cancels the in-flight refresh task, the link from the button to a stopped
+    /// scan. Driven against the task handle, not a slow filesystem: the rest of the chain is held by
+    /// `testCancellingScanAbortsTheDiskWalkPromptly`, and a sleeping enumerator would starve the
+    /// main actor this test has to poll from.
     @MainActor
     @Test func testCancelScanCancelsTheInFlightRefreshTask() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -205,10 +188,9 @@ import Testing
         await refresh.value   // returns promptly precisely because the sleep was cancelled
     }
 
-    /// The negative control for the test above, and the guard's real job: `activeRefreshTask` is
-    /// never nilled out — only overwritten — so a completed refresh leaves a finished handle
-    /// sitting there, and a `cancelScan` written against the handle alone would "cancel" long
-    /// after the last scan ended. Liveness is the KEY (or a running scan), not the handle.
+    /// The negative control for the test above: `activeRefreshTask` is only ever overwritten, never
+    /// nilled, so a finished refresh leaves a stale handle. Liveness is the key (or a running scan),
+    /// not the handle, or `cancelScan` would act long after the last scan ended.
     @MainActor
     @Test func testCancelScanLeavesAFinishedRefreshAlone() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -224,14 +206,10 @@ import Testing
         await refresh.value
     }
 
-    /// A DRAINED scan — one queued behind a superseded scan and run afterwards — is the single
-    /// path that reaches `executeScan` outside a refresh task. Its refresh has already finished
-    /// and released the key, so `activeRefreshTask` is stale and cancelling it does nothing; the
-    /// Stop button, which shows for as long as `isScanning`, would be dead for that whole scan.
-    ///
-    /// Both facts are asserted, because either alone passes for the wrong reason: the guard has to
-    /// admit this state (`isScanning` with no key), and the drain handle has to be the thing that
-    /// gets cancelled.
+    /// A drained scan (queued behind a superseded one, run afterwards) is the one path into
+    /// `executeScan` outside a refresh task. Its refresh has released the key, so cancelling
+    /// `activeRefreshTask` does nothing and Stop would be dead for that scan. Asserts both halves:
+    /// the guard admits `isScanning` with no key, and the drain handle is what gets cancelled.
     @MainActor
     @Test func testCancelScanReachesAScanDrainedOutsideARefresh() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -246,12 +224,9 @@ import Testing
         await drain.value
     }
 
-    /// Cancel must also drop a scan that is QUEUED but not started, or the drain at the end of
-    /// `executeScan` starts a fresh scan the instant the cancelled one unwinds — and Cancel looks
-    /// like it did nothing at all.
-    ///
-    /// Driven by writing `pendingScanRequest` directly, which is exactly what a superseding refresh
-    /// leaves behind, and pins the rule without a second timing-dependent fixture.
+    /// Cancel must also drop a queued scan that hasn't started, or the drain at the end of
+    /// `executeScan` starts it the instant the cancelled one unwinds and Cancel looks dead. Writes
+    /// `pendingScanRequest` directly, as a superseding refresh leaves it, to avoid a timing fixture.
     @MainActor
     @Test func testCancelScanDropsAQueuedScan() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())

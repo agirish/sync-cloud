@@ -1,16 +1,14 @@
 import Events
 import Foundation
 
-// Surveys by source (GK–GN, 2026-10-31): iCloud's survey is the primary one; a source whose folders
-// are mostly iCloud's (Dropbox, OneDrive) borrows it; one laid out differently (Google Drive) can
-// learn its own from its folder names, on demand. See `FilingSurveyInUse` for the rule.
+// Surveys by source: iCloud's survey is the primary one; a source whose folders are mostly
+// iCloud's (Dropbox, OneDrive) borrows it; one laid out differently (Google Drive) can learn its own
+// from its folder names, on demand. See `FilingSurveyInUse` for the rule.
 extension FileSyncManager {
 
-    /// The profile To File places files with for the tree the last scan filed into.
-    ///
-    /// The active profile for iCloud and every source that borrows it — exactly what every scan
-    /// used before surveys by source; the source's own for `.own`; none for `.byName`. Before the
-    /// first scan, the active profile.
+    /// The profile To File places files with for the tree the last scan filed into: the active
+    /// profile for iCloud and every source that borrows it, the source's own for `.own`, none for
+    /// `.byName`. Before the first scan, the active profile.
     var filingRoutingProfile: FolderProfile? {
         guard let use = filingSurveyInUse else { return filingFolderProfile }
         switch use.kind {
@@ -31,12 +29,10 @@ extension FileSyncManager {
         }
     }
 
-    /// The fingerprint cached verdicts are keyed with for the tree the last scan filed into.
-    ///
-    /// **A source's own survey is part of the question**, so it is part of the key: a verdict
-    /// composed against Google Drive's survey before its documents were read must not be replayed
-    /// after. The primary fingerprint stays in it too, since that is where the household lives.
-    /// Nil — cache off — when either half is unreadable.
+    /// The fingerprint cached verdicts are keyed with for the tree the last scan filed into. A
+    /// source's own survey is part of the key, so a verdict made before its documents were read
+    /// isn't replayed after. The primary fingerprint stays in it, since the household lives there.
+    /// Nil (cache off) when either half is unreadable.
     var filingRoutingFingerprint: String? {
         guard let use = filingSurveyInUse, use.kind == .own, let id = use.ownProfileId else {
             return filingArtifactFingerprint
@@ -158,8 +154,8 @@ extension FileSyncManager {
         }
     }
 
-    /// Learns `root`'s folders as the source's own survey (GL): names and layout only — no document
-    /// is opened, so nothing in the cloud downloads. Replaces an earlier survey of the same tree
+    /// Learns `root`'s folders as the source's own survey: names and layout only. No document is
+    /// opened, so nothing in the cloud downloads. Replaces an earlier survey of the same tree
     /// (Learn Its Folders Again), which goes to the Trash once the new one is written, and chooses
     /// it for the source — so learning Dropbox's own folders uses them though Dropbox matches iCloud.
     ///
@@ -206,7 +202,7 @@ extension FileSyncManager {
         let previousId = SourceSurveyStore.entry(forRoot: root, in: directory)?.profileId
         do {
             try FilingProfileStore.writeSourceProfile(profile, in: directory, now: now)
-            // GP, 2026-10-31: learning the folders again keeps what reading the documents learned.
+            // Learning the folders again keeps what reading the documents learned.
             let carried = previousId.map { carryDocumentReading(from: $0, to: profile, in: directory, now: now) } ?? false
             try SourceSurveyStore.update(root: root, in: directory) {
                 $0.profileId = id
@@ -300,8 +296,8 @@ extension FileSyncManager {
                                  ownDocumentsRead: ownId == nil ? nil : entry?.documentsRead)
     }
 
-    /// The survey Ask Claude answers from for a file at `path` (GM: it follows the source) — the
-    /// own survey of the source holding it, when that source uses one, else the primary survey.
+    /// The survey Ask Claude answers from for a file at `path`: the own survey of the source
+    /// holding it, when that source uses one, else the primary survey.
     func filingHelpSurvey(for path: String) -> (profile: FolderProfile, memory: FilingMemory?, root: String, surveyedAt: Date?)? {
         if let directory = filingProfilesDirectory {
             let holding = SourceSurveyStore.entries(in: directory)
@@ -385,7 +381,7 @@ extension FileSyncManager {
     }
 
     /// Copies a source survey's reading — its corpus and memory — to the survey learned to replace
-    /// it, before the old one goes to the Trash (GP). The memory keeps only folders the new survey
+    /// it, before the old one goes to the Trash. The memory keeps only folders the new survey
     /// still has: a folder that is gone has nothing left to place files in. False when there was
     /// nothing read to carry, or it could not be carried.
     func carryDocumentReading(from oldId: String, to profile: FolderProfile, in directory: URL, now: Date) -> Bool {
@@ -410,7 +406,7 @@ extension FileSyncManager {
         return true
     }
 
-    /// Downloads a cloud-only document and waits, bounded, for its content to land (GL). Returns
+    /// Downloads a cloud-only document and waits, bounded, for its content to land. Returns
     /// at once for a provider that refuses; the reading then counts the document unavailable.
     nonisolated static func fetchCloudOnly(_ path: String, deadline: Duration = .seconds(120),
                                            pollEvery: Duration = .milliseconds(250)) async {

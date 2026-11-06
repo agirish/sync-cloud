@@ -25,8 +25,8 @@ import Foundation
         
         await manager.copyItems(nodes: selection, fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
-        // Assert that the copy was performed, and specifically check if pruneNestedNodes worked
-        // If pruning failed, we might have seen redundant copies or errors (though copyItem would throw if dst exists)
+        // The copy landed with no error: without `pruneNestedNodes` the nested file would be
+        // copied twice, and the second copy could fail on the first.
         #expect(mockFM.virtualDisk["/dst/folder/file.txt"] != nil)
         #expect(manager.currentError == nil)
     }
@@ -53,10 +53,9 @@ import Foundation
         #expect(mockFM.trashedPaths.first?.hasSuffix("/parent") == true)
     }
 
-    /// Pins `deleteItems`' return contract: the count of items actually removed, with a pruned
-    /// nested family counting once via its ancestor — callers (the Duplicates resolve, banners) compare
-    /// it against what they asked for to tell partial success from full, so a child double-count
-    /// would make a partial batch read as complete.
+    /// `deleteItems` returns the count actually removed, a pruned nested family counting once via
+    /// its ancestor. Callers compare it with what they asked for to tell partial success from full,
+    /// so double-counting a child would make a partial batch read as complete.
     @MainActor
     @Test func testDeleteItemsCountsAPrunedFamilyOnce() async throws {
         let manager = FileSyncManager()
@@ -167,12 +166,10 @@ import Foundation
         #expect(attrs[.creationDate] as? Date == Date.distantPast)
     }
 
-    /// Two items in one bulk run must never resolve to the SAME destination. A keep-both
-    /// uniquified name ("report 2.txt") can coincide with a DIFFERENT item's real target that the
-    /// up-front batch stat saw as missing — `syncAll` resolves every target before the parallel
-    /// (concurrency-4) copy phase, so a disk-only `generateUniqueURL` can't see the other pending
-    /// target. Both would then write the same path and one worker overwrites the other's file:
-    /// silent data loss. Every distinct source must survive under a distinct destination.
+    /// Two items in one bulk run never resolve to the same destination. `syncAll` resolves every
+    /// target before its parallel copy phase, so a keep-both name ("report 2.txt") found free on
+    /// disk can be another item's pending target, and one worker would overwrite the other's file:
+    /// silent data loss. Every distinct source must land at a distinct destination.
     @MainActor
     @Test func testSyncAllKeepBothDoesNotCollideWithAnotherBatchTarget() async throws {
         let mockFM = MockFileManager()
@@ -183,8 +180,8 @@ import Foundation
         // "report.txt" collides with an existing dst file → keep-both wants "report 2.txt".
         mockFM.virtualDisk["/src/report.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 100], contents: nil)
         mockFM.virtualDisk["/dst/report.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5], contents: nil)
-        // A DIFFERENT source literally named "report 2.txt", missing on dst → its plain target is
-        // exactly the name keep-both wants for the first item.
+        // A different source named "report 2.txt", missing on dst: its target is the name keep-both
+        // wants for the first item.
         mockFM.virtualDisk["/src/report 2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 200], contents: nil)
 
         manager.bulkCollisionResolver = { _ in (.keepBoth, true) }
@@ -196,8 +193,8 @@ import Foundation
 
         await manager.syncAll(direction: .copyToRight)
 
-        // Exactly three files in /dst carrying all three distinct payloads — nothing overwritten.
-        // Asserted by size (not name) so the exact keep-both suffix doesn't matter.
+        // Three files in /dst with all three payloads, nothing overwritten. By size, not name, so
+        // the keep-both suffix doesn't matter.
         let dstSizes = mockFM.virtualDisk
             .filter { $0.key.hasPrefix("/dst/") }
             .compactMap { $0.value.attributes?[.size] as? Int }
@@ -234,11 +231,9 @@ import Foundation
     @MainActor
     @Test(.parksAThread) func testLatestQueuedScanWins() async throws {
         let mockFM = MockFileManager()
-        // The first scan's walk parks here until released, so it holds the scan slot for as long
-        // as the test needs — a state, where `enumeratorDelay` gave only a window. Waiting to SEE
-        // that window lost the race on a loaded run (CI 36242263462, 2026-09-26): 243 polls and
-        // never one inside the first scan's ~50ms, so the second request found the slot free and
-        // ran inline, and the queue this test is named for went unexercised.
+        // The first scan's walk parks here until released, so it holds the scan slot as long as
+        // the test needs. A delay gives only a window, which a loaded run can miss, and then the
+        // second request runs inline and the queue goes unexercised.
         let gate = ParkGate()
         mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
@@ -256,20 +251,15 @@ import Foundation
             await manager.scanDirectories(left: source, leftPath: "/src1", right: destination, rightPath: "/dst1")
         }
 
-        // The test's whole premise is that the second request arrives while the first scan holds
-        // the slot, so it is QUEUED rather than run. `executeScan` sets `isScanning` synchronously
-        // on entry, before the walk now parked at the gate, so the precondition is a fact here and
-        // is asserted rather than waited for. The flat 10ms this once slept only guessed at it, and
-        // losing that guess did not fail the test: the two scans ran in sequence and every
-        // assertion below still held, with the queue never exercised at all.
+        // The second request must arrive while the first scan holds the slot. `executeScan` sets
+        // `isScanning` synchronously, before the walk parked at the gate, so this is asserted, not
+        // waited for. Without it the scans could run in sequence and every assertion still pass.
         await awaitSignal(gate.entered, "the first scan never reached its walk — nothing held the slot")
         #expect(manager.isScanning, "the first scan is parked in its walk but does not hold the scan slot")
 
-        // Queued, not run — `runOrQueueScan` takes its queue branch and returns without scanning,
-        // so this call needs no Task of its own and the pending request is observable right after
-        // it. Asserting that is the point: if the slot had somehow been free, this scan would have
-        // run inline and the test would be pinning sequential scans under a name that promises
-        // queued ones.
+        // Queued, not run: `runOrQueueScan` returns without scanning, so no Task is needed and the
+        // pending request is visible at once. Asserted so a free slot can't turn this into a test
+        // of sequential scans.
         await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
         #expect(manager.pendingScanRequest != nil, "the second request must queue behind the in-flight scan")
 
@@ -277,11 +267,9 @@ import Foundation
         await firstScan.value
         try #require(!gate.releasedByTimeout, "the gate timed out: the first scan was never actually held in flight")
 
-        // The queued scan is drained on a fresh task (so it can't inherit a superseded scan's
-        // cancellation); wait for it to settle rather than piggybacking on the first task. All
-        // three clauses are the gate — the drained scan is only finished once nothing is left
-        // pending, and the hand-rolled loop this replaces dropped that clause on timeout because
-        // only the first two were re-asserted afterwards.
+        // The queued scan drains on a fresh task (so it can't inherit a superseded scan's
+        // cancellation), so wait for it to settle. All three clauses count: the drained scan is
+        // done only once nothing is left pending.
         await waitUntil("the drained scan settles") {
             manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil
         }
@@ -313,8 +301,7 @@ import Foundation
             // Expected
         }
         
-        // Rollback check: Dest should be restored securely
-        // My toughened logic ensures destination is removed before restoration
+        // Rollback: the destination is restored and the source is left in place.
         #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
     }
@@ -337,7 +324,7 @@ import Foundation
         
         try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
         
-        // Verify source is GONE (Directly removed because trash failed)
+        // The source is gone: removed directly, since the Trash failed.
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
         // Verify destination exists
         #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)

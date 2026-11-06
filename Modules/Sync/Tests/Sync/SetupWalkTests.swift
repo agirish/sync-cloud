@@ -2,14 +2,11 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// One read of a tree, and everything the setup sheet asks of it.
-///
-/// The sheet asks five questions off one walk, so the arithmetic behind them — how many folders,
-/// how many files, which files are loose, how many documents a survey would read — has to agree
-/// with what the profile and the document survey will do with the same tree. These pin that
-/// agreement on fixtures; the guards at the top of ``FileSyncManager/walkForSetup(root:known:)``
-/// are pinned against a real directory, because what they are guarding against is a filesystem
-/// answering unhelpfully.
+/// One read of a tree, and everything the setup sheet asks of it. The sheet's counts (folders,
+/// files, loose files, documents a survey would read) must agree with what the profile and the
+/// document survey do with the same tree; these pin that on fixtures. The guards at the top of
+/// ``FileSyncManager/walkForSetup(root:known:)`` are pinned against a real directory, since what
+/// they guard against is a filesystem answering unhelpfully.
 @MainActor
 @Suite struct SetupWalkTests {
 
@@ -43,8 +40,8 @@ import Testing
 
     // MARK: - The counts
 
-    /// Folders are counted everywhere below the root, files everywhere too — the two numbers the
-    /// Structure screen puts in front of the user before anything is written.
+    /// Folders and files are counted everywhere below the root: the two numbers the Structure
+    /// screen shows before anything is written.
     @Test func foldersAndFilesAreCountedThroughTheWholeTree() {
         let walk = Self.summary(folders: ["Finance/Receipts", "Finance/Statements", "Family/Mother"],
                                 files: ["loose.pdf", "Finance/Receipts/a.pdf",
@@ -53,11 +50,9 @@ import Testing
         #expect(walk.fileCount == 3)
     }
 
-    /// The counting is the survey's, not a second opinion about it.
-    ///
-    /// Dot-directories, symlinks and unexplored subtrees get no profile entry, so counting them
-    /// here would promise the user folders the profile will not describe — the same divergence
-    /// ``FolderSurveyBuilder/isSurveyedFolder(_:)`` was made public to stop.
+    /// The counting is the survey's, not a second opinion. Dot-directories, symlinks and unexplored
+    /// subtrees get no profile entry, so counting them would promise folders the profile won't
+    /// describe (the reason ``FolderSurveyBuilder/isSurveyedFolder(_:)`` is public).
     @Test func whatTheSurveyWillNotDescribeIsNotCounted() {
         let tree = [
             FileNode(id: "/root/Finance", name: "Finance", isDirectory: true, children: []),
@@ -75,14 +70,14 @@ import Testing
     // MARK: - Loose files
 
     /// Loose means depth 0. A file inside a folder already has a home; the Structure screen offers
-    /// to route only the ones that do not.
+    /// to route only the ones that don't.
     @Test func looseFilesAreTheRootsOwnFilesOnly() {
         let walk = Self.summary(folders: ["Finance"],
                                 files: ["statement.pdf", "notes.txt", "Finance/filed.pdf"])
         #expect(walk.looseFileNames == ["notes.txt", "statement.pdf"], "sorted, and depth 0 only")
     }
 
-    /// `.DS_Store` is Finder's bookkeeping, and offering to file it would be the app inventing work.
+    /// `.DS_Store` is Finder's bookkeeping; offering to file it would invent work.
     @Test func dotFilesAreNotLoose() {
         let walk = Self.summary(folders: [], files: [".DS_Store", "real.pdf"])
         #expect(walk.looseFileNames == ["real.pdf"])
@@ -108,8 +103,8 @@ import Testing
 
     // MARK: - The proposals
 
-    /// Both proposers read the same tree, so People and Countries can never be shown lists drawn
-    /// from two different reads of a folder that moved between them.
+    /// Both proposers read the same tree, so People and Countries can't show lists drawn from two
+    /// reads of a folder that moved in between.
     @Test func bothProposalsComeFromTheOneTree() {
         let walk = Self.summary(folders: ["Family/Mother", "Family/Father",
                                           "Finance/US/Tax", "Legal/US", "School/US",
@@ -128,10 +123,8 @@ import Testing
 
     // MARK: - The preview
 
-    /// The preview is the profile, minus the writing.
-    ///
-    /// If these two could disagree, the Structure screen would be describing a tree the Save button
-    /// then files differently — and the user would have approved something else.
+    /// The preview is the profile, minus the writing. If the two could disagree, the Structure
+    /// screen would describe a tree that Save then files differently.
     @Test func thePreviewSaysWhatTheWrittenProfileSays() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -162,11 +155,9 @@ import Testing
         }
     }
 
-    /// A preview writes nothing — not a directory, not an index entry.
-    ///
-    /// The Back button on Structure rebuilds the preview every time; a preview that minted a
-    /// profile would leave one directory per press behind, and `writeProfile` refuses over an id
-    /// that already exists.
+    /// A preview writes nothing, not a directory, not an index entry. Back on Structure rebuilds the
+    /// preview each time; a preview that made a profile would leave a directory per press, and
+    /// `writeProfile` refuses over an id that already exists.
     @Test func aPreviewLeavesNothingOnDisk() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -182,8 +173,7 @@ import Testing
 
     // MARK: - The guards
 
-    /// Nowhere to write means the user finds out on the screen that offered to read, not four
-    /// screens later with a sheet full of answers behind them.
+    /// Nowhere to write is reported on the screen that offered to read, not four screens later.
     @Test func noProfilesDirectoryFailsBeforeTouchingTheDisk() async throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -191,8 +181,8 @@ import Testing
         #expect(Self.failure(result) == .noProfilesDirectory)
     }
 
-    /// A path that is not there reads as one folder to `buildTree`, so it is asked of the
-    /// filesystem instead — the same reasoning `deriveFolderProfile` records.
+    /// A missing path reads as one folder to `buildTree`, so the filesystem is asked instead, as in
+    /// `deriveFolderProfile`.
     @Test func aMissingRootIsUnreadableRatherThanAOneFolderTree() async throws {
         let profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: profiles) }
@@ -202,8 +192,8 @@ import Testing
         #expect(Self.failure(result) == .rootUnreadable(missing.path))
     }
 
-    /// A readable folder with no folders under it cannot make a profile worth writing, and the
-    /// place to say so is Learn — where the user can pick another folder.
+    /// A readable folder with no folders under it can't make a profile worth writing, and the place
+    /// to say so is Learn, where the user can pick another folder.
     @Test func aFolderWithNoFoldersFailsAtLearnNotAtSave() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
@@ -212,7 +202,7 @@ import Testing
         #expect(Self.failure(result) == .nothingToLearn(root.path))
     }
 
-    /// The whole point, end to end: one call, and every list the sheet needs comes back with it.
+    /// End to end: one call returns every list the sheet needs.
     @Test func oneWalkAnswersEveryScreen() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }

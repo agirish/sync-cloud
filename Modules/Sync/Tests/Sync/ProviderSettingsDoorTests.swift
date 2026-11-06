@@ -2,10 +2,9 @@ import Foundation
 import Testing
 import Sync
 
-/// **The door table** — where each vendor's own settings actually are, and which vendors have no
-/// reachable settings at all. Every value here was measured on a live machine on 2026-08-31 (see
-/// `settingsDoor`'s doc for the census); the tests pin the literals so a well-meant edit cannot
-/// quietly swap a verified door for a plausible one.
+/// The door table: where each vendor's own settings are, and which vendors have none reachable
+/// (see ``CloudProvider/SettingsDoor``). Each value was verified on a live machine, so the literals
+/// are pinned against a well-meant swap for a plausible but unverified door.
 @Suite struct ProviderSettingsDoorTests {
 
     private func provider(id: String = "X", type: CloudProvider.ProviderType) -> CloudProvider {
@@ -22,8 +21,8 @@ import Sync
         }
     }
 
-    /// iCloud is the one vendor with a native settings pane, and the URL is the documented
-    /// System Settings deep link — verified to open System Settings on 2026-08-31.
+    /// iCloud is the one vendor with a native settings pane, opened by the documented System
+    /// Settings deep link.
     @Test func iCloudOpensTheSystemSettingsPane() {
         #expect(provider(type: .iCloud).settingsDoor == .systemSettings(
             URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings?iCloud")!))
@@ -36,12 +35,10 @@ import Sync
                 == .application(bundleIdentifier: "com.google.drivefs"))
     }
 
-    /// **OneDrive and Dropbox have no door, deliberately** (his direction, 2026-08-31: native
-    /// preferences or nothing). Everything programmatic was measured to fail — activation shows
-    /// no window, `odopen://settings`/`preferences`/`account` spawn only error windows,
-    /// `dropbox-client://` is inert — so the only honest offer is none. Giving either a door back
-    /// requires a new measurement showing a route to the vendor's own preferences window, not a
-    /// web page.
+    /// OneDrive and Dropbox have no door, by his choice: native preferences or nothing. Activation
+    /// shows no window, `odopen://settings`, `preferences` and `account` open only error windows,
+    /// and `dropbox-client://` is inert. A door needs a verified route to the vendor's own
+    /// preferences window, not a web page.
     @Test func oneDriveAndDropboxOfferNothing() {
         #expect(provider(id: "OneDrive-Personal", type: .oneDrive).settingsDoor == nil)
         #expect(provider(id: "OneDrive-AcmeCorporationWorldwide", type: .oneDrive).settingsDoor == nil)
@@ -53,8 +50,8 @@ import Sync
         #expect(provider(type: .localFolder).settingsDoorTitle == nil)
     }
 
-    /// Each title names its own vendor — the menu these feed lists up to eleven sources, and an
-    /// unnamed "Open Settings" would not say whose.
+    /// Each title names its own vendor: the menu lists up to eleven sources, and a bare "Open
+    /// Settings" wouldn't say whose.
     @Test func everyTitleNamesItsVendor() throws {
         let expectations: [(CloudProvider.ProviderType, String)] = [
             (.iCloud, "iCloud"), (.googleDrive, "Google Drive"),

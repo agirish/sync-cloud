@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Read Documents for a source's own survey (Google Drive): it reads into that survey and never the
-/// active profile, downloads what is cloud-only first (GL, GO), routes and answers with what it
-/// learned, and survives Learn Its Folders Again (GP).
+/// Read Documents for a source's own survey (Google Drive): it reads into that survey, never the
+/// active profile, downloads what is cloud-only first, routes and answers with what it learned, and
+/// survives Learn Its Folders Again.
 @Suite @MainActor struct SourceDocumentReadingTests {
 
     nonisolated private static let text = "chase bank statement account summary for the period ending march"
@@ -17,7 +17,7 @@ import Testing
         func note(_ p: String) { lock.withLock { _paths.append(p) } }
     }
 
-    /// Cloud-only until fetched — the one state a test cannot stage on disk.
+    /// Cloud-only until fetched: the one state a test can't stage on disk.
     final class Cloud: @unchecked Sendable {
         private let lock = NSLock()
         private var offline: Set<String>
@@ -80,7 +80,7 @@ import Testing
     // MARK: On the manager
 
     /// The reading lands in the source's own survey: its memory, its entry dated, To File and Ask
-    /// Claude using it — and the active profile's memory untouched.
+    /// Claude using it, and the active profile's memory untouched.
     @Test(.timeLimit(.minutes(1)))
     func readingASourceLearnsIntoItsOwnSurvey() async throws {
         let x = try await Self.learned()
@@ -142,7 +142,7 @@ import Testing
         #expect(await f.manager.planSourceDocumentSurvey(sourceRoot: f.google.path) == .failure(.noSourceSurvey))
     }
 
-    /// GP: learning the folders again keeps what was read — carried to the new survey, minus the
+    /// Learning the folders again keeps what was read, carried to the new survey, minus the
     /// folders that are gone.
     @Test(.timeLimit(.minutes(1)))
     func learningAgainKeepsWhatWasRead() async throws {
@@ -192,8 +192,8 @@ import Testing
     }
 
     /// The other way round: while its folders are learned again, a reading is neither planned nor
-    /// started — the learn trashes the survey it would read into — and a reading that finishes for
-    /// a survey the entry no longer names dates nothing.
+    /// started (the learn trashes the survey it would read into), and a reading that finishes for a
+    /// survey the entry no longer names dates nothing.
     @Test func aSourceBeingLearnedIsNotRead() async throws {
         let x = try await Self.learned()
         defer { try? FileManager.default.removeItem(at: x.f.base) }

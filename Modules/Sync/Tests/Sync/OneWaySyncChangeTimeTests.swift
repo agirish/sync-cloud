@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// ET: an edit that keeps a file's size and date is caught by its change time. The file's contents
-/// are then read and compared, with the recorded hash or Dropbox's copy as recorded; never for a
-/// file offloaded from this Mac, and never for one whose download state is all that changed.
+/// An edit that keeps a file's size and date is caught by its change time. The file's contents are
+/// then read and compared, with the recorded hash or Dropbox's copy as recorded; never for a file
+/// offloaded from this Mac, and never for one whose download state is all that changed.
 @Suite struct OneWaySyncChangeTimeTests {
     typealias Sync = OneWaySyncRunTests.Sync
     let run = OneWaySyncRunTests()

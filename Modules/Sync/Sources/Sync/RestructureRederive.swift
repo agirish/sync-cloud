@@ -1,12 +1,12 @@
 import Foundation
 
-/// §5.5 steps 6 and 7 as pure functions: the carry-over that makes a re-derived profile keep the
-/// old one's judgements, and the key replay that moves the corpus with the tree. The apply engine
+/// The pure halves of a re-derivation: the carry-over that keeps the old profile's judgements in
+/// the re-derived one, and the key replay that moves the corpus with the tree. The apply engine
 /// (`FileSyncManager+Restructure`) sequences these against the disk; nothing here touches it.
 public extension FolderProfile {
-    /// This profile with its provenance chain set — the one field
-    /// ``FolderSurveyBuilder/build(tree:root:profileId:registry:jurisdictionValues:)`` cannot
-    /// know, because only the apply knows what it replaced.
+    /// This profile with its provenance chain set: the one field
+    /// ``FolderSurveyBuilder/build(tree:root:profileId:registry:jurisdictionValues:)`` can't know,
+    /// because only the apply knows what it replaced.
     func settingDerivedFrom(_ id: String) -> FolderProfile {
         FolderProfile(profileId: profileId, root: root, folders: folders,
                       personTokens: personTokens, personAliases: personAliases,
@@ -19,7 +19,7 @@ public enum RestructureRederive {
 
     // MARK: - What the manifest moved
 
-    /// The directory-level mappings, in the order they ran — what folder keys re-prefix through.
+    /// The directory-level mappings, in the order they ran: what folder keys re-prefix through.
     /// `rename-dir` and `move-dir` both move a directory; nothing else does.
     public static func renameMap(of manifest: RestructureManifest) -> [(from: String, to: String)] {
         manifest.actions.compactMap { action in
@@ -29,9 +29,8 @@ public enum RestructureRederive {
         }
     }
 
-    /// The file-level mappings — where each moved file actually IS, which is `collidedInto` when
-    /// the landing had to pick a unique name (§5.4's collision fact, read here the same way the
-    /// inverse reads it).
+    /// The file-level mappings: where each moved file is now, which is `collidedInto` when the
+    /// landing had to pick a unique name (read the same way the inverse reads it).
     public static func fileMoves(of manifest: RestructureManifest) -> [(from: String, to: String)] {
         manifest.actions.compactMap { action in
             guard action.action == .moveFile, let src = action.src,
@@ -40,17 +39,13 @@ public enum RestructureRederive {
         }
     }
 
-    /// The rename list with each step's **child prefix built once**.
-    ///
-    /// `mapped` is asked about every folder in the profile (`carryOver`, 3,013 of them) and every
-    /// document in the corpus (`rekeyedCorpus`, ~9,000) — and it built `rename.from + "/"` inside
-    /// that loop, once per path per rename. On a landing with a dozen renames that is a hundred
-    /// thousand throwaway strings on the main actor, for a value that depends only on the rename.
-    /// Same rule, same order, same answers; the concatenation just moved out of the loop.
+    /// The rename list with each step's child prefix built once. `mapped` runs for every folder in
+    /// the profile and every document in the corpus, so building `rename.from + "/"` per call would
+    /// make throwaway strings by the hundred thousand on the main actor.
     struct RenameSteps {
-        /// `from`, its child prefix, and `to` — the child prefix is what says a path sits BENEATH
-        /// the renamed folder rather than merely sharing its name's letters (`A/BB` is not under
-        /// `A/B`), the same rule ``RestructureStore/rekey(renames:)`` documents.
+        /// `from`, its child prefix, and `to`. The prefix is what says a path sits beneath the
+        /// renamed folder rather than sharing its name's letters (`A/BB` is not under `A/B`), the
+        /// rule ``RestructureStore/rekey(renames:context:)`` documents.
         let steps: [(from: String, prefix: String, to: String)]
 
         init(_ renames: [(from: String, to: String)]) {
@@ -59,8 +54,8 @@ public enum RestructureRederive {
 
         var isEmpty: Bool { steps.isEmpty }
 
-        /// One path pushed through every step, in order — a later rename may legitimately act on
-        /// the product of an earlier one, which is why this is a fold and not a lookup.
+        /// One path pushed through every step, in order. A fold, not a lookup, because a later
+        /// rename may act on the product of an earlier one.
         func mapped(_ path: String) -> String {
             var current = path
             for step in steps {
@@ -74,12 +69,8 @@ public enum RestructureRederive {
         }
     }
 
-    /// One path pushed through the directory renames, in order — prefix-aware, and never touching
-    /// a sibling that merely shares a name prefix (`A/BB` is not under `A/B`), the same rule
-    /// ``RestructureStore/rekey(renames:)`` documents.
-    ///
-    /// The single-path spelling. A caller mapping MANY paths through the same renames builds a
-    /// ``RenameSteps`` once instead — this is that, for one path.
+    /// One path pushed through the directory renames, in order, by component prefix (`A/BB` is not
+    /// under `A/B`). For one path; a caller mapping many builds a ``RenameSteps`` once.
     public static func mapped(_ path: String, through renames: [(from: String, to: String)])
         -> String {
         RenameSteps(renames).mapped(path)
@@ -87,25 +78,18 @@ public enum RestructureRederive {
 
     // MARK: - Step 6: the carry-over
 
-    /// The freshly walked profile with the old one's judgements carried forward: for every path
-    /// that exists in both — directly, or through this manifest's renames — `acceptsNewFiles`,
-    /// `noIntakeReason` and `naming` are copied from the old entry.
-    ///
-    /// **Copied when the old entry actually holds one** (non-nil), and left as the walk found
-    /// them otherwise: the carry-over exists to preserve judgements a walk cannot see, not to
-    /// erase what the walk did see with an old silence. Measured on this machine (§5.5): 45 hand
-    /// refusals against the 39 inboxes the walk finds — six judgements that exist nowhere else —
-    /// and `naming` on 2,534 entries that the day the rename pass starts reading it must not be
-    /// the day it silently stopped existing.
+    /// The freshly walked profile with the old one's judgements carried forward: for every path in
+    /// both, directly or through this manifest's renames, `acceptsNewFiles`, `noIntakeReason` and
+    /// `naming` come from the old entry. Only when the old entry holds one (non-nil): the
+    /// carry-over keeps judgements a walk can't see, such as hand refusals, and must not erase what
+    /// the walk did see with an old silence.
     public static func carryOver(from old: FolderProfile, into fresh: FolderProfile,
                                  through manifest: RestructureManifest) -> FolderProfile {
         let renames = RenameSteps(renameMap(of: manifest))
         var folders = fresh.folders
-        // Two old paths can map onto one fresh path — a stale entry recorded at a rename's
-        // destination before that folder was hand-deleted, plus the renamed source itself. The
-        // winner is decided, not left to dictionary order: the entry that actually travelled
-        // through the manifest carries the judgements that belong at the destination; ties
-        // break lexicographically.
+        // Two old paths can map onto one fresh path: a stale entry at a rename's destination whose
+        // folder was hand-deleted, plus the renamed source itself. Decided, not left to dictionary
+        // order: the entry that travelled through the manifest wins, then the lexically smaller.
         var carrier: [String: String] = [:]
         for oldPath in old.folders.keys {
             let newPath = renames.mapped(oldPath)
@@ -144,19 +128,19 @@ public enum RestructureRederive {
                              undecodableFolders: fresh.undecodableFolders)
     }
 
-    /// The jurisdiction set a re-derivation walks with — **the distinct entry-level values, never
-    /// the header's list** (§5.5, decisions block): the header says `US, IN` while the entries
-    /// carry `Singapore` on 10 folders, and taking the header loses the tree an axis value.
+    /// The jurisdiction set a re-derivation walks with: the distinct entry-level values, never the
+    /// header's list. The header can say `US, IN` while entries carry `Singapore`, and taking the
+    /// header would lose that axis value.
     public static func entryJurisdictions(of profile: FolderProfile) -> Set<String> {
         Set(profile.folders.values.compactMap { $0.axes["jurisdiction"] })
     }
 
     // MARK: - Step 7: the key replay
 
-    /// The corpus with every key moved the way the manifest moved its file — a `rename-dir`
+    /// The corpus with every key moved the way the manifest moved its file: a `rename-dir`
     /// re-prefixes every key beneath it, a `move-file` re-keys one document, a merge re-keys each
-    /// file it moved. **The stamps do not move**: a file that only moved was not re-read, which is
-    /// the whole point of the replay (§5.5 step 7).
+    /// file it moved. The stamps don't move: a file that only moved wasn't re-read, which is the
+    /// point of the replay.
     public static func rekeyedCorpus(_ corpus: FilingCorpus,
                                      through manifest: RestructureManifest) -> FilingCorpus {
         let renames = RenameSteps(renameMap(of: manifest))
@@ -164,17 +148,14 @@ public enum RestructureRederive {
                                uniquingKeysWith: { _, second in second })
         var rekeyed: [String: FilingCorpusDocument] = [:]
         rekeyed.reserveCapacity(corpus.documents.count)
-        // Two passes so a collision between a MOVED document and a stale key already sitting at
-        // its destination (the file there was deleted since the last scan, so the apply saw no
-        // collision) resolves the same way every run: the moved claim wins — `carryOver` and
-        // `RestructureStore.rekeyedMap` both decide this exact race that way, and this replay
-        // was the one sibling leaving it to dictionary iteration order.
+        // Two passes, so a moved document colliding with a stale key at its destination (that file
+        // was deleted since the last scan, so the apply saw no collision) resolves the same way
+        // every run: the moved claim wins, as in `carryOver` and `RestructureStore.rekeyedMap`.
         var movedKeys: Set<String> = []
         for (path, document) in corpus.documents {
-            // A file move names the document exactly; the directory renames re-prefix the rest.
-            // A moved file's SOURCE path is its pre-apply key, so the exact match runs first —
-            // the dir map would otherwise re-prefix a merge source's files to a path the merge
-            // never used.
+            // A file move names the document exactly; the directory renames re-prefix the rest. The
+            // exact match runs first, or the dir map would re-prefix a merge source's files to a
+            // path the merge never used.
             guard let newPath = moves[path] else { continue }
             rekeyed[newPath] = document
             movedKeys.insert(newPath)
@@ -188,11 +169,10 @@ public enum RestructureRederive {
                             documents: rekeyed, surveyedAt: corpus.surveyedAt)
     }
 
-    /// An unfinished survey's progress moved the way the manifest moved the tree, under the
-    /// profile that now holds it (FR6) — `read` by the corpus's own replay, the plan by the same
-    /// two rules in the same precedence (a file move names its document exactly; the directory
-    /// renames re-prefix the rest). The index is kept only when the plan kept its length: a
-    /// collapse would slide it onto a document it never reached.
+    /// An unfinished survey's progress moved the way the manifest moved the tree, under the profile
+    /// that now holds it. `read` goes through the corpus replay, the plan through the same two
+    /// rules in the same order. The index is kept only when the plan kept its length: a collapse
+    /// would slide it onto a document it never reached.
     public static func rekeyedCheckpoint(_ checkpoint: DocumentSurveyCheckpoint,
                                          through manifest: RestructureManifest,
                                          profileId: String) -> DocumentSurveyCheckpoint {

@@ -1,13 +1,11 @@
 import Foundation
 
-/// §5.6: Refine with Claude — **on the mapping, never on the apply.** The plan is derived
-/// mechanically from the mapping, so by apply time there is no judgement left; the judgement is
-/// *what should these folders be called*, the one question the tree cannot answer and a model
-/// can. Accepting a proposal edits the mapping; the plan re-derives and is reviewed exactly as
-/// before — there is no path to the disk that skips the manifest.
+/// Refine with Claude, on the mapping and never on the apply. The model answers what these folders
+/// should be called; accepting a proposal edits the mapping, and the plan re-derives and is
+/// reviewed as before. There is no path to the disk that skips the manifest.
 ///
-/// Request/response shaping is pure and lives here (``CloudFilingProtocol``'s split): the app
-/// side only does the network call and the spend bookkeeping.
+/// Request and response shaping is pure and lives here, as with ``CloudFilingProtocol``; the app
+/// side only makes the network call and keeps the spend.
 public struct MappingRefineRequest: Sendable, Equatable {
     public let family: String
     /// Member folder names, for the model to see the eras the mapping spans.
@@ -16,10 +14,9 @@ public struct MappingRefineRequest: Sendable, Equatable {
     public let rows: [RestructureMapping.Row]
     /// The candidate vocabularies — each scheme's shared names, plus whatever the user added.
     public let candidateVocabularies: [[String]]
-    /// Up to five file names per source folder — the toggle's payload, and the evidence class
-    /// that settled I-129 vs I-539 on 6 Aug. Empty when the toggle is off. **File contents
-    /// never** ride in a mapping refine; that is the disclosure's third clause and this type
-    /// simply has nowhere to put them.
+    /// Up to five file names per source folder, sent only when the toggle is on. **File contents
+    /// never** ride in a mapping refine, as the disclosure promises; this type has nowhere to put
+    /// them.
     public let sampleFileNames: [String: [String]]
     /// Every folder whose child folders the rows were read from, relative to the same root as
     /// `family`: this family's members, and with the group on, every sibling family's too, whose
@@ -40,10 +37,9 @@ public struct MappingRefineRequest: Sendable, Equatable {
     }
 }
 
-/// One row of the model's answer — a proposal, a keep, or a decline, each with its written why.
-///
-/// **`declined` is a first-class outcome, not an absence**: a model that answers every row is
-/// guessing on some of them, and the row where it says so is rendered like any other (§5.6).
+/// One row of the model's answer: a proposal, a keep, or a decline, each with its written why.
+/// `declined` is a real outcome, rendered like any other: a model that answers every row is
+/// guessing on some.
 public struct MappingRefineProposal: Sendable, Equatable, Identifiable {
     public enum Verdict: Equatable, Sendable {
         /// Map `source` to this target name.
@@ -56,8 +52,7 @@ public struct MappingRefineProposal: Sendable, Equatable, Identifiable {
 
     public let source: String
     public let verdict: Verdict
-    /// The written justification — every proposal carries one, or a reviewer is being asked to
-    /// trust rather than to review.
+    /// The written justification. Every proposal carries one, so the user reviews rather than trusts.
     public let why: String
 
     public var id: String { source }
@@ -171,15 +166,13 @@ public enum MappingRefineProtocol {
               let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
               let input = toolUse["input"] as? [String: Any],
               let proposals = input["proposals"] as? [[String: Any]] else { return nil }
-        // Only rows that were asked about may answer — a hallucinated source name is dropped. An
-        // answer differing from the asked name only by case is the model being sloppy about a
-        // real row, so it maps back to the asked spelling rather than being dropped as invented.
+        // Only rows that were asked about may answer; an invented source name is dropped. One that
+        // differs only by case maps back to the asked spelling.
         let asked = Set(rows.map(\.source))
         let askedByLowered = Dictionary(rows.map { ($0.source.lowercased(), $0.source) },
                                         uniquingKeysWith: { first, _ in first })
-        // First answer per source wins: a model working a long list sometimes answers a row
-        // twice, and two proposals sharing one id break the sheet's ForEach and would write the
-        // same mapping row from two contradictory cards.
+        // First answer per source wins: two proposals sharing an id break the sheet's ForEach and
+        // would write one mapping row from two contradictory cards.
         var seen: Set<String> = []
         var out: [MappingRefineProposal] = []
         for entry in proposals {
@@ -193,34 +186,29 @@ public enum MappingRefineProtocol {
             case "keep": verdict = .keep
             case "declined": verdict = .declined
             case "propose":
-                // A model-proposed target is a FOLDER NAME, and the planner's rule is the one
-                // spelling of that — a path-shaped answer ("Tax/2024", "../Shared") accepted
-                // here would flow into a mapping row and aim a rename outside the family. The
-                // derivation's `.invalidTargetName` refusal backstops this, but a proposal the
-                // user can accept should not be one the plan must then refuse.
+                // A target must be a folder name by the planner's rule: a path-shaped answer
+                // ("Tax/2024", "../Shared") would aim a rename outside the family. The plan's
+                // `.invalidTargetName` refusal backstops this, but the user shouldn't be offered
+                // a proposal the plan then refuses.
                 guard let target = entry["target"] as? String,
                       RestructurePlanner.isValidTargetName(target) else { continue }
-                // A tool-forced schema makes `target` mandatory, so a model with nothing to
-                // change answers `A → A` instead of keep — normalised here, or the degenerate
-                // self-proposal would even earn a false "swaps places with itself" label.
-                // Compared against the model's RAW spelling too: "claims → claims" is a keep
-                // even after the source is mapped back to the asked "Claims", or the case fix
-                // would turn the model's no-op into a down-casing proposal it never made.
+                // The schema forces `target`, so a model with nothing to change answers `A → A`;
+                // that is a keep. Compared against the raw spelling too, so "claims → claims"
+                // stays a keep after the source maps back to "Claims".
                 verdict = target == source || target == raw ? .keep : .propose(target: target)
             default:
                 continue
             }
-            // The dedupe slot is taken by the first VALID answer — a malformed first entry for
-            // a row must not swallow the good one behind it.
+            // Only a valid answer takes the dedupe slot, so a malformed first entry can't swallow
+            // the good one behind it.
             seen.insert(source)
             out.append(MappingRefineProposal(source: source, verdict: verdict, why: why))
         }
         return out
     }
 
-    /// A rough token estimate for the pre-flight quote — the request's text sizes over four
-    /// chars a token, plus the same output budget the body reserves. Rough is fine: the quote's
-    /// job is the right order of magnitude and the same caps arithmetic as every other paid call.
+    /// A rough token estimate for the pre-flight quote: text size at four chars a token, plus the
+    /// output budget the body reserves. The quote only needs the right order of magnitude.
     public static func estimateTokens(request: MappingRefineRequest) -> (input: Int, output: Int) {
         var chars = 900   // instructions + tool schema, measured order of magnitude
         chars += request.family.count + request.members.joined().count
@@ -242,16 +230,14 @@ public enum MappingRefineProtocol {
             + Double(tokens.output) / 1_000_000 * pricing.output
     }
 
-    /// The adjacency rule §5.6 orders: a proposal that *reverses* another proposal, or reverses
-    /// the user's own row, is labelled — or a reviewer reads the pair as a bug. Returns the
-    /// sentence for `proposal`, or nil when nothing is reversed.
+    /// Labels a proposal that reverses another proposal or the user's own row, which a reviewer
+    /// would otherwise read as a bug. Returns the sentence for `proposal`, or nil.
     public static func reversalNote(for proposal: MappingRefineProposal,
                                     among proposals: [MappingRefineProposal],
                                     rows: [RestructureMapping.Row]) -> String? {
         guard case .propose(let target) = proposal.verdict else { return nil }
         // Another proposal sending the target's name to this source's name: a swap. Never the
-        // proposal itself — `parseProposals` normalises `A → A` to keep, and this guard keeps
-        // the rule safe against a caller that did not.
+        // proposal itself, even from a caller that didn't normalise `A → A` to keep.
         if proposals.contains(where: { other in
             other.source != proposal.source
                 && other.source == target && other.verdict == .propose(target: proposal.source)

@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// §5.5's proof paragraph, as tests: one apply against a real temporary tree in which the disk
+/// The restructure apply, end to end: one apply against a real temporary tree in which the disk
 /// moved between plan and apply, the two undos (⌘Z this launch, the ledger's inverse after the
 /// manager is thrown away), and the re-derived profile carrying the judgements forward.
 @MainActor
@@ -38,8 +38,8 @@ import Testing
         return lines.sorted().joined(separator: " | ")
     }
 
-    /// One content hash over the whole tree — paths and bytes, sorted — so "restored" means
-    /// byte-identical, not same-sized (the 6 Aug rule the roadmap cites).
+    /// One content hash over the whole tree (paths and bytes, sorted), so "restored" means
+    /// byte-identical, not same-sized.
     static func treeHash(_ root: URL) -> String {
         var hasher = SHA256()
         let keys: [URLResourceKey] = [.isDirectoryKey]
@@ -257,13 +257,10 @@ import Testing
         })
         #expect(movedAction.collidedInto?.hasPrefix("Tax/2013/Forms/1040") == true)
         #expect(movedAction.bytes == "state 1040".utf8.count)
-        // **No digest, and that is the point.** The apply used to MD5 every moved file (up to
-        // 64 MB each) to fill this field — a gigabyte read for a 500-file merge, inside the
-        // window where the landing flag refuses every other scan — and nothing anywhere read the
-        // result back; this assertion, checking it had 32 characters, was its only consumer. The
-        // field survives on `Action` so ledgers already on disk keep decoding theirs. `bytes`
-        // above is the audit fact that stayed, and it comes free from the `attributesOfItem`
-        // call the move already makes.
+        // No digest, on purpose: hashing every moved file would read gigabytes for a big merge,
+        // inside the window where the landing flag refuses every other scan, and nothing reads
+        // it. The field stays on `Action` so ledgers on disk keep decoding. `bytes` above is the
+        // audit fact, free from the `attributesOfItem` call the move already makes.
         #expect(movedAction.md5 == nil,
                 "a same-volume move is a rename; the landing must not read the file to hash it")
         #expect(record.summary == outcome.summary)
@@ -340,10 +337,9 @@ import Testing
             atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
     }
 
-    /// **Step 4's verdict reaches the ledger.** The card's sentence is a pure rule with its own
-    /// tests; what had none was the write — deleting `$0.verifiedOK = ...` from the finalize left
-    /// every card silent about verification with the suite green, because `nil` is also what a
-    /// record written before the field existed carries. A clean landing must say so positively.
+    /// Step 4's verdict reaches the ledger. The card's sentence has its own tests; this pins the
+    /// write. A clean landing must say so positively, since `nil` is also what a record older than
+    /// the field carries; deleting `$0.verifiedOK = ...` from the finalize must fail this.
     @Test func theLedgerRecordsStepFoursVerdict() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -383,10 +379,10 @@ import Testing
         #expect(many.contains("log"), "pointing the reader where the rest is")
     }
 
-    /// **The engine visits the stages in the order the checklist draws them**, and clears the
-    /// value when it is done. The suite next door pins the enum's declaration order, which is a
-    /// different claim: it would still pass with `applyPlan` publishing `verify` before
-    /// `inverse`, or never publishing at all. This subscribes to the real landing.
+    /// The engine visits the stages in the order the checklist draws them, and clears the value
+    /// when it is done. The suite next door pins the enum's declaration order, a different claim:
+    /// it would still pass with `applyPlan` publishing `verify` before `inverse`, or never
+    /// publishing at all. This subscribes to the real landing.
     @Test func theLandingPublishesItsStagesInOrderAndThenClearsThem() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -411,10 +407,9 @@ import Testing
                 "and nothing is left showing a checklist over a finished landing")
     }
 
-    /// **A landing stamps O16's line, marked as one.** The store's dedupe and the chart's rules
-    /// have their own tests; what neither can see is whether `applyPlan` ever calls the stamp —
-    /// deleting the call left a trend that only ever grew at launch, with every landing invisible
-    /// on a line whose entire point is showing what caused the drops.
+    /// A landing stamps the trend line, marked as one. The store's dedupe and the chart's rules
+    /// have their own tests; this pins that `applyPlan` calls the stamp at all, or every landing
+    /// would be invisible on a line whose point is showing what caused the drops.
     @Test func aLandingStampsTheTrendAndMarksItself() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -426,19 +421,17 @@ import Testing
         let stamped = try #require(world.manager.restructureStore?.trend.last)
         #expect(stamped.landing, "the point a landing produced carries its cause")
         #expect(stamped.profileId == world.manager.filingProfileDirectoryId)
-        // **Not `stamped.total == structureFindings.count`.** Both are zero on this fixture —
-        // the landing resolves the only finding, which is the right outcome for the landing and
-        // a vacuous assertion for a counter. What the counts contain is
-        // `RestructureTrendStampTests` next door, against a profile that fires. What only THIS
-        // test can say is that the landing produced a point at all, under the profile it
-        // produced, marked as a landing.
+        // Not `stamped.total == structureFindings.count`: both are zero here, since the landing
+        // resolves the only finding, so it would be vacuous. What the counts contain is
+        // `RestructureTrendStampTests`' job; this test says the landing produced a point at all,
+        // under the profile it produced, marked as a landing.
         #expect(stamped.countsByKind.values.allSatisfy { $0 > 0 },
                 "a kind with none is absent, never a zero")
     }
 
     // MARK: - The two undos
 
-    /// ⌘Z restores a byte-identical tree — hash it, do not size it (6 Aug).
+    /// ⌘Z restores a byte-identical tree: hash it, do not size it.
     @Test func oneGroupedUndoRestoresAByteIdenticalTree() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -463,9 +456,9 @@ import Testing
                 "one ⌘Z must take back the whole landing, byte for byte — now: \(Self.treeList(world.root))")
     }
 
-    /// **Undo never shows the landing's survey date under the restored folder.** The restored
-    /// folder's date is read off the main actor, from its whole corpus; until it arrives the
-    /// footnote must say nothing, not the date of the folder being left.
+    /// Undo never shows the landing's survey date under the restored folder. The restored folder's
+    /// date is read off the main actor, from its whole corpus; until it arrives the footnote must
+    /// say nothing, not the date of the folder being left.
     @Test @MainActor func undoNeverShowsTheLeavingFoldersSurveyDate() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -528,11 +521,10 @@ import Testing
         #expect(again.refusal?.contains("already undone") == true)
     }
 
-    /// What the user made after a landing survives that landing's Undo (FR7). Undo re-points to
-    /// the folder the landing started from and re-opens every store there, so a person added, a
-    /// verdict given or a finding suppressed afterwards stayed in the produced folder and was
-    /// read by nothing. They come back with the survey — the suppression rekeyed through the
-    /// renames the undo performed — and the ledger still says the landing is undone.
+    /// What the user made after a landing survives that landing's Undo. Undo re-points to the
+    /// folder the landing started from and re-opens every store there, so a person added, a verdict
+    /// given or a finding suppressed afterwards must come back with the survey (the suppression
+    /// rekeyed through the undo's renames), while the ledger still says the landing is undone.
     @Test func editsMadeAfterALandingSurviveItsUndo() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -575,10 +567,9 @@ import Testing
         #expect(again.refusal?.contains("already undone") == true)
     }
 
-    /// A quit while the survey is re-derived must not take the landing's Undo with it (FR17).
-    /// `profiles.json` names the new folder before the corpus replay's seconds-long wait; the
-    /// ledger used to reach that folder only inside the wait, and its `producedProfileId` after
-    /// it — so the disk at that moment, read the way a relaunch reads it, offered no Undo.
+    /// A quit while the survey is re-derived must not take the landing's Undo with it.
+    /// `profiles.json` names the new folder before the corpus replay's seconds-long wait, so the
+    /// ledger must already offer the Undo there, read the way a relaunch reads it.
     @Test func aQuitDuringTheReDeriveStillLeavesTheLandingUndoable() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -609,9 +600,8 @@ import Testing
     }
 
     /// An edit made in the People pane while the re-derive replays the corpus lands in the folder
-    /// the app goes on reading (FR5). The stores used to stay open on the OLD folder until after
-    /// that wait — so a person added or a verdict given in it was written there, after the copy
-    /// into the new folder had already been taken, and read by nothing afterwards.
+    /// the app goes on reading. Stores left open on the old folder through that wait would write
+    /// the edit there after the copy was taken, where nothing reads it.
     @Test func anEditDuringTheReDeriveLandsInTheFolderTheAppReads() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -652,11 +642,10 @@ import Testing
         #expect(manager.filingPeopleStore?.people.contains { $0.displayName == "Late Edit" } == true)
     }
 
-    /// A stopped document survey can still be carried on after a landing and after a refresh
-    /// (FR6). Its progress lived only in the old profile folder: the app moved to a folder with
-    /// none, the next survey started from 0, and the retire sweep later deleted the old folder.
-    /// A copy would not do either — the checkpoint names its profile and keys what it read by
-    /// paths the landing just moved — so it is rekeyed like the corpus.
+    /// A stopped document survey can still be carried on after a landing and after a refresh. Its
+    /// progress lives in the profile folder, so left behind, the next survey would start from 0 and
+    /// the retire sweep would delete it. A copy won't do (the checkpoint names its profile and keys
+    /// what it read by paths the landing just moved), so it is rekeyed like the corpus.
     @Test func aStoppedSurveysProgressFollowsTheProfileThroughALanding() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -703,8 +692,8 @@ import Testing
                 "a survey refresh dropped the unfinished survey's progress")
     }
 
-    /// ⌘Q's count sees the re-derive (FR17): no file operation is queued through it, so the
-    /// guard's old count read zero and let a quit through in silence.
+    /// ⌘Q's count sees the re-derive. No file operation is queued through it, so a count of queued
+    /// operations alone would read zero and let a quit through in silence.
     @Test func theQuitGuardsCountSeesALandingsReDerive() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -779,7 +768,7 @@ import Testing
     }
 
     /// What the app does at launch on that disk (`FilingArtifacts.attach`): the load, the
-    /// manager handed what it found, then the read-back off the main actor (review C5).
+    /// manager handed what it found, then the read-back off the main actor.
     private func relaunch(_ disk: URL) async throws -> FileSyncManager {
         let loaded = try #require(FilingProfileStore.active(in: disk), "the relaunch's load")
         let manager = FileSyncManager()
@@ -804,11 +793,10 @@ import Testing
         _ = try FilingProfileStore.retireSupersededProfiles(protecting: protected, in: disk)
     }
 
-    /// FR17's reorder, followed up: a quit during a survey refresh's corpus replay must not cost
-    /// the survey. The index names the new folder before the replay, and the refresh re-points
-    /// the undo chain there too, so the folder left behind — the only one holding the corpus and
-    /// the memory — is named by no record; its curated files were carried, so the old "only copy"
-    /// guard no longer kept it, and the next sweep deleted it, permanently.
+    /// A quit during a survey refresh's corpus replay must not cost the survey. The index names the
+    /// new folder before the replay and the refresh re-points the undo chain there too, so the
+    /// folder left behind, the only one holding the corpus and memory, is named by no record and
+    /// its curated files were carried. The next sweep must still keep it.
     @Test func aQuitDuringASurveyRefreshsReplayKeepsTheOnlyCorpus() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -826,8 +814,8 @@ import Testing
             atPath: FilingSurveyStore.memoryURL(id: left, in: disk).path))
     }
 
-    /// The same cut for a stopped first survey (FR6): its progress is carried inside the replay,
-    /// so at the cut the only copy is in the folder left behind.
+    /// The same cut for a stopped first survey: its progress is carried inside the replay, so at
+    /// the cut the only copy is in the folder left behind.
     @Test func aQuitDuringASurveyRefreshsReplayKeepsAStoppedSurveysProgress() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -851,10 +839,10 @@ import Testing
                 "the sweep deleted the only copy of the stopped survey's progress")
     }
 
-    /// …and the survey kept there is READ BACK, not only kept (FR17, follow-up): relaunched on
-    /// that disk, the load carries the folder's corpus and memory into the active one, and only
-    /// then does the sweep let the old folder go. Kept alone, the next refresh replayed from the
-    /// empty active folder, and the survey was on disk but lost to the app.
+    /// …and the survey kept there is read back, not only kept: relaunched on that disk, the load
+    /// carries the folder's corpus and memory into the active one, and only then does the sweep let
+    /// the old folder go. Kept alone, the next refresh would replay from the empty active folder,
+    /// and the survey would be on disk but lost to the app.
     @Test func aRelaunchAfterACutSurveyRefreshReadsTheSurveyBack() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -864,7 +852,7 @@ import Testing
                      "the cut must be before the replay wrote the corpus")
         let stamped = try #require(FilingSurveyStore.surveyedAt(id: left, in: disk))
 
-        // The load itself carries nothing (review C5): it runs on the main actor.
+        // The load itself carries nothing: it runs on the main actor.
         let load = try #require(FilingProfileStore.active(in: disk))
         #expect(load.id == active)
         #expect(FilingSurveyStore.corpus(id: active, in: disk) == nil,
@@ -969,9 +957,9 @@ import Testing
                      producedProfileId: produced, summary: summary)
     }
 
-    /// The read-back rekeys through the landing that MADE the folder (review C4): a later record
-    /// under the same parent that never finalised (no `summary` — a landing cut off before its
-    /// moves) used to be taken, and the corpus keys moved through moves that never ran.
+    /// The read-back rekeys through the landing that made the folder, not a later record under the
+    /// same parent that never finalised (no `summary`: a landing cut off before its moves), whose
+    /// moves never ran.
     @Test func theReadBackRekeysThroughTheFinishedLandingNotACutOne() throws {
         let disk = FileManager.default.temporaryDirectory
             .appendingPathComponent("readback-\(UUID().uuidString)")
@@ -992,9 +980,9 @@ import Testing
                 "the keys followed a landing that never ran its moves")
     }
 
-    /// A stopped first survey — progress of its own, and a parent with progress but no corpus —
-    /// has nothing to carry, so the read-back stops before decoding the ledger (review C5). It
-    /// ran on every load, and decoded the whole ledger to carry nothing.
+    /// A stopped first survey (progress of its own, and a parent with progress but no corpus) has
+    /// nothing to carry, so the read-back, which runs on every load, stops before decoding the
+    /// ledger.
     @Test func theReadBackReadsNoLedgerWhenThereIsNothingToCarry() async throws {
         let disk = FileManager.default.temporaryDirectory
             .appendingPathComponent("readback-\(UUID().uuidString)")
@@ -1104,8 +1092,8 @@ import Testing
     }
 
     /// The chain is walked by ledger order, not by profile-id equality: a later landing whose
-    /// re-derive failed never re-pointed the survey, so an id comparison cannot see it sitting
-    /// on top — and the first gate happily undid the older landing straight through it.
+    /// re-derive failed never re-pointed the survey, so an id comparison can't see it sitting on
+    /// top and would undo the older landing straight through it.
     @Test func aLaterUnfinalisedLandingStillBlocksTheOneBeneathIt() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1141,9 +1129,8 @@ import Testing
         #expect(crashed.refusal?.contains("never finished recording") == true)
     }
 
-    /// FR16. A landing cut off mid-run is refused by Undo, and the refusal used to send the user to
-    /// a log that recorded nothing per action. It names the landing's journal instead when one is
-    /// there — and says plainly when none is.
+    /// A landing cut off mid-run is refused by Undo. The log records nothing per action, so the
+    /// refusal names the landing's journal when one is there, and says plainly when none is.
     @Test func anUnfinishedLandingsRefusalNamesItsJournal() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1179,7 +1166,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: journal.path))
     }
 
-    /// FR16. The journal goes only once the finalised record is ON DISK. When the finalising
+    /// The journal goes only once the finalised record is on disk. When the finalising
     /// write fails, the record on disk has no summary, the next launch refuses Undo as a landing
     /// that never finished, and the refusal points at this journal — so it must still be there.
     /// The write is broken mid-landing (the ledger's path becomes a folder at the first move), so
@@ -1288,11 +1275,10 @@ import Testing
                 "the record stays applied, retryable once the drift is resolved")
     }
 
-    /// The ledger Undo after the person hand-trashed a folder the merge emptied (FR20). The
-    /// move-back into the missing folder used to fail, the rename-back after it succeeded, and
-    /// every merged file rode it into a folder it never lived in — under a record marked undone.
-    /// The missing folder is the one each file came out of, so it is recreated and the tree
-    /// comes back byte for byte.
+    /// The ledger Undo after the person hand-trashed a folder the merge emptied. The missing folder
+    /// is the one each file came out of, so it is recreated and the tree comes back byte for byte.
+    /// Otherwise the move-back would fail and the rename-back after it carry every merged file into
+    /// a folder it never lived in, under a record marked undone.
     @Test func anUndoAfterTheEmptiedSourceWasTrashedPutsEachFileBack() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1322,10 +1308,10 @@ import Testing
                                               ofItemAtPath: url.path)
     }
 
-    /// Undo This Reorganization moves back the file the landing moved — not a new one put at its
-    /// name since (M1). The newcomer here is the SAME size as the original; its own file number
-    /// and creation date are what tell it apart. The old probe saw a file at the path and sent it
-    /// into `State Tax/` as though it were the landing's.
+    /// Undo This Reorganization moves back the file the landing moved, not a new one put at its
+    /// name since. The newcomer is the same size as the original; its file number and creation date
+    /// tell it apart. A path-only probe would send it into `State Tax/` as though it were the
+    /// landing's.
     @Test func anUndoLeavesANewFilePutInPlaceOfALandedOneWhereItIs() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1351,10 +1337,10 @@ import Testing
                 "it stays with the folder it was saved in, which the rename-back carries")
     }
 
-    /// **An edited file goes back, and is named.** Most apps save by swapping in a new file
-    /// (`replaceItemAt`): a new file number, the old creation date. So does a different document
-    /// saved over this one through a Save dialog's Replace — the two cannot be told apart, and
-    /// his call (2026-10-27) is to move it back and say so rather than strand an edit.
+    /// An edited file goes back, and is named. Most apps save by swapping in a new file
+    /// (`replaceItemAt`): a new file number, the old creation date. A different document saved over
+    /// this one through a Save dialog's Replace looks the same, so the rule is to move it back and
+    /// say so rather than strand an edit.
     @Test func anUndoPutsBackAFileSavedOverSinceAndNamesIt() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1399,8 +1385,8 @@ import Testing
                 "the plan stayed behind in \(produced), beside a survey nothing reads")
     }
 
-    /// The folder half of M1: a renamed folder set aside and replaced by a fresh one of the same
-    /// name is not renamed back — the fresh one is somebody else's.
+    /// The same for a folder: a renamed folder set aside and replaced by a fresh one of the same
+    /// name is not renamed back, since the fresh one is somebody else's.
     @Test func anUndoLeavesAFolderMadeInPlaceOfARenamedOneWhereItIs() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1423,9 +1409,9 @@ import Testing
     }
 
     /// The rule at its edges, on the executor: a different number with a creation date inside a
-    /// second is a save (a provider may round the date), so it goes back named; a different
-    /// number AND a date well away is a new item, left. A ledger from before either was kept has
-    /// only the size, and size alone never refuses — v6.1 moved an edited file back.
+    /// second is a save (a provider may round the date), so it goes back named; a different number
+    /// and a date well away is a new item, left. A ledger that recorded neither has only the size,
+    /// and size alone never refuses.
     @Test func onlyAClearlyNewItemIsRefused() throws {
         let root = try makeCanonicalTempRoot(prefix: "RestructureIdentity")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1473,9 +1459,9 @@ import Testing
         #expect(forward.performed.first?.created != nil)
     }
 
-    /// Two exports of one name can be two plans: one made before a landing and one made after,
-    /// under the same date and family. The undo's carry back used to skip the second by name,
-    /// leaving it beside a survey nothing reads; it is now kept beside the first.
+    /// Two exports of one name can be two plans: one made before a landing and one after, under the
+    /// same date and family. The undo's carry back keeps both, rather than skipping the second by
+    /// name and leaving it beside a survey nothing reads.
     @Test func anUndoKeepsBothExportsOfOneName() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1499,9 +1485,9 @@ import Testing
     }
 
     /// ⌘Z of Never Suggest, after the same profile was reopened and a landing recorded into it,
-    /// must not write the store captured at the hide over the file the landing wrote (L8). That
-    /// store is a snapshot from before the landing; saving it whole dropped the landing's record
-    /// from the profile Undo This Reorganization re-points back to.
+    /// must not write the store captured at the hide over the file the landing wrote. That store is
+    /// a snapshot from before the landing; saving it whole would drop the landing's record from the
+    /// profile Undo This Reorganization re-points back to.
     @Test func undoingNeverSuggestAfterALandingKeepsTheLandingInTheOldLedger() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1538,9 +1524,9 @@ import Testing
                 "the finding comes back in the store the app reads")
     }
 
-    /// The same-name-subfolder merge the planner itself derives must land whole: the subfolder
-    /// is never a move src — only its files are — and the first veto called it "unlisted" and
-    /// skipped its parent, half-landing every merge of this shape with a false sentence.
+    /// The same-name-subfolder merge the planner derives must land whole. The subfolder is never a
+    /// move src, only its files are, so a veto that called it "unlisted" would skip its parent and
+    /// half-land every merge of this shape.
     @Test func aSameNameSubfolderMergeLandsWhole() async throws {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApplyMerge")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -1568,9 +1554,9 @@ import Testing
             atPath: root.appendingPathComponent("F/2016/Payments/Receipts/r2.pdf").path))
     }
 
-    /// The removal step's "still empty" is recursive: a drained folder whose only remainder is
-    /// an equally drained subfolder goes to the Trash whole — the shallow items-count probe
-    /// called it "not empty" over an empty subfolder, and both lingered forever.
+    /// The removal step's "still empty" is recursive: a drained folder whose only remainder is an
+    /// equally drained subfolder goes to the Trash whole. A shallow item count would call it "not
+    /// empty", and both would linger.
     @Test func aDrainedFolderWithAnEmptyDrainedSubfolderIsRemovable() async throws {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApplyEmpty")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -1603,9 +1589,9 @@ import Testing
         #expect(refused.removedEmpty == 0)
         #expect(refused.skipped.contains { $0.contains("still holds 1 file") })
 
-        // A hidden DIRECTORY'S contents are content: `.git/config` refuses the removal even
-        // though its container is dotted — `.skipsHiddenFiles` pruned the whole subtree and
-        // read a full repository as "still empty". Only dot-named files themselves are junk.
+        // A hidden directory's contents are content: `.git/config` refuses the removal though its
+        // container is dotted, since `.skipsHiddenFiles` would prune the subtree and read a whole
+        // repository as empty. Only dot-named files themselves are junk.
         try Self.write(root.appendingPathComponent("F/Repo/.git/config"), "[core]")
         try Self.write(root.appendingPathComponent("F/Junk/Sub/.DS_Store"), "junk")
         #expect(FileSyncManager.visibleFileCount(
@@ -1618,7 +1604,7 @@ import Testing
         #expect(repo.removedEmpty == 0, "a repository is not an empty folder")
     }
 
-    /// A folder holding only dot-files the USER keeps is not empty (FR18): `.env`, `.gitignore`
+    /// A folder holding only dot-files the user keeps is not empty: `.env`, `.gitignore`
     /// and an office suite's `.~lock…#` are files, and the removal's inverse is a bare
     /// `create-dir` that cannot bring them back. Only OS noise is ignorable — `.DS_Store` and
     /// kin, including a `.Trashes` directory with whatever the OS wrote into it.
@@ -1653,9 +1639,9 @@ import Testing
         #expect(trash.names == ["Noise"])
     }
 
-    /// A rename skipped because its destination appeared takes the merges planned INTO that
-    /// destination with it (FR19). The skip sentence promises the folder was not "merged
-    /// unreviewed"; the merges, which only consulted the unlisted-file veto, landed in it anyway.
+    /// A rename skipped because its destination appeared takes the merges planned into that
+    /// destination with it. The skip sentence promises the folder was not "merged unreviewed", so
+    /// merges that consult only the unlisted-file veto must not land in it.
     @Test func aRenameRefusedAsDriftRefusesTheMergesHeadedIntoIt() async throws {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApplyRefusedRename")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -1687,11 +1673,10 @@ import Testing
                 "the foreign folder must be left exactly as it arrived")
     }
 
-    /// A vetoed folder is skipped WHOLE, in both directions: the invariant-2 sentence says
-    /// "left untouched", and the per-parent veto key alone made it a lie — a one-level-down
-    /// merge drained `S/Sub` right after the sentence promised `S/` was untouched, and a later
-    /// group's arrivals merged INTO the vetoed folder unreviewed. Delete either
-    /// `vetoedAncestor` check and one half of this goes red.
+    /// A vetoed folder is skipped whole, in both directions, as the invariant-2 sentence ("left
+    /// untouched") promises. A per-parent veto key alone would let a one-level-down merge drain
+    /// `S/Sub` and a later group's arrivals merge into the vetoed folder unreviewed. Deleting
+    /// either `vetoedAncestor` check must fail one half of this.
     @Test func aVetoedFolderIsSkippedWholeInBothDirections() async throws {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApplyVeto")
         defer { try? FileManager.default.removeItem(at: base) }
@@ -1706,9 +1691,9 @@ import Testing
         let actions: [RestructureManifest.Action] = [
             // The first move out of S trips the veto: surprise.pdf is unlisted.
             .init(action: .moveFile, src: "F/S/planned.pdf", dst: "F/T/planned.pdf"),
-            // OUT of the vetoed subtree, one level down — used to drain anyway.
+            // OUT of the vetoed subtree, one level down.
             .init(action: .moveFile, src: "F/S/Sub/g.pdf", dst: "F/T/g.pdf"),
-            // INTO the vetoed folder — used to land anyway.
+            // INTO the vetoed folder.
             .init(action: .moveFile, src: "F/X/x.pdf", dst: "F/S/x.pdf"),
         ]
         let execution = FileSyncManager.executeRestructureActions(
@@ -1740,10 +1725,9 @@ import Testing
             }.sorted()
     }
 
-    /// **Repeated refreshes stop piling up.** Each one mints a profile directory and, until the
-    /// retire step, nothing removed the last — eight profiles and 90 MB accumulated in a single
-    /// evening on the real machine. Two refreshes here leave the hand-built fixture and the newest
-    /// derived profile, and nothing in between.
+    /// Repeated refreshes don't pile up: each mints a profile directory, and the retire step
+    /// removes the one it supersedes. Two refreshes here leave the hand-built fixture and the
+    /// newest derived profile, and nothing in between.
     @Test func repeatedRefreshesLeaveOneDerivedProfileBehind() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1774,9 +1758,9 @@ import Testing
         #expect(rows.compactMap { $0["profileId"] as? String }.sorted() == afterSecond)
     }
 
-    /// A plan written by Export Plan survives "Update the survey" (M2). It sat in the profile's
-    /// folder, the refresh carried only the curated files, and the retire sweep then removed
-    /// the old folder — permanently — with the file the sheet had named in it.
+    /// A plan written by Export Plan survives "Update the survey". It sits in the profile's folder,
+    /// so the refresh must carry it, or the retire sweep removes it with the old folder,
+    /// permanently.
     @Test func anExportedPlanFollowsTheSurveyThroughARefresh() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1798,8 +1782,8 @@ import Testing
                 == contents, "the exported plan is beside the survey the app now reads")
     }
 
-    /// The sweep's own half of M2: a folder holding an export the active folder lacks — a carry
-    /// that failed — is kept, the way it keeps one holding the only roster.
+    /// The sweep's side: a folder holding an export the active folder lacks (a carry that failed)
+    /// is kept, the way it keeps one holding the only roster.
     @Test func aFolderHoldingTheOnlyCopyOfAnExportIsNeverRetired() async throws {
         final class ExportCopyRefusing: FileManager, @unchecked Sendable {
             override func copyItem(at srcURL: URL, to dstURL: URL) throws {
@@ -1825,7 +1809,7 @@ import Testing
     }
 
     /// The sweep keeps an export by its contents, not its name: the active folder holding a
-    /// different plan under the same name does not make this one disposable (review, 225ac205f).
+    /// different plan under the same name does not make this one disposable.
     @Test func aSameNamedExportElsewhereDoesNotRetireThisOne() async throws {
         final class SwitchableExportCopy: FileManager, @unchecked Sendable {
             nonisolated(unsafe) var refusing = true
@@ -1859,17 +1843,14 @@ import Testing
                 "the first plan was deleted because the active folder held another of its name")
     }
 
-    /// **A landing that can still be undone pins the profile it was applied under.** Undo
-    /// re-points at `appliedUnderProfileId` and `repointActiveProfile` requires that profile to
-    /// be on disk, so retiring it would turn a reversible reorganisation into a permanent one —
-    /// which is the failure this whole area exists to prevent.
+    /// A landing that can still be undone pins the profile it was applied under. Undo re-points at
+    /// `appliedUnderProfileId` and `repointActiveProfile` requires that profile on disk, so
+    /// retiring it would make a reversible reorganisation permanent.
     ///
-    /// **It refreshes BEFORE it applies, and that ordering is the entire test.** Applied straight
-    /// to the fixture, the undo target is `t` — hand-built, which the store protects on its own
-    /// provenance rule — so the ledger's contribution is never exercised and the test passes with
-    /// the whole `appliedUnderProfileId` loop deleted. Verified by doing exactly that. One refresh
-    /// first makes the undo target a DERIVED profile, superseded by the refresh that follows,
-    /// with the ledger the only thing standing between it and retirement.
+    /// It refreshes before it applies, and that ordering is the test. Applied straight to the
+    /// fixture, the undo target is `t`, hand-built and protected by its own provenance rule, so the
+    /// test would pass with the whole `appliedUnderProfileId` loop deleted. One refresh first makes
+    /// the undo target a derived profile, superseded by the next refresh, kept only by the ledger.
     @Test func aRefreshAfterALandingKeepsWhatUndoNeeds() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1896,17 +1877,12 @@ import Testing
                 "repointActiveProfile would refuse: the target is not readable on disk")
     }
 
-    /// **A re-derivation reads the household file, not the profile's leftovers.**
-    ///
-    /// `PersonRegistry.seeded(from:)` is `FilingProfileStore.personRegistry`'s FALLBACK for a
-    /// machine with no `people.json`. `rederiveProfile` called it directly, so every refresh
-    /// recomputed the person axis from whatever aliases the last profile happened to retain
-    /// rather than from the curated list beside it — and `carryOver` writes the fresh axis back,
-    /// so the loss compounds with each pass. On the real tree that took person-axis agreement
-    /// from 0.998 to 0.905 in one evening of refreshes.
-    ///
-    /// The alias here is deliberately one the profile axis does NOT carry: it can only reach the
-    /// re-derived profile by way of `people.json`.
+    /// A re-derivation reads the household file, not the profile's leftovers.
+    /// `PersonRegistry.seeded(from:)` is `FilingProfileStore.personRegistry`'s fallback for a
+    /// machine with no `people.json`. Called directly, it would rebuild the person axis from
+    /// whatever aliases the last profile kept, and `carryOver` writes that axis back, so the loss
+    /// would compound with each refresh. The alias here is one the profile axis does not carry: it
+    /// can only reach the re-derived profile by way of `people.json`.
     @Test func aReDerivationSeedsPeopleFromTheHouseholdFile() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1928,19 +1904,13 @@ import Testing
     }
     // MARK: - Step 4's verdict, and step 7's memory
 
-    /// **The verifier's verdict reaches the outcome AND the ledger.**
-    ///
-    /// The verify was two `fileExists` per performed action run synchronously on the main actor —
-    /// 2,000 stats for a thousand-action merge, with the landing sheet on screen — and it now runs
-    /// through the same serial file-operation queue the executor just used. The queue is ordered,
-    /// so it still reads the tree strictly after the moves and strictly before anything else this
-    /// app does to it, and the result is awaited. What no test held was that the verdict ARRIVES:
-    /// the whole call could be replaced with `[]` and every green-path assertion stayed green,
-    /// because a correct landing has nothing to report.
-    ///
-    /// So this drives the unhappy branch — a file manager with a hole where the carried `Refund/`
-    /// lands — and checks the mismatch on the outcome, in the log-bound list, and in the ledger
-    /// record the Applied card reads.
+    /// The verifier's verdict reaches the outcome and the ledger. The verify runs through the same
+    /// serial file-operation queue the executor used, not the main actor, so it reads the tree
+    /// strictly after the moves and before anything else the app does to it, and is awaited. A
+    /// correct landing has nothing to report, so a call replaced with `[]` would keep every
+    /// green-path test green. This drives the unhappy branch, a file manager with a hole where the
+    /// carried `Refund/` lands, and checks the mismatch on the outcome, in the log-bound list, and
+    /// in the ledger record the Applied card reads.
     @Test func theVerifiersVerdictReachesTheOutcomeAndTheLedger() async throws {
         let world = try await Self.makeWorld {
             Self.HidingFileManager(hiding: ["Tax/2013/Forms/Refund"], over: $0)
@@ -1967,13 +1937,10 @@ import Testing
             atPath: world.root.appendingPathComponent("Tax/2013/Forms/Refund").path))
     }
 
-    /// **The replayed memory is published, not merely written.**
-    ///
-    /// Step 7 — the corpus decode, the key replay, `flatten`, `buildMemory` and the write — moved
-    /// into one detached task, because every part of it ran on the main actor with a landing sheet
-    /// on screen. The publish is the half that has to come back: `filingMemory` is what the filing
-    /// layer routes on, and a landing that wrote the artifact but left the manager on the old
-    /// memory would route against paths that no longer exist.
+    /// The replayed memory is published, not merely written. Step 7 (the corpus decode, the key
+    /// replay, `flatten`, `buildMemory` and the write) runs in one detached task, off the main
+    /// actor. The publish is the half that has to come back: `filingMemory` is what filing routes
+    /// on, and a manager left on the old memory would route against paths that no longer exist.
     @Test func theReplayedMemoryBecomesTheLiveOne() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }

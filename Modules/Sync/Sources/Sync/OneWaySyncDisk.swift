@@ -6,7 +6,7 @@
 import Darwin
 import Foundation
 
-/// What a write of RD67's one-way sync can fail with. Each leaves both sides as they were, apart
+/// What a write of the one-way sync can fail with. Each leaves both sides as they were, apart
 /// from what the case says; nothing in Dropbox is ever half-written.
 public enum OneWaySyncWriteError: Error, Equatable, Sendable {
     /// A symlink where a file or folder was expected. No symlink is followed or copied.
@@ -108,14 +108,11 @@ public enum OneWaySyncDisk {
         return url
     }
 
-    /// `name` in `folder`, through a path that keeps `name`'s bytes.
-    ///
-    /// `appendingPathComponent` decomposes a name (an NFC `é` becomes `e` plus an accent), and APFS
-    /// stores a name in the form it is sent, so an iCloud name copied through it reached Dropbox
-    /// as other bytes than iCloud's — the same name to the Mac, another spelling to Dropbox's
-    /// servers and every device it syncs to. And APFS's 255-unit limit counts the form sent, so a
-    /// long name could fit iCloud and not Dropbox. `NSString` joins without normalizing, and a
-    /// URL made from the joined bytes keeps them in its `path` (measured 2026-10-31).
+    /// `name` in `folder`, through a path that keeps `name`'s bytes. `appendingPathComponent`
+    /// decomposes a name, and APFS stores the form it is sent, so Dropbox's servers would get a
+    /// different spelling than iCloud's, and a long name could pass APFS's 255-unit limit in one
+    /// form and not the other. `NSString` joins without normalizing, and a URL made from the joined
+    /// bytes keeps them in its `path`.
     public static func child(_ name: String, of folder: URL) -> URL {
         let path = (folder.path as NSString).appendingPathComponent(name)
         return URL(fileURLWithFileSystemRepresentation: path, isDirectory: kind(at: path) == .folder, relativeTo: nil)
@@ -325,9 +322,9 @@ public enum OneWaySyncDisk {
         if kind(at: source.path) == .folder { keepFolderDates(from: source.path, to: destination.path) }
     }
 
-    /// Dates each folder of a copied package as its source is. A clone dates them now (measured
-    /// 2026-11-03: the files keep theirs), and a package's date is the latest of anything in it,
-    /// so a copy in Dropbox would read as edited there at the next pass.
+    /// Dates each folder of a copied package as its source is. A clone dates folders now (files
+    /// keep theirs), and a package's date is the latest of anything in it, so the copy in Dropbox
+    /// would read as edited there at the next pass.
     static func keepFolderDates(from source: String, to destination: String) {
         var folders = [""]
         for case let child as String in FileManager.default.enumerator(atPath: source) ?? NSEnumerator()

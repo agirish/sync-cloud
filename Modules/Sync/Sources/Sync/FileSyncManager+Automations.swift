@@ -3,30 +3,26 @@ import Foundation
 
 /// The one owner of "which automation rules may act".
 ///
-/// Four surfaces run the same match → resolve-destination → file pipeline — the Organize scan's
-/// suggestion steering (`FilingEngine.automationCandidates`), that scan's content-gating pre-pass,
-/// the Automations dry-run preview, and the rule proposer's already-covered check — and each used
-/// to spell its own eligibility filter. Three spellings drifted out of four sites; this value
-/// decides eligibility in exactly one place instead.
-///
-/// The dry run's "test a rule before enabling it" flow is the one deliberate exception to the
-/// enabled requirement, and it has to name itself: ``testing(_:in:)``.
+/// Four surfaces run the same match → resolve-destination → file pipeline: the Organize scan's
+/// suggestion steering (`FilingEngine.automationCandidates`), its content-gating pre-pass, the
+/// Automations dry-run preview, and the rule proposer's already-covered check. Eligibility is
+/// decided here once so they can't drift apart. The one exception to "enabled", testing a rule
+/// before enabling it, has to name itself: ``testing(_:in:)``.
 public struct AutomationRuleSet: Sendable {
     /// The rules allowed to act, in the user's order.
     public let rules: [AutomationRule]
 
     private init(_ rules: [AutomationRule]) { self.rules = rules }
 
-    /// The shared bar: **enabled and runnable**. Runnable (a name, a destination, conditions the
-    /// evaluator can prove — see ``AutomationRule/isRunnable``) keeps a half-built rule inert
+    /// The shared bar: enabled and runnable. Runnable (a name, a destination, conditions the
+    /// evaluator can prove; ``AutomationRule/isRunnable``) keeps a half-built rule inert
     /// everywhere; enabled is the user's own switch.
     public static func eligible(_ all: [AutomationRule]) -> AutomationRuleSet {
         AutomationRuleSet(all.filter { $0.enabled && $0.isRunnable })
     }
 
-    /// The escape hatch for the preview's test-a-disabled-rule flow: exactly the rule with `id`,
-    /// **enabled or not** — still required to be runnable, because a rule the evaluator cannot
-    /// prove has no outcome to preview.
+    /// The escape hatch for previewing a disabled rule: exactly the rule with `id`, enabled or
+    /// not. Still runnable only, since a rule the evaluator can't prove has no outcome to preview.
     public static func testing(_ id: UUID, in all: [AutomationRule]) -> AutomationRuleSet {
         AutomationRuleSet(all.filter { $0.isRunnable && $0.id == id })
     }
@@ -43,10 +39,9 @@ public struct AutomationRuleSet: Sendable {
     /// snippet extractor pass in the first place.
     public var readsContent: Bool { rules.contains { $0.requiresContent } }
 
-    /// Whether reading this file's text could still flip some acting rule's outcome — the per-file
-    /// gate on the expensive text extraction, shared verbatim by the Organize scan and the
-    /// Automations preview so a rule gives one answer on both surfaces. (Each pass evaluates
-    /// against its own fixed clock, captured once per pass.)
+    /// Whether reading this file's text could still flip some acting rule's outcome: the per-file
+    /// gate on the expensive text extraction. The Organize scan and the Automations preview share
+    /// it so a rule gives one answer on both. Each pass passes its own fixed `now`.
     public func contentCouldStillDecide(_ facts: AutomationFileFacts, now: Date) -> Bool {
         rules.contains { rule in
             guard rule.requiresContent, AutomationEvaluator.couldMatchPendingContent(rule, facts, now: now) else { return false }
@@ -61,41 +56,35 @@ public struct AutomationRuleSet: Sendable {
     }
 }
 
-/// N2 Automations — rule orchestration. Loads/persists the user's rules, runs a dry-run preview
-/// over a folder (what the enabled rules *would* do, nothing moved), and — after per-file
-/// confirmation in the UI — files the approved matches for real as one undoable run. Everything
-/// here is on-device — filename globs, UTType, file attributes, and (only when a rule asks) the
-/// injected on-device snippet extractor. The cloud filing classifier is never constructed on this
-/// path. Rules also steer the Organize scan's suggestions (see `FilingEngine.suggest(automations:)`).
+/// Automations: loads and saves the user's rules, previews what the enabled rules would do in a
+/// folder (nothing moved), and, after per-file confirmation in the UI, files the approved matches
+/// as one undoable run. All on-device: filename globs, UTType, file attributes and, only when a
+/// rule asks, the injected snippet extractor. The cloud filing classifier is never built here.
+/// Rules also steer the Organize scan's suggestions (`FilingEngine.suggest(automations:)`).
 extension FileSyncManager {
 
-    /// Where automation rules persist (JSON, in the injectable `filingRuleDefaults` store — the same
-    /// store Filing's rules use, so tests that stub defaults cover both).
+    /// Where automation rules persist: JSON in the injectable `filingRuleDefaults` store, the one
+    /// Filing's rules use, so tests that stub defaults cover both.
     public nonisolated static let automationRulesDefaultsKey = "automationRules"
 
     // MARK: Rule store
 
-    /// What reading a persisted store actually found. Three outcomes, because collapsing the last
-    /// two is what made a decode failure destructive: the getters treat both as "no rules", but a
-    /// caller that is about to make an IRREVERSIBLE decision (the legacy migration, which sets a
-    /// one-way "already migrated" flag) must be able to tell them apart and stand down.
+    /// What reading a persisted store found. The getters treat the last two alike as "no rules",
+    /// but a caller about to make an irreversible decision (the legacy migration sets a one-way
+    /// "already migrated" flag) must tell them apart and stand down on `.unreadable`.
     enum PersistedStoreRead<Value> {
         /// Read and decoded.
         case decoded(Value)
-        /// Nothing saved under this key — the ordinary first-run case.
+        /// Nothing saved under this key: the ordinary first run.
         case absent
         /// Data is present but could not be decoded. Already reported and set aside.
         case unreadable
     }
 
     /// Reads a persisted store, telling "nothing saved yet" apart from "saved, but unreadable".
-    ///
-    /// Both used to read as `[]`, and that silence was expensive: the very next edit re-encodes the
-    /// now-empty array over the stored value, so a decode failure (a schema change after running an
-    /// older build, a truncated plist) permanently destroyed every rule the user had taught — with
-    /// nothing in the log to explain why their files had stopped filing themselves. Absent data
-    /// stays quiet; undecodable data is reported once per store per session and the raw payload is
-    /// set aside under a sibling key so the overwrite is no longer the end of it.
+    /// Undecodable data (a schema change, a truncated plist) would otherwise read as `[]`, and the
+    /// next edit would save that over every rule the user taught. So it is reported once per store
+    /// per session and the raw bytes are kept under a sibling key. Absent data stays quiet.
     static func readPersistedStore<T: Decodable>(
         _ type: T.Type,
         from defaults: UserDefaults,
@@ -104,24 +93,17 @@ extension FileSyncManager {
     ) -> PersistedStoreRead<T> {
         guard let data = defaults.data(forKey: key) else { return .absent }
         if let decoded = try? JSONDecoder().decode(type, from: data) { return .decoded(decoded) }
-        // Preserving is effectively ungated — no session-scoped claim, because an earlier attempt
-        // keyed one on `ObjectIdentifier` and silently dropped backups (a released `UserDefaults`
-        // can be reallocated at the same address, so a later store inherited an earlier one's
-        // claim; it surfaced only under the full suite). The only skip is the one that cannot lose
-        // anything: the backup key ALREADY holds these exact bytes.
-        //
-        // That skip is not cosmetic. These getters are hot — a scan reads them per file — so an
-        // unconditional `set` re-wrote the whole payload to `cfprefsd` tens of thousands of times
-        // per scan for as long as the store stayed corrupt, which is precisely when the disk is
-        // the thing least worth hammering. A read-and-compare is cheap and keeps the invariant
-        // intact: after this line the bytes are under `backupKey`, however they got there.
+        // Preserving is ungated by any session claim: a claim keyed on `ObjectIdentifier` would
+        // drop backups, since a released `UserDefaults` can be reallocated at the same address.
+        // The only skip is when the backup key already holds these exact bytes. That skip matters:
+        // a scan reads these getters per file, and an unconditional `set` would rewrite the payload
+        // to `cfprefsd` tens of thousands of times per scan while the store stays corrupt.
         let backupKey = key + ".unreadable"
         if defaults.data(forKey: backupKey) != data {
             defaults.set(data, forKey: backupKey)
         }
-        // Only the REPORT is rate-limited, since these getters are read repeatedly. Keyed by the key
-        // name plus the payload, so two stores holding the same key can each still be reported, and
-        // a store whose corruption CHANGES is reported again.
+        // Only the report is rate-limited. Keyed by key name plus payload, so two stores with the
+        // same key are each reported, and a store whose corruption changes is reported again.
         if corruptStoreKeysWarned.claim("\(key)\u{0}\(data.hashValue)") {
             Logger.shared.error(
                 "Saved \(what) could not be read (\(data.count) bytes) and will be treated as empty — "
@@ -130,20 +112,10 @@ extension FileSyncManager {
         return .unreadable
     }
 
-    /// Writes a persisted store, KEEPING the previously saved bytes when the value cannot be
-    /// encoded.
-    ///
-    /// The setters used to spell this `defaults.set(try? JSONEncoder().encode(newValue), forKey:)`,
-    /// and `UserDefaults.set(nil, forKey:)` is defined as `removeObject(forKey:)` — so a failed
-    /// encode did not skip the write, it DELETED every rule the user had taught. That is the same
-    /// destruction `readPersistedStore` above goes to real lengths to prevent on the way in (an
-    /// undecodable payload is preserved under a sibling key rather than silently becoming `[]`),
-    /// arriving through the one door that was left open.
-    ///
-    /// These models are `String`/`Int`/`Bool`/`UUID` throughout, so `JSONEncoder` should never
-    /// actually fail — which is the point: a wipe that cannot be triggered on purpose is a wipe
-    /// nobody would find the cause of. Failing closed costs one unsaved edit and a log line;
-    /// failing open costs the whole store with no way back.
+    /// Writes a persisted store, keeping the previously saved bytes when the value can't be
+    /// encoded. **Never** pass `try? encode(…)` to `set`: `UserDefaults.set(nil, forKey:)` removes
+    /// the key, so a failed encode would delete every rule. Encoding these models shouldn't fail,
+    /// but failing closed costs one unsaved edit; failing open costs the whole store.
     static func writePersistedStore<T: Encodable>(
         _ value: T,
         to defaults: UserDefaults,
@@ -159,8 +131,8 @@ extension FileSyncManager {
         defaults.set(data, forKey: key)
     }
 
-    /// The decoded value, or nil for both "nothing saved" and "unreadable" — the shape the getters
-    /// want, since neither can do anything but show an empty list.
+    /// The decoded value, or nil for both "nothing saved" and "unreadable": the getters can only
+    /// show an empty list either way.
     static func decodePersistedStore<T: Decodable>(
         _ type: T.Type,
         from defaults: UserDefaults,
@@ -173,9 +145,8 @@ extension FileSyncManager {
         return nil
     }
 
-    /// One-shot-per-store gate for the report above, so a hot getter cannot log per read.
-    /// Lock-guarded rather than actor-isolated: cheap, and it keeps the gate independent of where
-    /// a future caller reads from.
+    /// Once-per-store gate for the report above, so a hot getter can't log per read. Lock-guarded
+    /// rather than actor-isolated, so it works wherever a caller reads from.
     private static let corruptStoreKeysWarned = OneShotKeySet()
 
     /// The persisted rules, decoded from defaults. A corrupt/absent value decodes to `[]`.
@@ -200,9 +171,8 @@ extension FileSyncManager {
         automationRules = persistedAutomationRules
     }
 
-    /// Adds a new rule (or replaces one with the same id) and persists. Logged — a rule is durable,
-    /// user-auditable state (it silently files matching files on every run), so its creation/edit
-    /// belongs in the activity log alongside the filing moves it will drive.
+    /// Adds a new rule (or replaces one with the same id) and persists. Logged, since a rule files
+    /// matching files on every run and belongs in the activity log beside the moves it drives.
     public func upsertAutomationRule(_ rule: AutomationRule) {
         ensureAutomationRulesLoaded()
         let isNew = !automationRules.contains(where: { $0.id == rule.id })
@@ -224,10 +194,8 @@ extension FileSyncManager {
         if let removed { Logger.shared.info("Automation rule deleted: “\(removed.name)”") }
     }
 
-    /// Enables/disables a rule (kept, not deleted) and persists. A no-op when the stored value
-    /// already matches: today the card's Toggle only fires on a real flip, but this method is the
-    /// public seam any future caller (CLI, sync-from-elsewhere) would use, and a value-unchanged
-    /// call must not re-persist or write a duplicate "enabled/disabled" line to the audit log.
+    /// Enables or disables a rule (kept, not deleted) and persists. A no-op when the value already
+    /// matches, so no caller can re-persist or log a duplicate "enabled/disabled" line.
     public func setAutomationRule(id: UUID, enabled: Bool) {
         ensureAutomationRulesLoaded()
         guard let idx = automationRules.firstIndex(where: { $0.id == id }) else { return }
@@ -239,12 +207,10 @@ extension FileSyncManager {
 
     // MARK: Dry run
 
-    /// Starts a cancellable dry-run preview of the enabled rules over `root`, replacing any in-flight
-    /// one. `root` is the folder whose loose files are scanned; `destinationRoot` is the anchor a
-    /// rule's (provider-relative) destination template resolves against — the **provider root**, not
-    /// the scanned folder, so previewing while focused into a subfolder still files into the same
-    /// place. `providerName` labels the surface and resolves the `{provider}` token.
-    /// `only` scopes the preview to a single rule (its id); nil previews all enabled, runnable rules.
+    /// Starts a cancellable dry-run preview over `root`'s loose files, replacing any in flight.
+    /// `destinationRoot` is the provider root a rule's relative destination resolves against, not
+    /// the scanned folder, so previewing from a subfolder files to the same place. `providerName`
+    /// labels the surface and fills `{provider}`. `only` previews one rule; nil, all eligible ones.
     public func startAutomationDryRun(root: URL, destinationRoot: URL, providerName: String?, only: UUID? = nil) {
         automationDryRunTask = restartedScanTask(replacing: automationDryRunTask) { [weak self] in
             await self?.runAutomationDryRun(root: root, destinationRoot: destinationRoot,
@@ -257,17 +223,16 @@ extension FileSyncManager {
         automationDryRunTask?.cancel()
     }
 
-    /// Clears the current preview (called on provider switch, so a stale report from one provider
-    /// can't show under another).
+    /// Clears the current preview, on provider switch, so one provider's report can't show under
+    /// another.
     public func clearAutomationDryRun() {
         automationDryRunTask?.cancel()
         automationDryRun = nil
         automationDryRunLifecycle.hasCompleted = false
     }
 
-    /// Walks `root`'s loose files, evaluates the enabled rules on-device, and publishes the report.
-    /// Content is read only for files a content-condition could still match — cheap conditions gate
-    /// the expensive text extraction.
+    /// Walks `root`'s loose files, evaluates the rules on-device, and publishes the report. Text is
+    /// read only for files a content condition could still decide.
     func runAutomationDryRun(
         root: URL,
         destinationRoot: URL? = nil,
@@ -279,23 +244,21 @@ extension FileSyncManager {
         guard !automationDryRunLifecycle.isRunning else { return }
         ensureAutomationRulesLoaded()
         let fileManager = fm ?? self.fileManager
-        // Destinations resolve against the provider root; callers that don't distinguish (tests
-        // scanning a self-contained temp dir) anchor at the scanned folder itself.
+        // Destinations resolve against the provider root; with none given (tests on a temp dir),
+        // against the scanned folder.
         let destinationAnchor = destinationRoot ?? root
-        // A single-rule preview (only != nil) runs even if that rule is toggled off, so a rule can be
-        // tested before enabling it; "preview all" (only == nil) uses just the enabled rules.
-        // A rule with an ABSOLUTE destination (a learned/migrated rule) that points outside this
-        // provider is inert here — filtered up front so it can't claim a file another rule would
-        // handle. Compared on raw paths, the same strings the legacy provider scoping compared.
+        // A rule with an absolute destination (learned or migrated) outside this provider is inert
+        // here, filtered up front so it can't claim a file another rule would handle. Compared on
+        // raw paths.
         let anchorPath = destinationAnchor.path
-        // So is a rule taught for another survey's tree (TE286).
+        // So is a rule taught for another survey's tree.
         func isInert(_ rule: AutomationRule) -> Bool {
             (rule.destinationTemplate.hasPrefix("/")
                 && AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil)
                 || !rule.acts(in: anchorPath)
         }
-        // Previewing exactly one provider-inert rule must SAY so — a silent empty report reads as
-        // "the conditions match nothing", which is the wrong diagnosis.
+        // Previewing one inert rule must say so: a silent empty report reads as "the conditions
+        // match nothing".
         if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
             let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
             banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can’t act here.")
@@ -327,8 +290,7 @@ extension FileSyncManager {
         let parentFolderName = root.lastPathComponent
         let parentPath = root.path
 
-        // Read once, outside the loop: the roster does not change mid-preview, and resolving it
-        // per file would ask the manager for it a few hundred times.
+        // Read once: the roster doesn't change mid-preview.
         let registry = filingPersonRegistry
         let identity = filingPersonIdentity
         var rows: [AutomationDryRunRow] = []
@@ -344,28 +306,22 @@ extension FileSyncManager {
                 isDirectory: file.isDirectory
             ).attributing(registry, identity: identity)
 
-            // Read the file's on-device text only when content could still CHANGE a rule's outcome
-            // for this file: some content-reading rule doesn't match yet but could once its content
-            // conditions are known. A rule already satisfied by the name alone (a `mentions` rule
-            // whose words are all in the filename) skips the extraction entirely.
+            // Read the text only when it could still change a rule's outcome. A rule the name
+            // already satisfies (a `mentions` rule whose words are all in the filename) skips it.
             if readsContents, let extractor = snippetExtractor,
                ruleSet.contentCouldStillDecide(facts, now: now) {
                 facts.snippet = (await extractor(file.id))?.lowercased()
                 // Tokenize the excerpt so `mentionsAll` sees the same canonical content tokens the
                 // Organize scan matches with.
                 if let snippet = facts.snippet { facts.contentTokens = FilingEngine.nameTokens(snippet) }
-                // Re-resolved now the page is in hand: a scan whose NAME names nobody can still be
-                // attributed by what it says, which is the whole reason the precedence rule falls
-                // through to the page rather than stopping at the filename.
+                // Re-attributed now the page is in hand: a scan whose name names nobody can still
+                // be attributed by what it says.
                 facts = facts.attributing(registry, identity: identity)
                 if Task.isCancelled { return }
             }
 
-            // First rule, in user order, whose conditions match. `ruleSet` is already scoped
-            // correctly (`eligible` for a full preview, or `testing` — exactly the one rule — for
-            // a single-rule preview), so nothing here may re-filter on `enabled`: doing so would
-            // make a single-rule preview of a disabled rule (the "test it before enabling" flow)
-            // silently match nothing.
+            // First rule, in user order, that matches. `ruleSet` is already scoped, so don't
+            // re-filter on `enabled` here: a preview of a disabled rule would match nothing.
             guard let rule = ruleSet.firstMatch(for: facts, now: now) else { continue }
             let resolution = Self.dryRunVerdict(
                 for: rule, facts: facts, destinationRoot: destinationAnchor,
@@ -376,10 +332,9 @@ extension FileSyncManager {
                 ruleID: rule.id, ruleName: rule.name, verdict: resolution.verdict,
                 destinationDir: resolution.destinationDir, destinationLabel: resolution.label,
                 destinationAnchor: destinationAnchor,
-                // One `attributesOfItem` per loose file, taken here so the apply can tell this
-                // file from whatever may hold its path later. Read through `snapshot` rather than
-                // built from `file`'s walked metadata — see the field's own note for why the two
-                // must come from the same API.
+                // One stat per file, so the apply can tell this file from whatever holds its path
+                // later. Read through `snapshot`, not the walked metadata: the field's note says
+                // why both reads must use the same API.
                 sourceIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: file.id),
                                                       fileManager: fileManager)
             ))
@@ -390,17 +345,16 @@ extension FileSyncManager {
             filesScanned: looseFiles.count, rows: rows
         )
         self.automationDryRun = report
-        // The report carries its own root string, so the lifecycle's `root` stays nil here —
-        // only the completion flag is published.
+        // The report carries its own root, so only the lifecycle's completion flag is published.
         self.automationDryRunLifecycle.hasCompleted = true
         Logger.shared.info("Rules preview: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
             + "\(report.wouldFileCount) would file, \(report.needsAttentionCount) need a look "
             + "(a preview — nothing moved yet)")
     }
 
-    /// Turns a resolved destination into a preview verdict, adding the two disk/root-aware outcomes
-    /// the pure evaluator can't know: "already there" and a name collision. `nonisolated static` so
-    /// it can run inside the off-main loop with the injected file manager.
+    /// Turns a resolved destination into a preview verdict, adding the two outcomes the pure
+    /// evaluator can't know: "already there" and a name collision. `nonisolated static` so it can
+    /// run off the main actor with the injected file manager.
     nonisolated static func dryRunVerdict(
         for rule: AutomationRule,
         facts: AutomationFileFacts,
@@ -414,7 +368,7 @@ extension FileSyncManager {
         case .unresolved(let token):
             return (.needsAttention("needs \(token), which this file doesn’t have"), nil, nil)
         case .resolved(var resolvedDestination):
-            // A month folder already there in another spelling is the one used (decision HI).
+            // A month folder already there in another spelling is the one used.
             if !resolvedDestination.hasPrefix("/") {
                 resolvedDestination = AutomationTravelDate.adoptingExistingMonth(
                     resolvedDestination, template: rule.destinationTemplate) { parent in
@@ -422,24 +376,21 @@ extension FileSyncManager {
                         return (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
                     }
             }
-            // An absolute destination (a migrated F3 rule) names its folder directly; a relative one
-            // anchors at the provider root. Provider-inert absolute rules were filtered out before
-            // matching, so an absolute path here is inside this provider.
+            // An absolute destination (a migrated rule) names its folder directly; a relative one
+            // anchors at the provider root. Inert rules were filtered out, so an absolute path here
+            // is inside this provider.
             let destinationDir = resolvedDestination.hasPrefix("/")
                 ? URL(fileURLWithPath: resolvedDestination).standardizedFileURL
                 : destinationRoot.appendingPathComponent(resolvedDestination).standardizedFileURL
             let currentParent = URL(fileURLWithPath: facts.parentPath).standardizedFileURL
-            // Label with the provider-relative form whenever the destination sits under the root
-            // (boundary-safe strip; a destination outside the root keeps its absolute path).
+            // Label with the provider-relative path when under the root, else the absolute one.
             let rootPath = destinationRoot.standardizedFileURL.path
             let relativeDestination = PathBoundary.relativize(destinationDir.path, under: rootPath)
                 ?? destinationDir.path
             let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
                                                     : relativeDestination
-            // Case-folded per the volume, matching `performFiling`'s no-op test: the preview must
-            // not promise a move that the apply path will (correctly) decline, and before this the
-            // apply path did not decline it — it renamed the file in place. Resolved through links
-            // too, for the same reason (FR9).
+            // Case-folded per the volume and resolved through links, matching `performFiling`'s
+            // no-op test, so the preview never promises a move the apply would decline.
             if PathBoundary.resolvesToSameDirectory(
                 destinationDir.path,
                 currentParent.path,
@@ -449,7 +400,7 @@ extension FileSyncManager {
             }
             let target = destinationDir.appendingPathComponent(facts.name)
             if fileManager.fileExists(atPath: target.path) {
-                // Filable — the move keeps both (never overwrites); flagged so the review card can say so.
+                // Still filable (the move keeps both); flagged so the review card can say so.
                 return (.needsAttention("a file named “\(facts.name)” is already there"), destinationDir, label)
             }
             return (.wouldFile(destination: label), destinationDir, label)
@@ -458,12 +409,10 @@ extension FileSyncManager {
 
     // MARK: Filing (phase B — moves real files, one reversible run)
 
-    /// Files the given previewed rows for real: each actionable row (its `destinationDir` set) is
-    /// moved into that folder through the same safe primitives the rest of the app uses — creating
-    /// intermediate folders, **never overwriting** (a name clash is kept as a copy), registering one
-    /// undo action for the whole run, and logging every move to Sync History. The per-file
-    /// confirmation happens in the UI *before* this is called; here we just execute the approved set.
-    /// Returns the number filed and the number that failed.
+    /// Files the approved preview rows for real: each row with a `destinationDir` is moved there by
+    /// the app's safe primitives, creating folders and never overwriting (a clash keeps both).
+    /// One undo action covers the run, and every move goes to Sync History. The UI confirms each
+    /// file before this is called. Returns the number filed and the number that failed.
     @discardableResult
     public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
         // Don't move files Verify All may be checksumming (same guard Filing uses).
@@ -492,28 +441,21 @@ extension FileSyncManager {
             let outcome: AutomationMoveOutcome = await enqueueFileOperation {
                 do {
                     guard fm.fileExists(atPath: src.path) else { return .failed(rootUnavailable: false) }
-                    // **And it has to still BE the file the preview matched.** The report is read,
-                    // and stepped through, minutes after it is taken; the existence check above
-                    // says only that the path is occupied. A file that replaced this one was moved
-                    // out of the folder the user was looking at, into a destination the rule chose
-                    // for a document it is not — and, being a move, with nothing left behind.
-                    //
-                    // nil identity ⇒ not recorded ⇒ behave exactly as before, for rows this
-                    // process did not preview.
+                    // It must still be the file the preview matched. The report is stepped through
+                    // minutes after it is taken, and a file that has since taken this path would
+                    // be moved into a folder chosen for another document. A row with no recorded
+                    // identity (not previewed by this process) skips the check.
                     if let recorded = row.sourceIdentity {
                         let verdict = recorded.drift(at: src, fileManager: fm)
                         guard verdict == .unchanged else {
                             throw FileOperationError.sourceChangedSincePreview
                         }
                     }
-                    // One stat, before any I/O — the guard `performFiling` has and this path never
-                    // did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
-                    // path, so a provider that has unmounted or been removed since the preview is
-                    // silently RECREATED as an ordinary local folder. This is a MOVE: the file
-                    // would leave a live tree to sit in a dead one nothing syncs, under a success
-                    // banner. Stat'ing the ANCHOR (the provider root) rather than the leaf is what
-                    // keeps the check precise — everything below the root is the rule's template
-                    // to create, and creating it is the whole feature.
+                    // Check the provider root before any I/O, as `performFiling` does.
+                    // `createDirectory(withIntermediateDirectories:)` builds the whole path, so an
+                    // unmounted provider would be recreated as a plain local folder and the file
+                    // moved into a tree nothing syncs. Only the root is checked: everything below
+                    // it is the rule's to create.
                     guard fm.fileExists(atPath: anchor.path) else {
                         throw FileOperationError.destinationRootUnavailable
                     }
@@ -525,9 +467,8 @@ extension FileSyncManager {
                     let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
                     return .moved(to: dst, overwritten: overwritten)
                 } catch FileOperationError.sourceChangedSincePreview {
-                    // Its own line, and not phrased as a failure to move: nothing went wrong with
-                    // the filesystem, and "failed" would send the user looking for a permissions
-                    // problem. The file that is there now is left exactly where it is.
+                    // Not phrased as a failure: nothing is wrong with the disk, and "failed" would
+                    // send the user looking for a permissions problem. The file stays put.
                     logger.warning("Automation filing: REFUSED to move “\(name)” — it changed since "
                                    + "the preview, so it is no longer the file that rule matched; "
                                    + "leaving it in place at \(src.path)")
@@ -550,25 +491,21 @@ extension FileSyncManager {
                 failures += 1
                 if wasRootUnavailable { rootUnavailable += 1 }
             case .refusedChanged:
-                // Counted apart from `failures` on purpose. It is not an error, and folding it in
-                // would put "N failed" in front of a user whose disk is fine — the same reason
-                // `rootUnavailable` is tracked separately one case up.
+                // Counted apart from `failures`: it isn't an error, and "N failed" would mislead a
+                // user whose disk is fine.
                 refusedChanged += 1
             }
         }
 
-        // Said in both banner branches below, because a refusal the user is not told about is the
-        // defect this guard was added for wearing a different hat: the file stays where it was and
-        // the run reports a smaller number, which reads as "there was less to do".
+        // Said in both banner branches below: an unannounced refusal just shows a smaller count,
+        // which reads as "there was less to do".
         let changedNote = refusedChanged == 0 ? ""
             : " \(refusedChanged) changed since the preview and \(refusedChanged == 1 ? "was" : "were") left in place."
 
         guard !moves.isEmpty else {
             if failures > 0 || refusedChanged > 0 {
-                // A vanished provider is a condition the user can act on ("plug it back in, then
-                // preview again"), so it gets to say so rather than being flattened into the
-                // generic count — which is what would otherwise report a whole run that refused to
-                // write anywhere as an ordinary I/O hiccup.
+                // A vanished provider is something the user can fix (reconnect, preview again), so
+                // it is named rather than folded into the generic count.
                 let couldnt = failures > 0
                     ? "Couldn’t file \(failures) file\(failures == 1 ? "" : "s")."
                     : "Nothing was filed."
@@ -585,7 +522,7 @@ extension FileSyncManager {
                          fileManager: fm)
         recordSyncHistory(records)
 
-        // Reflect what's left: drop the filed rows from the current preview (their files have moved).
+        // Drop the filed rows from the current preview: their files have moved.
         if let report = automationDryRun {
             let remaining = report.rows.filter { !filedPaths.contains($0.id) }
             if remaining.isEmpty {
@@ -610,18 +547,15 @@ extension FileSyncManager {
     }
 }
 
-/// What one enqueued automation move actually did. An enum rather than the
-/// `(movedTo:overwritten:failed:)` tuple it replaced, for the reason ``FilingMoveOutcome`` gives:
-/// the tuple carried the same fact twice (`movedTo == nil` and `failed == true` always agreed) and
-/// nothing stopped a future edit from returning a destination alongside `failed: true`.
+/// What one enqueued automation move did. An enum, as ``FilingMoveOutcome`` is, so a move can't
+/// report a destination and a failure at once.
 private enum AutomationMoveOutcome: Sendable {
     case moved(to: URL, overwritten: URL?)
-    /// `rootUnavailable` separates the one failure the user can act on — the provider is gone —
-    /// from a generic I/O error, so the banner can name it.
+    /// `rootUnavailable` marks the one failure the user can act on, a provider that is gone, so
+    /// the banner can name it.
     case failed(rootUnavailable: Bool)
-    /// Not moved because the file at that path is no longer the one the preview matched. Its own
-    /// case rather than a `failed`: counting it as a failure would report a filesystem problem
-    /// for a refusal that is the guard working, and send the user checking permissions.
+    /// Not moved: the file at that path is no longer the one the preview matched. Not a `failed`,
+    /// which would report a disk problem for the guard doing its job.
     case refusedChanged
 }
 
@@ -631,7 +565,7 @@ final class OneShotKeySet: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed: Set<String> = []
 
-    /// True the FIRST time `key` is claimed, false every time after.
+    /// True the first time `key` is claimed, false every time after.
     func claim(_ key: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return claimed.insert(key).inserted

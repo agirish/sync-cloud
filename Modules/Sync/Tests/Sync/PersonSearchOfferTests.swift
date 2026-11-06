@@ -29,27 +29,26 @@ import Foundation
     }
 
     @Test func aPhraseSpendsItsSharedWordOnTheRightPerson() {
-        // The trap this household's names set: `father` is his first name and three other
-        // people's surname. Phrase-first means the full name resolves to the daughter alone.
+        // `father` is his first name and three other people's surname. Phrase-first means the
+        // full name resolves to the daughter alone.
         #expect(offer("daughter father")?.id == "daughter")
         #expect(offer("granny elder")?.id == "granny")
     }
 
     @Test func aQueryNamingTwoPeopleOffersNobody() {
-        // Not a person scope. Picking one of two arbitrarily is exactly the over-attribution the
-        // registry refuses to do, arriving through a search field instead.
+        // Not a person scope: picking one of two arbitrarily is the over-attribution the registry
+        // refuses everywhere else.
         #expect(offer("daughter mother") == nil)
         #expect(offer("mother granny") == nil)
-        // Both halves are real names in this roster — a fixture naming somebody absent would
-        // resolve to one person and pass for the wrong reason, which is how the first cut of this
-        // test read ("daughter son", with no Son in the registry).
+        // Both halves are real names in this roster: a name missing from it would leave one person
+        // and pass for the wrong reason.
         #expect(offer("daughter")?.id == "daughter")
         #expect(offer("mother")?.id == "mother")
     }
 
     @Test func aQueryNamingNobodyLeavesTheFindAlone() {
-        // The property that makes this safe on a control people already use: no offer, and the
-        // substring search underneath is untouched.
+        // What makes this safe on a control people already use: no offer, and the substring
+        // search underneath is untouched.
         #expect(offer("invoice") == nil)
         #expect(offer("2024") == nil)
         #expect(offer("") == nil)
@@ -57,20 +56,18 @@ import Foundation
     }
 
     @Test func theTokenizerOwnsWhitespaceAndSingleCharacters() {
-        // Asserted as behaviour of the whole, not as a guard in `PersonSearchOffer` — it has none.
+        // Behaviour of the whole: `PersonSearchOffer` has no guard of its own.
         // `PersonRegistry.words` discards whitespace and skips words under two characters, which
-        // is why "Mother I Maiden" does not make `R` a name. An earlier cut duplicated both rules
-        // here and neither could fail a mutation, because the tokenizer was already doing the work.
+        // is why the `I` in "Mother I Maiden" is never a name.
         #expect(offer("a") == nil)
         #expect(offer("R") == nil)
         #expect(offer("  Daughter  ")?.id == "daughter")
     }
 
     @Test func aBareSharedWordStillOffersThePersonItNames() {
-        // Deliberately NOT excluded. `elder` is Dad's first name and also two other people's
-        // surname, but it resolves to exactly one person, so typing your father's name has to
-        // offer him. What a shared word cannot do is attribute a FILE on its own — a different
-        // question, answered in `PersonFiles`, where the same word gave 204 false rows.
+        // Deliberately not excluded: `elder` is two other people's surname but resolves to exactly
+        // one person, so typing your father's name offers him. A shared word can't attribute a
+        // file on its own, but that is `PersonFiles`'s question.
         #expect(offer("elder")?.id == "elder")
         #expect(offer("father")?.id == "father")
     }

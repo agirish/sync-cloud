@@ -1,16 +1,10 @@
 import Foundation
 @testable import Sync
 
-/// One shape for the `"a/b/c"` fixture trees the tree-reading suites are written against.
-///
-/// **Lifted out of two suites that had grown their own.** ``PersonCandidatesTests`` and
-/// ``JurisdictionCandidatesTests`` each carried a `private static func tree(_:)`, and they differed
-/// in more than spelling — one keyed node ids on the leaf name, the other on the whole path — so a
-/// rule that read ids would have been pinned by two fixtures that disagreed about what a tree is.
-/// The setup walk reads both proposers plus the counts, and could not have borrowed either.
-///
-/// Folders only, unless files are asked for: a fixture that carried files by default is one a
-/// folder-name rule could pass by reading the wrong thing.
+/// One shape for the `"a/b/c"` fixture trees the tree-reading suites are written against, so
+/// ``PersonCandidatesTests``, ``JurisdictionCandidatesTests`` and the setup walk agree on what a
+/// tree is (node ids are whole paths). Folders only unless files are asked for: a fixture that
+/// carried files by default is one a folder-name rule could pass by reading the wrong thing.
 enum FixtureTree {
 
     /// A folder-only tree. Paths share their parents, and every level is sorted by name.
@@ -21,8 +15,8 @@ enum FixtureTree {
     /// A tree whose `folders` are directories and whose `files` are leaves.
     ///
     /// A file path's last component is the file; everything before it is folders, created whether
-    /// or not `folders` also names them. Every file gets the same size and stamp, because no rule
-    /// reading these trees compares two files against each other.
+    /// or not `folders` names them. Every file gets the same size and stamp, since no rule reading
+    /// these trees compares two files.
     static func of(folders: [String], files: [String], root: String = "/root",
                    fileSize: Int = 1_024,
                    modified: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> [FileNode] {

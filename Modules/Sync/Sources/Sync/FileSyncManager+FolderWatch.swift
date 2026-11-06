@@ -1,35 +1,29 @@
 import Events
 import Foundation
 
-/// **What the folder watcher has said about one pane's listing** (ROADMAP item 5): two FSEvents
-/// ids, compared.
+/// What the folder watcher has said about one pane's listing: two FSEvents ids, compared.
+/// `readMark` is read just before the walk behind the published tree started; `changeMark` is the
+/// newest change reported in the pane's folder. A greater change id means the walk may have
+/// missed it.
 ///
-/// `readMark` is the id read just before the walk behind the published tree started; `changeMark`
-/// is the newest change the watcher reported in the pane's folder. A change with a greater id than
-/// the walk's happened after the walk began, so the walk may not have seen it.
+/// Ids, not times: FSEvents delivers a change up to its latency late, so ordering by delivery would
+/// read the pane's own refresh as stale at once. Ids are assigned when the change is made and when
+/// the walk starts, so they order exactly.
 ///
-/// **Ids, not times.** FSEvents delivers a change up to its latency after it happened, so ordering
-/// by delivery would read the pane's own refresh — re-walked straight after a change, its events
-/// arriving a moment later — as stale again at once. An id is assigned when the change is made, and
-/// a walk's id when the walk starts, so the two order exactly.
-///
-/// **Not a seventh counter for REFACTOR.md item 8.** Nothing here guards a publish or dedupes a
-/// refresh: it is a stamp the OS issues, carried beside `leftTreeReadAt` the way that stamp is, and
-/// it can only add a warning. The work it causes goes through the entry points that family already
-/// has — a targeted cache drop and `noteScanConfigChanged`, which is what
-/// `prepareReread(afterWritingAt:)` does for a file the app wrote, and a refresh the app asks for.
-/// The one thing it does order is when the app HEARS about a change (`owedPaneChanges`): held while
-/// a refresh runs, and no oftener than `paneNewsInterval`.
+/// Not another freshness counter (`REFACTOR.md`, the freshness family): it guards no publish and
+/// dedupes no refresh, only adds a warning. Its work goes through the existing entry points, a
+/// targeted cache drop and `noteScanConfigChanged`. It orders only when the app hears of a change
+/// (`owedPaneChanges`): held while a refresh runs, and no oftener than `paneNewsInterval`.
 struct PaneWatchState: Equatable, Sendable {
-    /// The folder the pane's newest load is for, as the load composed it — what changes are matched
-    /// against. A load for another folder starts the change record over.
+    /// The folder the pane's newest load is for, as the load composed it; changes are matched
+    /// against it. A load for another folder starts the change record over.
     var focus: String?
     /// The id read before the walk behind the published tree started; nil while the pane holds none.
     var readMark: UInt64?
     /// The newest change reported in `focus` since the pane moved there; 0 for none.
     var changeMark: UInt64 = 0
-    /// The newest change to a HIDDEN item there — kept apart, because it is news only while the
-    /// pane shows hidden items, and turning them on must not reveal stale ones unannounced.
+    /// The newest change to a hidden item there, kept apart: it is news only while the pane shows
+    /// hidden items, and turning them on must not reveal stale ones unannounced.
     var hiddenChangeMark: UInt64 = 0
 
     func changedSinceRead(showingHidden: Bool) -> Bool {
@@ -42,14 +36,13 @@ extension FileSyncManager {
 
     // MARK: - Enabling
 
-    /// Starts watching the panes' folders with a ``FolderWatcher``: from here on a change on disk
-    /// under either pane sets `leftChangedOnDisk` / `rightChangedOnDisk` until a walk that started
-    /// after it lands, drops the cached walks it makes stale, and tells `onPanesChangedOnDisk`.
+    /// Starts watching the panes' folders with a ``FolderWatcher``. A change on disk under either
+    /// pane then sets `leftChangedOnDisk` / `rightChangedOnDisk` until a later walk lands, drops
+    /// the cached walks it makes stale, and tells `onPanesChangedOnDisk`.
     ///
-    /// Off by default — every test, and the CLI, run with no watcher and see no difference — and
-    /// idempotent. The parameters are the watcher's, for a test that cannot wait on the defaults.
-    /// `history` has no default for `persistedUIStateDefaults`' reason: only the real app may write
-    /// the real defaults domain, so it is the app that hands it over.
+    /// Off by default (tests and the CLI run without it) and idempotent. The timing parameters are
+    /// for tests. `history` has no default because only the real app may write the real defaults
+    /// domain.
     public func enableFolderWatching(history: FolderWatchHistory,
                                      latency: TimeInterval = 0.3, quiet: TimeInterval = 1,
                                      maxDelay: TimeInterval = 5) {
@@ -61,7 +54,7 @@ extension FileSyncManager {
         updateFolderWatch()
     }
 
-    /// Stops watching and clears both flags — nothing is watching, so nothing can be claimed.
+    /// Stops watching and clears both flags: with nothing watching, nothing can be claimed.
     public func disableFolderWatching() {
         folderWatcher?.stop()
         folderWatcher = nil
@@ -76,13 +69,11 @@ extension FileSyncManager {
     // MARK: - The panes' side
 
     /// A pane load is starting for `focusPath`: point the watcher at it, then read the id the load
-    /// is ordered by. In that order, so a change made after the id was read is one the stream is
-    /// already watching for.
+    /// is ordered by. In that order, so any change after the id is one the stream already watches.
     ///
-    /// A load for a new folder also takes that id as the pane's read mark at once. The tree on
-    /// screen is the old folder's until the load publishes, and measured against the old walk the
-    /// new folder's replayed history would read as news — a flag on a pane that is loading, and an
-    /// epoch bump that leaves the walk in flight uncached.
+    /// A load for a new folder takes that id as the read mark at once. Measured against the old
+    /// folder's walk, the new folder's replayed history would read as news, flagging a loading pane
+    /// and bumping the epoch so the walk in flight is never cached.
     func noteFolderWatchLoad(isLeft: Bool, focusPath: String) -> UInt64 {
         folderWatchLoadWitness?(isLeft)
         var state = isLeft ? leftWatch : rightWatch
@@ -106,7 +97,7 @@ extension FileSyncManager {
         publishDiskChanges()
     }
 
-    /// Republishes the two flags, writing only one that moved — each write re-renders every view
+    /// Republishes the two flags, writing only one that moved: each write re-renders every view
     /// observing the manager.
     func publishDiskChanges() {
         let left = leftWatch.changedSinceRead(showingHidden: showHiddenFiles)
@@ -117,10 +108,10 @@ extension FileSyncManager {
 
     /// The folders the watcher covers: each pane's folder, the folders macOS links into it from
     /// outside (iCloud Drive's Desktop and Documents, `linkedFolders`), and the folder links the
-    /// pane's walk followed out of it. **The panes' folders, not their sources' roots**: a source can
-    /// be the home folder or the startup disk, and a file-level stream there is every write the Mac
-    /// makes. The cost is that a cached walk elsewhere is not watched while no pane is on it — so
-    /// a move there replays the history since that walk (``folderWatchReplayMark(for:)``).
+    /// pane's walk followed out of it. The panes' folders, not their sources' roots: a source can
+    /// be the home folder or the startup disk, where a file-level stream is every write the Mac
+    /// makes. So a cached walk elsewhere goes unwatched while no pane is on it, and moving there
+    /// replays the history since that walk (``folderWatchReplayMark(for:)``).
     func folderWatchRoots() -> Set<FolderWatchRoot> {
         var paths: Set<String> = []
         for (state, linkTargets) in [(leftWatch, leftTreeLinkTargets), (rightWatch, rightTreeLinkTargets)] {
@@ -133,21 +124,19 @@ extension FileSyncManager {
             }
         }
         // A network volume is never watched: FSEvents reports nothing made on the server, and
-        // pointing a stream at one resolves its path on the main thread, which a server gone to
-        // sleep holds until it times out (v6.2's pane loads touched no disk there).
+        // pointing a stream at one resolves its path on the main thread, which a sleeping server
+        // holds until it times out.
         return Set(paths.filter(FolderWatcher.isOnLocalVolume).map(FolderWatchRoot.init(path:)))
     }
 
-    /// The oldest walk anything on screen or in the cache over `root` still relies on — where a
-    /// stream newly pointed at it has to replay from, so a change made while nothing watched it is
-    /// still reported. nil when nothing relies on one: a pane load reads its id after the stream is
-    /// up (``noteFolderWatchLoad(isLeft:focusPath:)``), so it needs no replay, and none is asked —
-    /// a replay brings back this process's own writes without the mark that says so.
+    /// The oldest walk over `root` that anything on screen or in the cache relies on: where a new
+    /// stream must replay from, so a change made while unwatched is still reported. nil when
+    /// nothing relies on one (a pane load reads its id after the stream is up), and then no replay
+    /// is asked, since a replay returns this process's own writes without the mark that says so.
     ///
-    /// **"Over `root`" through links too**: a walk of the iCloud Drive container lists `~/Documents`
-    /// through the link, so a stream on `~/Documents` started when a pane comes back to the
-    /// container must replay from the container's cached walk. Matched on the folders each walk
-    /// lists from (`listedRoots`), not on its own path alone.
+    /// "Over `root`" includes links: a walk of the iCloud Drive container lists `~/Documents`
+    /// through one, so a stream on `~/Documents` replays from the container's walk. Matched on the
+    /// folders each walk lists from (`listedRoots`).
     func folderWatchReplayMark(for root: FolderWatchRoot) -> UInt64? {
         let links = linkedFolders
         func related(_ folder: String?, _ linkTargets: Set<String>) -> Bool {
@@ -179,25 +168,22 @@ extension FileSyncManager {
 
     // MARK: - Absorbing a batch
 
-    /// Applies one coalesced batch: marks the panes whose folder it touched, drops the cached walks
-    /// it made stale, bumps the scan-config epoch so a refresh asked for next is not swallowed as a
-    /// duplicate of one already running (`prepareForcedRescan`'s reason), and tells the app which
-    /// panes now show a stale listing.
-    ///
-    /// **This process's own writes are left out.** The file-operation queue and Edit's re-read
-    /// already account for every write the app makes (`prepareReread(afterWritingAt:)`), and an
-    /// autosave every few seconds would otherwise keep the pane it is in permanently "changed".
-    ///
-    /// **Hidden items count only when the pane shows them**: Finder rewrites `.DS_Store` whenever a
-    /// window opens a folder, and a pane that lists no hidden file has no row that change could be
-    /// about. They are kept apart rather than dropped (`hiddenChangeMark`), so showing hidden items
-    /// later shows the warning with them. The cached walks go either way — they hold hidden items
-    /// whatever the pane shows.
     /// Whether a change touched nothing but extended attributes (whatever kind of item it is).
     nonisolated static func onlyExtendedAttributes(_ change: FolderWatchEvent.Change) -> Bool {
         change.isOnlyExtendedAttributes
     }
 
+    /// Applies one coalesced batch: marks the panes whose folder it touched, drops the cached walks
+    /// it made stale, bumps the scan-config epoch so the next refresh isn't swallowed as a
+    /// duplicate of one running, and tells the app which panes now show a stale listing.
+    ///
+    /// This process's own writes are left out: the app already accounts for them
+    /// (`prepareReread(afterWritingAt:)`), and autosave would keep its pane forever "changed".
+    ///
+    /// Hidden items count only when the pane shows them, since Finder rewrites `.DS_Store` whenever
+    /// a window opens a folder. They are kept apart (`hiddenChangeMark`), not dropped, so showing
+    /// hidden items later shows the warning. Cached walks hold hidden items, so they drop either
+    /// way.
     func absorbFolderChanges(_ batch: FolderWatchBatch) {
         guard folderWatcher != nil else { return }
         let links = linkedFolders
@@ -222,10 +208,8 @@ extension FileSyncManager {
         }
 
         // One pass per path: a burst names the same item many times, and only its newest id counts.
-        // A change only to a file's extended attributes (measured 31 Oct: a "last opened" stamp, a
-        // quarantine mark and a Finder tag all arrive as exactly that, with no other flag) is news
-        // only while the panes read tags, which they do only when sorting by them; otherwise
-        // nothing a pane lists or caches could have changed.
+        // A change only to extended attributes (a "last opened" stamp, a quarantine mark, a Finder
+        // tag) is news only while the panes read tags, which they do only when sorting by them.
         let tagsListed = sortOption == .tags
         var newest: [String: FolderWatchEvent] = [:]
         for event in batch.events where !event.isOwn && (tagsListed || !Self.onlyExtendedAttributes(event.change)) {
@@ -257,13 +241,10 @@ extension FileSyncManager {
         }
         let dropped = dropPrefetchedTrees(changedBy: changes)
 
-        // **Moved past its walk, not merely moved.** A stream pointed somewhere new replays the
-        // history since the oldest walk anything relies on, and most of it predates the pane's own
-        // walk: counting that as news would bump the epoch on every navigation, and the walk in
-        // flight would then never be cached.
-        //
-        // Hidden news counts here whether or not the pane shows it: the walk in flight lists hidden
-        // items either way, so it must not be cached over one that changed.
+        // Moved past its walk, not merely moved: a new stream replays history that mostly predates
+        // the pane's walk, and counting it would bump the epoch on every navigation, so the walk in
+        // flight would never be cached. Hidden news counts here whether or not the pane shows it:
+        // the walk lists hidden items either way.
         func movedPastRead(_ state: PaneWatchState, from old: PaneWatchState) -> Bool {
             let read = state.readMark ?? 0
             return (state.changeMark != old.changeMark && state.changeMark > read)
@@ -274,8 +255,8 @@ extension FileSyncManager {
         guard leftMoved || rightMoved || dropped > 0 else { return }
         noteScanConfigChanged()
         publishDiskChanges()
-        // **Info, once per pane as it turns**: it is what the user sees change on screen, and the
-        // one line that answers "why does it say changed?" at the level most people keep.
+        // Info, once per pane as it turns: the one line that answers "why does it say changed?"
+        // at the log level most people keep.
         for (isLeft, was, now) in [(true, wasChanged.0, leftChangedOnDisk), (false, wasChanged.1, rightChangedOnDisk)]
         where now && !was {
             let focus = (isLeft ? leftWatch : rightWatch).focus ?? ""
@@ -296,18 +277,17 @@ extension FileSyncManager {
 
     // MARK: - Telling the app
 
-    /// Tells `onPanesChangedOnDisk` which panes now show a stale listing — the app's opt-in rescan
-    /// answers it — **but never while a refresh or a file operation runs, and no oftener than
-    /// `paneNewsInterval`.**
+    /// Tells `onPanesChangedOnDisk` which panes now show a stale listing (the app's opt-in rescan
+    /// answers it), but never while a refresh or file operation runs, and no oftener than
+    /// `paneNewsInterval`.
     ///
-    /// - A refresh supersedes the one in flight by cancelling and restarting it, so a folder that
-    ///   changes every few seconds would never finish a walk. The news waits; the refresh's own end
-    ///   delivers it (``tellOwedPaneChanges()``), to whichever pane that refresh still left stale.
-    /// - A file operation re-reads when it ends — or, declined at its confirmation, never runs, so
-    ///   a wake a moment later asks again rather than leaving the news held for good.
-    /// - A folder that never stops changing — a pane on the home folder, a download landing, a
-    ///   provider rewriting attributes — would otherwise start the next walk the moment each one
-    ///   lands. One rescan per interval is the most it gets.
+    /// - A refresh cancels and restarts the one in flight, so a folder changing every few seconds
+    ///   would never finish a walk. The refresh's end delivers the news
+    ///   (``tellOwedPaneChanges()``).
+    /// - A file operation re-reads when it ends, or, declined at its confirmation, never runs, so a
+    ///   wake asks again rather than holding the news for good.
+    /// - A folder that never stops changing (the home folder, a download, a provider rewriting
+    ///   attributes) gets at most one rescan per interval.
     func tellPanesChanged(left: Bool, right: Bool) {
         guard left || right, onPanesChangedOnDisk != nil else { return }
         owedPaneChanges.left = owedPaneChanges.left || left
@@ -315,8 +295,8 @@ extension FileSyncManager {
         tellOwedPaneChanges()
     }
 
-    /// Delivers what ``tellPanesChanged(left:right:)`` holds, if nothing stops it now; otherwise
-    /// schedules one wake to ask again. Called as a refresh lets go of `activeRefreshKey`, too.
+    /// Delivers what ``tellPanesChanged(left:right:)`` holds if nothing stops it now, otherwise
+    /// schedules one wake to ask again. Also called as a refresh lets go of `activeRefreshKey`.
     func tellOwedPaneChanges() {
         guard owedPaneChanges.left || owedPaneChanges.right, onPanesChangedOnDisk != nil else { return }
         let busy = activeRefreshKey != nil || activeFileOperationsCount > 0

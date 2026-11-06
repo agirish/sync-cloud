@@ -52,25 +52,25 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let isError: Bool
     /// What the panel shows as the step, e.g. "Listed Documents/Taxes · 14 items".
     public let step: String
-    /// Set when the tool moved the person’s view (decision EB): "Moved you to Taxes".
+    /// Set when the tool moved the person’s view: "Moved you to Taxes".
     public let movedView: String?
-    /// A passage the person may choose to send to Claude (decision DS), shown as a button.
+    /// A passage the person may choose to send to Claude, shown as a button.
     public let passage: AskClaudePassage?
-    /// A cloud-only file the person may choose to download (TE258), shown as a card.
+    /// A cloud-only file the person may choose to download, shown as a card.
     public let download: AskClaudeDownload?
-    /// Filing help's answer (TE255), shown as a card with Go to Folder.
+    /// Filing help's answer, shown as a card with Go to Folder.
     public let filing: AskClaudeFilingCard?
-    /// A card of changes to review (TE285).
+    /// A card of changes to review.
     public let plan: AskClaudePlan?
-    /// Buttons that answer Claude's question (decision GB).
+    /// Buttons that answer Claude's question.
     public let choices: [AskClaudeChoice]?
-    /// A rule offered from a correction (TE286).
+    /// A rule offered from a correction.
     public let rule: AskClaudeRuleCard?
-    /// A card of settings with their real controls (TE290).
+    /// A card of settings with their real controls.
     public let settings: AskClaudeSettingCard?
-    /// A card that runs one of the PDF tools on their click (TE294).
+    /// A card that runs one of the PDF tools on their click.
     public let pdf: AskClaudePDFCard?
-    /// Names a content search found, held for their click (decision IV, TE320).
+    /// Names a content search found, held for their click.
     public let found: AskClaudeFoundNames?
 
     public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
@@ -94,7 +94,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     }
 }
 
-/// A button under Claude's question that answers it (decision GB): it sends `sends`, the same
+/// A button under Claude's question that answers it: it sends `sends`, the same
 /// words they could type, or with nil puts the caret in the text box for them to say.
 public struct AskClaudeChoice: Codable, Equatable, Sendable {
     public let label: String
@@ -112,7 +112,7 @@ public protocol AskClaudeToolRunning: AnyObject {
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome
 }
 
-/// Why a question stopped, in words the panel shows (decision EA): what’s wrong, and the fix.
+/// Why a question stopped, in words the panel shows: what’s wrong, and the fix.
 public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
     public enum Kind: String, Equatable, Sendable, Codable {
         case noKey, keyRejected, creditUsedUp, limitReached, rateLimited, busy, offline, declined, failed
@@ -178,7 +178,7 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
     }
 }
 
-/// The model and answer style a question was asked with, by id and raw value (TE292).
+/// The model and answer style a question was asked with, by id and raw value.
 public struct AskClaudeKeptSetting: Codable, Equatable, Sendable {
     public let model: String
     public let detail: String
@@ -196,23 +196,23 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case step(String, isError: Bool)
     case movedView(String)
     case offer(AskClaudePassage)
-    /// Names a content search found, held for their click (decision IV, TE320).
+    /// Names a content search found, held for their click.
     case found(AskClaudeFoundNames)
-    /// A cloud-only file offered for download (TE258).
+    /// A cloud-only file offered for download.
     case offerDownload(AskClaudeDownload)
-    /// Filing help's card (TE255).
+    /// Filing help's card.
     case filing(AskClaudeFilingCard)
-    /// A card of changes (TE285).
+    /// A card of changes.
     case plan(AskClaudePlan)
-    /// Buttons answering Claude's question (decision GB).
+    /// Buttons answering Claude's question.
     case choices([AskClaudeChoice])
-    /// A rule offered from a correction (TE286).
+    /// A rule offered from a correction.
     case rule(AskClaudeRuleCard)
-    /// A card of settings (TE290).
+    /// A card of settings.
     case settings(AskClaudeSettingCard)
-    /// A card that runs a PDF tool on their click (TE294).
+    /// A card that runs a PDF tool on their click.
     case pdf(AskClaudePDFCard)
-    /// The question joined the transcript with this model and style (TE292); `previous` is the
+    /// The question joined the transcript with this model and style; `previous` is the
     /// last question's, nil in a new chat.
     case kept(previous: AskClaudeKeptSetting?, now: AskClaudeKeptSetting)
     /// One round trip finished: its usage and estimated cost.
@@ -223,17 +223,17 @@ public enum AskClaudeEvent: Equatable, Sendable {
     case retractAnswer
 }
 
-/// The conversation, and the loop that runs one question to its answer (RD69).
+/// The conversation, and the loop that runs one question to its answer.
 ///
-/// **The transcript is append-only.** Earlier turns are never edited: editing one would break the
-/// cache and invalidate the thinking blocks the model signed. A user turn joins the transcript only
-/// once the request carrying it succeeds, so a failed request leaves nothing half-sent behind.
-/// Edit and Retry (TE296) only ever cut it back to where a question began (`rewind`): what stays
-/// is byte for byte what was sent before, thinking blocks and all, as the API allows.
+/// The transcript is append-only. Earlier turns are **never** edited: that would break the cache
+/// and invalidate the thinking blocks the model signed. A user turn joins only once the request
+/// carrying it succeeds, so a failed request leaves nothing half-sent. Edit and Retry only cut it
+/// back to where a question began (`rewind`): what stays is byte for byte what was sent before,
+/// thinking blocks and all, as the API allows.
 @MainActor
 public final class AskClaudeEngine {
 
-    /// Tool rounds per question (decision DZ). After the last one, the tools answer that the budget
+    /// Tool rounds per question. After the last one, the tools answer that the budget
     /// is spent, and Claude answers with what it has.
     public static let maxToolRounds = 8
 
@@ -249,26 +249,26 @@ public final class AskClaudeEngine {
     /// (`AskClaudeRequest.fixedDigest`). The API holds replayed thinking to the system text and
     /// tool list it was made under: an account it checks strictly refuses a changed one, and one
     /// it doesn't uses thinking made for other instructions. So a chat a new build changed them
-    /// under starts over. A chat saved before TE292 holds `model|style|digest`;
-    /// `isCurrent(setting:)` reads either.
+    /// under starts over. An older saved chat holds `model|style|digest`; `isCurrent(setting:)`
+    /// reads either.
     public private(set) var setting: String?
 
-    /// Whether a chat started under `setting` can carry on in this build. The model and style no
-    /// longer count (TE292): every question says which in its own `<setting>` block.
+    /// Whether a chat started under `setting` can carry on in this build. The model and style don't
+    /// count: every question says which in its own `<setting>` block.
     public static func isCurrent(setting: String) -> Bool {
         setting.split(separator: "|").last.map(String.init) == AskClaudeRequest.fixedDigest
     }
 
-    /// The model and style of the last question that joined the transcript (TE292), so a switch
-    /// is noted once, at the question that made it. Nil in a new chat and in one saved before it.
+    /// The model and style of the last question that joined the transcript, so a switch is noted
+    /// once, at the question that made it. Nil in a new chat and in an older saved one.
     public private(set) var lastKept: AskClaudeKeptSetting?
-    /// The size of the chat as of the last round that joined the transcript: what that round sent
-    /// plus what it answered, which the next request resends. What a switch's catch-up costs is
-    /// estimated from it (TE292). Nil until a round joins.
+    /// The size of the chat as of the last round that joined: what that round sent plus what it
+    /// answered, which the next request resends. A switch's catch-up cost is estimated from it.
+    /// Nil until a round joins.
     public private(set) var contextTokens: Int?
 
-    /// Where a question that joined the transcript begins (TE296), with what the chat was just
-    /// before it, so `rewind` can take the chat back there.
+    /// Where a question that joined the transcript begins, with what the chat was just before it,
+    /// so `rewind` can take the chat back there.
     public struct Turn: Codable, Equatable, Sendable {
         /// Its user message's index in the transcript.
         public let start: Int
@@ -276,22 +276,22 @@ public final class AskClaudeEngine {
         public let contextTokens: Int?
     }
 
-    /// One per question that joined, in order. Empty in a chat saved before TE296, which can't
-    /// be rewound past.
+    /// One per question that joined, in order. Empty in an older saved chat, which can't be
+    /// rewound past.
     public private(set) var turns: [Turn] = []
 
     private let transport: AskClaudeTransport
     private let defaults: UserDefaults
     private let now: () -> Date
 
-    /// Everything a chat needs to carry on after the app quits (TE247).
+    /// Everything a chat needs to carry on after the app quits.
     public struct Snapshot: Codable, Equatable, Sendable {
         public var transcript: [JSONFragment]
         public var handles: AskClaudeHandles
         public var lastCard: String?
         public var owedResults: [JSONFragment]
         public var setting: String?
-        /// Optional, so a chat saved before they existed still decodes.
+        /// Optional, so an older saved chat without them still decodes.
         public var lastKept: AskClaudeKeptSetting?
         public var contextTokens: Int?
         public var turns: [Turn]?
@@ -313,12 +313,11 @@ public final class AskClaudeEngine {
         turns = snapshot.turns ?? []
     }
 
-    /// **Takes the chat back to just before question `turn`** (TE296): Edit on a question, or
-    /// Retry on the last answer. The transcript keeps exactly what came before it, so every
-    /// thinking block left is where the API signed it; what goes is a run at the end, never one
-    /// from the middle. Tool results that question carried for the turn before it are owed again,
-    /// and the next question sends the whole screen, since the last one Claude saw may be gone.
-    /// The handles stay: one minted in what went still means the same file.
+    /// Takes the chat back to just before question `turn`, for Edit on a question or Retry on the
+    /// last answer. Only a run at the end goes, never one from the middle, so every thinking block
+    /// left is where the API signed it. Tool results that question carried for the turn before
+    /// are owed again, and the next question sends the whole screen, since the last one Claude saw
+    /// may be gone. The handles stay: one minted in what went still means the same file.
     /// - Returns: false, changing nothing, when there's no such question.
     @discardableResult
     public func rewind(toTurn turn: Int) -> Bool {
@@ -355,8 +354,8 @@ public final class AskClaudeEngine {
     public func ask(_ question: String, card: String, key: String?, model: AskClaudeModels.Option,
                     detail chosenDetail: AskClaudeDetail? = nil,
                     tools: AskClaudeToolRunning, onEvent: (AskClaudeEvent) -> Void) async -> Bool {
-        // Every problem and the way the question ended go in the log as well as the panel: a
-        // question that failed used to leave a summary line that read like a success.
+        // Every problem and the way the question ended go in the log as well as the panel, so a
+        // failed question's summary line never reads like a success.
         var ended = "none"
         func emit(_ event: AskClaudeEvent) {
             switch event {
@@ -580,7 +579,7 @@ public final class AskClaudeEngine {
         var result: [String: JSONFragment] = [
             "type": .string("tool_result"),
             "tool_use_id": .string(call.id),
-            // A key in a file a tool read — a .env, a shell profile — never reaches Claude (TE290).
+            // A key in a file a tool read — a .env, a shell profile — never reaches Claude.
             "content": .string(AskClaudeRequest.defused(AskClaudeKeyCatch.masked(text, joiningLines: false))),
         ]
         if isError { result["is_error"] = .bool(true) }

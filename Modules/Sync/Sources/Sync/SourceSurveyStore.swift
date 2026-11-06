@@ -1,11 +1,11 @@
 import Events
 import Foundation
 
-/// Which survey a source's files are placed with, as the user left it (GK–GN, 2026-10-31).
+/// Which survey a source's files are placed with, as the user left it.
 ///
-/// `.primary` is "use iCloud's survey" — the active profile, whatever tree it records; `.own` is
-/// the source's own survey, learned from its folders. Nil (no entry, or an entry with no choice) is
-/// the measured default: see ``FilingSurveyInUse/resolve(providerRoot:primaryRoot:entry:hasOwn:matched:total:)``.
+/// `.primary` is "use iCloud's survey", the active profile; `.own` is the source's own survey,
+/// learned from its folders. Nil (no entry, or no choice) is the measured default: see
+/// ``FilingSurveyInUse/resolve(providerRoot:primaryRoot:entry:hasOwn:matched:total:)``.
 public enum SourceSurveyChoice: String, Codable, Sendable, Equatable {
     case primary
     case own
@@ -20,8 +20,8 @@ public struct SourceSurveyEntry: Codable, Sendable, Equatable {
     public var learnedAt: Date?
     public var folderCount: Int?
     public var choice: SourceSurveyChoice?
-    /// When Read Documents last finished for this survey, and how many documents it read — nil
-    /// until it has. Absent in a file written before Read Documents existed.
+    /// When Read Documents last finished for this survey, and how many documents it read; nil
+    /// until it has (or in an older file).
     public var documentsReadAt: Date?
     public var documentsRead: Int?
 
@@ -40,13 +40,13 @@ public struct SourceSurveyEntry: Codable, Sendable, Equatable {
 
 /// The surveys a source has besides the primary one, and the choices made per source.
 ///
-/// **Its own file, beside `profiles.json` rather than inside it.** `profiles.json` names the ONE
-/// active profile, and every path that writes it — Setup's walk, a Restructure re-derive, Undo — may
-/// re-point it at what it just wrote. A source's survey must never become the active profile: it
-/// would aim iCloud's To File, Restructure and Ask Claude at Google Drive. So its profile is
-/// written with ``FilingProfileStore/writeSourceProfile(_:in:now:)``, which never touches the index,
-/// and it is listed here instead. A profile with no `profiles.json` row is also one
-/// ``FilingProfileStore/retireSupersededProfiles(protecting:in:fileManager:)`` never sweeps.
+/// Its own file beside `profiles.json`, not inside it. `profiles.json` names the one active
+/// profile, and every path that writes it (Setup, Restructure, Undo) may re-point it. A source's
+/// survey must never become the active profile, or iCloud's To File, Restructure and Ask Claude
+/// would aim at Google Drive. So its profile is written with
+/// ``FilingProfileStore/writeSourceProfile(_:in:builtBy:now:)``, which never touches the index, and
+/// listed here. With no `profiles.json` row,
+/// ``FilingProfileStore/retireSupersededProfiles(protecting:in:fileManager:)`` never sweeps it.
 public enum SourceSurveyStore {
 
     public static let currentSchema = 1
@@ -74,8 +74,8 @@ public enum SourceSurveyStore {
         return (encoder, decoder)
     }
 
-    /// Every entry, or none when the file is absent, unreadable or of another schema — which is
-    /// every source on its measured default, the behaviour before this file existed.
+    /// Every entry, or none when the file is absent, unreadable or of another schema, which puts
+    /// every source on its measured default.
     public static func entries(in directory: URL) -> [SourceSurveyEntry] {
         guard let data = try? Data(contentsOf: url(in: directory)) else { return [] }
         guard let document = try? coders().1.decode(Document.self, from: data),
@@ -127,9 +127,9 @@ public enum SourceSurveyStore {
 extension FilingProfileStore {
 
     /// Writes a source's own survey as `profiles/<id>/folder-profile.json` and **never touches
-    /// `profiles.json`** — the one difference from ``writeProfile(_:in:builtBy:now:)``, and the
-    /// reason this exists (see ``SourceSurveyStore``). Same refusals otherwise: an existing profile
-    /// is never overwritten, and the file lands atomically in the shape the generator writes.
+    /// `profiles.json`**, unlike ``writeProfile(_:in:builtBy:now:)`` (see ``SourceSurveyStore``).
+    /// Same refusals otherwise: an existing profile is never overwritten, and the file lands
+    /// atomically.
     @discardableResult
     public static func writeSourceProfile(_ profile: FolderProfile, in directory: URL,
                                           builtBy: String = "SyncCloud — source folder survey",

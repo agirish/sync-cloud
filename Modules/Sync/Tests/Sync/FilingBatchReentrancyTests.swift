@@ -4,18 +4,17 @@ import Foundation
 
 /// Re-entrancy for the blind "File recommended" batch (`applyRecommendedFiling`).
 ///
-/// Every sibling pass that writes files owns an in-flight latch — `isBulkSyncRunning`
-/// (`syncAll`, `bulkCopyDifferencesLeftToRight`), `isApplyingRenames` (`applyRenamePlans`),
-/// `mergingGroupIDs` (`mergeDuplicateGroup`), `filingRefineInFlight` / `filingTryAnotherInFlight`
-/// (the two Filing round-trips). This one checked only `isVerifyAllRunning`, which is a *different*
-/// pass's guard and says nothing about a second batch.
+/// Every sibling pass that writes files owns an in-flight latch: `isBulkSyncRunning` (`syncAll`,
+/// `bulkCopyDifferencesLeftToRight`), `isApplyingRenames` (`applyRenamePlans`), `mergingGroupIDs`
+/// (`mergeDuplicateGroup`), `filingRefineInFlight` / `filingTryAnotherInFlight` (the two Filing
+/// round-trips). `isVerifyAllRunning` is a different pass's guard and says nothing about a second
+/// batch.
 ///
 /// The overlap is one gesture away: `fileAllButton` is disabled only while a scan runs, its
 /// confirmation is an `NSAlert` whose modal run loop lets the first batch's `Task` keep going, and
-/// the array both invocations file is the same captured `batch`. Under a second invoke the first
-/// one's moves have already happened, so every file fails `performFiling`'s source-exists guard —
-/// and the user is told "Couldn't file this item; it was left in place" about files that were
-/// filed, under a "Couldn't file N files" banner.
+/// both invocations file the same captured `batch`. A second run finds every source already moved,
+/// fails `performFiling`'s source-exists guard, and reports "Couldn't file this item; it was left
+/// in place" about files that were filed.
 @Suite @MainActor struct FilingBatchReentrancyTests {
 
     private func write(_ url: URL, bytes: Int = 4096) throws {
@@ -24,7 +23,7 @@ import Foundation
         try Data(repeating: 0x41, count: bytes).write(to: url)
     }
 
-    /// Two loose files, each with a high-confidence **filename**-derived home — the only kind the
+    /// Two loose files, each with a high-confidence filename-derived home — the only kind the
     /// blind batch touches. Built by hand rather than scanned so eligibility is a property of the
     /// fixture and not of the router's current scoring.
     private func fixture(_ name: String) throws -> (root: URL, suggestions: [FilingSuggestion]) {
@@ -51,7 +50,7 @@ import Foundation
             atPath: root.appendingPathComponent("Documents/Vehicles/Tesla/\(name)").path)
     }
 
-    /// **A second "File all" while the first is still running must be refused, not re-run.**
+    /// A second "File all" while the first is still running must be refused, not re-run.
     ///
     /// The overlap is forced rather than raced: an operation parked on the shared file-operation
     /// queue holds the first batch inside its very first move, so the second invocation is
@@ -76,13 +75,10 @@ import Foundation
 
         // Whether each invocation found a batch already latched when it entered.
         //
-        // **Recorded on both sides, and compared as "exactly one", because `async let` fixes no
-        // order.** Probing only the second-declared child failed about one run in three — not
-        // because the two did not overlap, but because that child had won the race to the main
-        // actor and *was* the batch the other one found latched. A harness assertion that
-        // mis-diagnoses a correct run is worse than none; this one is order-free and still says
-        // the thing that matters, which is that the two really did overlap. Without it a run
-        // where they did not overlap would be indistinguishable from one the latch refused.
+        // Recorded on both sides and compared as "exactly one", because `async let` fixes no
+        // order: either child can win the race to the main actor and be the batch the other finds
+        // latched. It still proves the two overlapped; without it a run where they didn't would
+        // look like one the latch refused.
         let firstSawLatch = Flag(), secondSawLatch = Flag()
         let entered = CallCounter()
         async let first: Void = { @MainActor in
@@ -95,9 +91,9 @@ import Foundation
             secondSawLatch.value = m.isFilingBatchRunning
             await m.applyRecommendedFiling(suggestions)
         }()
-        // Both invocations have entered, and one is inside its first move — queued behind the
-        // park. Waited for, not pumped: this was `for _ in 0..<100 { await Task.yield() }`, and a
-        // hundred main-actor turns under load outlasted the park's ten seconds.
+        // Both invocations have entered, and one is inside its first move, queued behind the park.
+        // Waited for, not pumped: a fixed count of main-actor turns under load can outlast the
+        // park's ten seconds.
         await waitUntil("both batches entered and one queued its first move behind the park") {
             entered.value == 2 && m.activeFileOperationsCount >= 2
         }
@@ -123,9 +119,9 @@ import Foundation
                 "exactly one invocation should have found the other already running, but they saw \(sawLatch) — they never overlapped, so this test proved nothing")
     }
 
-    /// The other direction — the latch must be **released on every exit**, or the first batch of a
-    /// session permanently disables the button. A `defer` release is what makes this pass; moving
-    /// the release onto the success path alone would not.
+    /// The other direction: the latch must be released on every exit, or the first batch of a
+    /// session disables the button for good. A `defer` release passes; a release on the success
+    /// path alone would not.
     @Test func aLaterBatchStillRunsAfterAnEarlierOneFinished() async throws {
         let (root, suggestions) = try fixture("sequential")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -143,14 +139,13 @@ import Foundation
         #expect(m.currentError == nil)
     }
 
-    /// The release has to cover the **no-move** exit too, not just the two banner paths.
+    /// The release has to cover the no-move exit too, not just the two banner paths.
     ///
-    /// `applyRecommendedFiling` returns early when the batch produced no moves at all — every file
-    /// already in its suggested folder, or every one failed — and that return sits above both
-    /// banner assignments. A release written after the banner instead of in a `defer` leaks the
-    /// latch on exactly that path and disables "File all" for the rest of the session; both other
-    /// tests here pass while it does, because both of their batches end at the success banner.
-    /// Found by mutation, which is the only way a hole in a one-direction guard shows up.
+    /// `applyRecommendedFiling` returns early when the batch produced no moves at all (every file
+    /// already in its suggested folder, or every one failed), above both banner assignments. A
+    /// release written after the banner instead of in a `defer` leaks the latch on that path and
+    /// disables "File all" for the session; the other tests here still pass, since their batches
+    /// end at the success banner.
     @Test func aBatchThatMovedNothingStillReleasesTheLatch() async throws {
         let (root, suggestions) = try fixture("nomove")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -158,8 +153,8 @@ import Foundation
         m.filingSuggestions = suggestions
 
         // A destination that IS the file's current folder: `performFiling` answers `.noMoveNeeded`,
-        // so the batch collects no moves and returns early — saying only that the files were
-        // already home (FR9), a banner the no-move exit alone sets.
+        // so the batch collects no moves and returns early, saying only that the files were
+        // already home, a banner the no-move exit alone sets.
         let inPlace = suggestions.map { s in
             s.replacingCandidates([FilingDestination(
                 path: URL(fileURLWithPath: s.filePath).deletingLastPathComponent().path,

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE290 step 5: Changed from Chat keeps every change made from the chat in its own file — written
-/// at once, 90 days or 500 at most, read without what's hidden from Claude.
+/// Changed from Chat keeps every change made from the chat in its own file: written at once, 90
+/// days or 500 at most, read without what's hidden from Claude.
 @MainActor
 @Suite struct SettingsChangeLogTests {
 
@@ -52,8 +52,8 @@ import Testing
         #expect(SettingsChangeLog(fileURL: url).changes == [good])
     }
 
-    /// TE290 review: a hidden name is matched as a whole word or path part, never inside another
-    /// word — a hidden "Old" once blanked every "Folder" setting's row, and its Revert.
+    /// A hidden name is matched as a whole word or path part, never inside another word, or a
+    /// hidden "Old" would blank every "Folder" setting's row and its Revert.
     @Test func aHiddenNameIsMatchedAsAWordNotInsideOne() {
         let folder = SettingsChange(setting: "sources.folderNameRule", name: "Check folder names against", from: "oneDrive",
                                     to: "dropBox", fromLabel: "OneDrive (strictest)", toLabel: "Dropbox", how: .card)
@@ -156,8 +156,8 @@ import Testing
     }
 }
 
-/// Off the main actor: resolving the test file sweeps the temp directory, which took 1.3 s on the
-/// main actor with 200,000 entries in it, long enough to starve other suites' main-actor waits.
+/// Off the main actor: resolving the test file sweeps the temp directory, which can take over a
+/// second with a crowded temp directory and starve other suites' main-actor waits.
 @Suite struct SettingsChangeLogFileTests {
     @Test func aTestRunNeverWritesTheRealFile() {
         #expect(SettingsChangeLog.defaultFileURL().path != NSHomeDirectory() + "/sync-cloud-settings-changes.json")

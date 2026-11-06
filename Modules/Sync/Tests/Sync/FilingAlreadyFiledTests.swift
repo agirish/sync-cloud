@@ -3,8 +3,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// "The tree already holds this document" — the filing queue reading the content indexes that until
-/// now only the Duplicates lens read.
+/// "The tree already holds this document": the filing queue reading the content indexes the
+/// Duplicates lens builds.
 @Suite struct FilingAlreadyFiledTests {
 
     private func suggestion(_ name: String, confidence: FilingConfidence = .high,
@@ -74,14 +74,13 @@ import Testing
     }
 }
 
-/// **The phase itself, driven through a real scan — which nothing in the repo did.**
+/// The phase itself, driven through a real scan.
 ///
 /// The four tests above hand-build a suggestion or call the index directly. The marking phase
-/// returns early on `guard let contentIndexDirectory`, and that property was set in NO test
-/// anywhere: the phase was a no-op repo-wide, and deleting its call from the scan passed the whole
-/// Sync package. What it protects is the one outcome the blind batch's user cannot review — a
-/// second copy of a document the tree already holds, landing under a name of its own in a folder
-/// that genuinely fits.
+/// returns early on `guard let contentIndexDirectory`, so a test that never sets it runs the phase
+/// as a no-op. What it protects is the one outcome the blind batch's user can't review: a second
+/// copy of a document the tree already holds, landing under a name of its own in a folder that
+/// fits.
 @MainActor
 @Suite struct FilingAlreadyFiledScanTests {
 
@@ -187,11 +186,11 @@ import Testing
         #expect(try await cachedDigest(small) != nil, "the control was not read, so the witness proves nothing")
     }
 
-    /// **A digest the textless store has since outdated names nothing.** The filed copy's newest
-    /// fingerprint record is a digest of text it no longer has; the "too little text" marker that
-    /// says so lives in its own file. Until the scan reads that file, the filed copy is keyed by the
-    /// stale digest and its bytes match nothing — and once the file appears, the cached index is
-    /// rebuilt, not served.
+    /// A digest the textless store has since outdated names nothing. The filed copy's newest
+    /// fingerprint record is a digest of text it no longer has; the "too little text" marker saying
+    /// so lives in its own file. Unless the scan reads that file, the filed copy is keyed by the
+    /// stale digest and its bytes match nothing; once the file appears, the cached index is rebuilt,
+    /// not served.
     @Test func aDigestTheTextlessStoreOutdatesIsNotTheFilesIdentity() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledTextless")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -268,10 +267,9 @@ import Testing
                              providerRoot: root.path)
         ], providerRoot: root.path)
 
-        // Non-vacuity: the index is non-empty and the loose file really was hashed, so this is
-        // the phase deciding NOT to mark rather than the phase never running. (The first draft of
-        // this test used `.pdf`, which routes to the fingerprint extractor: nothing was hashed,
-        // nothing was marked, and it passed for a reason that had nothing to do with the answer.)
+        // Non-vacuity: the index is non-empty and the loose file really was hashed, so this is the
+        // phase deciding not to mark, not the phase never running. (A `.pdf` would route to the
+        // fingerprint extractor, hash nothing, and pass for the wrong reason.)
         let looseHex = await FileSyncManager.hashFiles([loose.path], fileManager: FileManager.default,
                                                        cache: nil)[loose.path] ?? ""
         #expect(!looseHex.isEmpty && looseHex != hex, "the fixture stopped exercising the byte path")
@@ -279,10 +277,9 @@ import Testing
         #expect(marked.first?.isBatchEligible == true)
     }
 
-    /// **The scan's own call, which is what was actually missing.** The three tests above drive
-    /// the phase directly, so deleting the line in `filingScan` still passes them — which is
-    /// precisely the finding: the call was removed and the whole Sync package stayed green. This
-    /// runs the real scan end to end and asserts the published card carries the marker.
+    /// The scan's own call. The three tests above drive the phase directly, so deleting the call in
+    /// `filingScan` would still pass them; this runs the real scan end to end and asserts the
+    /// published card carries the marker.
     @Test func theScanItselfMarksTheCard() async throws {
         let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledWiring")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -318,8 +315,8 @@ import Testing
         #expect(card.alreadyFiledAt.contains { $0.contains("Work/Pay") })
     }
 
-    /// **A textless scan is not "already filed" beside another one (item 21).** Both carry the
-    /// same negative marker, so a reader that took it for an identity would mark the loose one as
+    /// A textless scan is not "already filed" beside another one. Both carry the same negative
+    /// marker, so a reader that took it for an identity would mark the loose one as
     /// filed wherever the other sits. The scan keeps negatives in a store of their own; this puts
     /// one in the fingerprint index anyway, the worst case. Driven twice: the second time the
     /// loose scan's own negative is served from the cache rather than read.
@@ -378,8 +375,8 @@ import Testing
         }
     }
 
-    /// **With no index directory the phase is a no-op** — which is correct, and is also exactly why
-    /// it went untested for so long: every suite ran in that state without noticing.
+    /// With no index directory the phase is a no-op. That is correct, and it is why a suite that
+    /// never sets one exercises nothing here.
     @Test func withoutAnIndexDirectoryNothingIsMarked() async throws {
         let m = FileSyncManager()
         #expect(m.contentIndexDirectory == nil, "the default must stay nil — never a real home path")
