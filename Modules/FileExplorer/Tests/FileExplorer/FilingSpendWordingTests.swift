@@ -107,4 +107,15 @@ import Foundation
         #expect(Self.refine(classified: 0, changed: 2, outcome: .declined)
                     .contains("2 suggestions moved to better homes"))
     }
+
+    /// The pill says how many files hidden from Claude the pass left out, and says nothing at zero.
+    @Test func thePillCountsFilesHiddenFromClaude() {
+        func help(_ hidden: Int) -> String {
+            LensWorkspaceView.refineHelp(FileSyncManager.FilingRefineSummary(
+                asked: 4, reused: 0, classified: 4, changed: 1, hiddenFromClaude: hidden))
+        }
+        #expect(help(0).contains("hidden from Claude") == false)
+        #expect(help(1).hasSuffix(" 1 file hidden from Claude was left out."))
+        #expect(help(3).hasSuffix(" 3 files hidden from Claude were left out."))
+    }
 }

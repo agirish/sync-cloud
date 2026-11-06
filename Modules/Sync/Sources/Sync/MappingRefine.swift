@@ -21,13 +21,21 @@ public struct MappingRefineRequest: Sendable, Equatable {
     /// never** ride in a mapping refine; that is the disclosure's third clause and this type
     /// simply has nowhere to put them.
     public let sampleFileNames: [String: [String]]
+    /// Every folder whose child folders the rows were read from, relative to the same root as
+    /// `family`: this family's members, and with the group on, every sibling family's too, whose
+    /// child names ride in `rows`. **Never sent** — the Hidden from Claude check reads it
+    /// (``FileSyncManager/mappingRefineTouchesHiddenFolder(_:under:)``).
+    public let drawnFrom: [String]
 
+    /// `drawnFrom` nil means this family's members alone.
     public init(family: String, members: [String], rows: [RestructureMapping.Row],
-                candidateVocabularies: [[String]], sampleFileNames: [String: [String]] = [:]) {
+                candidateVocabularies: [[String]], sampleFileNames: [String: [String]] = [:],
+                drawnFrom: [String]? = nil) {
         self.family = family
         self.members = members
         self.rows = rows
         self.candidateVocabularies = candidateVocabularies
+        self.drawnFrom = drawnFrom ?? members.map { (family as NSString).appendingPathComponent($0) }
         self.sampleFileNames = sampleFileNames
     }
 }

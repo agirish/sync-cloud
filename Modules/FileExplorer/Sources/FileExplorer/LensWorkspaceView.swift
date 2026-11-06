@@ -2521,7 +2521,9 @@ public struct LensWorkspaceView: View {
         if syncManager.filingCloudRefineAvailable, canRun {
             let batch = syncManager.filingSuggestionsEligibleForRefine(scope)
             if !batch.isEmpty || syncManager.isRefiningFilingSuggestions {
-                Button { refineFilingSuggestions(batch) } label: {
+                // `scope`, not `batch`: the pass filters it the same way, and only the whole scope
+                // lets it count the files hidden from Claude for its banner and pill.
+                Button { refineFilingSuggestions(scope) } label: {
                     if syncManager.isRefiningFilingSuggestions {
                         Label("Refining…", systemImage: "sparkles")
                     } else {
@@ -2536,6 +2538,15 @@ public struct LensWorkspaceView: View {
                 // in-flight token — so this is the whole condition, not half of it.
                 .disabled(!syncManager.canRefineFilingSuggestions)
                 .help(refineButtonHelp(count: batch.count))
+            } else if syncManager.filingSuggestionsHiddenFromClaude(scope) > 0 {
+                // Every file here is hidden from Claude: say so rather than drop the control.
+                Button {} label: {
+                    Label("Refine with \(FilingSpendFormat.model(refineModelName))", systemImage: "sparkles")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(true)
+                .help(Self.allHiddenFromClaudeHelp)
             }
         } else if syncManager.canRefineFilingSuggestions, let configure = onConfigureCloudRefine {
             Button(action: configure) {
@@ -2569,14 +2580,18 @@ public struct LensWorkspaceView: View {
             + "model aren’t sent again."
     }
 
-    /// Runs the refine pass over `batch`. Unstructured on purpose: this is a user-initiated round
-    /// trip that must survive the view re-rendering underneath it (the manager republishes the
-    /// suggestions when it lands), and the manager's own in-flight token — not this Task — is what
-    /// makes a second click a no-op.
-    private func refineFilingSuggestions(_ batch: [FilingSuggestion]) {
-        guard !batch.isEmpty else { return }
+    /// The disabled Refine button's tooltip when every file listed is hidden from Claude.
+    static let allHiddenFromClaudeHelp = "Every file listed is hidden from Claude, so Refine has "
+        + "nothing it may send. Settings ▸ Intelligence holds the Hidden from Claude list."
+
+    /// Runs the refine pass over `scope`, which the pass filters itself. Unstructured on purpose:
+    /// this is a user-initiated round trip that must survive the view re-rendering underneath it
+    /// (the manager republishes the suggestions when it lands), and the manager's own in-flight
+    /// token — not this Task — is what makes a second click a no-op.
+    private func refineFilingSuggestions(_ scope: [FilingSuggestion]) {
+        guard !scope.isEmpty else { return }
         Task {
-            await syncManager.refineFilingSuggestions(batch)
+            await syncManager.refineFilingSuggestions(scope)
             // The pass may have spent; the spend row above the list reads from a cached snapshot.
             refreshFilingSpend()
         }

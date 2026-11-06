@@ -437,8 +437,16 @@ extension FileSyncManager {
         // person — could file one family member's document into another's with nothing to stop it.
         // Claude was never shown a hidden folder, so an answer naming one (a guess, or a new
         // folder that happens to land there, or a cached answer from before it was hidden) is not
-        // taken: the free suggestion stands.
-        let usable = hidden.isEmpty ? verdicts : verdicts.filter { shown($0.value.relativePath) }
+        // taken: the free suggestion stands. Judged on the folder the answer RESOLVES to, as
+        // `applyVerdicts` will read it — trimmed, root prefix stripped — not on its raw spelling:
+        // " Archive/2026" or "<root>/Archive/2026" lands in Archive/2026 too.
+        let usable = hidden.isEmpty ? verdicts : verdicts.filter {
+            guard let dest = FilingEngine.destination(from: $0.value, providerRoot: root,
+                                                      existingRelative: existingRelative,
+                                                      nameProvider: filingLastNameProvider)
+            else { return true }   // unresolvable: applyVerdicts drops it anyway
+            return !hidden.isHidden(dest.path)
+        }
         let refined = FilingEngine.applyVerdicts(usable, to: filingSuggestions,
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, nameProvider: filingLastNameProvider,
@@ -555,17 +563,17 @@ extension FileSyncManager {
         case hiddenFromClaude
     }
 
-    /// Whether `request` names a folder hidden from Claude: the family, a member, or a mapped
-    /// folder inside a member. `root` is the folder the request's paths are relative to.
+    /// Whether `request` names a folder hidden from Claude: the family, a folder its rows were
+    /// drawn from (a member — a sibling family's too, with the group on), or a mapped folder
+    /// inside one. `root` is the folder the request's paths are relative to.
     func mappingRefineTouchesHiddenFolder(_ request: MappingRefineRequest, under root: String) -> Bool {
         let hidden = claudeHiddenMatcher()
         guard !hidden.isEmpty else { return false }
-        let family = (root as NSString).appendingPathComponent(request.family)
-        if hidden.isHidden(family) { return true }
-        for member in request.members {
-            let memberPath = (family as NSString).appendingPathComponent(member)
-            if hidden.isHidden(memberPath) { return true }
-            for row in request.rows where hidden.isHidden((memberPath as NSString).appendingPathComponent(row.source)) {
+        if hidden.isHidden((root as NSString).appendingPathComponent(request.family)) { return true }
+        for folder in request.drawnFrom {
+            let path = (root as NSString).appendingPathComponent(folder)
+            if hidden.isHidden(path) { return true }
+            for row in request.rows where hidden.isHidden((path as NSString).appendingPathComponent(row.source)) {
                 return true
             }
         }

@@ -1138,9 +1138,16 @@ struct RestructurePlanSheet: View {
         // `family`, NOT `planFamily`: every consumer reads a member as a child of the family,
         // and `planFamily` is already `family/member` on a seeded pair — the prompt then
         // described `Docs/Travel/Travel`, a path that does not exist.
+        // With the group on, `rows` holds every sibling family's child names too, so the hidden
+        // check must read their members as well as this family's.
+        let drawnFrom = planTogether
+            ? groupFamilies.flatMap { group in
+                (liveTree.childFolders(group) ?? []).map { (group as NSString).appendingPathComponent($0) }
+            }
+            : members.map { (family as NSString).appendingPathComponent($0) }
         return MappingRefineRequest(family: family, members: members, rows: rows,
                                     candidateVocabularies: vocabularies,
-                                    sampleFileNames: samples)
+                                    sampleFileNames: samples, drawnFrom: drawnFrom)
     }
 
     /// The disclosure sentence — itemised, with the toggle's clause present exactly when the

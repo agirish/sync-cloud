@@ -38,7 +38,8 @@ import Testing
 
     /// The scan answers Documents/Family, Refine answers Archive/2026, so a refined home is visible.
     /// `hidden` is the Hidden from Claude list, as absolute paths.
-    private func manager(_ sent: Sent, hidden: [String]) -> FileSyncManager {
+    private func manager(_ sent: Sent, hidden: [String],
+                         refineAnswer: String = "Archive/2026") -> FileSyncManager {
         let m = FileSyncManager()
         m.filingContentDefaults = ScratchDefaults("FilingRefineHiddenFromClaudeTests")
         AskClaudePrivacy.setHiddenFolders(hidden, in: m.filingContentDefaults)
@@ -48,7 +49,7 @@ import Testing
         m.filingCloudSpendConfirmer = { _ in true }
         m.filingClassifier = { context, files, tier in
             if tier == .refine { sent.record(context, files) }
-            let dest = tier == .refine ? "Archive/2026" : "Documents/Family"
+            let dest = tier == .refine ? refineAnswer : "Documents/Family"
             return Dictionary(uniqueKeysWithValues: files.map {
                 ($0.filePath, FilingVerdict(relativePath: dest, confidence: .high, reason: "test"))
             })
@@ -188,16 +189,55 @@ import Testing
         #expect(sent.all.map { $0.files.map(\.fileName) } == [["mystery-1.pdf"]])
     }
 
-    @Test func tryAnotherLeavesHiddenFoldersOutOfTheList() async throws {
-        let root = try fixture("tryanother-folder")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let sent = Sent()
-        let m = manager(sent, hidden: [path(root, "Archive")])
-        await scan(m, root: root)
-        await tryAnotherUntilReAsked(m, sent, file: "mystery-0.pdf")
-        let call = try #require(sent.all.first)
-        #expect(!call.destinations.contains { $0.hasPrefix("Archive") })
-        #expect(!call.destinations.isEmpty)
+    /// The folder list, the "avoid" list and the answer, for Try Another, against a control.
+    @Test func tryAnotherLeavesHiddenFoldersOutAndTakesNoAnswerInOne() async throws {
+        func run(hiding: Bool) async throws -> (destinations: [String], avoid: [String], best: String?) {
+            let root = try fixture(hiding ? "tryanother-folder" : "tryanother-folder-control")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let sent = Sent()
+            let m = manager(sent, hidden: hiding ? [path(root, "Archive")] : [])
+            await scan(m, root: root)
+            // A folder rejected for this file earlier, inside the hidden one.
+            m.filingSessionRejections[path(root, "Downloads/mystery-0.pdf")] = [path(root, "Archive/Old")]
+            await tryAnotherUntilReAsked(m, sent, file: "mystery-0.pdf")
+            let call = try #require(sent.all.first)
+            return (call.destinations, call.files.first?.excludedRelativePaths ?? [],
+                    m.filingSuggestions.first { $0.fileName == "mystery-0.pdf" }?.best?.path)
+        }
+
+        let shown = try await run(hiding: false)
+        #expect(shown.destinations.contains("Archive/2026"), "the control never offered the folder")
+        #expect(shown.avoid.contains("Archive/Old"))
+        #expect(shown.best?.hasSuffix("Archive/2026") == true)
+
+        let hidden = try await run(hiding: true)
+        #expect(!hidden.destinations.contains { $0 == "Archive" || $0.hasPrefix("Archive/") })
+        #expect(!hidden.destinations.isEmpty)
+        #expect(!hidden.avoid.contains { $0.hasPrefix("Archive") })
+        #expect(hidden.avoid.contains("Documents/Family"), "the folder just rejected still goes as avoid")
+        // Claude answered Archive/2026; it is not put on the card.
+        #expect(hidden.best?.hasSuffix("Archive/2026") != true)
+    }
+
+    // MARK: An answer spelled another way
+
+    /// `applyVerdicts` trims an answer and strips an echoed root, so the check must read the folder
+    /// it resolves to: " <root>/Archive/2026 " lands in Archive/2026.
+    @Test func anAnswerSpelledWithTheRootStillCannotLandInAHiddenFolder() async throws {
+        func home(hiding: Bool) async throws -> String? {
+            let root = try fixture(hiding ? "spelled" : "spelled-control")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let sent = Sent()
+            let m = manager(sent, hidden: hiding ? [path(root, "Archive")] : [],
+                            refineAnswer: " \(root.path)/Archive/2026 ")
+            await scan(m, root: root)
+            _ = try #require(await m.refineFilingSuggestions(m.filingSuggestions))
+            return m.filingSuggestions.first { $0.fileName == "mystery-1.pdf" }?.best?.path
+        }
+        // The control shows the spelling is accepted and lands in Archive/2026…
+        #expect(try await home(hiding: false)?.hasSuffix("Archive/2026") == true)
+        // …so hidden, it is the check, not the spelling, that keeps the free home.
+        #expect(try await home(hiding: true)?.hasSuffix("Documents/Family") == true)
     }
 
     // MARK: The mapping refine
@@ -232,5 +272,34 @@ import Testing
             #expect((outcome == .hiddenFromClaude) == refused, "hiding \(hidden)")
             #expect((count.refined == 0) == refused, "hiding \(hidden)")
         }
+    }
+
+    /// With the group on, `rows` carries sibling families' child names; a hidden sibling stops it.
+    @Test func aGroupMappingThatDrawsOnAHiddenSiblingIsRefused() async {
+        final class Count: @unchecked Sendable { var refined = 0 }
+        func outcome(hiding hidden: String, drawnFrom: [String]?) async -> (FileSyncManager.MappingRefineOutcome, Int) {
+            let count = Count()
+            let m = mappingManager(hidden: [hidden])
+            m.mappingRefiner = { _ in count.refined += 1; return [] }
+            // "Divorce Settlement" exists only under the sibling family Taxes/Spouse.
+            let request = MappingRefineRequest(family: "Taxes/Me", members: ["2023", "2024"],
+                                               rows: [.init(source: "Receipts", target: nil),
+                                                      .init(source: "Divorce Settlement", target: nil)],
+                                               candidateVocabularies: [["receipts"]],
+                                               drawnFrom: drawnFrom)
+            return (await m.refineMapping(request, under: "/r"), count.refined)
+        }
+        let group = ["Taxes/Me/2023", "Taxes/Me/2024", "Taxes/Spouse/2024"]
+        // The sibling's member, and a folder inside it, are each refused.
+        for hidden in ["/r/Taxes/Spouse", "/r/Taxes/Spouse/2024/Divorce Settlement"] {
+            let (result, refined) = await outcome(hiding: hidden, drawnFrom: group)
+            #expect(result == .hiddenFromClaude, "hiding \(hidden)")
+            #expect(refined == 0, "hiding \(hidden)")
+        }
+        // Control: without the sibling in drawnFrom (this family alone), the same hidden folder is
+        // not seen — which is why the sheet must pass the group's folders.
+        let (alone, aloneRefined) = await outcome(hiding: "/r/Taxes/Spouse/2024/Divorce Settlement", drawnFrom: nil)
+        #expect(alone != .hiddenFromClaude)
+        #expect(aloneRefined == 1)
     }
 }
