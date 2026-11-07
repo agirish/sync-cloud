@@ -13,8 +13,26 @@ extension ContentView {
 
     var askClaudeChat: AskClaudeChat { askClaudeHolder.chat }
 
+    /// Whether the panel is the window's column rather than a floating window. The pin alone for
+    /// now; the room rules decide it next.
+    var askClaudePinnedShown: Bool { askClaudePinned }
+
+    /// The pinned column, after the Info inspector. Its own view observes whether the panel is open.
+    var askClaudeColumn: some View {
+        AskClaudeColumnSlot(
+            visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
+            pinned: askClaudePinnedShown, width: askClaudePinnedDragWidth ?? askClaudePinnedWidth,
+            surface: surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint,
+            onDrag: { askClaudePinnedDragWidth = AskClaudePanel.pinnedDragWidth(base: askClaudePinnedWidth, translation: $0) },
+            onCommit: {
+                if let width = askClaudePinnedDragWidth { askClaudePinnedWidth = width }
+                askClaudePinnedDragWidth = nil
+            })
+    }
+
     func toggleAskClaude() {
-        withDesignAnimation(.easeOut(duration: 0.12), reduceMotion: reduceMotion) {
+        // Pinned, it slides like Info does; floating, as it always has.
+        withDesignAnimation(askClaudePinnedShown ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.12), reduceMotion: reduceMotion) {
             askClaudeHolder.visibility.isOpen.toggle()
         }
     }
@@ -50,6 +68,8 @@ extension ContentView {
                               onClose: { toggleAskClaude() },
                               onOpenSettings: { openSettings(on: SettingsPlace($0)) },
                               container: container,
+                              pinned: askClaudePinnedShown,
+                              surface: surfaceStyle,
                               onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
                               onReveal: { path in Task { await askClaudeTools().reveal(path: path) } },
@@ -80,7 +100,8 @@ extension ContentView {
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
     /// edge of what the type checker solves in time, and a generic closure there tipped it over.
     var askClaudeHost: AskClaudeHost {
-        AskClaudeHost(visibility: askClaudeHolder.visibility, isBusy: askClaudeStateBusy != nil,
+        AskClaudeHost(visibility: askClaudeHolder.visibility, controller: askClaudeHolder.windowController,
+                      isPinned: askClaudePinnedShown, isBusy: askClaudeStateBusy != nil,
                       panel: { AnyView(askClaudeOverlay(in: $0, onPlace: $1)) }, toggle: askClaudeChordBinding,
                       onPrivacyChange: { askClaudePrivacyChanges += 1 })
     }
@@ -1449,6 +1470,9 @@ extension ContentView {
 /// two calls, so the window’s long modifier chain stays within what the type checker can solve.
 struct AskClaudeHost: ViewModifier {
     let visibility: AskClaudeVisibility
+    let controller: AskClaudeWindowController
+    /// Pinned: the panel is the window's column rather than a floating window.
+    let isPinned: Bool
     /// Settings, Help, setup, a destination pick or a question is up: the panel steps aside.
     let isBusy: Bool
     let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
@@ -1458,7 +1482,7 @@ struct AskClaudeHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .topTrailing) { AskClaudeOverlay(visibility: visibility, isBusy: isBusy, panel: panel) }
+            .overlay(alignment: .topTrailing) { AskClaudeOverlay(visibility: visibility, controller: controller, isPinned: isPinned, isBusy: isBusy, panel: panel) }
             .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)) { _ in onPrivacyChange() }
             .focusedSceneValue(\.askClaude, toggle)
             // The View menu's tick reads this, so it follows the panel without the window redrawing.
@@ -1470,9 +1494,10 @@ struct AskClaudeHost: ViewModifier {
 /// itself is in a child window over this area (AskClaudeWindow.swift).
 private struct AskClaudeOverlay: View {
     @ObservedObject var visibility: AskClaudeVisibility
+    let controller: AskClaudeWindowController
+    let isPinned: Bool
     let isBusy: Bool
     let panel: (CGSize, @escaping (CGRect) -> Void) -> AnyView
-    @State private var controller = AskClaudeWindowController()
     /// Bumped when the hidden list changes: the window doesn't redraw for that, and the panel's
     /// header and shield must (the panel is rebuilt from live state each time this body runs).
     @State private var privacyChanges = 0
@@ -1484,7 +1509,7 @@ private struct AskClaudeOverlay: View {
             let _ = privacyChanges
             let visibility = visibility
             // Built only while open: every redraw of the window rebuilds it otherwise.
-            AskClaudeWindowAnchor(controller: controller, isOpen: visibility.isOpen, isSuspended: isBusy,
+            AskClaudeWindowAnchor(controller: controller, isOpen: visibility.isOpen, isSuspended: isBusy, isPinned: isPinned,
                                   content: visibility.isOpen ? panel(geo.size) { controller.panelRect = $0 } : AnyView(EmptyView()),
                                   onClose: { visibility.isOpen = false })
                 .frame(width: geo.size.width, height: geo.size.height)

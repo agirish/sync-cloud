@@ -156,7 +156,12 @@ enum AskClaudeTalkKey: Equatable {
 }
 
 /// Shows the panel in a child window over the area it may move in (`container`, in screen
-/// coordinates), at the frame the panel asks for (`panelRect`, top-left within the container).
+/// coordinates), at the frame the panel asks for (`panelRect`, top-left within the container), or,
+/// pinned, in the main window's own column (`columnView`).
+///
+/// One hosting view carries the panel either way, moved between the window's backdrop and the
+/// column rather than rebuilt, so what lives in it (the draft, a running voice, an open card)
+/// goes with it. Closing the panel, and the window stepping aside, still drop it.
 @MainActor
 final class AskClaudeWindowController {
     private var window: AskClaudePanelWindow?
@@ -172,30 +177,61 @@ final class AskClaudeWindowController {
     /// longer matches the window, its header cut off.
     var panelRect: CGRect = .zero { didSet { if panelRect != oldValue { placeSoon() } } }
     private var placeQueued = false
+    /// Pinned: the panel is the main window's right-hand column, not a window of its own. Applied
+    /// by the next `show`, which the panel's anchor calls on every update.
+    var isPinned = false
+    /// The column's view, set by the column slot while it is on screen. The hosting view goes in
+    /// it when the panel is pinned.
+    weak var columnView: AskClaudeColumnView? {
+        didSet { if columnView !== oldValue { adoptIntoColumnIfPinned() } }
+    }
     /// Out of the way while the main window is busy (Settings, Help, a sheet, a question): a
     /// child window would otherwise sit over them and keep the keyboard. It comes back after.
+    /// Pinned, it is not a window to take out of the way: the column stays where it is and pauses.
     ///
     /// It comes back as a new window: one ordered out and back in draws only its composer's field,
     /// blank everywhere else. So stepping aside closes the window and the next `show` builds one;
     /// the thread, the draft and the panel's place live outside it.
-    var isSuspended = false { didSet { if isSuspended && !oldValue { tearDown() } } }
+    var isSuspended = false {
+        didSet {
+            guard isSuspended != oldValue else { return }
+            if isPinned {
+                columnView?.isPaused = isSuspended
+            } else if isSuspended {
+                tearDown()
+            }
+        }
+    }
     private var placed = false
     /// The window stepped aside: the one built next is it coming back, and leaves the keyboard
     /// where it is, as the old one did (the main window's, after a Save sheet or Settings).
     private var returning = false
 
-    var isShowing: Bool { window != nil }
+    var isShowing: Bool { window != nil || (isPinned && host != nil) }
 
     /// - Parameter activate: whether the panel takes the keyboard (false in tests, which must not
     ///   change the shared host's key window).
     func show(_ content: AnyView, over parent: NSWindow, activate: Bool = true, onClose: @escaping () -> Void = {}) {
         let root = AnyView(content.nativeControlAccent().appFontSizeFromSettings())
-        if let host {
+        self.parent = parent
+        if isPinned {
+            let host = self.host ?? makeHost(root)
             host.rootView = root
-            window?.onClose = onClose
+            self.host = host
+            columnView?.isPaused = isSuspended
+            adoptIntoColumnIfPinned()
+            return
+        }
+        if let host, let window {
+            host.rootView = root
+            window.onClose = onClose
             return
         }
         guard !isSuspended else { return }
+        // A host still in the column (it was pinned a moment ago) is the one that moves.
+        let host = self.host ?? makeHost(root)
+        host.rootView = root
+        self.host = host
         let window = AskClaudePanelWindow(contentRect: NSRect(x: 0, y: 0, width: 372, height: 420),
                                           styleMask: [.borderless], backing: .buffered, defer: false)
         window.onClose = onClose
@@ -226,11 +262,7 @@ final class AskClaudeWindowController {
         backdrop.layer?.cornerRadius = Radius.card
         backdrop.layer?.cornerCurve = .continuous
         backdrop.layer?.masksToBounds = true
-        // Its own window, so the main window's root accent and text size don't reach it.
-        let host = NSHostingView(rootView: AnyView(content.nativeControlAccent().appFontSizeFromSettings()))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        // The window's frame is set by `place()`; the content mustn't size the window as well.
-        host.sizingOptions = []
+        // `addSubview` takes it out of the column first, if it was there.
         backdrop.addSubview(host)
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
@@ -240,8 +272,6 @@ final class AskClaudeWindowController {
         ])
         window.contentView = backdrop
         self.window = window
-        self.host = host
-        self.parent = parent
         placed = false
         place()
         Logger.shared.debug("[askclaude] panel window shown")
@@ -254,6 +284,39 @@ final class AskClaudeWindowController {
         // Key, so the composer takes the keyboard at once.
         if activate && !returning { window.makeKeyAndOrderFront(nil) } else { window.orderFront(nil) }
         returning = false
+    }
+
+    /// The one hosting view. Its own view, so the main window's root accent and text size don't
+    /// reach it: `show` wraps the content in both.
+    private func makeHost(_ root: AnyView) -> NSHostingView<AnyView> {
+        let host = NSHostingView(rootView: root)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        // The window's frame is set by `place()`, the column's by the layout; the content mustn't
+        // size either as well.
+        host.sizingOptions = []
+        return host
+    }
+
+    /// Pinned: the hosting view goes into the column, and a window it was in closes. The view is
+    /// moved before the window goes, so the panel is never without a home.
+    private func adoptIntoColumnIfPinned() {
+        guard isPinned, let columnView, let host else { return }
+        columnView.adopt(host)
+        columnView.isPaused = isSuspended
+        if window != nil { retireWindowKeepingHost() }
+    }
+
+    /// The window goes away; the hosting view, already moved, stays. Nothing is cancelled: the
+    /// panel is not going anywhere, so a question being spoken carries on.
+    private func retireWindowKeepingHost() {
+        guard let window else { return }
+        let wasKey = window.isKeyWindow
+        window.onGone = {}
+        parent?.removeChildWindow(window)
+        window.orderOut(nil)
+        self.window = nil
+        if wasKey, let parent, parent.isVisible { parent.makeKey() }
+        Logger.shared.debug("[askclaude] panel pinned: the window gave way to the column")
     }
 
     /// A rounded rectangle the backdrop stretches to its size: the corners kept, the middle
@@ -282,19 +345,21 @@ final class AskClaudeWindowController {
 
     func hide() {
         returning = false
-        guard window != nil else { return }
+        guard window != nil || host != nil else { return }
         tearDown()
         Logger.shared.debug("[askclaude] panel window hidden")
     }
 
     private func tearDown() {
-        guard let window else { return }
-        let wasKey = window.isKeyWindow
-        parent?.removeChildWindow(window)
-        window.orderOut(nil)
-        self.window = nil
+        let wasKey = window?.isKeyWindow ?? false
+        if let window {
+            parent?.removeChildWindow(window)
+            window.orderOut(nil)
+        }
+        window = nil
+        host?.removeFromSuperview()
         host = nil
-        if isSuspended {
+        if isSuspended, !isPinned {
             returning = true
             Logger.shared.debug("[askclaude] panel stepped aside: the window is busy")
         }
@@ -337,6 +402,38 @@ final class AskClaudeWindowController {
     }
 }
 
+/// The pinned panel's place in the main window: it holds the hosting view, and answers no click
+/// while the window is busy (Settings, Help, a sheet), when it is also dimmed. A plain view, so
+/// the layout around it is SwiftUI's and the hosting view fills whatever it is given.
+final class AskClaudeColumnView: NSView {
+    weak var controller: AskClaudeWindowController?
+    /// The window is busy: the column stays in place and takes nothing.
+    var isPaused = false {
+        didSet {
+            guard isPaused != oldValue else { return }
+            alphaValue = isPaused ? 0.5 : 1
+            // The keyboard never stays in a column that is paused.
+            if isPaused, let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: self) {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { isPaused ? nil : super.hitTest(point) }
+
+    /// Takes the hosting view in. `addSubview` removes it from wherever it was, as one move.
+    func adopt(_ host: NSView) {
+        guard host.superview !== self else { return }
+        addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: trailingAnchor),
+            host.topAnchor.constraint(equalTo: topAnchor),
+            host.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+}
+
 /// An invisible view in the main window that marks the panel's area and opens or closes its
 /// window: SwiftUI updates it with the panel's content, and AppKit tells it when the area moves.
 struct AskClaudeWindowAnchor: NSViewRepresentable {
@@ -344,6 +441,8 @@ struct AskClaudeWindowAnchor: NSViewRepresentable {
     let isOpen: Bool
     /// The main window is busy; the panel steps aside until it isn't.
     var isSuspended = false
+    /// Pinned: the panel is the window's column, not a window of its own.
+    var isPinned = false
     let content: AnyView
     var onClose: () -> Void = {}
 
@@ -357,6 +456,7 @@ struct AskClaudeWindowAnchor: NSViewRepresentable {
         view.controller = controller
         view.wanted = isOpen ? (content, onClose) : nil
         view.busy = isSuspended
+        view.pinned = isPinned
         view.sync()
     }
 
@@ -369,6 +469,7 @@ struct AskClaudeWindowAnchor: NSViewRepresentable {
         /// What to show, kept so a view that reaches its window late still opens the panel.
         var wanted: (content: AnyView, onClose: () -> Void)?
         var busy = false
+        var pinned = false
         private var sheetBeginning = false
         private var observers: [NSObjectProtocol] = []
 
@@ -384,6 +485,7 @@ struct AskClaudeWindowAnchor: NSViewRepresentable {
             reportArea()
             guard let controller else { return }
             // Sheets are read here, live: SwiftUI doesn't redraw when one comes or goes.
+            controller.isPinned = pinned
             controller.isSuspended = busy || window?.attachedSheet != nil || sheetBeginning
             if let wanted, let window {
                 controller.show(wanted.content, over: window, onClose: wanted.onClose)

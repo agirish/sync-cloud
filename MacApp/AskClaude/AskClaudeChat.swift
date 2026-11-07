@@ -18,6 +18,9 @@ import Events
 final class AskClaudeChatHolder: ObservableObject {
     let chat = AskClaudeChat(storeURL: AskClaudeChat.defaultStore, historyURL: AskClaudeChat.defaultHistoryStore)
     let visibility = AskClaudeVisibility()
+    /// Owns the panel's window and its one hosting view, so the pinned column and the floating
+    /// window share them (`AskClaudeWindowController`).
+    let windowController = AskClaudeWindowController()
 }
 
 @MainActor

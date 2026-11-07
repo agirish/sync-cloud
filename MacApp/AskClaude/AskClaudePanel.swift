@@ -26,6 +26,12 @@ struct AskClaudePanel: View {
     let onOpenSettings: (SettingsSubTab) -> Void
     /// The area the panel lives in, for keeping a moved panel inside the window.
     var container: CGSize = .zero
+    /// Pinned: the panel is the main window's right-hand column, not a floating window. It takes
+    /// the column's size from its parent and none of the floating look (glass, border, resize
+    /// handles, drag), and it paints as the surface style says: a header card over a thread card in
+    /// Cards, one flush area under a hairline in Unified.
+    var pinned = false
+    var surface: SurfaceStyle = .unified
     /// The shield's choice of what Claude gets from the folder on screen: ask each time, share
     /// without asking, or hide it.
     var onSetAccess: (AskClaudeFolderAccess) -> Void = { _ in }
@@ -61,6 +67,10 @@ struct AskClaudePanel: View {
     var voiceSource: () -> AskClaudeVoiceSource = { AskClaudeMicrophone() }
 
     @State private var draft = ""
+    /// Whether the panel has opened in this hosting view, and whether it has just left a window
+    /// that it may be about to enter again (pinning and unpinning).
+    @State private var hasAppeared = false
+    @State private var leavingForAnotherWindow = false
     @FocusState private var composerFocused: Bool
     @State private var caret = AskClaudeComposerCaret()
     @State private var spentText = ""
@@ -120,6 +130,14 @@ struct AskClaudePanel: View {
     @State private var liveSize: CGSize?
     @State private var resizeStart: CGSize?
 
+    /// The pinned column's width while its inner (left) edge is dragged: dragging left widens it.
+    /// `base` is the width when the drag began; `translation` is cumulative. Held to the panel's
+    /// own width range, and to `room` when the window leaves less.
+    static func pinnedDragWidth(base: Double, translation: CGFloat, room: Double = .infinity) -> Double {
+        let widest = max(Double(minWidth), min(Double(maxWidth), room))
+        return min(max(base - Double(translation), Double(minWidth)), widest)
+    }
+
     /// The saved place, or the default when none is saved or the saved one is unknown.
     static func placement(raw: String?) -> Placement {
         raw.flatMap(Placement.init(rawValue:)) ?? defaultPlacement
@@ -177,38 +195,18 @@ struct AskClaudePanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                header
-                hairline
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { top = $0 }
-            thread
-            VStack(spacing: 0) {
-                hairline
-                composer
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottom = $0 }
+        Group {
+            if pinned { pinnedLayout } else { floatingLayout }
         }
-        .frame(width: size.width, height: size.height)
-        // A pane's surface and accent wash, so the panel reads as part of the window at every
-        // accent and Tint, over the same ground for its text as the other floating panels, as thick
-        // as theirs at every level, and the window's own dark ground in dark. Solid is opaque like
-        // the panes; Frosted and Clear show the content blurred through the backdrop
-        // (AskClaudeWindow.swift), which owns the rounding and the shadow, so the ground is square.
-        .contentSurface(hue: hue, tint: tint)
-        // With None in light at Clear, the window's own white film instead: this window's backdrop
-        // is already the window's material, so the film is all that makes it the window's glass.
-        .glassPanelGround(level: level, hue: hue, tint: tint,
-                          opacity: LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: colorScheme == .dark)
-                              ? LiquidGlass.clearNoneLightVeil : level.groundedBackingOpacity,
-                          cornerRadius: 0)
-        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is.
-        .floatingPanelGlass(level, cornerRadius: Radius.card)
-        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
-        .overlay { resizeHandles }
-        .onChange(of: CGRect(origin: origin, size: size), initial: true) { _, frame in onPlace(frame) }
+        .onChange(of: CGRect(origin: origin, size: size), initial: true) { _, frame in if !pinned { onPlace(frame) } }
         .onAppear {
+            // Moving the hosting view between the floating window and the pinned column takes
+            // the panel out of one window and into the next, which SwiftUI reports as a
+            // disappearance and an appearance. That is not the panel opening: the draft is
+            // already here and the keyboard stays where it is.
+            leavingForAnotherWindow = false
+            guard !hasAppeared else { return }
+            hasAppeared = true
             // A draft left when the panel closed comes back with it.
             draft = chat.draft
             composerFocused = true
@@ -247,10 +245,78 @@ struct AskClaudePanel: View {
         .onChange(of: voice.isActive) { _, active in if !active { composerFocused = true } }
         .onChange(of: draft) { _, typed in if !typed.isEmpty { voice.notice = nil } }
         .background(AskClaudeTalkKeys(onKey: talkKey, onGone: { voice.cancel() }))
-        .onDisappear { voice.cancel() }
-        .onExitCommand(perform: onClose)
+        // A question being spoken stops when the panel goes, but not when it only moves window:
+        // the appearance that follows in the same turn says it was a move.
+        .onDisappear {
+            leavingForAnotherWindow = true
+            DispatchQueue.main.async { if leavingForAnotherWindow { voice.cancel() } }
+        }
+        // Pinned, Esc does not close it: it stops talking or an edit, and nothing else (P4).
+        .onExitCommand(perform: pinned ? {} : onClose)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ask Claude")
+    }
+
+    /// The floating panel: its own size, glass, border and handles, in its own window.
+    private var floatingLayout: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                hairline
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { top = $0 }
+            thread
+            VStack(spacing: 0) {
+                hairline
+                composer
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottom = $0 }
+        }
+        .frame(width: size.width, height: size.height)
+        // A pane's surface and accent wash, so the panel reads as part of the window at every
+        // accent and Tint, over the same ground for its text as the other floating panels, as thick
+        // as theirs at every level, and the window's own dark ground in dark. Solid is opaque like
+        // the panes; Frosted and Clear show the content blurred through the backdrop
+        // (AskClaudeWindow.swift), which owns the rounding and the shadow, so the ground is square.
+        .contentSurface(hue: hue, tint: tint)
+        // With None in light at Clear, the window's own white film instead: this window's backdrop
+        // is already the window's material, so the film is all that makes it the window's glass.
+        .glassPanelGround(level: level, hue: hue, tint: tint,
+                          opacity: LiquidGlass.panelTakesWindowGlass(level: level, hue: hue, dark: colorScheme == .dark)
+                              ? LiquidGlass.clearNoneLightVeil : level.groundedBackingOpacity,
+                          cornerRadius: 0)
+        // The floating panels' glass, so at Clear in light it is clear glass as Settings' is.
+        .floatingPanelGlass(level, cornerRadius: Radius.card)
+        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(.separator.opacity(0.6)))
+        .overlay { resizeHandles }
+    }
+
+    /// The pinned column. The header is as tall as the panes' headers, so their rule runs across
+    /// it. Cards draws two cards, like every other column; Unified draws one flush area, and the
+    /// column's slot gives it the surface.
+    @ViewBuilder private var pinnedLayout: some View {
+        if surface == .cards {
+            VStack(spacing: 0) {
+                header
+                    .frame(height: LiquidGlass.headerHeight)
+                    .bottomSectionCard(.cards, level: level, hue: hue, tint: tint)
+                VStack(spacing: 0) {
+                    thread
+                    hairline
+                    composer
+                }
+                .bottomSectionCard(.cards, level: level, hue: hue, tint: tint)
+            }
+        } else {
+            VStack(spacing: 0) {
+                header
+                    .frame(height: LiquidGlass.headerHeight)
+                    .columnHeaderRule(.unified)
+                thread
+                hairline
+                composer
+            }
+        }
     }
 
     /// Measured on the screen, from where the mouse went down: the panel's own window moves under
@@ -371,12 +437,13 @@ struct AskClaudePanel: View {
                             .help(place.fullPath)
                     }
                 }
-                .help("Drag the header to move. Drop it at a side or the bottom to snap it there; double-click to return it to the bottom left.")
+                .help(pinned ? "" : "Drag the header to move. Drop it at a side or the bottom to snap it there; double-click to return it to the bottom left.")
                 .accessibilityElement(children: .combine)
                 Spacer(minLength: 8)
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
+                guard !pinned else { return }
                 withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
                     placementRaw = Self.defaultPlacement.rawValue
                 }
@@ -395,14 +462,14 @@ struct AskClaudePanel: View {
             AskClaudeHeaderButton(symbol: "xmark", help: ShortcutHint.tooltip("Close", AppChord.askClaude.display), label: "Close", action: onClose)
                 // ⌘J closes it from its own window too: while the panel is key, the menu's ⌘J
                 // belongs to no scene and is off.
-                .keyboardShortcut(AppChord.askClaude.key, modifiers: AppChord.askClaude.modifiers)
+                .keyboardShortcut(pinned ? nil : KeyboardShortcut(AppChord.askClaude.key, modifiers: AppChord.askClaude.modifiers))
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.top, 8)
         .padding(.bottom, 4)
         .contentShape(Rectangle())
-        .gesture(moveGesture)
+        .gesture(moveGesture, including: pinned ? .subviews : .all)
     }
 
     private var thread: some View {
@@ -457,7 +524,7 @@ struct AskClaudePanel: View {
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         // Docked left or floating, the resize band runs down the trailing edge: the scroll bar
         // moves in past it, or a drag on the bar would resize the panel.
-        .contentMargins(.trailing, placement.isRight ? 0 : 6, for: .scrollIndicators)
+        .contentMargins(.trailing, pinned || placement.isRight ? 0 : 6, for: .scrollIndicators)
     }
 
     private var composer: some View {
