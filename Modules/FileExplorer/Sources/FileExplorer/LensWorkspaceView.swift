@@ -641,6 +641,11 @@ public struct LensWorkspaceView: View {
     /// Whether the rail can spell its items out at this width; see ``OrganizeRailMetrics``. Stored
     /// as the answer, not a width, so state is written only when the answer flips during a resize.
     @State private var railStyle: OrganizeRailStyle = .full
+    /// The workspace is too narrow for row 2's buttons side by side: Rescan and Refine go into one ⋯
+    /// menu and File All stays. Measured on the probe below, with the text size.
+    @State private var rowTwoCompact = false
+    /// Where row 2's buttons stop fitting at the default text size, scaled by it.
+    private static let compactActionsWidth: CGFloat = 520
 
     /// Which of Storage's ranked lists the rail is showing, or absent for all three. Optional
     /// for ``OrganizeLens/defaultsKey``'s reason: there is no value to write for "none picked".
@@ -873,6 +878,7 @@ public struct LensWorkspaceView: View {
         // on every width the card is handed. It is everything row 1's leading half must seat (the
         // rail alone today); anything put beside it must be counted in `leadingWidth` too.
         let railLeading = OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
+        let compactBelow = Self.compactActionsWidth * appFontScale
         return VStack(spacing: 0) {
             // The shedding rule is measured here, on a zero-height probe, not on the card. A card
             // whose row can't compress draws at the width it needs and overflows, and
@@ -890,6 +896,7 @@ public struct LensWorkspaceView: View {
                     OrganizeRailMetrics.style(columnWidth: proxy.size.width,
                                               leadingWidth: railLeading)
                 } action: { railStyle = $0 }
+                .onGeometryChange(for: Bool.self) { $0.size.width < compactBelow } action: { rowTwoCompact = $0 }
             // The header card heads the workspace in every lens and state, so its bottom edge lands
             // on 83.5, the file pane's header/list boundary. The `sourceBar` sits below it, and
             // appears only when the source rail is collapsed.
@@ -1221,6 +1228,10 @@ public struct LensWorkspaceView: View {
                 // rescanning means anything; before that the intro state owns the invitation.
                 // Two buttons behind one name: see ``showsFilingControl`` for Rescan's gate and
                 // where the moved branch stands down.
+                if rowTwoCompact, organizeLens == .toFile, !filingTargetMoved {
+                    // Narrow: one ⋯ menu for Rescan and Refine, and File All beside it.
+                    compactToFileActions(rows.filing)
+                } else {
                 if showsFilingControl {
                     rescanFilingButton
                 }
@@ -1242,6 +1253,7 @@ public struct LensWorkspaceView: View {
                 // its touches a file, and its one action, Rescan, is on row 2.
                 case .none, .duplicates, .restructure, .rules, .storage:
                     EmptyView()
+                }
                 }
             }
         case .automations:
@@ -2173,6 +2185,67 @@ public struct LensWorkspaceView: View {
         return syncManager.hasSuggestedFiling || (filingTargetMoved && !filingIntroOwnsInvitation)
     }
 
+    /// To File's row 2 in a narrow workspace: Rescan and Refine behind one ⋯ menu, with File All
+    /// Confident beside it. The same actions and gates as the wide row, which reaches them as
+    /// buttons.
+    @ViewBuilder
+    private func compactToFileActions(_ filing: [FilingSuggestion]) -> some View {
+        if showsFilingControl || hasFilingResults {
+            Menu {
+                if showsFilingControl {
+                    Button { onFindFilingSuggestions() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
+                    rescanMenuItems
+                }
+                if hasFilingResults {
+                    Divider()
+                    refineButton(filing)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .chromeButtonStyle(glassLevel)
+            .controlSize(.small)
+            .fixedSize()
+            .help("More: Rescan, and Refine with Claude")
+            .accessibilityLabel("More actions")
+        }
+        if hasFilingResults { fileAllButton(filing) }
+    }
+
+    /// The Rescan menu's items below its primary action: Ignore Saved Suggestions, and Refresh What’s
+    /// Learned. A property so the split button and the narrow ⋯ menu offer the same ones.
+    @ViewBuilder
+    private var rescanMenuItems: some View {
+        Button {
+            onFindFilingSuggestionsFresh()
+        } label: {
+            Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
+        }
+        .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
+        if let onUpdateFolderMemory {
+            Divider()
+            // The last survey's result sits above the item that produced it; see
+            // ``lastFolderSurveyNote``. Absent before the first survey.
+            Section {
+                Button {
+                    onUpdateFolderMemory()
+                } label: {
+                    // The object stays in the title: in a menu beside "Ignore saved
+                    // suggestions", a bare "Refresh" names nothing. Same rule
+                    // `rescanAccessibilityLabel` applies for VoiceOver.
+                    Label("Refresh What’s Learned", systemImage: "brain")
+                }
+                .disabled(syncManager.filingSurveyLifecycle.isRunning)
+                .help("Learn what your folders have been given since the last survey, so folders "
+                      + "you have added recently can be suggested. Reads only the documents that changed.")
+            } header: {
+                if let note = lastFolderSurveyNote { Text(note) }
+            }
+        }
+    }
+
     /// Organize's rescan, with the ignore-saved-suggestions variant hung off it. A split control,
     /// because asking afresh is the exception and, on the cloud backend, the one that spends money:
     /// it shouldn't look identical to the free one. When the user has navigated away it becomes the
@@ -2188,32 +2261,7 @@ public struct LensWorkspaceView: View {
                              + "above. Every lens narrows to it.")
         } else {
             Menu {
-                Button {
-                    onFindFilingSuggestionsFresh()
-                } label: {
-                    Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
-                }
-                .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
-                if let onUpdateFolderMemory {
-                    Divider()
-                    // The last survey's result sits above the item that produced it; see
-                    // ``lastFolderSurveyNote``. Absent before the first survey.
-                    Section {
-                        Button {
-                            onUpdateFolderMemory()
-                        } label: {
-                            // The object stays in the title: in a menu beside "Ignore saved
-                            // suggestions", a bare "Refresh" names nothing. Same rule
-                            // `rescanAccessibilityLabel` applies for VoiceOver.
-                            Label("Refresh What’s Learned", systemImage: "brain")
-                        }
-                        .disabled(syncManager.filingSurveyLifecycle.isRunning)
-                        .help("Learn what your folders have been given since the last survey, so folders "
-                              + "you have added recently can be suggested. Reads only the documents that changed.")
-                    } header: {
-                        if let note = lastFolderSurveyNote { Text(note) }
-                    }
-                }
+                rescanMenuItems
             } label: {
                 Label("Rescan", systemImage: "arrow.clockwise")
             } primaryAction: {

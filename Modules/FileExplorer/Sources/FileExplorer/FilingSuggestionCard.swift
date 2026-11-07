@@ -410,56 +410,114 @@ struct FilingSuggestionCard: View {
         return Pill(.mini, tint: color, systemImage: symbol, text: text)
     }
 
+    /// The action row: every button while the card is wide enough, and below that File Here and
+    /// Choose a Folder… with the rest in a ⋯ menu, so the row never outgrows a narrow workspace
+    /// (the pinned Ask Claude column leaves To File about 340 to 640 pt). `ViewThatFits` takes the
+    /// first row that fits, so the break moves with the text size.
     @ViewBuilder
-    private var actions: some View {
+    var actions: some View {
+        ViewThatFits(in: .horizontal) {
+            actionRow(compact: false)
+            actionRow(compact: true)
+        }
+    }
+
+    /// One row of actions: the full set, or the two that matter with the others behind ⋯.
+    func actionRow(compact: Bool) -> some View {
         HStack(spacing: 9) {
-            if let best, suggestion.hasConfidentHome {
-                // The typed name, when the user typed one — see `newFolderNameField`.
-                Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
-                    Label("File Here", systemImage: "arrow.right.circle")
-                }
-                    .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
-                    .chromeHover()
-                    .lockedDuringRun()
-                Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
-                    .controlSize(.small)
-                    .lockedDuringRun()
+            primaryButtons
+            if compact {
+                overflowMenu
             } else {
-                Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
-                    .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
-                    .chromeHover()
-                    .lockedDuringRun()
+                if best != nil, let onTryAnother {
+                    Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
+                        .controlSize(.small)
+                        .disabled(isTryAnotherBusy)
+                        .help("Reject this folder and suggest a different one — remembered for next time")
+                }
+                if let onReadScan {
+                    Button(action: onReadScan) {
+                        Label(isReadScanBusy ? "Reading…" : "Read Scan",
+                              systemImage: "text.viewfinder")
+                    }
+                    .controlSize(.small)
+                    .disabled(isReadScanBusy)
+                    .help(Self.readScanHelp)
+                }
+                if let onPreview {
+                    Button(action: onPreview) { Label("Preview", systemImage: "eye") }
+                        .controlSize(.small)
+                }
+                Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
+                    .controlSize(.small)
+                setAsideButton
             }
+        }
+    }
+
+    private static let readScanHelp = "This PDF has no text layer, so the suggestion was made from its name alone. "
+        + "Read it with OCR and suggest again — a second or two."
+
+    /// File Here and Choose a Folder…, or Choose a Folder… alone where there is no confident home.
+    @ViewBuilder
+    private var primaryButtons: some View {
+        if let best, suggestion.hasConfidentHome {
+            // The typed name, when the user typed one — see `newFolderNameField`.
+            Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
+                Label("File Here", systemImage: "arrow.right.circle")
+            }
+                .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
+                .chromeHover()
+                .lockedDuringRun()
+            Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
+                .controlSize(.small)
+                .lockedDuringRun()
+        } else {
+            Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
+                .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
+                .chromeHover()
+                .lockedDuringRun()
+        }
+    }
+
+    private var setAsideButton: some View {
+        Button(action: onNotHere) {
+            Label("Set Aside", systemImage: "xmark")
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .contentShape(Rectangle())
+        }
+            .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
+            .help("Set this suggestion aside — the file stays where it is, and the next scan can suggest it again")
+    }
+
+    /// The buttons a narrow card puts away: the same actions, as menu items.
+    private var overflowMenu: some View {
+        Menu {
             if best != nil, let onTryAnother {
                 Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
-                    .controlSize(.small)
                     .disabled(isTryAnotherBusy)
-                    .help("Reject this folder and suggest a different one — remembered for next time")
             }
             if let onReadScan {
                 Button(action: onReadScan) {
-                    Label(isReadScanBusy ? "Reading…" : "Read Scan",
-                          systemImage: "text.viewfinder")
+                    Label(isReadScanBusy ? "Reading…" : "Read Scan", systemImage: "text.viewfinder")
                 }
-                .controlSize(.small)
                 .disabled(isReadScanBusy)
-                .help("This PDF has no text layer, so the suggestion was made from its name alone. "
-                      + "Read it with OCR and suggest again — a second or two.")
             }
             if let onPreview {
                 Button(action: onPreview) { Label("Preview", systemImage: "eye") }
-                    .controlSize(.small)
             }
             Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
-                .controlSize(.small)
-            Button(action: onNotHere) {
-                Label("Set Aside", systemImage: "xmark")
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .contentShape(Rectangle())
-            }
-                .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
-                .help("Set this suggestion aside — the file stays where it is, and the next scan can suggest it again")
+            Divider()
+            Button(action: onNotHere) { Label("Set Aside", systemImage: "xmark") }
+        } label: {
+            Image(systemName: "ellipsis")
         }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .controlSize(.small)
+        .fixedSize()
+        .help("More: Try Another Folder, Read Scan, Preview, Reveal and Set Aside")
+        .accessibilityLabel("More actions")
     }
 }
 
