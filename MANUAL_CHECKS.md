@@ -752,3 +752,23 @@ and in Unified and Cards (Settings ▸ Appearance ▸ Surface).
   carries on. Open a Compare difference's side-by-side: the column pauses under it too.
 - [ ] **VoiceOver.** With VoiceOver on, open and pin it in each workspace, switch workspaces, open
   Info, and send a question: the app does not hang (the accessibility loop that once took it down).
+
+## Refine's request on the 5.5 models (TE335, E1, 2026-11-07)
+
+Run once, before Refine moves to the chat's model (E2–E4). It sends one 6-file Refine batch and one
+3-row folder-name batch to Sonnet 5.5, Opus 5.5 and Haiku 5.5 in each request shape in
+`CloudFilingProtocol.RequestShape.variants`, and prints one line per try. A few cents in all. The
+key comes from the environment, never the Keychain.
+
+`read -s "ASK_CLAUDE_LIVE_KEY?Key: " && export ASK_CLAUDE_LIVE_KEY`, then
+`scripts/build-slot swift test --package-path Modules/Sync --filter CloudFilingLiveShapeTests`.
+
+- [ ] **The table prints.** Without the key the suite is skipped, which is a vacuous green: quote the
+  printed lines (`OK`/`FAIL`, model, shape, HTTP status, placements read, tokens, cost).
+- [ ] **The control fails on 5.5.** "today's, streamed" (forced tool) returns HTTP 400 on Opus 5.5 and
+  Sonnet 5.5. If it passes, the finding behind TE335's E1 was wrong; say so.
+- [ ] **`RequestShape.current(for:)` works on all three models,** for the Refine batch and the
+  folder-name batch (the test asserts it). A model that fails is the one Refine is off on (KQ-C); if
+  Opus 5.5 is that model, LA is asked again before any chat step.
+- [ ] **Pick the winning shape.** Compare the shapes that passed (auto tool, strict, any) and make that
+  one `current(for:)` in E3. Note cost and seconds per model.

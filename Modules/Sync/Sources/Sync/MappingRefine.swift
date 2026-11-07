@@ -79,7 +79,8 @@ public enum MappingRefineProtocol {
     /// The request body. The payload is exactly what the sheet disclosed: folder paths and
     /// candidate names always, sample file names only when the caller put them in the request.
     public static func requestBody(model: String = CloudFilingProtocol.defaultModel,
-                                   request: MappingRefineRequest) -> [String: Any] {
+                                   request: MappingRefineRequest,
+                                   shape: CloudFilingProtocol.RequestShape = .legacy) -> [String: Any] {
         let instructions = """
         You are helping name folders consistently inside one recurring family of folders (for \
         example, one folder per tax year). You will see the family's member folders, the distinct \
@@ -112,11 +113,13 @@ public enum MappingRefineProtocol {
             }
         }
         userText += "\nAnswer for every source name."
+        if shape.toolChoice != .forced {
+            userText += " Answer by calling the \(toolName) tool once; do not answer in text."
+        }
 
-        let tool: [String: Any] = [
+        var tool: [String: Any] = [
             "name": toolName,
             "description": "Return one verdict per source folder name.",
-            "strict": true,
             "input_schema": [
                 "type": "object",
                 "properties": [
@@ -143,15 +146,17 @@ public enum MappingRefineProtocol {
                 "additionalProperties": false,
             ],
         ]
+        if shape.strict { tool["strict"] = true }
 
-        return [
+        var body: [String: Any] = [
             "model": model,
-            "max_tokens": min(8192, 512 + request.rows.count * 80),
+            "max_tokens": min(8192, 512 + request.rows.count * 80) + shape.extraOutputTokens,
             "system": [["type": "text", "text": instructions]],
             "messages": [["role": "user", "content": userText]],
             "tools": [tool],
-            "tool_choice": ["type": "tool", "name": toolName],
         ]
+        CloudFilingProtocol.apply(shape, to: &body, toolName: toolName)
+        return body
     }
 
     /// Parses the response into proposals — nil for an error or an unreadable shape (the caller
@@ -166,6 +171,24 @@ public enum MappingRefineProtocol {
               let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
               let input = toolUse["input"] as? [String: Any],
               let proposals = input["proposals"] as? [[String: Any]] else { return nil }
+        return proposalList(from: proposals, rows: rows)
+    }
+
+    /// The same, from the tool calls a streamed answer collected. Every proposal call counts; nil when
+    /// the model made none.
+    public static func parseProposals(toolCalls: [AskClaudeToolCall],
+                                      rows: [RestructureMapping.Row]) -> [MappingRefineProposal]? {
+        let lists = toolCalls.filter { $0.name == toolName }.compactMap { call -> [[String: Any]]? in
+            guard let data = try? call.input.encoded(),
+                  let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+            return input["proposals"] as? [[String: Any]]
+        }
+        guard !lists.isEmpty else { return nil }
+        return proposalList(from: lists.flatMap { $0 }, rows: rows)
+    }
+
+    private static func proposalList(from proposals: [[String: Any]],
+                                  rows: [RestructureMapping.Row]) -> [MappingRefineProposal] {
         // Only rows that were asked about may answer; an invented source name is dropped. One that
         // differs only by case maps back to the asked spelling.
         let asked = Set(rows.map(\.source))
