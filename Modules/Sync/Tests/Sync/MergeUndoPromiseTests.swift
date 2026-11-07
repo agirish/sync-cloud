@@ -18,27 +18,14 @@ import EventsTestSupport
 /// and only the `fileManager is FileManager` fast path yields the sizes it plans from.
 @Suite struct MergeUndoPromiseTests {
 
-    /// A real `FileManager` whose Trash always refuses: a Trash-less volume without needing one.
-    /// `deleteItems` then asks `permanentDeleteConfirmer` and, on a yes, removes the item outright.
-    private final class TrashlessVolume: FileManager, @unchecked Sendable {
-        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
-        }
-    }
-
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     /// Builds the overlapping pair the merge folds: one shared file (skipped by the plan) and one
     /// unique file in the redundant copy (the fold, and so the copy-undo).
     private func makePair(_ base: URL, redundantName: String) throws -> (keeper: URL, redundant: URL, group: DuplicateGroup) {
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent(redundantName)
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        try write(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x55)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x55)
         let k = DuplicateCopy.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)
         let r = DuplicateCopy.stub(redundant.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1)
         return (keeper, redundant, .stub([k, r], matchType: .overlapping(sharedFraction: 0.5), reclaimable: 4000))
@@ -61,7 +48,7 @@ import EventsTestSupport
         let pair = try makePair(base, redundantName: rName)
         let folded = pair.keeper.appendingPathComponent("unique.txt")
 
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         let undo = UndoManager()
         manager.undoManager = undo
         manager.permanentDeleteConfirmer = { _ in true }   // the user confirms the permanent delete
@@ -114,7 +101,7 @@ import EventsTestSupport
         let rName = "Redundant-\(UUID().uuidString)"
         let pair = try makePair(base, redundantName: rName)
 
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         manager.undoManager = UndoManager()
         manager.permanentDeleteConfirmer = { _ in false }   // the user declines
         manager.duplicateGroups = [pair.group]
@@ -166,10 +153,10 @@ import EventsTestSupport
         let bName = "B-\(UUID().uuidString)"
         let a = base.appendingPathComponent(aName)
         let b = base.appendingPathComponent(bName)
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         for (url, fill, unique) in [(a, UInt8(0x61), "a-only.txt"), (b, UInt8(0x62), "b-only.txt")] {
-            try write(url.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-            try write(url.appendingPathComponent(unique), bytes: 4000, fill: fill)
+            try writeBytes(url.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try writeBytes(url.appendingPathComponent(unique), bytes: 4000, fill: fill)
         }
 
         let trash = ScratchTrash(in: base)
@@ -257,7 +244,7 @@ import EventsTestSupport
                 }
                 if first {
                     entered.signal()
-                    // Turns as well as seconds, as in `FirstAttributesGate`: the release waits on a
+                    // Turns as well as seconds, as in `FirstStatGate`: the release waits on a
                     // 600 ms grace loop of main-actor sleeps.
                     if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
                         state.withLock { $0.timedOut = true }
@@ -337,12 +324,6 @@ import EventsTestSupport
 ///   caller (as `applyRecommendedDuplicates` reasons for its empty-batch banner).
 @Suite struct MergeEmptyUndoPromiseTests {
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     private func copy(_ url: URL, keeper: Bool, unique: Int) -> DuplicateCopy {
         .stub(url.path, keeper: keeper, isDirectory: true, size: 4000, unique: unique)
     }
@@ -364,7 +345,7 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "MergeVanished")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         // Listed in the group, never created on disk.
         let vanished = base.appendingPathComponent("Redundant")
 
@@ -389,7 +370,7 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "MergeNoRedundant")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
 
         let manager = FileSyncManager()
         let undo = registerPriorStep(manager)

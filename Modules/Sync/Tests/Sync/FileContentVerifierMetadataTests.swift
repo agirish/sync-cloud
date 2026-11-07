@@ -34,42 +34,19 @@ struct FileContentVerifierMetadataTests {
     /// A file manager that reports a size other than the one on disk, standing in for the file
     /// being replaced between the metadata read and the open, a window that can't be staged
     /// deterministically.
-    private final class SizeLyingFileManager: FileManaging, @unchecked Sendable {
-        let inner = FileManager.default
+    private final class SizeLyingFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         let inflateBy: Int
-        init(inflateBy: Int) { self.inflateBy = inflateBy }
+        init(inflateBy: Int) {
+            self.inflateBy = inflateBy
+            super.init(inner: .default)
+        }
 
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
+        override func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
             var attrs = try inner.attributesOfItem(atPath: p)
             if let size = (attrs[.size] as? NSNumber)?.intValue {
                 attrs[.size] = NSNumber(value: size + inflateBy)
             }
             return attrs
-        }
-
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws {
-            try inner.setAttributes(a, ofItemAtPath: p)
-        }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                        options mask: FileManager.DirectoryEnumerationOptions,
-                        errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
         }
     }
 

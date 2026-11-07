@@ -451,7 +451,7 @@ import Testing
     /// The other half: the undo is registered before the walk resolves, so a ⌘Z racing the walk
     /// pops this undo and its handler waits for the identity instead of no-oping (or undoing the
     /// operation before it). The walk task is dropped on purpose: this is the caller that can't
-    /// await. The race is held, not hoped for: `FirstAttributesGate` parks the walk in its first
+    /// await. The race is held, not hoped for: `FirstStatGate` parks the walk in its first
     /// stat, so the ⌘Z lands while the identity is unresolved.
     @MainActor
     @Test(.parksAThread) func anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping() async throws {
@@ -461,7 +461,7 @@ import Testing
         mock.virtualDisk["/undowait-dst/project"] =
             MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["notes.md"])
         mock.virtualDisk["/undowait-dst/project/notes.md"] = file(4)
-        let fm = FirstAttributesGate(inner: mock)
+        let fm = FirstStatGate(inner: mock, gatesDirectoryProbe: false)
 
         _ = manager.registerCopyUndo(
             items: [(source: URL(fileURLWithPath: "/undowait-src/project"),
@@ -705,69 +705,6 @@ import Testing
     }
 }
 
-/// Parks the walk's first `attributesOfItem`, the opening stat of `deepSnapshot`, so a test can
-/// act while a registration walk is mid-flight. `FirstStatGate`'s counterpart over the mock disk,
-/// with the same bounded park and recorded timeout: check `releasedByTimeout` afterwards.
-private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
-    private let inner: MockFileManager
-    let entered = DispatchSemaphore(value: 0)
-    let release = DispatchSemaphore(value: 0)
-    private let lock = NSLock()
-    private var gated = false
-    private var timedOut = false
-
-    init(inner: MockFileManager) { self.inner = inner }
-
-    /// True if the parked stat gave up waiting instead of being released: a held race that let go
-    /// by itself, which the test must surface.
-    var releasedByTimeout: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return timedOut
-    }
-
-    private func gateIfFirst() {
-        lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
-        guard first else { return }
-        entered.signal()
-        // In scheduler turns as well as seconds: the release comes after the test's ⌘Z and a
-        // `waitUntil`, which a loaded runner paces in turns (`docs/flaky-tests.md`, "A park's
-        // bound counted seconds while its release waited for scheduler turns").
-        if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
-            lock.lock(); timedOut = true; lock.unlock()
-        }
-    }
-
-    func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
-    func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        inner.fileExists(atPath: path, isDirectory: isDirectory)
-    }
-    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-        gateIfFirst()
-        return try inner.attributesOfItem(atPath: path)
-    }
-    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-        try inner.setAttributes(attributes, ofItemAtPath: path)
-    }
-    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                         attributes: [FileAttributeKey: Any]?) throws {
-        try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
-    }
-    func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
-    func moveItem(at srcURL: URL, to dstURL: URL) throws { try inner.moveItem(at: srcURL, to: dstURL) }
-    func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try inner.trashItem(at: url, resultingItemURL: outResultingURL)
-    }
-    func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
-    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
-        try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-    }
-    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                    options mask: FileManager.DirectoryEnumerationOptions,
-                    errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-        inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
-    }
-}
-
 /// A `FileManaging` that walks the real filesystem but hands each enumeration back reordered.
 /// The real enumerator yields a stable order, so only a double like this can make deleting
 /// `deepSnapshot`'s sort fail.
@@ -775,47 +712,22 @@ private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
 /// It doesn't vary the Unicode spelling: `listing(of:)` re-spells every entry through
 /// `appendingPathComponent`, which decomposes, so a respelling never reaches the digest. That rule
 /// is pinned at its seam (`oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling`).
-private struct ReshapedWalkFileManager: FileManaging {
+private final class ReshapedWalkFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
     let reorder: @Sendable ([URL]) -> [URL]
 
     init(reorder: @escaping @Sendable ([URL]) -> [URL] = { $0 }) {
         self.reorder = reorder
+        super.init(inner: .default)
     }
 
-    private var base: FileManager { FileManager.default }
-
-    func fileExists(atPath path: String) -> Bool { base.fileExists(atPath: path) }
-    func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        base.fileExists(atPath: path, isDirectory: isDirectory)
-    }
-    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-        try base.attributesOfItem(atPath: path)
-    }
-    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-        try base.setAttributes(attributes, ofItemAtPath: path)
-    }
-    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                         attributes: [FileAttributeKey: Any]?) throws {
-        try base.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
-    }
-    func copyItem(at srcURL: URL, to dstURL: URL) throws { try base.copyItem(at: srcURL, to: dstURL) }
-    func moveItem(at srcURL: URL, to dstURL: URL) throws { try base.moveItem(at: srcURL, to: dstURL) }
-    func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try base.trashItem(at: url, resultingItemURL: outResultingURL)
-    }
-    func removeItem(at URL: URL) throws { try base.removeItem(at: URL) }
-    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
-        try base.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-    }
-
-    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                    options mask: FileManager.DirectoryEnumerationOptions,
-                    errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+    override func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                             options mask: FileManager.DirectoryEnumerationOptions,
+                             errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         // `.producesRelativePathURLs` is forced so every entry carries the relative path this
         // reshapes; `listing(of:)`, the only consumer under test, always asks for it anyway.
-        guard let real = base.enumerator(at: url, includingPropertiesForKeys: keys,
-                                         options: mask.union(.producesRelativePathURLs),
-                                         errorHandler: handler) else { return nil }
+        guard let real = inner.enumerator(at: url, includingPropertiesForKeys: keys,
+                                          options: mask.union(.producesRelativePathURLs),
+                                          errorHandler: handler) else { return nil }
         let entries = real.compactMap { $0 as? URL }
         let rebase = URL(fileURLWithPath: url.path, isDirectory: true)
         let reshaped = reorder(entries).map { entry in
@@ -829,10 +741,11 @@ private struct ReshapedWalkFileManager: FileManaging {
 /// Forwards to the real `FileManager` and records, per enumeration and stat, whether it ran on the
 /// main thread, for `theRegistrationIdentityWalkNeverTouchesTheMainThread`. Zero recordings is a
 /// broken fixture, not a pass, so the test requires some.
-private final class WalkThreadRecordingFileManager: FileManaging, @unchecked Sendable {
-    private let base = FileManager.default
+private final class WalkThreadRecordingFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [Bool] = []
+
+    init() { super.init(inner: .default) }
 
     var mainThreadSamples: [Bool] {
         lock.lock(); defer { lock.unlock() }
@@ -843,33 +756,17 @@ private final class WalkThreadRecordingFileManager: FileManaging, @unchecked Sen
         lock.lock(); samples.append(Thread.isMainThread); lock.unlock()
     }
 
-    func fileExists(atPath path: String) -> Bool { record(); return base.fileExists(atPath: path) }
-    func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        record(); return base.fileExists(atPath: path, isDirectory: isDirectory)
+    override func fileExists(atPath path: String) -> Bool { record(); return inner.fileExists(atPath: path) }
+    override func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        record(); return inner.fileExists(atPath: path, isDirectory: isDirectory)
     }
-    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-        record(); return try base.attributesOfItem(atPath: path)
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        record(); return try inner.attributesOfItem(atPath: path)
     }
-    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-        try base.setAttributes(attributes, ofItemAtPath: path)
-    }
-    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                         attributes: [FileAttributeKey: Any]?) throws {
-        try base.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
-    }
-    func copyItem(at srcURL: URL, to dstURL: URL) throws { try base.copyItem(at: srcURL, to: dstURL) }
-    func moveItem(at srcURL: URL, to dstURL: URL) throws { try base.moveItem(at: srcURL, to: dstURL) }
-    func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try base.trashItem(at: url, resultingItemURL: outResultingURL)
-    }
-    func removeItem(at URL: URL) throws { try base.removeItem(at: URL) }
-    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
-        try base.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-    }
-    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                    options mask: FileManager.DirectoryEnumerationOptions,
-                    errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+    override func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                             options mask: FileManager.DirectoryEnumerationOptions,
+                             errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         record()
-        return base.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
+        return inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
     }
 }

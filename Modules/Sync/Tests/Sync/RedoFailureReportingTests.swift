@@ -21,12 +21,7 @@ import EventsTestSupport
     /// A manager with every alert seam mocked, so no test can pop a real NSAlert.
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     /// Records whether the permanent-delete confirmation was requested. Runs on the main actor
@@ -47,12 +42,8 @@ import EventsTestSupport
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        mockFM.virtualDisk["/src/f.txt"] = .file(100)
         return mockFM
-    }
-
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
     }
 
     // MARK: Copy redo — the source vanished between undo and redo
@@ -151,7 +142,7 @@ import EventsTestSupport
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
 
         // An UNRELATED file Z appears at the source before the undo, occupying the move-back target.
-        mockFM.virtualDisk["/src/f.txt"] = file(55)   // Z
+        mockFM.virtualDisk["/src/f.txt"] = .file(55)   // Z
 
         manager.undoManager?.undo()   // move-back refuses: /src/f.txt is occupied by Z
         await waitUntil("the refused undo settles") { manager.activeFileOperationsCount == 0 }
@@ -188,7 +179,7 @@ import EventsTestSupport
         await waitUntil("undo trashes the created folder") { mockFM.virtualDisk["/dst/New Folder"] == nil }
 
         // A FILE takes the folder's path before the redo, so createDirectory must fail.
-        mockFM.virtualDisk["/dst/New Folder"] = file(7)
+        mockFM.virtualDisk["/dst/New Folder"] = .file(7)
         manager.banner = nil
 
         manager.undoManager?.redo()
@@ -222,7 +213,7 @@ import EventsTestSupport
         let log = LogCapture()
         let manager = makeManager()
         let mockFM = try disk()
-        mockFM.virtualDisk["/dst/f.txt"] = file(5)
+        mockFM.virtualDisk["/dst/f.txt"] = .file(5)
         mockFM.shouldFailTrash = true // trash-less volume: the overwritten original stays as .rollback_
         manager.permanentDeleteConfirmer = { _ in true }
 

@@ -68,55 +68,15 @@ import Testing
     /// test can drive the unhappy branch on a tree the executor moves correctly. Everything else
     /// is passed straight through, including the two-argument existence probe the executor uses
     /// for directories, so nothing else in the landing behaves differently.
-    final class HidingFileManager: FileManaging, @unchecked Sendable {
+    final class HidingFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         let hidden: Set<String>
-        private let inner: FileManager
         init(hiding: Set<String>, over inner: FileManager) {
             hidden = hiding
-            self.inner = inner
+            super.init(inner: inner)
         }
 
-        func fileExists(atPath path: String) -> Bool {
+        override func fileExists(atPath path: String) -> Bool {
             hidden.contains(where: { path.hasSuffix($0) }) ? false : inner.fileExists(atPath: path)
-        }
-        func fileExists(atPath path: String,
-                        isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: path, isDirectory: isDirectory)
-        }
-        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-            try inner.attributesOfItem(atPath: path)
-        }
-        func setAttributes(_ attributes: [FileAttributeKey: Any],
-                           ofItemAtPath path: String) throws {
-            try inner.setAttributes(attributes, ofItemAtPath: path)
-        }
-        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                             attributes: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates,
-                                      attributes: attributes)
-        }
-        func copyItem(at srcURL: URL, to dstURL: URL) throws {
-            try inner.copyItem(at: srcURL, to: dstURL)
-        }
-        func moveItem(at srcURL: URL, to dstURL: URL) throws {
-            try inner.moveItem(at: srcURL, to: dstURL)
-        }
-        func trashItem(at url: URL,
-                       resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
-        }
-        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
-        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL,
-                         backupItemName: String) throws -> URL? {
-            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL,
-                                  backupItemName: backupItemName)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                        options mask: FileManager.DirectoryEnumerationOptions,
-                        errorHandler handler: ((URL, Error) -> Bool)?)
-            -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask,
-                             errorHandler: handler)
         }
     }
 
@@ -1175,46 +1135,15 @@ import Testing
         }
     }
 
-    final class LedgerBreakingDisk: FileManaging, @unchecked Sendable {
-        private let inner: FileManager
+    final class LedgerBreakingDisk: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         private let breaker: LedgerBreaker
         init(over inner: FileManager, breaker: LedgerBreaker) {
-            self.inner = inner
             self.breaker = breaker
+            super.init(inner: inner)
         }
-        func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
-        func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: path, isDirectory: isDirectory)
-        }
-        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-            try inner.attributesOfItem(atPath: path)
-        }
-        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-            try inner.setAttributes(attributes, ofItemAtPath: path)
-        }
-        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                             attributes: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates,
-                                      attributes: attributes)
-        }
-        func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
-        func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
             breaker.breakOnce()
             try inner.moveItem(at: srcURL, to: dstURL)
-        }
-        func trashItem(at url: URL,
-                       resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
-        }
-        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
-        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL,
-                         backupItemName: String) throws -> URL? {
-            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                        options mask: FileManager.DirectoryEnumerationOptions,
-                        errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
         }
     }
 

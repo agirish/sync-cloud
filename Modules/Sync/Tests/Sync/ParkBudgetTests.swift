@@ -171,7 +171,7 @@ import Testing
     /// is one letter from `GatedFileManager`; `SamplerObservedTrash` isn't gate-shaped at all), so
     /// the second scan below works from the source instead.
     private static let threadBlockingGates = [
-        "ParkGate", "FirstStatGate", "FirstOpGate", "FirstAttributesGate",
+        "ParkGate", "FirstStatGate", "FirstOpGate",
         "GatedFileManager", "GateFileManager", "DestinationStatGate", "BarrierCancelGate",
         "GatedWalkFileManager", "GatingFileManager", "SamplerObservedTrash", "LeftStatGate",
     ]
@@ -231,7 +231,6 @@ import Testing
                 "while !Task.isCancelled && Date() < deadline { usleep(1000) }",
             ],
             "DeepFolderIdentityTests.swift": [
-                "if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {",   // FirstAttributesGate
                 "Thread.sleep(forTimeInterval: 0.005)",                   // brief: a scheduling nudge
             ],
             "ProgressAccountingTests.swift": ["if gate.wait(timeout: .now() + 10) == .timedOut {"],

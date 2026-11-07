@@ -444,42 +444,19 @@ import Foundation
 
     /// Delegates to a `MockFileManager` but fails `attributesOfItem` for a chosen set of paths,
     /// simulating a permission-denied / placeholder-heavy subtree during a scan walk.
-    private final class UnreadableAttributesFileManager: FileManaging, @unchecked Sendable {
-        private let inner: MockFileManager
+    private final class UnreadableAttributesFileManager: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         private let unreadablePaths: Set<String>
 
         init(inner: MockFileManager, unreadablePaths: Set<String>) {
-            self.inner = inner
             self.unreadablePaths = unreadablePaths
+            super.init(inner: inner)
         }
 
-        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
             if unreadablePaths.contains(path) {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
             }
             return try inner.attributesOfItem(atPath: path)
-        }
-        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
-            try inner.setAttributes(attributes, ofItemAtPath: path)
-        }
-        func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
-        func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: path, isDirectory: isDirectory)
-        }
-        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
-        }
-        func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
-        func moveItem(at srcURL: URL, to dstURL: URL) throws { try inner.moveItem(at: srcURL, to: dstURL) }
-        func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
-        }
-        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
-        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
-            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
         }
     }
 
@@ -490,15 +467,15 @@ import Foundation
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
 
-        let attrs: [FileAttributeKey: Any] = [.modificationDate: Date(), .size: 10]
+        let now = Date()
         var unreadable: Set<String> = []
         for i in 0..<2000 {
             let path = "/src/locked-\(i).dat"
-            inner.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+            inner.virtualDisk[path] = .file(10, modified: now)
             unreadable.insert(path)
         }
-        inner.virtualDisk["/src/readable-a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
-        inner.virtualDisk["/src/readable-b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+        inner.virtualDisk["/src/readable-a.txt"] = .file(10, modified: now)
+        inner.virtualDisk["/src/readable-b.txt"] = .file(10, modified: now)
 
         let fm = UnreadableAttributesFileManager(inner: inner, unreadablePaths: unreadable)
         let files = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: fm)

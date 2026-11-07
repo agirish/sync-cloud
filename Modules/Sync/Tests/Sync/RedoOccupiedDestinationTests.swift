@@ -11,17 +11,7 @@ import Testing
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
-    }
-
-    private func file(_ size: Int, modified: Date) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false,
-                                 attributes: [.size: size, .modificationDate: modified], contents: nil)
+        FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
     private func size(_ fm: MockFileManager, _ path: String) -> Int? {
@@ -32,9 +22,9 @@ import Testing
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "\(root)/src"), withIntermediateDirectories: true)
         try fm.createDirectory(at: URL(fileURLWithPath: "\(root)/Shared"), withIntermediateDirectories: true)
-        fm.virtualDisk["\(root)/src/report.pdf"] = file(64, modified: Date(timeIntervalSince1970: 1_000))
+        fm.virtualDisk["\(root)/src/report.pdf"] = .file(64, modified: Date(timeIntervalSince1970: 1_000))
         if originalAtDestination {
-            fm.virtualDisk["\(root)/Shared/report.pdf"] = file(5, modified: Date(timeIntervalSince1970: 500))
+            fm.virtualDisk["\(root)/Shared/report.pdf"] = .file(5, modified: Date(timeIntervalSince1970: 500))
         }
         return fm
     }
@@ -64,7 +54,7 @@ import Testing
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
         // Another app saves its own report.pdf there.
-        fm.virtualDisk["\(root)/Shared/report.pdf"] = file(555, modified: Date(timeIntervalSince1970: 8_888))
+        fm.virtualDisk["\(root)/Shared/report.pdf"] = .file(555, modified: Date(timeIntervalSince1970: 8_888))
         let trashedBefore = fm.trashedPaths.count
         manager.banner = nil
 

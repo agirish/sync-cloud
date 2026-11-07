@@ -360,11 +360,10 @@ import Testing
 ///
 /// Its listings ask through `datalessFolderReads`, a short-deadline registry passed in, so a test
 /// never waits out the app's five seconds or touches `DatalessFolderReads.shared`.
-final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
-    private let inner: MockFileManager
+final class UnansweredFolderDisk: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
     private let unanswered: String
     private let gate: ParkGate
-    let datalessFolderReads: FileSyncManager.DatalessFolderReads
+    private let folderReads: FileSyncManager.DatalessFolderReads
     private let lock = NSLock()
     private var reads = 0
     private var readQueues: [String] = []
@@ -372,11 +371,13 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
 
     init(inner: MockFileManager, unanswered: String, gate: ParkGate,
          reads: FileSyncManager.DatalessFolderReads = .init(deadline: .milliseconds(250))) {
-        self.inner = inner
         self.unanswered = unanswered
         self.gate = gate
-        self.datalessFolderReads = reads
+        self.folderReads = reads
+        super.init(inner: inner)
     }
+
+    override var datalessFolderReads: FileSyncManager.DatalessFolderReads { folderReads }
 
     /// How many times something asked the provider for the folder's contents.
     var providerReads: Int {
@@ -391,7 +392,7 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         return readQueues
     }
 
-    func isDataless(at url: URL) -> Bool {
+    override func isDataless(at url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return url.path == unanswered && !answered
     }
@@ -410,9 +411,9 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
         lock.lock(); answered = true; lock.unlock()
     }
 
-    func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?,
-                    options m: FileManager.DirectoryEnumerationOptions,
-                    errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+    override func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?,
+                             options m: FileManager.DirectoryEnumerationOptions,
+                             errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         if u.path == unanswered { askTheProvider() }
         let listing = inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
         guard !m.contains(.skipsSubdirectoryDescendants), let listing else { return listing }
@@ -430,25 +431,6 @@ final class UnansweredFolderDisk: FileManaging, @unchecked Sendable {
             return URL(fileURLWithPath: entry.relativePath, isDirectory: true, relativeTo: base)
         }
         return URL(fileURLWithPath: entry.path, isDirectory: true)
-    }
-
-    func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-    func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        inner.fileExists(atPath: p, isDirectory: d)
-    }
-    func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-    func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-    func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-        try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-    }
-    func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-    func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-    func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try inner.trashItem(at: u, resultingItemURL: o)
-    }
-    func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-    func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-        try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
     }
 
     /// A recursive listing that reads the dataless folder's contents only when it descends into it.

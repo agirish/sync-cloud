@@ -17,15 +17,11 @@ import EventsTestSupport
 
     @MainActor
     private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        return manager
+        FileSyncManager.forTests(fileManager: fm)
     }
 
     private func stub(size: Int, modified: Date? = Date(timeIntervalSince1970: 1_000)) -> MockFileManager.FileStub {
-        var attrs: [FileAttributeKey: Any] = [.size: size]
-        if let modified { attrs[.modificationDate] = modified }
-        return MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+        .file(size, modified: modified)
     }
 
     private func group(keeper: String, redundant: String, reclaim: Int = 1000) -> DuplicateGroup {
@@ -206,10 +202,7 @@ import EventsTestSupport
         let manager = makeManager(mockFM)
         // The dialog is the drift window: the confirmer rewrites the copy, then confirms.
         manager.permanentDeleteConfirmer = { _ in
-            mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: 2000, .modificationDate: Date(timeIntervalSince1970: 9_999)],
-                contents: nil)
+            mockFM.virtualDisk["/b/x"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
             return true
         }
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
@@ -234,10 +227,7 @@ import EventsTestSupport
         mockFM.shouldFailTrash = true
         let manager = makeManager(mockFM)
         manager.permanentDeleteConfirmer = { _ in
-            mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: 2000, .modificationDate: Date(timeIntervalSince1970: 9_999)],
-                contents: nil)
+            mockFM.virtualDisk["/b/x"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
             return true
         }
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
@@ -303,8 +293,7 @@ import EventsTestSupport
         mockFM.onEnumerate = { url in
             // A file lands in the keeper while the candidate is being verified.
             guard url.path == "/b/Photos", planted.withLock({ let was = $0; $0 = true; return !was }) else { return }
-            mockFM.virtualDisk["/a/Photos/landed-mid-walk.jpg"] = MockFileManager.FileStub(
-                isDirectory: false, attributes: [.size: 100], contents: nil)
+            mockFM.virtualDisk["/a/Photos/landed-mid-walk.jpg"] = .file(100)
         }
 
         let ok = await manager.resolveDuplicateGroup(g)

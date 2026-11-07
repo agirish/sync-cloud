@@ -156,10 +156,6 @@ import Foundation
 
     // MARK: Engine — never overwrite on collision (keep both)
 
-    private func write(_ url: URL, bytes: Int = 100) throws {
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
-
     @MainActor
     @Test func normalizeKeepsBothOnCollisionNeverOverwrites() async throws {
         let root = try makeCanonicalTempRoot(prefix: "NameNormTest")
@@ -170,8 +166,8 @@ import Foundation
         // URL handling), unlike trailing-space or trailing-dot names.
         let cleanURL = root.appendingPathComponent("photo.jpg")
         let riskyURL = root.appendingPathComponent("photo\u{200B}.jpg")
-        try write(cleanURL, bytes: 111)
-        try write(riskyURL, bytes: 222)
+        try writeBytes(cleanURL, bytes: 111)
+        try writeBytes(riskyURL, bytes: 222)
 
         let manager = FileSyncManager()
         await manager.scanNames(root: root, provider: .iCloud)

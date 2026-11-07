@@ -8,12 +8,6 @@ import Foundation
 /// digest the file doesn't have and show the decision follows the planted value.
 @Suite struct DuplicateHashCacheWiringTests {
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     /// The key `FileContentVerifier` builds for a real file, through its own spelling of it, which
     /// carries the file number and status-change time.
     private func key(for url: URL) throws -> ContentHashKey {
@@ -30,8 +24,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/report.pdf")
         let b = root.appendingPathComponent("B/report.pdf")
-        try write(a, bytes: 4096, fill: 0x41)
-        try write(b, bytes: 4096, fill: 0x41)   // identical bytes
+        try writeBytes(a, bytes: 4096, fill: 0x41)
+        try writeBytes(b, bytes: 4096, fill: 0x41)   // identical bytes
 
         // The control first: with no cache these genuinely group, so the assertion below is about
         // the cache, not a fixture that was never a duplicate pair.
@@ -61,8 +55,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let local = root.appendingPathComponent("A/movie.mp4")
         let cloud = root.appendingPathComponent("B/movie.mp4")
-        try write(local, bytes: 5000, fill: 0x42)
-        try write(cloud, bytes: 5000, fill: 0x42)
+        try writeBytes(local, bytes: 5000, fill: 0x42)
+        try writeBytes(cloud, bytes: 5000, fill: 0x42)
 
         // The cloud copy's digest is known from when it was local; the local copy's is not.
         let real = try #require(await FileContentVerifier.sha256Hex(filePath: local.path))
@@ -92,12 +86,12 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let movieA = root.appendingPathComponent("A/movie.mp4")
         let movieB = root.appendingPathComponent("B/movie.mp4")
-        try write(movieA, bytes: 5000, fill: 0x41)
-        try write(movieB, bytes: 5000, fill: 0x41)
+        try writeBytes(movieA, bytes: 5000, fill: 0x41)
+        try writeBytes(movieB, bytes: 5000, fill: 0x41)
 
         let headA = root.appendingPathComponent("A/disk.img")
         let headB = root.appendingPathComponent("B/disk.img")
-        try write(headA, bytes: 6000, fill: 0x44)
+        try writeBytes(headA, bytes: 6000, fill: 0x44)
         var head = Data(repeating: 0x44, count: 6000)
         head[0] = 0x45
         try head.write(to: headB)
@@ -106,7 +100,7 @@ import Foundation
         let middleSize = 2 * FileContentVerifier.edgeSampleBytes + 4096
         let middleA = root.appendingPathComponent("A/archive.zip")
         let middleB = root.appendingPathComponent("B/archive.zip")
-        try write(middleA, bytes: middleSize, fill: 0x4D)
+        try writeBytes(middleA, bytes: middleSize, fill: 0x4D)
         var middle = Data(repeating: 0x4D, count: middleSize)
         middle[middleSize / 2] = 0x4E
         try middle.write(to: middleB)
@@ -134,8 +128,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/report.pdf")
         let b = root.appendingPathComponent("B/report.pdf")
-        try write(a, bytes: 4096, fill: 0x41)
-        try write(b, bytes: 4096, fill: 0x41)   // identical
+        try writeBytes(a, bytes: 4096, fill: 0x41)
+        try writeBytes(b, bytes: 4096, fill: 0x41)   // identical
 
         let shared = ContentHashCache()
 
@@ -171,8 +165,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("A/movie.mp4")
         let b = root.appendingPathComponent("B/movie.mp4")
-        try write(a, bytes: 5000, fill: 0x42)
-        try write(b, bytes: 5000, fill: 0x42)
+        try writeBytes(a, bytes: 5000, fill: 0x42)
+        try writeBytes(b, bytes: 5000, fill: 0x42)
         let real = try #require(await FileContentVerifier.sha256Hex(filePath: a.path))
 
         func scan(planting: [URL]) async throws -> (asked: [String], groups: Int) {
@@ -204,8 +198,8 @@ import Foundation
         let keeper = root.appendingPathComponent("Keeper")
         let copy = root.appendingPathComponent("Copy")
         // Same relative path on both sides, DIFFERENT bytes — so an honest plan must copy it in.
-        try write(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
-        try write(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x42)
+        try writeBytes(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
+        try writeBytes(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x42)
 
         let honest = await FileSyncManager.planMerge(from: copy, into: keeper,
                                                      fileManager: FileManager.default, cache: nil)
@@ -231,10 +225,10 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = root.appendingPathComponent("Keeper")
         let copy = root.appendingPathComponent("Copy")
-        try write(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
-        try write(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
-        try write(keeper.appendingPathComponent("keeper-only.bin"), bytes: 5000, fill: 0x4B)
-        try write(copy.appendingPathComponent("copy-only.bin"), bytes: 3000, fill: 0x43)
+        try writeBytes(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
+        try writeBytes(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
+        try writeBytes(keeper.appendingPathComponent("keeper-only.bin"), bytes: 5000, fill: 0x4B)
+        try writeBytes(copy.appendingPathComponent("copy-only.bin"), bytes: 3000, fill: 0x43)
 
         let cache = ContentHashCache()
         let plan = await FileSyncManager.planMerge(from: copy, into: keeper,
@@ -253,8 +247,8 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let keeper = root.appendingPathComponent("Keeper")
         let copy = root.appendingPathComponent("Copy")
-        try write(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
-        try write(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
+        try writeBytes(keeper.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
+        try writeBytes(copy.appendingPathComponent("doc.txt"), bytes: 64, fill: 0x41)
 
         let cache = ContentHashCache()
         _ = await FileSyncManager.planMerge(from: copy, into: keeper, fileManager: FileManager.default,
@@ -273,7 +267,7 @@ import Foundation
         let doc = root.appendingPathComponent("letter.pdf")
         let fm = FileManager.default
         let stamp = Date(timeIntervalSince1970: 1_700_000_000)
-        try write(doc, bytes: 4096, fill: 0x41)
+        try writeBytes(doc, bytes: 4096, fill: 0x41)
         try fm.setAttributes([.modificationDate: stamp], ofItemAtPath: doc.path)
         func triple() throws -> ContentHashKey {
             let attrs = try fm.attributesOfItem(atPath: doc.path)
@@ -289,7 +283,7 @@ import Foundation
 
         // A copy over it: a different document, the same size, the old date.
         try fm.removeItem(at: doc)
-        try write(doc, bytes: 4096, fill: 0x42)
+        try writeBytes(doc, bytes: 4096, fill: 0x42)
         try fm.setAttributes([.modificationDate: stamp], ofItemAtPath: doc.path)
         #expect(try triple() == before, "the fixture must leave path, mtime and size exactly as they were")
 

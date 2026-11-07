@@ -10,50 +10,33 @@ import Testing
 
     /// A real tree in which every folder in `stalled` is called dataless and its provider never
     /// answers: a listing of one parks until the gate is released. Counts the asks.
-    final class StalledFoldersDisk: FileManaging, @unchecked Sendable {
-        private let inner = MockFileManager()
+    final class StalledFoldersDisk: ForwardingFileManaging<MockFileManager>, @unchecked Sendable {
         private let stalled: Set<String>
         private let gate: ParkGate
-        let datalessFolderReads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
+        private let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
         private let lock = NSLock()
         private var asks = 0
 
         init(stalled: Set<String>, gate: ParkGate) {
             self.stalled = stalled
             self.gate = gate
+            super.init(inner: MockFileManager())
         }
 
         var providerAsks: Int { lock.lock(); defer { lock.unlock() }; return asks }
 
-        func isDataless(at url: URL) -> Bool { stalled.contains(url.path) }
+        override var datalessFolderReads: FileSyncManager.DatalessFolderReads { reads }
 
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?,
-                        options m: FileManager.DirectoryEnumerationOptions,
-                        errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        override func isDataless(at url: URL) -> Bool { stalled.contains(url.path) }
+
+        override func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?,
+                                 options m: FileManager.DirectoryEnumerationOptions,
+                                 errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
             if stalled.contains(u.path) {
                 lock.lock(); asks += 1; lock.unlock()
                 gate.park(timeout: 120)
             }
             return inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
-        }
-
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
         }
     }
 

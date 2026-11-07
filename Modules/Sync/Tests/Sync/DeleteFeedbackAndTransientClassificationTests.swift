@@ -8,10 +8,7 @@ import Events
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
+        FileSyncManager.forTests()
     }
 
     /// A delete whose items all vanished since the scan says so. The success banner and error

@@ -10,22 +10,7 @@ import Testing
 
     @MainActor
     private func manager() -> FileSyncManager {
-        let m = FileSyncManager()
-        m.undoManager = UndoManager()
-        m.collisionResolver = { _ in .merge }
-        m.bulkCollisionResolver = { _ in (.skip, false) }
-        m.permanentDeleteConfirmer = { _ in false }
-        m.syncHistoryStore = makeTempHistoryStore(prefix: "MergeNothingLanded")
-        return m
-    }
-
-    private func write(_ text: String, _ url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: url)
-    }
-
-    private func entryExists(_ url: URL) -> Bool {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+        FileSyncManager.forTests(collision: .merge, bulk: (.skip, false), historyPrefix: "MergeNothingLanded")
     }
 
     /// A paired "Move 1 Item" run, then a merge that moved nothing out: also "Move 1 Item", with no
@@ -40,7 +25,7 @@ import Testing
         defer { removeHistoryStoreFiles(m.syncHistoryStore) }
 
         let file = root.appendingPathComponent("a/x.txt")
-        try write("x", file)
+        try writeText("x", file)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("b"), withIntermediateDirectories: true)
         _ = await m.moveItems(nodes: [FileNode(id: file.path, name: "x.txt", isDirectory: false)],
                               toPath: root.appendingPathComponent("b").path, fileManager: trash)
@@ -48,8 +33,8 @@ import Testing
 
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("finder", src.appendingPathComponent(".DS_Store"))
-        try write("its own", dst.appendingPathComponent(".DS_Store"))
+        try writeText("finder", src.appendingPathComponent(".DS_Store"))
+        try writeText("its own", dst.appendingPathComponent(".DS_Store"))
         _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
                               toPath: dst.deletingLastPathComponent().path, fileManager: trash)
         try #require(!entryExists(src), "premise: the merge trashed its emptied source")
@@ -71,10 +56,10 @@ import Testing
 
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("finder", src.appendingPathComponent(".DS_Store"))
-        try write("finder", src.appendingPathComponent("sub/.DS_Store"))
-        try write("its own", dst.appendingPathComponent(".DS_Store"))
-        try write("its own", dst.appendingPathComponent("sub/.DS_Store"))
+        try writeText("finder", src.appendingPathComponent(".DS_Store"))
+        try writeText("finder", src.appendingPathComponent("sub/.DS_Store"))
+        try writeText("its own", dst.appendingPathComponent(".DS_Store"))
+        try writeText("its own", dst.appendingPathComponent("sub/.DS_Store"))
         _ = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)],
                               toPath: dst.deletingLastPathComponent().path, fileManager: trash)
         try #require(trash.names.contains("Reports") && trash.names.contains("sub"),

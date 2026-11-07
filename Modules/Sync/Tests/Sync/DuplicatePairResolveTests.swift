@@ -17,15 +17,11 @@ import Events
 
     @MainActor
     private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        return manager
+        FileSyncManager.forTests(fileManager: fm)
     }
 
     private func stub(size: Int = 1000, modified: Date? = scanned) -> MockFileManager.FileStub {
-        var attrs: [FileAttributeKey: Any] = [.size: size]
-        if let modified { attrs[.modificationDate] = modified }
-        return MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+        .file(size, modified: modified)
     }
 
     private func copy(_ path: String, keeper: Bool, size: Int = 1000,
@@ -305,10 +301,7 @@ import Events
         manager.duplicateGroups = [group([keeper, other])]
         manager.permanentDeleteConfirmer = { _ in
             // The user thinks about it, and something rewrites the copy meanwhile.
-            fm.virtualDisk["/b/x"] = MockFileManager.FileStub(
-                isDirectory: false,
-                attributes: [.size: 4242, .modificationDate: Date(timeIntervalSince1970: 5_000)],
-                contents: nil)
+            fm.virtualDisk["/b/x"] = .file(4242, modified: Date(timeIntervalSince1970: 5_000))
             return true
         }
 

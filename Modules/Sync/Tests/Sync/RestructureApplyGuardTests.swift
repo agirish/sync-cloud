@@ -231,14 +231,15 @@ import Testing
     /// `enqueueFileOperation`, which runs the operation in `Task.detached`. Listed in
     /// `ParkBudgetTests.threadBlockingGates` (one letter from `GatedFileManager`); see
     /// `docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need".
-    private final class GateFileManager: FileManaging, @unchecked Sendable {
-        private let inner = FileManager.default
+    private final class GateFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         private let lock = NSLock()
         private var tripped = false
         private var armed = true
         private var timedOut = false
+
+        init() { super.init(inner: .default) }
 
         /// True if the parked probe gave up waiting instead of being released: bounded, like
         /// `ParkGate`, so a mis-wired test fails instead of holding a pool thread for good. The
@@ -273,49 +274,9 @@ import Testing
             }
         }
 
-        func fileExists(atPath path: String) -> Bool {
+        override func fileExists(atPath path: String) -> Bool {
             gate()
             return inner.fileExists(atPath: path)
-        }
-        func fileExists(atPath path: String,
-                        isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            inner.fileExists(atPath: path, isDirectory: isDirectory)
-        }
-        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
-            try inner.attributesOfItem(atPath: path)
-        }
-        func setAttributes(_ attributes: [FileAttributeKey: Any],
-                           ofItemAtPath path: String) throws {
-            try inner.setAttributes(attributes, ofItemAtPath: path)
-        }
-        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
-                             attributes: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: url,
-                                      withIntermediateDirectories: createIntermediates,
-                                      attributes: attributes)
-        }
-        func copyItem(at srcURL: URL, to dstURL: URL) throws {
-            try inner.copyItem(at: srcURL, to: dstURL)
-        }
-        func moveItem(at srcURL: URL, to dstURL: URL) throws {
-            try inner.moveItem(at: srcURL, to: dstURL)
-        }
-        func trashItem(at url: URL,
-                       resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: url, resultingItemURL: resultingItemURL)
-        }
-        func removeItem(at url: URL) throws { try inner.removeItem(at: url) }
-        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL,
-                         backupItemName: String) throws -> URL? {
-            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL,
-                                  backupItemName: backupItemName)
-        }
-        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
-                        options mask: FileManager.DirectoryEnumerationOptions,
-                        errorHandler handler: ((URL, Error) -> Bool)?)
-            -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask,
-                             errorHandler: handler)
         }
     }
 

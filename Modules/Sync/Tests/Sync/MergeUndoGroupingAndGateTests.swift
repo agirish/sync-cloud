@@ -18,13 +18,6 @@ import Events
 /// and only the `fileManager is FileManager` fast path yields the sizes it plans from.
 @Suite struct MergeUndoGroupingAndGateTests {
 
-    /// A real `FileManager` whose Trash always refuses: a Trash-less volume without needing one.
-    private final class TrashlessVolume: FileManager, @unchecked Sendable {
-        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
-        }
-    }
-
     /// A real `FileManager` whose trash holds the merge suspended until a main-actor reading has
     /// been taken during the suspension. A premise floor on sample counts would depend on the
     /// machine's throughput, and a polled rendezvous on a sampling loop getting a turn in time ("The
@@ -103,22 +96,17 @@ import Events
         }
     }
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     /// The overlapping group the merge folds: a keeper, and `redundantNames.count` redundant copies
     /// that each share one file with it and hold one unique file of their own.
     private func makeGroup(_ base: URL, redundantNames: [String]) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
         let keeper = base.appendingPathComponent("Keeper")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         var copies: [DuplicateCopy] = [.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)]
         var redundant: [URL] = []
         for (i, name) in redundantNames.enumerated() {
             let r = base.appendingPathComponent(name)
-            try write(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-            try write(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
+            try writeBytes(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try writeBytes(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
             redundant.append(r)
             copies.append(.stub(r.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1))
         }
@@ -202,7 +190,7 @@ import Events
         manager.undoManager = UndoManager()
         // An unrelated delete first, so its step sits below the merge's on the stack.
         let bystander = base.appendingPathComponent("bystander.txt")
-        try write(bystander, bytes: 10, fill: 0x41)
+        try writeBytes(bystander, bytes: 10, fill: 0x41)
         await manager.deleteItems(at: [bystander.path], fileManager: trash)
         try #require(FileManager.default.fileExists(atPath: bystander.path) == false)
         #expect(trash.names == ["bystander.txt"],
@@ -298,7 +286,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: [rName])
         let redundant = fixture.redundant[0]
 
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
         let confirmed = LockedBox<Int>(0)
@@ -457,7 +445,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: [rName])
         let redundant = fixture.redundant[0]
 
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
         let confirmed = LockedBox<Int>(0)
@@ -507,7 +495,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: [rName])
         let redundant = fixture.redundant[0]
 
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
         manager.permanentDeleteConfirmer = { _ in
@@ -585,15 +573,15 @@ import Events
         let keeper = base.appendingPathComponent("K")
         let redundant = base.appendingPathComponent("R")
         // (a) same content at the same relative path → skipped, vouched by K/same.txt
-        try write(keeper.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
-        try write(redundant.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
+        try writeBytes(keeper.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
+        try writeBytes(redundant.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
         // (b) the retry-idempotence skip: the name is taken by different content, and the bytes
         //     live in that folder under the uniquified name a previous run minted.
-        try write(keeper.appendingPathComponent("dup.txt"), bytes: 300, fill: 0x42)
-        try write(keeper.appendingPathComponent("dup 2.txt"), bytes: 900, fill: 0x43)
-        try write(redundant.appendingPathComponent("dup.txt"), bytes: 900, fill: 0x43)
+        try writeBytes(keeper.appendingPathComponent("dup.txt"), bytes: 300, fill: 0x42)
+        try writeBytes(keeper.appendingPathComponent("dup 2.txt"), bytes: 900, fill: 0x43)
+        try writeBytes(redundant.appendingPathComponent("dup.txt"), bytes: 900, fill: 0x43)
         // (c) a unique file → copied, so it is not vouched for here
-        try write(redundant.appendingPathComponent("new.txt"), bytes: 500, fill: 0x44)
+        try writeBytes(redundant.appendingPathComponent("new.txt"), bytes: 500, fill: 0x44)
 
         let plan = await FileSyncManager.planMerge(from: redundant, into: keeper,
                                                    fileManager: FileManager.default, cache: nil)

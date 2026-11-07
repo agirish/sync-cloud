@@ -10,14 +10,7 @@ import Testing
 @Suite @MainActor struct DeleteDanglingSymlinkTests {
 
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
-    }
-
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+        FileSyncManager.forTests()
     }
 
     /// The fixture, and the premise it rests on: the two probes must disagree, or this test is
@@ -25,7 +18,7 @@ import Testing
     private func makeDisk() throws -> MockFileManager {
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        fm.virtualDisk["/docs/link-to-nowhere"] = file(0)
+        fm.virtualDisk["/docs/link-to-nowhere"] = .file(0)
         fm.danglingSymlinks = ["/docs/link-to-nowhere"]
         #expect(!fm.fileExists(atPath: "/docs/link-to-nowhere"),
                 "fixture: a dangling link must not answer the followed probe")
@@ -50,7 +43,7 @@ import Testing
     @Test func aDanglingSymlinkBesideAnOrdinaryFileTakesBoth() async throws {
         let manager = makeManager()
         let fm = try makeDisk()
-        fm.virtualDisk["/docs/real.txt"] = file(120)
+        fm.virtualDisk["/docs/real.txt"] = .file(120)
 
         let outcome = await manager.deleteItems(at: ["/docs/link-to-nowhere", "/docs/real.txt"],
                                                 fileManager: fm)

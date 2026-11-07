@@ -11,11 +11,6 @@ import Foundation
 /// the one that observes the cancellation.
 @Suite struct MergeCancelMidCopyTests {
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     @MainActor
     @Test func cancellingBetweenTheCopyPhaseAndTheTrashStepNeverTrashesTheHalfFoldedCopy() async throws {
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesCancelTest")
@@ -30,10 +25,10 @@ import Foundation
 
         // shared.txt is identical on both sides, so the plan skips it; the two unique files become
         // steps in name order: step 1 "a-unique.txt", step 2 "b-unique.txt".
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(redundant.appendingPathComponent("a-unique.txt"), bytes: 5000, fill: 0x41)
-        try write(redundant.appendingPathComponent("b-unique.txt"), bytes: 5000, fill: 0x42)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("a-unique.txt"), bytes: 5000, fill: 0x41)
+        try writeBytes(redundant.appendingPathComponent("b-unique.txt"), bytes: 5000, fill: 0x42)
 
         let gate = NthCopyCancelGate(cancelOnCopyNumber: 1)
         let manager = FileSyncManager(fileManager: gate)
@@ -153,12 +148,12 @@ import Foundation
         let a = base.appendingPathComponent(aName)
         let b = base.appendingPathComponent(bName)
 
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(a.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(a.appendingPathComponent("a-only.txt"), bytes: 5000, fill: 0x41)
-        try write(b.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
-        try write(b.appendingPathComponent("b1.txt"), bytes: 5000, fill: 0x42)
-        try write(b.appendingPathComponent("b2.txt"), bytes: 5000, fill: 0x43)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(a.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(a.appendingPathComponent("a-only.txt"), bytes: 5000, fill: 0x41)
+        try writeBytes(b.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try writeBytes(b.appendingPathComponent("b1.txt"), bytes: 5000, fill: 0x42)
+        try writeBytes(b.appendingPathComponent("b2.txt"), bytes: 5000, fill: 0x43)
 
         // Copy #1 is A's a-only.txt, copy #2 is B's b1.txt: cancelling there makes B's b2.txt the
         // step that observes it, with A already complete and queued for the deferred trash.

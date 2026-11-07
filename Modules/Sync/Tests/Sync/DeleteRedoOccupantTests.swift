@@ -13,14 +13,7 @@ import Foundation
 
     @MainActor
     private func makeManager() -> FileSyncManager {
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.permanentDeleteConfirmer = { _ in false }
-        return manager
-    }
-
-    private func file(_ size: Int) -> MockFileManager.FileStub {
-        MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+        FileSyncManager.forTests()
     }
 
     @MainActor
@@ -28,8 +21,8 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/docs/report.pdf"] = file(100)
-        mockFM.virtualDisk["/docs/notes.txt"] = file(50)
+        mockFM.virtualDisk["/docs/report.pdf"] = .file(100)
+        mockFM.virtualDisk["/docs/notes.txt"] = .file(50)
 
         // 1. User deletes both — they go to the (mock) Trash.
         let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM).removed
@@ -40,7 +33,7 @@ import Foundation
         #expect(mockFM.virtualDisk[reportTrashPath] != nil)
 
         // 2. A DIFFERENT file (size 555 — e.g. re-synced by a cloud daemon) appears at report.pdf's path.
-        mockFM.virtualDisk["/docs/report.pdf"] = file(555)
+        mockFM.virtualDisk["/docs/report.pdf"] = .file(555)
         manager.banner = nil
 
         // 3. Undo — must refuse report.pdf (occupied) but restore notes.txt.
@@ -91,8 +84,8 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/docs/report.pdf"] = file(100)
-        mockFM.virtualDisk["/docs/notes.txt"] = file(50)
+        mockFM.virtualDisk["/docs/report.pdf"] = .file(100)
+        mockFM.virtualDisk["/docs/notes.txt"] = .file(50)
 
         let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM).removed
         #expect(removed == 2)
@@ -106,7 +99,7 @@ import Foundation
         #expect(mockFM.virtualDisk["/docs/report.pdf"]?.attributes?[FileAttributeKey.size] as? Int == 100)
 
         // A different file takes report.pdf's path: same name, not the restored item.
-        mockFM.virtualDisk["/docs/report.pdf"] = file(555)
+        mockFM.virtualDisk["/docs/report.pdf"] = .file(555)
         manager.banner = nil
         let trashCountBeforeRedo = mockFM.trashedPaths.count
 
@@ -139,8 +132,8 @@ import Foundation
         let manager = makeManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/docs/a.txt"] = file(100)
-        mockFM.virtualDisk["/docs/b.txt"] = file(200)
+        mockFM.virtualDisk["/docs/a.txt"] = .file(100)
+        mockFM.virtualDisk["/docs/b.txt"] = .file(200)
 
         await manager.deleteItems(at: ["/docs/a.txt", "/docs/b.txt"], fileManager: mockFM)
         #expect(mockFM.virtualDisk["/docs/a.txt"] == nil)

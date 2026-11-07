@@ -481,16 +481,23 @@ final class MoveBlockedFileManager: FileManager, @unchecked Sendable {
 /// Parks the first stat the checksummer makes, signalling `entered`, so a test can hold a checksum
 /// pass (`autoVerifySameSizePairs`, `verifyAllWithChecksum`) mid-hash while it runs a file
 /// operation, then release the hash and see what the pass commits. Everything else passes straight
-/// through to the real `FileManager` the fixture's temp files live on.
-final class FirstStatGate: FileManaging, @unchecked Sendable {
-    private let inner: FileManager
+/// through to `inner`: the real `FileManager` the fixture's temp files live on, or the mock disk.
+///
+/// `gatesDirectoryProbe: false` parks only the first `attributesOfItem`, the opening stat of
+/// `deepSnapshot`, for a registration walk whose directory probes must not park
+/// (`DeepFolderIdentityTests`).
+final class FirstStatGate<Inner: FileManaging>: ForwardingFileManaging<Inner>, @unchecked Sendable {
     let entered = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
+    private let gatesDirectoryProbe: Bool
     private let lock = NSLock()
     private var gated = false
     private var timedOut = false
 
-    init(inner: FileManager) { self.inner = inner }
+    init(inner: Inner, gatesDirectoryProbe: Bool = true) {
+        self.gatesDirectoryProbe = gatesDirectoryProbe
+        super.init(inner: inner)
+    }
 
     /// True if the parked stat gave up waiting instead of being released. The wait is bounded so a
     /// mis-wired test fails instead of hanging; a silent timeout would let the hash resume and the
@@ -505,6 +512,9 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
         lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
         guard first else { return }
         entered.signal()
+        // In scheduler turns as well as seconds: a release can come after a `waitUntil`, which a
+        // loaded runner paces in turns (`docs/flaky-tests.md`, "A park's bound counted seconds
+        // while its release waited for scheduler turns").
         if !release.wait(until: TurnDeadline(seconds: 10, turns: parkTurnFloor)) {
             lock.lock(); timedOut = true; lock.unlock()
         }
@@ -514,30 +524,13 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
     // parks the pass at whichever it reaches first. A gate pinned to one syscall stops holding
     // anything the moment the verifier reads metadata another way; pin it to the moment, not the
     // call.
-    func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-    func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        gateIfFirst()
+    override func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        if gatesDirectoryProbe { gateIfFirst() }
         return inner.fileExists(atPath: p, isDirectory: d)
     }
-    func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
+    override func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
         gateIfFirst()
         return try inner.attributesOfItem(atPath: p)
-    }
-    func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-    func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-        try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-    }
-    func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-    func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-    func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        try inner.trashItem(at: u, resultingItemURL: o)
-    }
-    func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-    func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-        try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-    }
-    func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-        inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
     }
 }
 

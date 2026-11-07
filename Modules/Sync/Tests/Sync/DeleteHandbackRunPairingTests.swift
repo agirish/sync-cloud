@@ -22,12 +22,9 @@ import Events
     private final class Marker { var undone = false }
 
     private func isolatedManager(fileManager: FileManaging = FileManager.default) -> FileSyncManager {
-        let manager = FileSyncManager(fileManager: fileManager)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "DeleteHandbackRunPairing")
-        let um = UndoManager()
-        um.groupsByEvent = false            // deterministic manual grouping
-        manager.undoManager = um
-        return manager
+        // groupsByEvent = false: deterministic manual grouping.
+        FileSyncManager.forTests(fileManager: fileManager, manualUndoGrouping: true,
+                                 historyPrefix: "DeleteHandbackRunPairing")
     }
 
     private func registerStep(_ manager: FileSyncManager, name: String, marker: Marker) {
@@ -51,8 +48,7 @@ import Events
 
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        fm.virtualDisk["/src/a.txt"] = .file(100)
 
         var handedBack: ([URL], [URL?])?
         let outcome = await manager.deleteItems(at: ["/src/a.txt"], fileManager: fm,
@@ -116,16 +112,11 @@ import Events
     /// copy holding that same file plus one of its own.
     private func makeGroup(_ base: URL, redundantName: String)
     throws -> (keeper: URL, redundant: URL, group: DuplicateGroup) {
-        func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Data(repeating: fill, count: bytes).write(to: url)
-        }
         let keeper = base.appendingPathComponent("Keeper")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         let redundant = base.appendingPathComponent(redundantName)
-        try write(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        try write(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x61)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x61)
         let copies: [DuplicateCopy] = [
             .stub(keeper.path, keeper: true, isDirectory: true, size: 4000),
             .stub(redundant.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1),

@@ -27,7 +27,7 @@ import Testing
         try fm.setAttributes([.modificationDate: old], ofItemAtPath: root.appendingPathComponent("Work/A/P").path)
         try fm.setAttributes([.modificationDate: new], ofItemAtPath: root.appendingPathComponent("Work/B/Q").path)
 
-        let manager = FileSyncManager(fileManager: TrashRefusingDisk())
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
         manager.permanentDeleteConfirmer = { _ in true }   // no Trash here: removal is for real
         await manager.findDuplicates(root: root, cache: nil, fingerprintCache: nil)
         let subGroup = try #require(manager.duplicateGroups.first { $0.keeper.path.hasSuffix("/P/Sub") },
@@ -118,14 +118,5 @@ import Testing
         // Not vacuous either way: the fixture holds both answers.
         #expect(candidates.contains { held.contains($0) })
         #expect(candidates.contains { !held.contains($0) })
-    }
-}
-
-/// The real disk with the Trash refused, as a volume without one answers. A `FileManager`
-/// subclass rather than a wrapper: the walk reads sizes and dates only through a real
-/// `FileManager`, and the removal gate's drift re-walk would otherwise see every folder as changed.
-private final class TrashRefusingDisk: FileManager, @unchecked Sendable {
-    override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        throw CocoaError(.featureUnsupported)
     }
 }

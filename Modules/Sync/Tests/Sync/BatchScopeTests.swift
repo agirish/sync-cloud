@@ -121,11 +121,6 @@ import Foundation
 
     // MARK: Organize
 
-    private func write(_ url: URL, bytes: Int = 4096) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
-
     /// Organize's side of the same rule: a filtered "File all N confident" moves only the files
     /// the search left on screen, and the one it hid stays exactly where it was.
     @MainActor
@@ -133,10 +128,10 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "BatchScopeFiling")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two words in common with each folder: one alone is Medium, and the batch takes only High.
-        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Documents/Invoices Q3/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
-        try write(root.appendingPathComponent("Downloads/Invoices Q3.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Invoices Q3/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Tesla Policy.pdf"), bytes: 4096)
+        try writeBytes(root.appendingPathComponent("Downloads/Invoices Q3.pdf"), bytes: 4096)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -161,9 +156,9 @@ import Foundation
     @Test func filingEmptyFilteredSetMovesNothing() async throws {
         let root = try makeCanonicalTempRoot(prefix: "BatchScopeFilingEmpty")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let source = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try write(source)
+        try writeBytes(source, bytes: 4096)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)

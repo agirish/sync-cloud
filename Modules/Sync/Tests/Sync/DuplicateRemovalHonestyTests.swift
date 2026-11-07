@@ -15,15 +15,11 @@ import Events
 
     @MainActor
     private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        return manager
+        FileSyncManager.forTests(fileManager: fm)
     }
 
     private func stub(size: Int, modified: Date?) -> MockFileManager.FileStub {
-        var attrs: [FileAttributeKey: Any] = [.size: size]
-        if let modified { attrs[.modificationDate] = modified }
-        return MockFileManager.FileStub(isDirectory: false, attributes: attrs, contents: nil)
+        .file(size, modified: modified)
     }
 
     private func group(keeper: String, redundant: String, reclaim: Int) -> DuplicateGroup {

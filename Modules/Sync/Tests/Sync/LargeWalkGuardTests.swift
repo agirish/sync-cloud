@@ -9,17 +9,11 @@ import Testing
 /// paths without building a 400,000-entry tree.
 @Suite struct LargeWalkGuardTests {
 
-    private func write(_ url: URL, bytes: Int = 8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
-
     private func fixture(files: Int) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("largewalk-\(UUID().uuidString)")
         for i in 0..<files {
-            try write(root.appendingPathComponent("d\(i)/f\(i).txt"))
+            try writeBytes(root.appendingPathComponent("d\(i)/f\(i).txt"), bytes: 8)
         }
         return root
     }
@@ -124,8 +118,8 @@ import Testing
     @Test func decliningTheDuplicatesWalkPublishesNoGroups() async throws {
         let root = try fixture(files: 12)
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/report.pdf"), bytes: 64)
-        try write(root.appendingPathComponent("B/report.pdf"), bytes: 64)
+        try writeBytes(root.appendingPathComponent("A/report.pdf"), bytes: 64)
+        try writeBytes(root.appendingPathComponent("B/report.pdf"), bytes: 64)
 
         let manager = FileSyncManager()
         manager.wholeTreeProbeBudget = 4
@@ -149,7 +143,7 @@ import Testing
     @Test func decliningTheRenameWalkReportsNoRiskyNames() async throws {
         let root = try fixture(files: 12)
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
+        try writeBytes(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.wholeTreeProbeBudget = 4
@@ -171,7 +165,7 @@ import Testing
     @Test func decliningTheFilingWalkPublishesNothing() async throws {
         let root = try fixture(files: 12)
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
+        try writeBytes(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.wholeTreeProbeBudget = 4

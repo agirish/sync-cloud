@@ -13,19 +13,13 @@ private typealias PromptProbe = LockedBox<Int>
 /// money (no scan, automatic or clicked, ever reaches the spend prompt).
 @Suite struct LensAutoRescanTests {
 
-    private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     // MARK: Duplicates
 
     /// A root with one duplicate pair, so a completed scan has a real group to publish.
     private func duplicateFixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "AutoRescanDup-\(name)")
-        try write(root.appendingPathComponent("a/report.pdf"))
-        try write(root.appendingPathComponent("b/report.pdf"))
+        try writeBytes(root.appendingPathComponent("a/report.pdf"))
+        try writeBytes(root.appendingPathComponent("b/report.pdf"))
         return root
     }
 
@@ -220,8 +214,8 @@ private typealias PromptProbe = LockedBox<Int>
     /// A taxonomy folder the classifier's fixed verdict points at, plus one loose file.
     private func filingFixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "AutoRescanFiling-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
         return root
     }
 
@@ -276,7 +270,7 @@ private typealias PromptProbe = LockedBox<Int>
         for cloudOn in [false, true] {
             let root = try filingFixture("nospend-\(cloudOn)")
             defer { try? FileManager.default.removeItem(at: root) }
-            try write(root.appendingPathComponent("Documents/trailing space /keep.txt"), bytes: 1)
+            try writeBytes(root.appendingPathComponent("Documents/trailing space /keep.txt"), bytes: 1)
             let downloads = root.appendingPathComponent("Downloads")
             let defaults = ScratchDefaults("autoFilingNoSpend-\(cloudOn)")
             defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
@@ -388,7 +382,7 @@ private typealias PromptProbe = LockedBox<Int>
 
         // A new file arrives overnight. It is a miss, so the scan asks about it: the answer is
         // free, so there is nothing to stop for.
-        try write(downloads.appendingPathComponent("new-arrival.pdf"))
+        try writeBytes(downloads.appendingPathComponent("new-arrival.pdf"))
         let third = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         #expect(third.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
         await third.filingScanTask?.value

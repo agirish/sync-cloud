@@ -123,7 +123,7 @@ private final class Harness {
 }
 
 /// A real `FileManager` whose Trash always refuses: a Trash-less volume (exFAT, most SMB shares)
-/// without needing one. Same shape as `Sync`'s `MergeUndoPromiseTests.TrashlessVolume`.
+/// without needing one. Same shape as `Sync`'s test double `TrashRefusingVolume`.
 private final class TrashlessVolume: FileManager, @unchecked Sendable {
     override func trashItem(at url: URL,
                             resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {

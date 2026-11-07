@@ -146,10 +146,7 @@ import Testing
 
     @MainActor
     private func undoManagerHost() -> FileSyncManager {
-        let m = FileSyncManager()
-        m.undoManager = UndoManager()
-        m.permanentDeleteConfirmer = { _ in false }
-        return m
+        FileSyncManager.forTests()
     }
 
     /// ⌘Z of a locked file's copy puts that copy in the Trash. The copy carries the original's lock

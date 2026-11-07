@@ -53,6 +53,16 @@ class ForwardingFileManaging<Inner: FileManaging>: FileManaging, @unchecked Send
     var datalessFolderReads: FileSyncManager.DatalessFolderReads { .shared }
 }
 
+/// The real disk with the Trash refused (`CocoaError(.featureUnsupported)`), as a volume without
+/// one answers. A `FileManager` subclass, not a forwarder: the merge and duplicate walks read
+/// sizes and dates only through a real `FileManager` (`fileManager is FileManager`), so a wrapper
+/// would plan from nothing and the removal gate's drift re-walk would see every folder as changed.
+final class TrashRefusingVolume: FileManager, @unchecked Sendable {
+    override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        throw CocoaError(.featureUnsupported)
+    }
+}
+
 extension FileSyncManager {
     /// A manager for a test. `nil` resolvers keep the production defaults (skip); the permanent
     /// delete confirmer answers `confirmsPermanentDelete`.
@@ -145,7 +155,7 @@ func makeSameSizePairFixture(prefix: String) throws -> SameSizePairFixture {
 /// Starts `pass` on the main actor, waits for its first checksum stat to park on `gate`, runs
 /// `during`, then releases the gate and awaits the pass. Requires that the gate really held it.
 @MainActor @discardableResult
-func withParkedPass<T>(_ gate: FirstStatGate, pass: @escaping @MainActor () async -> Void,
+func withParkedPass<T, Inner: FileManaging>(_ gate: FirstStatGate<Inner>, pass: @escaping @MainActor () async -> Void,
                        sourceLocation: SourceLocation = #_sourceLocation,
                        during: () async throws -> T) async throws -> T {
     let task = Task { @MainActor in await pass() }
