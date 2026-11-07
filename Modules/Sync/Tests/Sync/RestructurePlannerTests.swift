@@ -597,10 +597,7 @@ private struct FakeTree {
     /// One row per distinct source name across every member: 24 on the flagship family's 17
     /// members, the number the editor is sized by, pinned against the in-repo fixture.
     @Test func theFlagshipFamilyHasTwentyFourDistinctChildNames() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-flagship",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let profile = try JSONDecoder().decode(FolderProfile.self,
-                                               from: Data(contentsOf: url))
+        let profile = try RestructureFixturesTests.flagshipProfile()
         let view = RestructureTreeView.fromProfile(profile)
         let family = "Finance/US/Income Tax"
         let members = try #require(view.childFolders(family))

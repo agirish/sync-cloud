@@ -2,7 +2,8 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The three in-repo Restructure fixtures, decoded by the real decoder. Lifted from the live
+/// The in-repo Restructure fixtures, decoded by the real decoder: the reference tree (the flagship
+/// family is cut from it) and the 6 Aug oracle. Lifted from the live
 /// profile and a real reorg log: folder names and counts only, no file names, no content. They let
 /// CI pin every detector's count on a real tree without a machine-pinned suite, so a count that
 /// moves on a fixture moves for a reason someone has to write down.
@@ -14,12 +15,28 @@ import Foundation
         return try JSONDecoder().decode(FolderProfile.self, from: Data(contentsOf: url))
     }
 
+    /// The flagship family, `Finance/US/Income Tax` at every depth: its 235 folders cut from the
+    /// reference tree, entry for entry, and decoded by the real decoder.
+    static func flagshipProfile() throws -> FolderProfile {
+        let url = try #require(Bundle.module.url(forResource: "restructure-reference-tree",
+                                                 withExtension: "json", subdirectory: "Fixtures"))
+        var tree = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let folders = try #require(tree["folders"] as? [[String: Any]])
+        let family = "Finance/US/Income Tax"
+        tree["folders"] = folders.filter {
+            guard let path = $0["path"] as? String else { return false }
+            return path == family || path.hasPrefix(family + "/")
+        }
+        tree["profileId"] = "fixture-flagship"
+        return try JSONDecoder().decode(FolderProfile.self, from: JSONSerialization.data(withJSONObject: tree))
+    }
+
     // MARK: The flagship family
 
     /// `Finance/US/Income Tax`, every depth: 17 direct members, 24 distinct child names, and the
     /// one shape finding the live tree produces.
     @Test func theFlagshipFixtureDecodesAndHoldsTheFamily() throws {
-        let profile = try Self.profile(named: "restructure-flagship")
+        let profile = try Self.flagshipProfile()
         #expect(profile.folders.count == 235)
 
         let members = profile.folders.keys
@@ -33,7 +50,7 @@ import Foundation
     }
 
     @Test func theShapeDetectorFindsTheFlagshipFamilyInItsFixture() throws {
-        let profile = try Self.profile(named: "restructure-flagship")
+        let profile = try Self.flagshipProfile()
         let findings = StructureDivergence.findings(in: profile)
         let flagship = try #require(findings.first { $0.family == "Finance/US/Income Tax" })
         #expect(flagship.kind == .shape)

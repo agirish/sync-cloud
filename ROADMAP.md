@@ -3160,7 +3160,7 @@ respectively rather than as an item:
 | Apply, Undo, verify, re-derive, replay (§5.5) | `Sync` — `FileSyncManager+Restructure.swift`, beside `+FilingRename` | Uses the primitives named in Context; adds `FilingProfileStore.writeDerivedProfile(_:replacing:)` (new id, provenance, re-point, old kept) and `FolderProfile.derivedBy` / `derivedFrom` (optional, so every existing file decodes). |
 | The cards, the plan sheet, the mapping editor, the removal sheet, the ledger card | `FileExplorer` — `RestructureLens.swift` (cards), `RestructurePlanSheet.swift`, `RestructureRemovalSheet.swift` | Same lens, same `OrganizeScope`; the sheet is modal over the lens. Extracted rules (`cleanTitle`, `revealTitle`, `surveyNoteText`) already show the pattern: pure static text rules, tested without a view. |
 | Host wiring | `MacApp/ContentView…` — `onPlan`, `onApply`, `onUndo`, `onScaffold` beside `onReveal` | `MacApp` is compiled only by CI's second step and holds no unit tests of its own; keep every rule out of it and on the types. |
-| Fixtures | `Modules/Sync/Tests/Sync/Fixtures/restructure-flagship.json`, `restructure-immigration-oracle.json` | Folder names and counts lifted from the live profile and the 6 Aug log; **no file names, no content**. In-repo, so CI runs them — the machine-pinned ground-truth suite is the wrong place for a release gate. |
+| Fixtures | `Modules/Sync/Tests/Sync/Fixtures/restructure-reference-tree.json` (the flagship family is cut from it in code), `restructure-immigration-oracle.json` | Folder names and counts lifted from the live profile and the 6 Aug log; **no file names, no content**. In-repo, so CI runs them — the machine-pinned ground-truth suite is the wrong place for a release gate. |
 
 ---
 
