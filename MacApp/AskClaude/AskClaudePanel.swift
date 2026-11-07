@@ -514,6 +514,32 @@ struct AskClaudePanel: View {
             .accessibilityValue(waitingNote.isEmpty ? "" : String(waitingNote.dropFirst(3)))
     }
 
+    /// How many of the newest rows are laid out as a plain stack; the rest are lazy.
+    static let recentRows = 12
+
+    /// One row of the thread, with what it needs from its neighbours (`turns`, the latest receipt).
+    private func threadRow(_ item: AskClaudeChat.Item, turns: AskClaudeTurns, retries: Bool, latestReceipt: UUID?) -> some View {
+        let key = turns.hoverKey(of: item)
+        return AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
+                           linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer, onFoundTick: onFoundTick,
+                           sharesAnswers: chat.sharesAnswers, onSharesAnswers: { chat.setSharesAnswers($0) },
+                           sharesNames: chat.sharesNames, onSharesNames: { chat.setSharesNames($0) },
+                           onFoundEdit: { chat.editFound($0, $1) },
+                           onDownloadCard: onDownloadCard,
+                           onFilingCard: onFilingCard,
+                           onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
+                           settingsBridge: settingsBridge, pdfBridge: pdfBridge,
+                           pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
+                           isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
+                           isGrowing: chat.isRunning && item.id == chat.items.last?.id,
+                           turnActions: turnActions(for: item, turns: turns, retries: retries),
+                           showsBar: key != nil && hovered == key,
+                           onTurnAction: { turnAction($0, on: item.id) },
+                           onHover: { inside in if let key { hover(key, inside) } })
+            // Rows that didn't change aren't redrawn as each word streams in.
+            .equatable()
+    }
+
     private var thread: some View {
         ScrollView {
                 // A plain VStack, not a lazy one: a lazy stack can go blank after scrolling to the
@@ -528,26 +554,21 @@ struct AskClaudePanel: View {
                     let turns = AskClaudeTurns(chat.items)
                     // Retry is for the last answer only, and only once nothing runs.
                     let retries = chat.lastQuestion.map { chat.canRewind(from: $0) } ?? false
-                    ForEach(chat.items) { item in
-                        let key = turns.hoverKey(of: item)
-                        AskClaudeThreadRow(item: item, accent: accent, accentFill: accentFill, onAccent: onAccent, hue: hue, onOpenSettings: onOpenSettings,
-                                           linkTargets: chat.linkTargets, onReveal: onReveal, onSendOffer: onSendOffer, onFoundTick: onFoundTick,
-                                           sharesAnswers: chat.sharesAnswers, onSharesAnswers: { chat.setSharesAnswers($0) },
-                                           sharesNames: chat.sharesNames, onSharesNames: { chat.setSharesNames($0) },
-                                           onFoundEdit: { chat.editFound($0, $1) },
-                                           onDownloadCard: onDownloadCard,
-                                           onFilingCard: onFilingCard,
-                                           onPlanCard: onPlanCard, onChoice: onChoice, onRuleCard: onRuleCard,
-                                           settingsBridge: settingsBridge, pdfBridge: pdfBridge,
-                                           pdfThumbnails: chat.pdfThumbnails[item.id] ?? [:],
-                                           isLatestReceipt: item.id == latestReceipt, isRunning: chat.isRunning,
-                                           isGrowing: chat.isRunning && item.id == chat.items.last?.id,
-                                           turnActions: turnActions(for: item, turns: turns, retries: retries),
-                                           showsBar: key != nil && hovered == key,
-                                           onTurnAction: { turnAction($0, on: item.id) },
-                                           onHover: { inside in if let key { hover(key, inside) } })
-                            // Rows that didn't change aren't redrawn as each word streams in.
-                            .equatable()
+                    // Older rows are lazy, so a long chat scrolls and opens at the cost of what is
+                    // on screen, not of every row (200 answers took 117 ms a scroll step, and 900 ms to
+                    // lay out, as one plain stack). The newest rows stay a plain stack: a lazy stack
+                    // can go blank after scrolling to the bottom while an answer grows, and that is
+                    // where answers grow.
+                    let older = chat.items.dropLast(Self.recentRows)
+                    if !older.isEmpty {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(older) { item in
+                                threadRow(item, turns: turns, retries: retries, latestReceipt: latestReceipt)
+                            }
+                        }
+                    }
+                    ForEach(chat.items.suffix(Self.recentRows)) { item in
+                        threadRow(item, turns: turns, retries: retries, latestReceipt: latestReceipt)
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
