@@ -109,17 +109,19 @@ import Testing
         #expect(result.changedFraction < 0.02, "\(result.changedFraction)")
     }
 
-    /// A zero-sized side has no raster to compare, and that is nil, never "no difference": the two
-    /// must differ on a surface whose next button trashes a file.
-    @Test func aZeroSizedSideIsNilAndNotIdentical() throws {
+    /// A one-pixel side is degenerate but still compared, and says the sizes differed. The `nil`
+    /// that `analyse` keeps for a zero-sized side is unreachable from here: a `CGImage` is never
+    /// 0×0, and `cropping(to:)` an empty rect returns no image at all, so there is no input to
+    /// test it with.
+    @Test func aOnePixelSideIsStillComparedAndDisclosed() throws {
         let a = try Self.image(width: 8, height: 8)
         let ctx = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         let tiny = try #require(ctx.makeImage())
-        // A 1×1 side is degenerate but comparable; the nil case is a cropped-to-nothing overlap.
-        #expect(BitmapDiff.compare(a, tiny) != nil)
-        #expect(BitmapDiff.compare(a, try Self.image(width: 8, height: 8)) != nil)
+        let result = try #require(BitmapDiff.compare(a, tiny), "a 1×1 side was refused")
+        #expect(result.sizesDiffer)
+        #expect(a.cropping(to: .zero) == nil, "an empty crop now makes an image — the zero-sized case is reachable and wants its own test")
     }
 
     // MARK: The difference image

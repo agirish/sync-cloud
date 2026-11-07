@@ -1,3 +1,4 @@
+import Testing
 import AppKit
 import SwiftUI
 
@@ -50,11 +51,23 @@ enum RestructureRender {
 
     /// Pixels that differ between two renders of the same surface in two states. Zero means the
     /// state made no visible difference, which a `fittingSize` check can't see.
-    static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+    ///
+    /// Two renders that can't be compared pixel for pixel (another size, layout or missing data)
+    /// record an issue: answering 0 would pass every `== 0` check through here on a mismatch, and
+    /// any other number would pass every `> n` one.
+    static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep,
+                                sourceLocation: SourceLocation = #_sourceLocation) -> Int {
         guard let da = a.bitmapData, let db = b.bitmapData,
               a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh,
-              a.samplesPerPixel == b.samplesPerPixel else { return 0 }
-        let bpr = min(a.bytesPerRow, b.bytesPerRow), spp = a.samplesPerPixel
+              a.samplesPerPixel == b.samplesPerPixel, a.bytesPerRow == b.bytesPerRow else {
+            Issue.record("""
+                the two renders can't be compared: \(a.pixelsWide)×\(a.pixelsHigh), \(a.samplesPerPixel) \
+                samples, \(a.bytesPerRow) bytes a row against \(b.pixelsWide)×\(b.pixelsHigh), \
+                \(b.samplesPerPixel), \(b.bytesPerRow)
+                """, sourceLocation: sourceLocation)
+            return Int.max
+        }
+        let bpr = a.bytesPerRow, spp = a.samplesPerPixel
         var count = 0
         for y in 0..<a.pixelsHigh {
             for x in 0..<a.pixelsWide {

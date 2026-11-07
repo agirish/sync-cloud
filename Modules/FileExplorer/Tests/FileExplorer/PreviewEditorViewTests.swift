@@ -680,8 +680,9 @@ import EventsTestSupport
 
     /// The dimmed pill is drawn as the window's other unavailable controls are: the tertiary style,
     /// as the header's greyed ＋, by construction, and the glass track isn't dimmed with it.
-    /// Rendered and read back, on white.
-    @Test func theDimmedPillIsAsLegibleAsTheOtherGreyedControls() {
+    /// Rendered and read back, on white. Pinned, as every pixel reading here is: its ±25 band
+    /// depends on how this machine draws the tertiary style.
+    @Test(.machinePinned(.pixelSampling)) func theDimmedPillIsAsLegibleAsTheOtherGreyedControls() {
         func darkest(_ view: some View) -> Int {
             let rig = ProbeRig(AnyView(view.frame(width: 140, height: 40).background(Color.white)
                 .environment(\.colorScheme, .light).environment(\.selectionLensAppearance, .today)),
@@ -689,7 +690,9 @@ import EventsTestSupport
             let rep = rig.capture()
             var low = 255
             for y in 0..<rep.pixelsHigh { for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.99 else { continue }
+                // As read, never `.usingColorSpace(.sRGB)`: `colorAt` tags sRGB values as calibrated,
+                // and converting them moves every reading.
+                guard let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.99 else { continue }
                 low = min(low, Int((c.redComponent + c.greenComponent + c.blueComponent) / 3 * 255))
             } }
             return low
@@ -700,10 +703,11 @@ import EventsTestSupport
             Image(systemName: "pencil").font(.system(size: 11, weight: .medium))
             Text("Edit").font(.system(size: 11, weight: .medium))
         }.foregroundStyle(.tertiary))
-        print("[pill-ink] dimmed \(dimmed) · live \(live) · tertiary \(greyed) (darkest grey, 0 black – 255 white)")
-        #expect(dimmed < 235, "the dimmed pill draws next to nothing")
-        #expect(dimmed > live, "the dimmed pill is as dark as the live one")
-        #expect(abs(dimmed - greyed) <= 25, "the dimmed pill is not the tertiary style the other greyed controls wear")
+        // Darkest grey, 0 black to 255 white; each message carries all three.
+        let readings = "dimmed \(dimmed), live \(live), tertiary \(greyed)"
+        #expect(dimmed < 235, "the dimmed pill draws next to nothing: \(readings)")
+        #expect(dimmed > live, "the dimmed pill is as dark as the live one: \(readings)")
+        #expect(abs(dimmed - greyed) <= 25, "the dimmed pill is not the tertiary style the other greyed controls wear: \(readings)")
     }
 
     /// The intro shows the first time editing is turned on, and only then; editing is on by default.

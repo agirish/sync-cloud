@@ -31,18 +31,6 @@ import DesignTestSupport
         #expect(StorageMagnitude.fraction(bytes: 0, largestBytes: 900) == 0)
     }
 
-    /// The yardstick is the section's own maximum, not the maximum still on screen: filtering the
-    /// biggest file away must not grow the survivors' bars.
-    @Test func aQueryHidingTheBiggestFileDoesNotRescaleTheRestsBars() {
-        let sectionMax = 900
-        let before = StorageMagnitude.fraction(bytes: 225, largestBytes: sectionMax)
-        // The 900 is filtered out; 300 is now the biggest thing visible.
-        let after = StorageMagnitude.fraction(bytes: 225, largestBytes: sectionMax)
-        #expect(before == after)
-        #expect(StorageMagnitude.fraction(bytes: 225, largestBytes: 300) != before,
-                "the fixture does not distinguish the two yardsticks — pick a visible max that differs")
-    }
-
     /// Rounding away from zero. `0%` claims the file is not there; the file is there and small.
     @Test func aFileTooSmallToRoundToAPercentSaysSoRatherThanZero() {
         #expect(StorageMagnitude.shareText(bytes: 3_000_000, ofTotal: 2_000_000_000) == "<1%")
@@ -95,10 +83,11 @@ import DesignTestSupport
 
     /// The window background matters: without one the content composites against the borderless
     /// window's own buffer and every comparison reads zero difference.
-    private func render(section: StorageSection) -> NSBitmapImageRep? {
+    private func render(section: StorageSection, query: String = "") -> NSBitmapImageRep? {
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
         let subject = StorageLensView(syncManager: manager, providerName: "Projects",
+                                      query: StorageSearch.parse(query),
                                       onBuild: {}, onReveal: { _ in }, section: .constant(section))
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -162,6 +151,21 @@ import DesignTestSupport
             #expect(abs(got - want) < 0.03,
                     "bar \(index) normalises to \(got) where its file normalises to \(want)")
         }
+    }
+
+    /// The yardstick is the section's own biggest file, not the biggest still on screen: a query
+    /// hiding the 800 MB file must leave the other three bars where they were, not grow the 600 MB
+    /// one to full length. Rendered through the view, because the rule is which list the view
+    /// takes its maximum from, and `fraction` is handed the answer either way.
+    @Test func aQueryHidingTheBiggestFileDoesNotRescaleTheRestsBars() throws {
+        let all = barEdges(try #require(render(section: .largest), "the largest page did not render"))
+        let narrowed = barEdges(try #require(render(section: .largest, query: "<700mb"),
+                                             "the narrowed page did not render"))
+        try #require(all.count == 4, "found \(all.count) bars unfiltered, expected 4: \(all)")
+        try #require(narrowed.count == 3, "found \(narrowed.count) bars under the query, expected 3: \(narrowed)")
+        try #require(all[0] - all[1] > 40, "the two longest bars are \(all[0] - all[1])px apart — they can't be told apart")
+        #expect(abs(narrowed[0] - all[1]) <= 14,
+                "the 600 MB bar ends at \(narrowed[0]) under the query and at \(all[1]) without it — the bars rescaled to what is visible")
     }
 
     /// The other half of `showsBar`, which catches the rule inverted: the same four files listed by

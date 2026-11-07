@@ -90,7 +90,7 @@ import Sync
     /// Renders the pill under `hue` and returns its bitmap. The window background stops a
     /// comparison against a borderless window's black.
     func render(_ controller: OneWaySyncController, _ center: ActivityCenter, hue: LiquidGlassHue) throws -> NSBitmapImageRep {
-        let defaults = try #require(UserDefaults(suiteName: "OneWayPill-\(UUID().uuidString)"))
+        let defaults = ScratchDefaults("OneWayPill")
         defaults.set(hue.rawValue, forKey: LiquidGlass.hueKey)
         let size = CGSize(width: 320, height: 30)
         let subject = OneWaySyncStatusPill(controller: controller, center: center, onSetUp: {})
