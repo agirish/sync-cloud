@@ -261,25 +261,26 @@ import Sync
 
     /// Parks whoever calls it until released, standing in for a `getxattr` against a wedged
     /// provider. The wait is bounded so a regression fails the suite instead of hanging it; the
-    /// elapsed-time assertions below report it.
+    /// assertions below report it.
     final class HostageLoader: @unchecked Sendable {
         private let gate = DispatchSemaphore(value: 0)
         private let entered = DispatchSemaphore(value: 0)
         private let lock = NSLock()
+        private let timeout: Double
         private var _callCount = 0
-        private var _firstEntered: Date?
+        private var _returnCount = 0
+
+        init(timeout: Double = 30) { self.timeout = timeout }
 
         var callCount: Int { lock.withLock { _callCount } }
-        /// When the first load began, on whichever thread ran it.
-        var firstEntered: Date? { lock.withLock { _firstEntered } }
+        /// Loads that have come back, released or timed out. Zero means every stat is still parked.
+        var returnCount: Int { lock.withLock { _returnCount } }
 
         func load(_ path: String) -> DetailsSidebar.MetadataLoad {
-            lock.withLock {
-                _callCount += 1
-                if _firstEntered == nil { _firstEntered = Date() }
-            }
+            lock.withLock { _callCount += 1 }
             entered.signal()
-            _ = gate.wait(timeout: .now() + 30)
+            _ = gate.wait(timeout: .now() + timeout)
+            lock.withLock { _returnCount += 1 }
             return loadedMetadata(path)
         }
 
@@ -395,11 +396,13 @@ import Sync
     }
 
     /// End to end: a stat that never returns, and a first frame that paints anyway. Renders the
-    /// real `DetailsSidebar` with its loader held hostage and asserts a laid-out size comes back
-    /// promptly. If the `.task` called a `@MainActor` loader synchronously, this would measure the
-    /// full 30s hostage timeout.
+    /// real `DetailsSidebar` with its loader held hostage and asserts the frame lays out while the
+    /// stat is still parked. If the `.task` called a `@MainActor` loader synchronously, the main
+    /// thread could only get there once the hostage timed out, so the stat would have returned.
     @Test func aStatThatNeverReturnsStillLetsTheFirstFramePaint() async throws {
-        let loader = HostageLoader()
+        // Longer than the default: the verdict is lost only if something else holds the main thread
+        // for the whole hostage, and on hosted CI something has held it for 9 s.
+        let loader = HostageLoader(timeout: 60)
         defer { loader.release() }
 
         let manager = FileSyncManager()
@@ -422,32 +425,26 @@ import Sync
 
         // First layout makes the view appear and arms its `.task`; the drain lets that task reach
         // the loader. Bounded by turns, and it exits as soon as the stat is in flight.
-        let start = Date()
         host.layoutSubtreeIfNeeded()
         for _ in 0..<300 where loader.callCount == 0 {
             await Task.yield()
             try? await Task.sleep(for: .milliseconds(10))
         }
-        // A generous wait, since how soon the stat starts isn't under test: other tests' hostage
-        // loads hold the IO queue's threads, and on a 3-vCPU runner a new one can take seconds.
+        // A generous wait, since how soon the stat starts isn't under test.
         loader.waitUntilEntered(seconds: 30)
-        let drained = Date().timeIntervalSince(start)
         // At least one, not exactly one: `.onReceive` on `$isScanning` fires at once with the
         // current value and `scanningChanged(false)` invalidates, so the first render loads twice.
         #expect(loader.callCount >= 1, "the stat never ran — this test would prove nothing")
 
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        // The clock starts when the stat began, wherever it ran, so a slow start can't read as a
-        // stall. A stat on the main thread holds this code until the hostage's 30 s are up, so the
-        // layout lands that long after the stat began: still a fail.
-        let entered = try #require(loader.firstEntered, "the stat never began")
-        let elapsed = Date().timeIntervalSince(entered)
 
         #expect(size.height > 0, "the card laid out to nothing")
-        // Well under the 30s hostage ceiling: generous enough not to flake on a loaded machine,
-        // tight enough that a main thread parked on the stat cannot pass.
-        #expect(elapsed < 5.0, "the inspector waited on the stat (\(elapsed)s after it began; \(drained)s to begin)")
+        // No stopwatch: on hosted CI the main thread is held for seconds by work that is not this
+        // test's, and a clock cannot tell that from waiting on the stat. A main thread that waited
+        // on the stat could only reach this line after the stat returned.
+        #expect(loader.returnCount == 0,
+                "the inspector waited on the stat: it laid out only after \(loader.returnCount) of \(loader.callCount) loads came back")
     }
 }
 

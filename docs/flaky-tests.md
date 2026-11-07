@@ -5159,28 +5159,53 @@ next. The test's count of exactly 2 is the contract and stays.
 a task it detached *before* entering `withTaskCancellationHandler`. Ask whether the handler exists
 yet at the moment the test cancels.
 
-### 53. A first-frame stopwatch that also timed the stat's start, behind other tests' hostage loads — FIXED
+### 53. A first-frame stopwatch that counted the main thread's other work, not only the stat — FIXED
 
 **Symptom.** `TheLoadNeverBlocksTheMainThread.aStatThatNeverReturnsStillLetsTheFirstFramePaint`
-red on hosted CI twice in three pushes (2026-11-04: `4d3e35ce8`, green on rerun, and `5c2cecd58`):
-`elapsed < 5.0` false at about 9.7 s, against about 1 s in every green run. Never on this Mac, alone
-or beside 12 `yes` spinners (all under 40 ms).
+red on hosted CI three times: 2026-11-04 at `4d3e35ce8` (green on rerun) and `5c2cecd58`, at about
+9.7 s and 11 s against a 5 s bound; and 2026-11-07 at `8abf8bfb5` (run 42387069484, green on the
+next push), after the first fix:
 
-**Mechanism.** The test, not the inspector. Its clock started before the first layout, so it timed
-how long the stat took to *begin* as well as whether the main thread waited on it. The stat runs on
-`DetailsMetadataCache.ioQueue`, a concurrent dispatch queue whose threads the package's other
-hostage tests hold for up to 30 s each; on a 3-vCPU runner a fresh thread for it can be seconds
-coming. The main thread was free the whole time.
+```
+✘ … DetailsMetadataCacheTests.swift:450:9: Expectation failed: elapsed < 5.0
+↳ the inspector waited on the stat (7.41184401512146s after it began; 7.413434982299805s to begin)
+```
 
-**Reproduced** by starting the stat 8 s late (`ioQueue.asyncAfter`): the old test failed at its line
-509 after 9.3 s, CI's signature; the new one passed.
+Never on this Mac, alone or beside 12 `yes` spinners.
 
-**Fix, 2026-11-04.** The loader records when the first stat began, and the stopwatch runs from
-there to the laid-out frame; the wait for the stat to begin is 30 s, bounded. The regression is
-still caught: with the stat run on the calling thread, as before 9a1d98bdf, it fails at 31 s.
+**Mechanism.** The test, not the inspector. SwiftUI runs a `.task` up to its first suspension
+inside the layout that mounts it, so the stat is on `DetailsMetadataCache.ioQueue` before the
+first `layoutSubtreeIfNeeded()` returns (here, 3 ms in; on CI, 1.6 ms: 7.4118 s against 7.4134 s
+above). From there the test runs to its assertion without suspending. So the 7.4 s were the main
+thread busy inside the test's own layout with something that was not the stat, which was parked on
+its queue the whole time.
 
-**Tell.** A timing bound that is fine in the green runs and blown by a near-constant amount in the
-red ones, in a test whose clock starts before work it hands to a shared queue.
+What holds it is outside this test. Early in every hosted Dashboard run the main thread is held for
+5 to 9 s: the synchronous, pure-memory `aCacheMissAnswersFromMemoryWithoutTouchingTheLoader` takes
+5.7 to 8.5 s in green runs (42351410605, 42346502840, 42388231239) while this test takes 0.9 to
+1.7 s, and the tests in flight across it all finish together. The red runs are the ones where that
+stretch fell inside this test's clock window. The logs cannot name the holder.
+
+**The first fix, 2026-11-04, was wrong.** It blamed a slow start of the stat, whose queue's threads
+other hostage tests hold, and restarted the clock at the stat's start. The delay came after the
+stat began, so the new clock still saw it. Its reproduction (the stat started 8 s late) produced
+the same number by a different route.
+
+**Reproduced** by holding the main thread for 8 s just after the stat began (`usleep(8_000_000)`
+after `waitUntilEntered`): the 2026-11-04 test failed at its line 450, "8.011117100715637s after it
+began; 8.012202024459839s to begin", CI's signature. The new test passed.
+
+**Fix, 2026-11-07.** No stopwatch. `HostageLoader` counts the loads that have come back, and the
+test asserts none had when the frame laid out: a main thread that waited on the stat could only get
+there after the stat returned, released or timed out. The hostage's bound is 60 s in this test, so
+only a minute's hold could fail it. The regression is still caught: with the stat run on the
+calling thread, as before 9a1d98bdf, it fails at the `returnCount` check after 62 s, "laid out
+only after 1 of 1 loads came back".
+
+**Tell.** A timing bound across main-thread work, blown by a near-constant few seconds only on CI,
+while a trivial main-actor test in the same suite takes as long. Kin to "A wedge guard that counts
+time spent waiting for the main thread": assert what the code did (the stat still parked), not how
+long the test took to see it.
 
 ### 54. A file presenter not yet consulted when the coordinated write asks, under load — cause not proven
 
