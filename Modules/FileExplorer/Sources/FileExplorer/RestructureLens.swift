@@ -1015,7 +1015,7 @@ struct RestructureLens: View {
         switch kind {
         case .shape, .shadowAxis, .echoName, .mirroredInbox, .looseBesideContainer: return true
         case .backlog: return true      // its card ends in the scaffold landing
-        case .deadWeight, .looseAboveSeries, .duplicatedTaxonomy, .ask: return false
+        case .deadWeight, .looseAboveSeries, .duplicatedTaxonomy: return false
         }
     }
 
@@ -1034,7 +1034,6 @@ struct RestructureLens: View {
         case .looseAboveSeries: return "doc.badge.ellipsis"
         case .looseBesideContainer: return "arrow.turn.down.right"
         case .duplicatedTaxonomy: return "arrow.triangle.branch"
-        case .ask: return "questionmark.circle"
         }
     }
 
@@ -1050,7 +1049,6 @@ struct RestructureLens: View {
         case .looseAboveSeries: return "Loose files"
         case .looseBesideContainer: return "Loose folder"
         case .duplicatedTaxonomy: return "Duplicated"
-        case .ask: return "Ask"
         }
     }
 
@@ -1069,7 +1067,6 @@ struct RestructureLens: View {
         // Reports, for now: no plan surface exists, so the tooltip must not promise the merge in
         // words any more than `glyphTakesAccent` lets the glyph promise it.
         case .duplicatedTaxonomy: return "Reports the pair — no plan yet"
-        case .ask: return "Asks — the answer is remembered, nothing moves"
         }
     }
 

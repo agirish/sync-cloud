@@ -9,8 +9,6 @@ import Testing
 /// them for machine reasons, not code reasons. The reason is a trait rather than part of the type's
 /// name, so a skip can't miss a pinned suite whose name doesn't match.
 public enum MachinePinnedReason: String, Sendable {
-    /// Compares rendered output against reference PNGs recorded on one Mac.
-    case referenceImages
     /// Reads painted pixels back out of a live renderer (`colorAt(`).
     case pixelSampling
     /// Asserts latency thresholds calibrated on this hardware.
@@ -40,7 +38,7 @@ public enum MachinePinnedReason: String, Sendable {
 public enum MachinePinnedGate {
 
     /// Reasons excluded by `SYNCCLOUD_SKIP_MACHINE_PINNED`, which takes `all` or a comma-separated
-    /// list (`referenceImages,pixelSampling`). Unset, the local default, runs everything.
+    /// list (`liveProfile,pixelSampling`). Unset, the local default, runs everything.
     public static let excludedReasons: Set<String> = {
         let raw = ProcessInfo.processInfo.environment["SYNCCLOUD_SKIP_MACHINE_PINNED"] ?? ""
         return Set(

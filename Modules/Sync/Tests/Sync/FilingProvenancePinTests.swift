@@ -54,13 +54,13 @@ import Testing
     /// Remembered-rule site: a rule matched only in content is capped to `.medium` and kept off the
     /// batch.
     @Test func aRememberedRuleMatchedOnlyInContentIsMediumRememberedAndOffTheBatch() throws {
-        let rule = FilingRule(tokens: ["kaiser"], destinationPath: "/root/Medical")
+        let rule = rememberedRule(["kaiser"], "/root/Medical")
         let taxonomy = [dir("/root/Medical", [])]
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file("/root/inbox/scan0071.pdf", modified: y2024)],
             taxonomy: taxonomy, providerRoot: "/root",
             contentTokens: ["/root/inbox/scan0071.pdf": ["kaiser"]],
-            rules: [rule]).first)
+            automations: [rule]).first)
         let best = try #require(s.best)
         #expect(best.path == "/root/Medical")
         #expect(best.confidence == .medium)
@@ -70,11 +70,11 @@ import Testing
     }
 
     @Test func aRememberedRuleMatchedInTheFilenameIsHighAndBatchEligible() throws {
-        let rule = FilingRule(tokens: ["kaiser"], destinationPath: "/root/Medical")
+        let rule = rememberedRule(["kaiser"], "/root/Medical")
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file("/root/inbox/kaiser eob.pdf", modified: y2024)],
             taxonomy: [dir("/root/Medical", [])], providerRoot: "/root",
-            rules: [rule]).first)
+            automations: [rule]).first)
         let best = try #require(s.best)
         #expect(best.path == "/root/Medical")
         #expect(best.confidence == .high)
@@ -228,14 +228,14 @@ import Testing
     /// keeps `.high` and stays in the blind batch. OR-merging `fromContent` would flip
     /// `isBatchEligible`.
     @Test func sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance() throws {
-        let rule = FilingRule(tokens: ["invoice"], destinationPath: "/root/Receipts")
+        let rule = rememberedRule(["invoice"], "/root/Receipts")
         let taxonomy = [dir("/root/Receipts", [])]
         let path = "/root/inbox/invoice march.pdf"
         // "invoice" is in the name (rule match); "receipts" only in the content (taxonomy match).
         // Both name /root/Receipts.
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file(path, modified: y2024)], taxonomy: taxonomy, providerRoot: "/root",
-            contentTokens: [path: ["receipts"]], rules: [rule]).first)
+            contentTokens: [path: ["receipts"]], automations: [rule]).first)
         let best = try #require(s.best)
         #expect(best.path == "/root/Receipts")
         #expect(best.confidence == .high)

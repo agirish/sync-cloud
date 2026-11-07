@@ -6,12 +6,9 @@ import Foundation
 /// `kind × path`, so a raw value is a file-format commitment: **raw values are append-only and
 /// never reused**, as with `GlassLevel`.
 ///
-/// Two cases differ on purpose:
-/// - ``deadWeight`` never renders as a card: crowding shows as the strip's counts (§5.2). The kind
-///   exists because the empties-removal manifest and the suppression key need the identity.
-/// - ``ask`` carries no plan: it is a question whose answer is a remembered choice (§5.3). **No
-///   detector produces one yet**; the case is reserved, and `carriesPlan` and the lens's glyph,
-///   symbol and verb already answer for it, so §5.3's detector needs nothing else.
+/// ``deadWeight`` differs on purpose: it never renders as a card, because crowding shows as the
+/// strip's counts (§5.2). The kind exists because the empties-removal manifest and the suppression
+/// key need the identity.
 public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Sibling folders shaped differently at different times — the shipped detector.
     case shape
@@ -31,17 +28,13 @@ public enum FindingKind: String, CaseIterable, Codable, Sendable {
     case looseBesideContainer
     /// Two folders holding the same documents under parallel taxonomies (§5.9, needs a scan).
     case duplicatedTaxonomy
-    /// A disagreement no fact in the tree settles — answered, never applied.
-    /// **Reserved: nothing constructs one yet.** See the type's note above.
-    case ask
 
     /// Whether a finding of this kind can end in a plan. The rail badge counts only these: a badge
-    /// you can't drive to zero stops being read (§5.1). `ask` is a question; `deadWeight` is
-    /// report-only (the empties are reached through the crowding strip); `looseAboveSeries` hands
+    /// you can't drive to zero stops being read (§5.1). `deadWeight` is report-only (the empties are reached through the crowding strip); `looseAboveSeries` hands
     /// its per-file fix to To File.
     public var carriesPlan: Bool {
         switch self {
-        case .ask, .deadWeight, .looseAboveSeries: return false
+        case .deadWeight, .looseAboveSeries: return false
         case .shape, .backlog, .shadowAxis, .echoName, .mirroredInbox,
              .looseBesideContainer, .duplicatedTaxonomy: return true
         }
@@ -152,7 +145,6 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         case .looseAboveSeries: return "\(subject) — files above the year run"
         case .looseBesideContainer: return "\(subject) — beside its container"
         case .duplicatedTaxonomy: return "\(subject) — duplicated taxonomy"
-        case .ask: return "\(subject) — needs an answer"
         }
     }
 

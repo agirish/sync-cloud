@@ -14694,3 +14694,26 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude panel, so nothing to pin | CLOSED — doesn't apply |
+
+## Dead code the test cleanup left retired — main only
+
+2026-11-07, for v7.1. With the snapshot suites and the 5.5-and-older migrations gone, seven pieces
+had no caller left: `PaneBarCustomizeSheet`'s `showingRemoveTarget` seam, MarkupVerbs'
+`guardingAgainst:` / `isNeighboured` (only Italic had a neighbour, and Italic is read by
+`italicState` first), `PanePDFToolCard`, the reserved `FindingKind.ask`, FilingEngine's `rules:`
+path (remembered rules reach it as automations), `Workspace.lensWorkspaces` and the
+`referenceImages` machine-pinned reason. No behaviour changes.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s neighbour=%s card=%s ask=%s remembered=%s\n' $l \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift 2>/dev/null | grep -c isNeighboured)" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PanePDFTools.swift 2>/dev/null | grep -c 'struct PanePDFToolCard')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/StructureDivergence.swift 2>/dev/null | grep -c '    case ask$')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift | grep -c rememberedCandidates)"; done
+# measured 2026-11-07, against origin, before this landed: v6.x 2 1 1 2, v5.x 2 0 1 2, v4.x–v2.x 0 0 0 2 (main: 2 1 1 2)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Some of the same dead code, harmless | RECORDED — not owed (no behaviour change) |

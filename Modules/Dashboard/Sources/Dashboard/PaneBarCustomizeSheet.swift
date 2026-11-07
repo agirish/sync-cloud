@@ -31,15 +31,10 @@ public struct PaneBarCustomizeSheet: View {
     /// The slot the pointer is currently over, so the insertion caret can show where a drop lands.
     @State private var targetedSlot: Int?
     /// True while a bar item is over the palette, which is how a drag removes it.
-    @State private var isOverPalette: Bool
+    @State private var isOverPalette = false
 
-    /// - Parameter showingRemoveTarget: seeds `isOverPalette`, for snapshots only. That state exists
-    ///   only while a drag is in flight, which no test can stage, so this seam is the only way to
-    ///   look at the remove affordance.
-    public init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases),
-         showingRemoveTarget: Bool = false) {
+    public init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases)) {
         self.availableHere = availableHere
-        _isOverPalette = State(initialValue: showingRemoveTarget)
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }

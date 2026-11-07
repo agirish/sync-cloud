@@ -83,7 +83,7 @@ import SwiftUI
     /// A detail that makes each kind's route resolvable, so the comparison above is real.
     private static func detail(for kind: FindingKind) -> StructureFinding.Detail? {
         switch kind {
-        case .shape, .deadWeight, .ask: return nil
+        case .shape, .deadWeight: return nil
         case .backlog: return .backlog(scaffold: ["a"], looseFiles: 1)
         case .shadowAxis: return .shadowAxis(target: "2024", targetExists: false)
         case .echoName: return .echoName(counterpart: "F/y", relation: .sibling)

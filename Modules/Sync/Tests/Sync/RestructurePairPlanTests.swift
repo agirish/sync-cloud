@@ -264,9 +264,9 @@ import Foundation
         let deadWeight = StructureFinding(kind: .deadWeight, family: "Travel",
                                           subject: "Travel/2019", detail: nil)
         #expect(RestructurePlanRouting.route(for: deadWeight) == nil)
-        let ask = StructureFinding(kind: .ask, family: "Health", subject: "Health/TODO",
-                                   detail: nil)
-        #expect(RestructurePlanRouting.route(for: ask) == nil)
+        let mirrored = StructureFinding(kind: .mirroredInbox, family: "Health", subject: "Health/TODO",
+                                        detail: nil)
+        #expect(RestructurePlanRouting.route(for: mirrored) == nil)
     }
 
     /// What a landing gets called can differ from the path its members hang off: a seeded pair

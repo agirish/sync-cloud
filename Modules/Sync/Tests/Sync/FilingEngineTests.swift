@@ -383,14 +383,14 @@ import Testing
         #expect(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")[0].candidates.isEmpty)
 
         // …but a remembered rule keyed on "tesla" files it, high-confidence and batch-eligible.
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
+        let rule = rememberedRule(["tesla"], "/root/Documents/Vehicles/Tesla")
         let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                  providerRoot: "/root", rules: [rule]).first)
+                                                  providerRoot: "/root", automations: [rule]).first)
         #expect(s.best?.path == "/root/Documents/Vehicles/Tesla")
         #expect(s.best?.confidence == .high)
         #expect(s.best?.remembered == true)
         #expect(s.isBatchEligible)
-        #expect(s.best?.reasons.first?.contains("Remembered") == true)
+        #expect(s.best?.reasons.first?.contains("Your rule") == true)
     }
 
     @Test func rememberedRuleOutranksAHeuristicMatchOfEqualConfidence() throws {
@@ -399,23 +399,23 @@ import Testing
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
                           [dir("/root/Documents/Vehicles/Tesla", [])])])]
         let loose = [file("/root/Downloads/tesla registration.pdf", modified: y2024)]
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Archive/Cars")
+        let rule = rememberedRule(["tesla"], "/root/Archive/Cars")
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                     providerRoot: "/root", rules: [rule]).first?.best)
+                                                     providerRoot: "/root", automations: [rule]).first?.best)
         #expect(best.path == "/root/Archive/Cars")
         #expect(best.remembered)
     }
 
     @Test func ruleMatchesOnlyWhenAllTriggerTokensPresent() {
         let taxonomy = [dir("/root/Documents", [])]
-        let rule = FilingRule(tokens: ["geico", "policy"], destinationPath: "/root/Insurance/Geico")
+        let rule = rememberedRule(["geico", "policy"], "/root/Insurance/Geico")
         // Has "geico" but not "policy" → no match.
         let miss = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico letter.pdf", modified: y2024)],
-                                        taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+                                        taxonomy: taxonomy, providerRoot: "/root", automations: [rule])
         #expect(!(miss.first?.candidates.contains { $0.remembered } ?? false))
         // Has both (plus extras) → matches.
         let hit = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico policy renewal.pdf", modified: y2024)],
-                                       taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+                                       taxonomy: taxonomy, providerRoot: "/root", automations: [rule])
         #expect(hit.first?.best?.path == "/root/Insurance/Geico")
     }
 
@@ -425,9 +425,9 @@ import Testing
     func rememberedRuleRecreatesAMissingFolder(root: String) throws {
         let taxonomy = [dir("\(root)/Documents", [])]   // the remembered folder no longer exists
         let loose = [file("\(root)/Downloads/tesla.pdf", modified: y2024)]
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "\(root)/Documents/Vehicles/Tesla")
+        let rule = rememberedRule(["tesla"], "\(root)/Documents/Vehicles/Tesla")
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
-                                                     providerRoot: root, rules: [rule]).first?.best)
+                                                     providerRoot: root, automations: [rule]).first?.best)
         #expect(best.newSegments == ["Vehicles", "Tesla"])   // Documents exists; the tail is recreated on apply
         #expect(best.isNew)
     }
@@ -594,8 +594,8 @@ import Testing
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
                           [dir("/root/Documents/Vehicles/Tesla", [])])])]
         let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
-        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
-        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+        let rule = rememberedRule(["tesla"], "/root/Documents/Vehicles/Tesla")
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root", automations: [rule])
         #expect(base.first?.best?.remembered == true)
 
         let v = ["/root/Downloads/tesla.pdf": FilingVerdict(relativePath: "Documents/Elsewhere", confidence: .high, reason: "x")]
@@ -603,4 +603,11 @@ import Testing
         #expect(best.remembered)                                    // still the user's rule
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
     }
+}
+
+/// What a correction saves (`rememberAutomationRule`): a rule that files every file mentioning all
+/// of `tokens` into the absolute `path`. The only way a remembered rule reaches the engine.
+func rememberedRule(_ tokens: [String], _ path: String) -> AutomationRule {
+    AutomationRule(name: tokens.map(\.capitalized).joined(separator: " "), matchMode: .all,
+                   conditions: [.mentionsAll(tokens)], destinationTemplate: path)
 }

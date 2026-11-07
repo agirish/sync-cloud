@@ -141,7 +141,7 @@ import FileExplorer
         #expect(Workspace.filing.lens == .filing)
         // Organize is the only workspace with a lens slot; every `WorkspaceLensKind` reaches it
         // through the rail, which is what the loop above checks.
-        #expect(Workspace.lensWorkspaces == [.filing])
+        #expect(Workspace.allCases.filter { $0.lens != nil } == [.filing])
     }
 
     /// Every destination the bridge can mint is a rail item, so no destination can write a lens

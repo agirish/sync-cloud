@@ -24,8 +24,8 @@ import SwiftUI
 ///
 /// `.machinePinned(.pixelSampling)` because it reads pixels back out of a live renderer
 /// (`colorAt(`): the repo-wide marker for a suite whose verdict is trustworthy only on the
-/// recording Mac. CI excludes only `referenceImages`, so this still runs there; the marker is what
-/// makes it selectable.
+/// recording Mac. The self-hosted run excludes only `liveProfile`, so this still runs there; the
+/// marker is what makes it selectable.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct FilingRefineControlTests {
 

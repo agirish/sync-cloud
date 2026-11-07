@@ -39,8 +39,8 @@ it carries the measurements and the fix for each.
   chunk keeps finishing well after the rest. A stale file costs time, never coverage.
 - Machine-pinned suites are marked at the declaration with
   `.machinePinned(_:)` and a reason, and the workflow sets
-  `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages,liveProfile` to exclude the
-  reasons whose verdict holds only on one machine. Excluded suites
+  `SYNCCLOUD_SKIP_MACHINE_PINNED=liveProfile` to exclude the one reason
+  whose suites must never run off the developer's Mac. Excluded suites
   still compile, so breakage in their code is caught, and they report as
   *skipped with a reason* rather than silently vanishing. See
   [Machine-pinned tests](#machine-pinned-tests) for the reasons and the switch.

@@ -4,14 +4,12 @@
 # Scope: the seven SPM packages only. Suites that only produce a trustworthy
 # verdict on the machine that recorded them are marked at the declaration with
 # `.machinePinned(_:)` and a reason, and SYNCCLOUD_SKIP_MACHINE_PINNED below
-# selects which reasons to exclude. Four reasons exist: `referenceImages`
-# (compares against PNGs recorded on one Mac; no suite has used it since
-# 2026-11-06), `pixelSampling` (reads
-# painted pixels out of a live renderer), `calibratedTiming` (latency
-# thresholds tuned on this Mac) and `liveProfile` (reads the developer's
-# live filing profile and real document tree).
+# selects which reasons to exclude (the reasons: docs/ci.md). Among them are
+# `pixelSampling` (reads painted pixels out of a live renderer),
+# `calibratedTiming` (latency thresholds tuned on this Mac) and `liveProfile`
+# (reads the developer's live filing profile and real document tree).
 #
-# We exclude `referenceImages` and `liveProfile`, so pixel sampling and the
+# We exclude only `liveProfile`, so pixel sampling and the
 # timing suites still run — sound only while the runner IS the recording machine;
 # see docs/ci.md.
 #
@@ -123,14 +121,13 @@ jobs:
 
       # Run every package even after a failure so one run reports ALL broken
       # packages, not just the first.
-      - name: Run package suites (reference-image suites skipped)
+      - name: Run package suites (live-profile suites skipped)
         env:
-          # Which machine-pinned reasons to exclude. `referenceImages` alone
-          # reproduces what `--skip SnapshotTests` used to do; `liveProfile`
-          # keeps the developer's own document tree out of CI (and its Rosetta
-          # cost off the shared runner); `all` is the setting to use if the
-          # runner moves off the recording Mac.
-          SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages,liveProfile
+          # Which machine-pinned reasons to exclude. `liveProfile` keeps the
+          # developer's own document tree out of CI (and its Rosetta cost off
+          # the shared runner); `all` is the setting to use if the runner
+          # moves off the recording Mac.
+          SYNCCLOUD_SKIP_MACHINE_PINNED: liveProfile
           BUILD_DIR: ${{ steps.build.outputs.dir }}
         run: |
           set -uo pipefail
@@ -174,8 +171,8 @@ jobs:
           BUILD_DIR: ${{ steps.build.outputs.dir }}
           # The package step's exclusions, for the app's tests too. xcodebuild hands a test process
           # only variables prefixed TEST_RUNNER_ (stripping the prefix), so without this the app's
-          # referenceImages and liveProfile suites would run here. None exists yet (2026-10-30).
-          TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages,liveProfile
+          # liveProfile suites would run here. None exists yet (2026-10-30).
+          TEST_RUNNER_SYNCCLOUD_SKIP_MACHINE_PINNED: liveProfile
         run: |
           set -uo pipefail
           arch -arm64 /opt/homebrew/bin/xcodegen

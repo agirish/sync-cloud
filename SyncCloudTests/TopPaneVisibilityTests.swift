@@ -11,13 +11,13 @@ import FileExplorer
     @Test func testModePerWorkspace() {
         // Compare compares two locations; every lens scans one.
         #expect(TopPaneVisibility.mode(for: .compare) == .compare)
-        for workspace in Workspace.lensWorkspaces {
+        for workspace in Workspace.allCases where workspace.lens != nil {
             #expect(TopPaneVisibility.mode(for: workspace) == .singleSource)
         }
     }
 
-    /// Browse is single-source, and deliberately gets no mode of its own. It is not in
-    /// `lensWorkspaces`, so the loop above never reaches it.
+    /// Browse is single-source, and deliberately gets no mode of its own. It has no lens, so the
+    /// loop above never reaches it.
     ///
     /// A dozen sites read `layoutMode == .singleSource` as "there is only one tree". A `.browse`
     /// mode would make them all answer no: the difference index would stop being emptied, the row
@@ -26,7 +26,7 @@ import FileExplorer
     /// question.
     @Test func testBrowseIsSingleSourceLikeTheLenses() {
         #expect(TopPaneVisibility.mode(for: .browse) == .singleSource)
-        #expect(!Workspace.lensWorkspaces.contains(.browse), "Browse has no lens — this loop cannot cover it")
+        #expect(Workspace.browse.lens == nil, "Browse has no lens — this loop cannot cover it")
     }
 
     // MARK: Defaults

@@ -113,7 +113,7 @@ import Foundation
              { $0.counterpart == "A/B" && $0.matchedDocuments == 5 }),
         ]
         for (detail, check) in cases {
-            let finding = StructureFinding(kind: .ask, family: "F", subject: "F/S",
+            let finding = StructureFinding(kind: .deadWeight, family: "F", subject: "F/S",
                                            detail: detail)
             #expect(check(RestructureReporting.finding(for: finding)),
                     "detail \(detail) did not survive flattening")

@@ -263,7 +263,7 @@ extension MarkdownEdits {
 
     /// Whether pressing `verb` now would take its formatting off: the format bar's lit state,
     /// answered by the same tests ``apply(_:to:selection:)`` uses to choose between adding and
-    /// removing (``wrapState(_:_:delimiter:guardingAgainst:nests:)`` for the inline verbs,
+    /// removing (``wrapState(_:_:delimiter:nests:)`` for the inline verbs,
     /// ``everyLineHas(_:_:in:survey:)`` for the line verbs). So a lit button is exactly one whose
     /// press would unwrap.
     ///
@@ -292,7 +292,7 @@ extension MarkdownEdits {
             guard let mark = inlineDelimiter(for: verb) else { return false }
             let runs = inlineRuns(selection, in: ns, survey: survey)
             return !runs.isEmpty && runs.allSatisfy {
-                wrapState(ns, $0, delimiter: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests) != nil
+                wrapState(ns, $0, delimiter: mark.delimiter, nests: mark.nests) != nil
             }
         case .heading(let level) where level <= 0:
             return false
@@ -418,17 +418,17 @@ extension MarkdownEdits {
         line.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    /// The delimiter an inline verb wraps with, the character that must not sit just beyond it for
-    /// an unwrap to count, and whether one span of it may hold the delimiter again (`nests`; see
-    /// ``wrapState(_:_:delimiter:guardingAgainst:nests:)``). One table, read by
+    /// The delimiter an inline verb wraps with, and whether one span of it may hold the delimiter
+    /// again (`nests`; see
+    /// ``wrapState(_:_:delimiter:nests:)``). One table, read by
     /// ``apply(_:to:selection:)`` and ``isApplied(_:in:selection:)`` alike.
     static func inlineDelimiter(for verb: MarkupVerb)
-        -> (delimiter: String, neighbour: String?, nests: Bool)? {
+        -> (delimiter: String, nests: Bool)? {
         switch verb {
-        case .bold: return ("**", nil, false)
-        case .italic: return ("*", "*", true)
-        case .strikethrough: return ("~~", nil, false)
-        case .inlineCode: return ("`", nil, false)
+        case .bold: return ("**", false)
+        case .italic: return ("*", true)
+        case .strikethrough: return ("~~", false)
+        case .inlineCode: return ("`", false)
         default: return nil
         }
     }
@@ -518,16 +518,16 @@ extension MarkdownEdits {
     /// The inline verb over each run: if every run is already wrapped, every pair comes off;
     /// otherwise the unwrapped ones get a pair, the line verbs' "every one" rule, so a mixed
     /// selection is finished rather than turned inside out. One run is
-    /// ``wrap(_:_:with:guardingAgainst:nests:)`` exactly. Several are made left to right, and the
+    /// ``wrap(_:_:with:nests:)`` exactly. Several are made left to right, and the
     /// selection runs from the first run to the last, delimiters included where wrapped, so the
     /// next press of the same verb takes every pair off again.
     static func wrapRuns(_ text: String, _ runs: [NSRange],
-                         with mark: (delimiter: String, neighbour: String?, nests: Bool)) -> MarkupEdit {
+                         with mark: (delimiter: String, nests: Bool)) -> MarkupEdit {
         if runs.count == 1 {
-            return wrap(text, runs[0], with: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests)
+            return wrap(text, runs[0], with: mark.delimiter, nests: mark.nests)
         }
         let ns = text as NSString
-        let states = runs.map { wrapState(ns, $0, delimiter: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests) }
+        let states = runs.map { wrapState(ns, $0, delimiter: mark.delimiter, nests: mark.nests) }
         let unwrapping = states.allSatisfy { $0 != nil }
         var current = text
         var shift = 0
@@ -543,7 +543,7 @@ extension MarkdownEdits {
                 }
                 continue
             }
-            let edit = wrap(current, here, with: mark.delimiter, guardingAgainst: mark.neighbour, nests: mark.nests)
+            let edit = wrap(current, here, with: mark.delimiter, nests: mark.nests)
             let added = (edit.text as NSString).length - (current as NSString).length
             shift += added
             current = edit.text
@@ -555,16 +555,12 @@ extension MarkdownEdits {
     }
 
     /// Wraps the selection, or unwraps it when it is already wrapped.
-    ///
-    /// - Parameter guardingAgainst: a character that must not sit just outside the delimiters for
-    ///   an unwrap to count. It stops Italic inside `**bold**` seeing one `*` on each side and
-    ///   demoting it; with the guard, italic on bold text produces `***both***`.
     static func wrap(_ text: String, _ selection: NSRange, with delimiter: String,
-                     guardingAgainst neighbour: String? = nil, nests: Bool = true) -> MarkupEdit {
+                     nests: Bool = true) -> MarkupEdit {
         let ns = text as NSString
         let selected = ns.substring(with: selection)
 
-        switch wrapState(ns, selection, delimiter: delimiter, guardingAgainst: neighbour, nests: nests) {
+        switch wrapState(ns, selection, delimiter: delimiter, nests: nests) {
         case .inside(let open, let close):
             // Wrapped inside the selection: `**bold**` selected whole.
             let inner = (selected as NSString).substring(
@@ -613,14 +609,13 @@ extension MarkdownEdits {
         return (fence + pad, pad + fence)
     }
 
-    /// The "already applied" half of ``wrap(_:_:with:guardingAgainst:nests:)``, on its own: asked
+    /// The "already applied" half of ``wrap(_:_:with:nests:)``, on its own: asked
     /// by the verb (to wrap or unwrap) and by the format bar (to light the button), so a button
     /// never lights for a press that would add delimiters, nor stays dark for one that would remove
     /// them.
     ///
     /// `.inside` is `**bold**` selected whole; `.outside` is `bold` selected between its
-    /// delimiters, with `neighbour` refusing the case where one more of the same character sits
-    /// beyond them (see `guardingAgainst`). `nil` is "not wrapped": the press would add a pair.
+    /// delimiters. `nil` is "not wrapped": the press would add a pair.
     ///
     /// With `nests: false` (every inline verb but Italic), a run holding the delimiter is not one
     /// span. `**Warning** read the **docs**` selected whole starts and ends with `**`, but taking
@@ -628,9 +623,8 @@ extension MarkdownEdits {
     /// the press adds a pair instead of destroying two (`MarkupTwoSpanTests`).
     ///
     /// Italic is read by its runs of stars instead (``italicState(_:_:)``), because its delimiter
-    /// is also half of Bold's: `neighbour` and `nests` say nothing for it.
+    /// is also half of Bold's: `nests` says nothing for it.
     static func wrapState(_ ns: NSString, _ selection: NSRange, delimiter: String,
-                          guardingAgainst neighbour: String? = nil,
                           nests: Bool = true) -> WrapState? {
         if delimiter == "*" { return italicState(ns, selection) }
         if delimiter == "`" { return codeState(ns, selection) }
@@ -645,7 +639,6 @@ extension MarkdownEdits {
         let after = NSRange(location: NSMaxRange(selection), length: width)
         if selection.location >= width, NSMaxRange(after) <= ns.length,
            ns.substring(with: before) == delimiter, ns.substring(with: after) == delimiter,
-           !isNeighboured(ns, before: before, after: after, by: neighbour),
            nests || !selected.contains(delimiter) {
             return .outside(open: width, close: width)
         }
@@ -778,19 +771,6 @@ extension MarkdownEdits {
             if count > 0, index >= 0, ns.character(at: index) == backslash { count -= 1 }
         }
         return count
-    }
-
-    private static func isNeighboured(_ ns: NSString, before: NSRange, after: NSRange,
-                                      by neighbour: String?) -> Bool {
-        guard let neighbour else { return false }
-        let width = (neighbour as NSString).length
-        let outerBefore = NSRange(location: before.location - width, length: width)
-        if outerBefore.location >= 0, ns.substring(with: outerBefore) == neighbour { return true }
-        let outerAfter = NSRange(location: NSMaxRange(after), length: width)
-        if NSMaxRange(outerAfter) <= ns.length, ns.substring(with: outerAfter) == neighbour {
-            return true
-        }
-        return false
     }
 
     /// `[selection](url)`, with the half that still needs typing selected.

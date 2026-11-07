@@ -50,17 +50,17 @@ import Foundation
             .shape: "shape", .backlog: "backlog", .shadowAxis: "shadowAxis",
             .echoName: "echoName", .mirroredInbox: "mirroredInbox", .deadWeight: "deadWeight",
             .looseAboveSeries: "looseAboveSeries", .looseBesideContainer: "looseBesideContainer",
-            .duplicatedTaxonomy: "duplicatedTaxonomy", .ask: "ask",
+            .duplicatedTaxonomy: "duplicatedTaxonomy",
         ]
         #expect(FindingKind.allCases.count == pinned.count)
         for (kind, raw) in pinned { #expect(kind.rawValue == raw) }
     }
 
-    /// The rail badge counts only plan-bearing kinds: `ask` is the stated exclusion,
-    /// `deadWeight` renders as the crowding strip rather than as cards, and `looseAboveSeries`
-    /// hands its per-file fix to To File rather than growing an Apply.
+    /// The rail badge counts only plan-bearing kinds: `deadWeight` renders as the crowding strip
+    /// rather than as cards, and `looseAboveSeries` hands its per-file fix to To File rather than
+    /// growing an Apply.
     @Test func onlyThePlanBearingKindsCountTowardTheBadge() {
-        let planless: Set<FindingKind> = [.ask, .deadWeight, .looseAboveSeries]
+        let planless: Set<FindingKind> = [.deadWeight, .looseAboveSeries]
         for kind in FindingKind.allCases {
             #expect(kind.carriesPlan == !planless.contains(kind),
                     "\(kind.rawValue) has the wrong badge behaviour")
@@ -120,7 +120,7 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
 
     @Test func anAnswerRoundTripsThroughTheFile() throws {
         let dir = try makeDirectory()
-        let key = RestructureKey(kind: .ask, path: "Health/Kaiser - PG&E")
+        let key = RestructureKey(kind: .shape, path: "Health/Kaiser - PG&E")
         RestructureStore(directory: dir, profileId: "p").recordAnswer("coverage", for: key)
 
         let reread = RestructureStore(directory: dir, profileId: "p")
@@ -129,7 +129,7 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
 
     @Test func removingAnAnswerRemovesItFromTheFileToo() throws {
         let dir = try makeDirectory()
-        let key = RestructureKey(kind: .ask, path: "Health/Kaiser - PG&E")
+        let key = RestructureKey(kind: .shape, path: "Health/Kaiser - PG&E")
         let store = RestructureStore(directory: dir, profileId: "p")
         store.recordAnswer("coverage", for: key)
         store.removeAnswer(for: key)
@@ -161,14 +161,14 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
         store.suppress(RestructureKey(kind: .echoName, path: "Home/ATT Bill"))
-        store.recordAnswer("keep", for: RestructureKey(kind: .ask, path: "Home/ATT Bill"))
+        store.recordAnswer("keep", for: RestructureKey(kind: .shape, path: "Home/ATT Bill"))
 
         store.rekey(renames: [(from: "Home/ATT Bill", to: "Home/ATT")])
 
         let reread = RestructureStore(directory: dir, profileId: "p")
         #expect(reread.isSuppressed(RestructureKey(kind: .echoName, path: "Home/ATT")))
         #expect(!reread.isSuppressed(RestructureKey(kind: .echoName, path: "Home/ATT Bill")))
-        #expect(reread.answer(for: RestructureKey(kind: .ask, path: "Home/ATT")) == "keep")
+        #expect(reread.answer(for: RestructureKey(kind: .shape, path: "Home/ATT")) == "keep")
     }
 
     /// The nudge section round-trips, and, the point of it being a year rather than a flag,
@@ -580,12 +580,12 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
     @Test func rekeyingTwoAnswersOntoOneKeySurvivesAndTheRekeyedClaimWins() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")
-        store.recordAnswer("stale", for: RestructureKey(kind: .ask, path: "Tax/Tax Records"))
-        store.recordAnswer("fresh", for: RestructureKey(kind: .ask, path: "Tax/Forms"))
+        store.recordAnswer("stale", for: RestructureKey(kind: .shape, path: "Tax/Tax Records"))
+        store.recordAnswer("fresh", for: RestructureKey(kind: .shape, path: "Tax/Forms"))
 
         store.rekey(renames: [(from: "Tax/Forms", to: "Tax/Tax Records")])
 
-        #expect(store.answer(for: RestructureKey(kind: .ask, path: "Tax/Tax Records")) == "fresh")
+        #expect(store.answer(for: RestructureKey(kind: .shape, path: "Tax/Tax Records")) == "fresh")
     }
 
     /// A hand-edited file with a duplicated row loads (last row wins, JSON's own object rule):
@@ -594,14 +594,14 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
         let dir = try makeDirectory()
         let json = """
         {"schemaVersion": 1, "answers": [
-          {"kind": "ask", "path": "A", "choice": "first"},
-          {"kind": "ask", "path": "A", "choice": "second"}
+          {"kind": "shape", "path": "A", "choice": "first"},
+          {"kind": "shape", "path": "A", "choice": "second"}
         ]}
         """
         try Data(json.utf8).write(to: dir.appendingPathComponent("p/restructure.json"))
         let store = RestructureStore(directory: dir, profileId: "p")
         #expect(!store.isUnreadable)
-        #expect(store.answer(for: RestructureKey(kind: .ask, path: "A")) == "second")
+        #expect(store.answer(for: RestructureKey(kind: .shape, path: "A")) == "second")
     }
 
     /// The licence to move files: `recordApplied` reports whether the record reached the

@@ -240,8 +240,7 @@ struct EditorPDFToolBannerView: View {
         }
     }
 
-    /// The strip itself, also what a pane-launched run shows its progress in at the window's foot
-    /// (``PanePDFToolCard``), so the two read the same.
+    /// The strip itself: the run's message and its buttons.
     static func strip<Buttons: View>(symbol: String?, tint: Color, message: String,
                                      @ViewBuilder buttons: () -> Buttons) -> some View {
         let sentence = HStack(alignment: .firstTextBaseline, spacing: 6) {

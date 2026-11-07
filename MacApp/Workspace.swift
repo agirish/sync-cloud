@@ -117,11 +117,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Every workspace that shows a lens, in bar order.
-    static var lensWorkspaces: [Workspace] {
-        allCases.filter { $0.lens != nil }
-    }
-
     /// Where a programmatic caller naming a lens should land: the workspace and, inside Organize,
     /// which rail item to select. A caller that set only the workspace would land on the overview
     /// and lose the request, such as "Find duplicates of this" from a Compare row.

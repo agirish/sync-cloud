@@ -314,12 +314,10 @@ public enum FilingEngine {
     /// - Parameter contentTokens: Optional per-file tokens from the file's contents (PDF text, OCR),
     ///   merged with the filename tokens so a file whose name says nothing can still find a home.
     ///   Empty for the filename-only pass.
-    /// - Parameter rules: Remembered filing rules, token-set → folder mappings the user taught by
-    ///   correcting past suggestions; a match ranks ahead of the heuristics. Pre-migration stores
-    ///   only; migrated installs pass `automations`.
-    /// - Parameter automations: The user's automation rules. An enabled, runnable one that matches
-    ///   steers the suggestion like a remembered rule, ranking ahead of the heuristics (capped to
-    ///   medium when the match needed the file's content).
+    /// - Parameter automations: The user's automation rules, a correction's remembered rule among
+    ///   them (`rememberAutomationRule`). An enabled, runnable one that matches steers the
+    ///   suggestion, ranking ahead of the heuristics (capped to medium when the match needed the
+    ///   file's content).
     /// - Parameter providerName: Resolves `{provider}` in an automation's destination template.
     /// - Parameter automationSnippets: Per-file lowercased excerpts for files a content-reading
     ///   automation could match: the same text the Automations preview evaluates, so a rule gives one
@@ -332,7 +330,6 @@ public enum FilingEngine {
         taxonomy: [FileNode],
         providerRoot: String,
         contentTokens: [String: Set<String>] = [:],
-        rules: [FilingRule] = [],
         automations: [AutomationRule] = [],
         /// The household, so a `personIs` rule and a `{person}` destination can resolve. nil means
         /// person rules never match.
@@ -347,14 +344,14 @@ public enum FilingEngine {
     ) -> [FilingSuggestion] {
         suggest(looseFiles: looseFiles,
                 learned: learnTaxonomy(taxonomy, providerRoot: providerRoot, options: options),
-                providerRoot: providerRoot, contentTokens: contentTokens, rules: rules,
+                providerRoot: providerRoot, contentTokens: contentTokens,
                 automations: automations, registry: registry, identity: identity,
                 providerName: providerName, automationSnippets: automationSnippets, now: now,
                 rejectedByFile: rejectedByFile, rejectedWords: rejectedWords, options: options)
     }
 
     /// What
-    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
+    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
     /// learns from the taxonomy before it looks at a file: every folder's profile, and the set of
     /// folders that exist. Learned once per scan, not per call: it tokenizes every folder and file
     /// name in the tree (thousands), a scan suggests twice, and nothing in it depends on the loose
@@ -365,7 +362,7 @@ public enum FilingEngine {
     }
 
     /// Learns `taxonomy`, for
-    /// ``suggest(looseFiles:learned:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``.
+    /// ``suggest(looseFiles:learned:providerRoot:contentTokens:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``.
     /// Only `options.ignoredNames` is read, so it must be the options the suggestions use.
     public static func learnTaxonomy(_ taxonomy: [FileNode], providerRoot: String,
                                      options: FilingOptions) -> LearnedTaxonomy {
@@ -377,14 +374,13 @@ public enum FilingEngine {
         return LearnedTaxonomy(profiles: profiles, existingPaths: existingPaths)
     }
 
-    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:rules:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
+    /// ``suggest(looseFiles:taxonomy:providerRoot:contentTokens:automations:registry:identity:providerName:automationSnippets:now:rejectedByFile:rejectedWords:options:)``
     /// against a taxonomy already learned; see ``LearnedTaxonomy``.
     public static func suggest(
         looseFiles: [FileNode],
         learned: LearnedTaxonomy,
         providerRoot: String,
         contentTokens: [String: Set<String>] = [:],
-        rules: [FilingRule] = [],
         automations: [AutomationRule] = [],
         registry: PersonRegistry? = nil,
         identity: PersonIdentityIndex? = nil,
@@ -421,8 +417,6 @@ public enum FilingEngine {
             let year = filenameYear(in: nameToks) ?? yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
-            candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
-                                               contentTokens: content, existingPaths: existingPaths)
             candidates += automationCandidates(automations: actingAutomations, file: file,
                                                contentTokens: content,
                                                snippet: automationSnippets[file.id],
@@ -557,40 +551,10 @@ public enum FilingEngine {
         return out
     }
 
-    // MARK: Remembered rules (F3)
-
-    /// Destinations from remembered rules whose trigger tokens are all in the file. High confidence
-    /// (the user taught it), unless the match rests only on content tokens, which caps it to medium
-    /// like any content signal.
-    private static func rememberedCandidates(
-        rules: [FilingRule], tokens: Set<String>, nameTokens: Set<String>,
-        contentTokens: Set<String>, existingPaths: Set<String>
-    ) -> [FilingDestination] {
-        guard !rules.isEmpty, !tokens.isEmpty else { return [] }
-        var out: [FilingDestination] = []
-        for rule in rules {
-            let trigger = Set(rule.tokens)
-            guard !trigger.isEmpty, trigger.isSubset(of: tokens) else { continue }
-            // From content when none of the trigger tokens appear in the filename.
-            let fromContent = trigger.isDisjoint(with: nameTokens) && !trigger.isDisjoint(with: contentTokens)
-            let shown = rule.tokens.sorted().prefix(3).joined(separator: ", ")
-            let reason = fromContent
-                ? "Remembered — you file “\(shown)” documents here (read from the file)"
-                : "Remembered — you file “\(shown)” here"
-            out.append(FilingDestination(
-                path: rule.destinationPath,
-                base: .high, evidence: fromContent ? .content : .name,   // user-taught ⇒ high, capped like any content signal
-                reasons: [reason],
-                newSegments: missingSegments(of: rule.destinationPath, existingPaths: existingPaths),
-                remembered: true))
-        }
-        return out
-    }
-
     // MARK: Automation rules (steering)
 
     /// Destinations from the user's automations. An enabled, runnable automation whose conditions
-    /// hold steers the suggestion as a remembered rule does: user-written, so high confidence,
+    /// hold steers the suggestion: user-written, so high confidence,
     /// capped to medium when the match needed the file's content (which also keeps it out of the
     /// blind batch). A rule whose destination resolves outside this provider is inert here. Takes
     /// the already-narrowed ``AutomationRuleSet``, since eligibility doesn't depend on the file.
