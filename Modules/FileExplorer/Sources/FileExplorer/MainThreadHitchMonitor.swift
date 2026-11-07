@@ -201,10 +201,15 @@ public enum MainThreadHitchMonitor {
     /// "app active, window visible" and its negations, read on the main thread. A test process has
     /// no `NSApp`, which reads as inactive with nothing visible.
     static func appContext() -> String {
+        let state = appState()
+        return "app \(state.active ? "active" : "inactive"), \(state.everyWindowOccluded ? "every window occluded" : "window visible")"
+    }
+
+    /// The same facts, for ``StallClassifier``.
+    static func appState() -> StallAppState {
         let app = NSApp
-        let active = app?.isActive ?? false
-        let visible = app?.windows.contains { $0.occlusionState.contains(.visible) } ?? false
-        return "app \(active ? "active" : "inactive"), \(visible ? "window visible" : "every window occluded")"
+        return StallAppState(active: app?.isActive ?? false,
+                             everyWindowOccluded: !(app?.windows.contains { $0.occlusionState.contains(.visible) } ?? false))
     }
 
     static func reset() {

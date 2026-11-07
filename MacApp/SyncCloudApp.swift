@@ -977,6 +977,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ActivityCenter.shared.flushOneWaySync()
         for line in EditorAutosaveTally.closeOutAll() { Logger.shared.info(line) }
+        MainThreadStallWatch.shared.writeCount(because: "the app is quitting")
         Logger.shared.flushToDisk()
     }
 

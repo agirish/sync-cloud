@@ -78,6 +78,13 @@ folder and account name, and every name form of everyone in every profile's `peo
 `<person N>`. The copy's header says what it doesn't mask. A new kind of identifying text in a log
 line needs a masking step there, or a word in that header.
 
+## Stalls
+
+`MainThreadStallWatch` writes a sampled stall at WARN, unless `StallClassifier` finds it short
+(10 s or less), mostly idle and over a hidden, inactive app with no activation near it: those are
+counted, in one INFO line written when the app comes forward, every 30 minutes and at quit. A stall
+still going after 10 s gets its own WARN line at once. Each of these lines ends `(pid N)`.
+
 ## Who reads the log
 
 | Reader | Depends on | Emitted at |

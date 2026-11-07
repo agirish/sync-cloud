@@ -38,7 +38,7 @@ import Testing
         tweak(&configuration)
         let lines = Lines()
         let watch = MainThreadStallWatch(configuration: configuration, queue: queue,
-                                         thread: thread ?? { lines.thread }, report: { lines.append($0) })
+                                         thread: thread ?? { lines.thread }, report: { _, line in lines.append(line) })
         return (watch, lines, directory, configuration)
     }
 

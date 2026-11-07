@@ -14790,3 +14790,24 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No masked copy; Help's tip says to attach the log file | RECORDED — not owed |
+
+## A stall over a hidden app is counted; one the user may have felt is a warning — main only
+
+2026-11-07, for v7.1. On `main`, a sampled stall's line is WARN, except a short, idle stall over a
+hidden, inactive app, which is counted into one INFO line written when the app comes forward,
+every 30 minutes and at quit. A stall still going after 10 s gets a WARN line at once. `v6.x` has
+the stall watch and writes every stall at INFO, the background ones included; older lines have no
+stall watch.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s watch=%s classifier=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'MainThreadStallWatch.swift')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'StallClassifier.swift')"; done
+# measured 2026-11-07, against origin, before this landed: v6.x watch=1 classifier=0; v5.x–v2.x 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | Every sampled stall at INFO, background ones too, and no line for a hang until its sample ends | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No stall watch | CLOSED — doesn't apply |

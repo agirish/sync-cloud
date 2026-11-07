@@ -18,6 +18,12 @@ import Foundation
 /// On in every build, since the stalls happen in the Release app. It costs two main-queue wakes a
 /// second; samples are rate-limited (`minimumGap`, `perSession`) and old files pruned (`keep`).
 /// The test host never starts it: the start sits in the app's `!isRunningTests` launch block.
+///
+/// Levels: a sampled stall's line is WARN, unless ``StallClassifier`` finds it the system starving
+/// a hidden, inactive app; those are counted instead, in one INFO line written when the app comes
+/// forward, every 30 minutes, and at quit (``writeCount(because:)``). A stall still going after
+/// 10 s gets a WARN line at once, so a hang someone force-quits still leaves one. Each of these
+/// lines ends with the process id, since a worktree build can write to the same log.
 public final class MainThreadStallWatch: @unchecked Sendable {
     public struct Configuration: Sendable {
         /// How long the main queue may go without answering before a stack is taken.
@@ -47,6 +53,10 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         /// A heartbeat the system held this long over an idle app gets one INFO line, so a wrong
         /// idle verdict could never hide stalls without a trace. At most `perSession` of them.
         public var reportHeldAfter: TimeInterval = 3
+        /// A stall still going this long gets a WARN line of its own, at once.
+        public var stillStalledAfter: TimeInterval = StallClassifier.longAfter
+        /// How often counted background stalls are written up while the app stays in the background.
+        public var countEvery: TimeInterval = 30 * 60
         /// Where stack files go.
         public var directory: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/SyncCloud/Stalls", isDirectory: true)
@@ -55,11 +65,14 @@ public final class MainThreadStallWatch: @unchecked Sendable {
 
     /// The app's watch, over the main queue.
     public static let shared = MainThreadStallWatch(configuration: Configuration(), queue: .main,
-                                                    report: { _ = Logger.shared.info($0) })
+                                                    report: { level, line in
+                                                        if level == .warning { _ = Logger.shared.warning(line) }
+                                                        else { _ = Logger.shared.info(line) }
+                                                    })
 
     let configuration: Configuration
     private let watched: DispatchQueue
-    private let report: @Sendable (String) -> Void
+    private let report: @Sendable (LogLevel, String) -> Void
     /// The watched thread, when a test watches a queue of its own. `nil` in the app, which reads
     /// the main thread's port in `start()`.
     private let threadForTesting: (@Sendable () -> thread_act_t?)?
@@ -79,6 +92,19 @@ public final class MainThreadStallWatch: @unchecked Sendable {
     private var posted: (at: TimeInterval, cpu: TimeInterval?)?
     /// What the last answered heartbeat saw of the app, for the line about a stall that follows it.
     private var lastContext = "app state unknown"
+    /// The same, for ``StallClassifier``. nil off the main queue (a test's watch).
+    private var lastAppState: StallAppState?
+    /// Uptimes of `didBecomeActive` in the last two minutes, as `state` received them.
+    private var activations: [TimeInterval] = []
+    private var activationObserver: NSObjectProtocol?
+    /// The stall that already has its "still stalled" line, so it gets one.
+    private var warnedStillStalled: TimeInterval?
+    /// Background stalls counted since the last count line: how many, the longest, the newest stack.
+    private(set) var counted = 0
+    private var countedLongest: TimeInterval = 0
+    private var countedStack: String?
+    /// When the first stall of this count was counted.
+    private var countedSince: TimeInterval?
     /// The stall being recorded, and the two halves of its file as they arrive.
     private var sampling: (stallBegan: TimeInterval, cpuBegan: TimeInterval?, file: URL,
                            stacks: String?, sampleStatus: Int32?, process: Process?)?
@@ -113,7 +139,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
 
     init(configuration: Configuration, queue: DispatchQueue,
          thread: (@Sendable () -> thread_act_t?)? = nil,
-         report: @escaping @Sendable (String) -> Void) {
+         report: @escaping @Sendable (LogLevel, String) -> Void) {
         self.configuration = configuration
         self.watched = queue
         self.threadForTesting = thread
@@ -135,7 +161,25 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             timer = source
             source.resume()
         }
-        report(String(format: "[stall] watch armed — a stack is sampled after %.1f s without a main-thread turn, into %@",
+        if watched === DispatchQueue.main {
+            state.sync {
+                guard activationObserver == nil else { return }
+                activationObserver = NotificationCenter.default.addObserver(
+                    forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                    let at = Self.now()
+                    self?.state.async {
+                        guard let self else { return }
+                        self.activations = self.activations.filter { at - $0 < 120 } + [at]
+                        // A beat later, so a stall that just ended, whose verdict waits on exactly
+                        // this activation, is decided before the count goes out.
+                        self.state.asyncAfter(deadline: .now() + self.configuration.beat) { [weak self] in
+                            self?.flushCount(because: "the app came forward")
+                        }
+                    }
+                }
+            }
+        }
+        report(.info, String(format: "[stall] watch armed — a stack is sampled after %.1f s without a main-thread turn, into %@",
                       configuration.stallAfter, configuration.directory.path))
     }
 
@@ -143,6 +187,53 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         state.sync {
             timer?.cancel()
             timer = nil
+            if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+            activationObserver = nil
+        }
+    }
+
+    /// Writes the count of background stalls, if any, now; the app calls it at quit.
+    public func writeCount(because reason: String) {
+        state.sync { flushCount(because: reason) }
+    }
+
+    private static let pidTail = " (pid \(getpid()))"
+
+    private func flushCount(because reason: String) {
+        guard counted > 0 else { return }
+        var line = String(format: "[stall] %d stall(s) while the app was hidden and inactive were counted, not written up, "
+                          + "since the last count: longest %.2f s", counted, countedLongest)
+        if let countedStack { line += ". Newest stack: \(countedStack)" }
+        report(.info, line + "; written because \(reason)" + Self.pidTail)
+        counted = 0
+        countedLongest = 0
+        countedStack = nil
+        countedSince = nil
+    }
+
+    /// The "still stalled" line, once per stall, for a stall over `stillStalledAfter`.
+    private func warnIfStillStalled(began: TimeInterval, at now: TimeInterval) {
+        guard now - began > configuration.stillStalledAfter, warnedStillStalled != began else { return }
+        warnedStillStalled = began
+        report(.warning, String(format: "[stall] main thread still stalled after %.0f s; before it: ", now - began)
+               + lastContext + Self.pidTail)
+    }
+
+    /// A sampled stall's line: at WARN, or counted, or held until its verdict can be made.
+    private func emit(_ line: String, _ facts: StallFacts, notSampled: Int) {
+        switch StallClassifier.classify(facts, now: Self.now(), beat: configuration.beat, activations: activations) {
+        case .warn:
+            report(.warning, line + Self.pidTail)
+        case .counted:
+            if counted == 0 { countedSince = Self.now() }
+            counted += 1
+            countedLongest = max(countedLongest, (facts.ended ?? facts.began) - facts.began)
+            if let stack = line.range(of: ". Stack: ") { countedStack = String(line[stack.upperBound...]) }
+            stallsNotSampled += notSampled
+        case .wait(let until):
+            state.asyncAfter(deadline: .now() + max(0, until - Self.now())) { [weak self] in
+                self?.emit(line, facts, notSampled: notSampled)
+            }
         }
     }
 
@@ -167,6 +258,9 @@ public final class MainThreadStallWatch: @unchecked Sendable {
 
     private func tick() {
         let now = Self.now()
+        if let since = countedSince, now - since >= configuration.countEvery {
+            flushCount(because: "\(Int(configuration.countEvery / 60)) minutes went by")
+        }
         guard let posted else {
             self.posted = (now, threadCPU())
             let isMain = watched === DispatchQueue.main
@@ -175,7 +269,12 @@ public final class MainThreadStallWatch: @unchecked Sendable {
                 // Read here, on the main thread, while it is free: once it stalls nothing can be.
                 let context = isMain ? MainActor.assumeIsolated { MainThreadHitchMonitor.appContext() } : nil
                 let modal = isMain ? MainActor.assumeIsolated { NSApp.modalWindow != nil } : false
-                self?.state.async { self?.modalUp = modal; self?.answered(at: answered, context: context) }
+                let app = isMain ? MainActor.assumeIsolated { MainThreadHitchMonitor.appState() } : nil
+                self?.state.async {
+                    self?.modalUp = modal
+                    if let app { self?.lastAppState = app }
+                    self?.answered(at: answered, context: context)
+                }
             }
             // Checked on its own deadline rather than at the next beat, which could be up to a
             // beat later — time a short stall cannot spare: the sample has to start inside it.
@@ -196,6 +295,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             let stack = ThreadStackSampler.snapshot(of: thread)
             if posted.at == sampling.stallBegan {
                 if sampledStallEnded == nil, isIdle(stack) { sampledStallEnded = (now, threadCPU()) }
+                if sampledStallEnded == nil { warnIfStillStalled(began: posted.at, at: now) }
             } else if !isIdle(stack) {
                 countNotSampled(began: posted.at)
             }
@@ -232,6 +332,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
                 return
             }
         }
+        warnIfStillStalled(began: posted.at, at: now)
         guard samplesTaken < configuration.perSession,
               lastSample.map({ now - $0 >= configuration.minimumGap }) ?? true
         else {
@@ -261,7 +362,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         if let cpuBegan = unfinished.cpuBegan, let cpu = threadCPU() {
             line += String(format: ", main thread CPU %.2f s", cpu - cpuBegan)
         }
-        report(line)
+        report(.info, line)
         unfinishedStall = nil
     }
 
@@ -270,7 +371,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             let wait = time - held.postedAt
             if wait >= configuration.reportHeldAfter, heldReported < configuration.perSession {
                 heldReported += 1
-                report(String(format: "[stall] a heartbeat waited %.1f s with the main thread idle in its run loop "
+                report(.info, String(format: "[stall] a heartbeat waited %.1f s with the main thread idle in its run loop "
                               + "— held by the system, not sampled. Its stack: ", wait)
                        + ThreadStackSampler.describe(held.stack, count: 6))
             }
@@ -398,6 +499,7 @@ public final class MainThreadStallWatch: @unchecked Sendable {
             let wall = (sampledStallEnded?.at ?? now) - sampling.stallBegan
             line += String(format: ", main thread CPU %.2f s of %.2f s", cpu - began, wall)
         }
+        let notSampled = stallsNotSampled
         if stallsNotSampled > 0 {
             line += "; \(stallsNotSampled) stall(s) since the last line were not sampled (one already running, "
                 + "the \(Int(configuration.minimumGap)) s gap, or the launch’s \(configuration.perSession))"
@@ -408,7 +510,9 @@ public final class MainThreadStallWatch: @unchecked Sendable {
         }
         line += "; before it: \(lastContext)"
         line += wrote ? ". Stack: \(sampling.file.path)" : ". No stack file could be written (sample exit \(status))"
-        report(line)
+        let cpu = sampling.cpuBegan.flatMap { began in sampledStallEnded?.cpu.map { $0 - began } }
+        emit(line, StallFacts(began: sampling.stallBegan, ended: sampledStallEnded?.at, cpu: cpu, app: lastAppState),
+             notSampled: notSampled)
         prune()
     }
 
