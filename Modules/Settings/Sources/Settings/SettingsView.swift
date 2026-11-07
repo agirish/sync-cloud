@@ -567,8 +567,9 @@ enum SettingsSearchIndex {
         .init(at: .general, title: "Notify when operations finish in the background",
               keywords: ["notification", "notify", "background", "alert", "banner", "system notification"]),
         .init(at: .general, title: "Notify when One-Way Sync needs attention",
-              keywords: ["one-way sync", "one way", "notification", "notify", "needs attention", "needs you",
-                         "alert", "sync stopped", "mirror", "dropbox"]),
+              // Notification words only: "dropbox", "one way" and "mirror" belong to Sources and
+              // One-Way Sync, and ⌘K would otherwise open General for them.
+              keywords: ["notification", "notify", "needs attention", "needs you", "alert", "sync stopped"]),
         .init(at: .general, title: "Warn before quitting during file operations",
               keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
         .init(at: .general, title: "When a file already exists",

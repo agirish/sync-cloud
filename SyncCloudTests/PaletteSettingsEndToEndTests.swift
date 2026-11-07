@@ -53,6 +53,8 @@ import Settings
             ("log level", .advanced), ("factory reset", .advanced),
             ("node_modules", .sync), ("keep both", .general),
             ("icloud", .providers), ("dropbox", .providers),
+            // A row on another tab names One-Way Sync too (General's notification switch).
+            ("one-way sync", .sync), ("one way", .sync),
             ("household", .filing), ("loose files", .filing),
             ("row spacing", .appearance), ("dotfiles", .browse),
             ("fingerprint", .filing), ("word wrap", .edit)
