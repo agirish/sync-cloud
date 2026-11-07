@@ -357,7 +357,8 @@ final class EditorPDFFillOverlay: NSView, NSTextFieldDelegate, NSMenuItemValidat
         if let fill, flags.subtracting(.shift).isEmpty {
             let step: CGFloat = flags.contains(.shift) ? 10 : 1
             switch event.keyCode {
-            case 51, 117 where fill.selection != nil:
+            // A `where` binds to the one pattern before it, so each key carries its own.
+            case 51 where fill.selection != nil, 117 where fill.selection != nil:
                 fill.deleteSelection()
                 return
             // The reader's own Esc (the find card) goes before the palette does.

@@ -14600,3 +14600,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No type filter at all | CLOSED — doesn't apply |
+
+## Fill & Sign passes Backspace on when nothing is selected — main only
+
+2026-11-06, for v7.1. `EditorPDFFillOverlay.keyDown` read `case 51, 117 where fill.selection != nil`,
+and a `where` binds only to the pattern before it, so Backspace with nothing selected deleted
+nothing and never reached the reader. Each key now carries the guard.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s overlay=%s bug=%s\n' $l "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillOverlay.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillOverlay.swift 2>/dev/null | grep -c 'case 51, 117 where')"; done
+# measured 2026-11-06, against origin, before this landed: v6.x overlay=1 bug=1; v5.x–v2.x overlay=0 bug=0 (main: overlay=1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | The guard on Forward Delete only | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Fill & Sign overlay | CLOSED — doesn't apply |

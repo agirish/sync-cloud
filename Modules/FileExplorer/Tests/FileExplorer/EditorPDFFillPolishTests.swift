@@ -128,6 +128,40 @@ import Sync
         reader.document = nil
     }
 
+    /// The responder behind the overlay: records the key codes that reach it.
+    private final class KeyRecorder: NSResponder {
+        var keys: [UInt16] = []
+        override func keyDown(with event: NSEvent) { keys.append(event.keyCode) }
+    }
+
+    /// Backspace and Forward Delete delete what is selected; with nothing selected, both go on to
+    /// the reader rather than vanishing in the overlay.
+    @Test func deleteKeysPassOnWithNothingSelected() throws {
+        let fill = fill()
+        let overlay = EditorPDFFillOverlay()
+        overlay.fill = fill
+        let behind = KeyRecorder()
+        overlay.nextResponder = behind
+        func press(_ key: UInt16) throws {
+            let character = key == 51 ? "\u{7f}" : String(UnicodeScalar(UInt16(NSDeleteFunctionKey))!)
+            overlay.keyDown(with: try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: key)))
+        }
+
+        fill.select(nil)
+        for key: UInt16 in [51, 117] { try press(key) }
+        #expect(behind.keys == [51, 117], "a delete key with nothing selected stopped at the overlay")
+
+        fill.armed = .mark(.check)
+        for key: UInt16 in [51, 117] {
+            try #require(fill.place(at: CGPoint(x: 100, y: 100), page: 0) != nil)
+            try press(key)
+            #expect(fill.selection == nil && fill.items.isEmpty, "key \(key) left the selected item in place")
+        }
+        #expect(behind.keys == [51, 117], "a delete key that deleted also went on to the reader")
+    }
+
     // MARK: TE100 — deleting a saved one asks
 
     /// Choosing one under Delete asks first; Cancel keeps it, Delete removes it from this Mac and
