@@ -220,7 +220,7 @@ final class AskClaudeWindowController {
         self.parent = parent
         closePanel = onClose
         if isPinned {
-            let host = self.host ?? makeHost(root)
+            let host = self.host ?? makeHost(content)
             host.rootView = root
             self.host = host
             columnView?.isPaused = isSuspended
@@ -234,7 +234,7 @@ final class AskClaudeWindowController {
         }
         guard !isSuspended else { return }
         // A host still in the column (it was pinned a moment ago) is the one that moves.
-        let host = self.host ?? makeHost(root)
+        let host = self.host ?? makeHost(content)
         host.rootView = root
         self.host = host
         let window = AskClaudePanelWindow(contentRect: NSRect(x: 0, y: 0, width: 372, height: 420),
@@ -293,8 +293,8 @@ final class AskClaudeWindowController {
 
     /// The one hosting view. Its own view, so the main window's root accent and text size don't
     /// reach it: `show` wraps the content in both.
-    private func makeHost(_ root: AnyView) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: root)
+    private func makeHost(_ content: AnyView) -> NSHostingView<AnyView> {
+        let host = NSHostingView(rootView: AnyView(content.nativeControlAccent().appFontSizeFromSettings()))
         host.translatesAutoresizingMaskIntoConstraints = false
         // The window's frame is set by `place()`, the column's by the layout; the content mustn't
         // size either as well.

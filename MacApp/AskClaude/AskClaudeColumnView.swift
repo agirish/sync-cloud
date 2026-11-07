@@ -222,7 +222,8 @@ private final class AskClaudeColumnTint: NSView {
     override func isAccessibilityElement() -> Bool { false }
     override func draw(_ dirtyRect: NSRect) {
         guard isShown else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.28).setStroke()
+        // The app's accent, never the system's.
+        NSColor(LiquidGlassHue.stored().accentColor).withAlphaComponent(0.28).setStroke()
         let path = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
         path.lineWidth = 2
         path.stroke()
