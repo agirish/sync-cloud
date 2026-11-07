@@ -212,31 +212,27 @@ import Testing
         }
     }
 
-    // MARK: Caption
+    // MARK: None's tooltip
 
-    /// The caption names the value, then what it does, like the neighbouring sections. `.none`
-    /// gets its own sentence: the generic one under a visibly coloured button reads as a bug.
-    @Test func theCaptionNamesTheChoiceAndItsUses() {
-        #expect(AccentColorSection.caption(for: .cyan)
-                == "Cyan. Used for filled controls, selection, and the seam chrome.")
-        #expect(AccentColorSection.caption(for: .graphite).hasPrefix("Graphite. "))
-
-        let none = AccentColorSection.caption(for: .none)
+    /// None's tooltip explains the coloured button (TE332 moved it there from the caption): a
+    /// coloured button under "None" reads as a bug without it.
+    @Test func noneExplainsTheColouredButton() throws {
+        let none = AccentColorSection.noneHelp
         #expect(none.hasPrefix("None. "))
-        // "macOS accent", not "macOS accent color": the caption has a one-line budget (see
-        // `caption(for:)`) and must be free to drop a word this test doesn't care about.
+        // "macOS accent", not "macOS accent color": the line must be free to drop a word this
+        // test doesn't care about.
         #expect(none.contains("macOS accent"),
-                "None's caption must explain why a coloured button is still showing: \(none)")
+                "None's tooltip must explain why a coloured button is still showing: \(none)")
         // Under `.none` selection follows the system accent: the pane wash paints
         // `glassHue.accentColor`, which is `Color.accentColor` there
         // (`FileTreeView.rowSelectionBackground`). Only the glass tint goes away.
         #expect(none.contains("selection"),
-                "None's caption must say selection follows the macOS accent too: \(none)")
+                "None's tooltip must say selection follows the macOS accent too: \(none)")
         #expect(!none.lowercased().contains("no wash") && !none.contains("get no"),
-                "None's caption is claiming the panes lose their selection wash again: \(none)")
+                "None's tooltip is claiming the panes lose their selection wash again: \(none)")
     }
 
-    /// The spoken label takes the caption's `.none` branch too: "None accent on a filled button"
+    /// The spoken label takes the tooltip's `.none` reading too: "None accent on a filled button"
     /// contradicts itself, and a VoiceOver user can't see the strip to make sense of it.
     @Test func thePreviewLabelSpeaksTheSystemAccentForNone() {
         let none = AccentPreviewStrip.accessibilityLabel(for: .none)

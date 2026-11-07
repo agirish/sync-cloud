@@ -175,7 +175,7 @@ import Testing
     /// Declined, the gate answers nil: the setter then writes neither setting.
     @Test func decliningAllColumnsWritesNothing() {
         var asked = 0
-        let choice = ReadabilitySettingsTab.chooseResizeMode(
+        let choice = BrowseSettingsTab.chooseResizeMode(
             ColumnResizeMode.allColumns.rawValue, overrides: sized,
             confirm: { asked += 1; return false })
         #expect(choice == nil, "a declined All columns still produced something to store")
@@ -184,7 +184,7 @@ import Testing
 
     @Test func confirmingAllColumnsReleasesTheWidths() throws {
         var asked = 0
-        let choice = try #require(ReadabilitySettingsTab.chooseResizeMode(
+        let choice = try #require(BrowseSettingsTab.chooseResizeMode(
             ColumnResizeMode.allColumns.rawValue, overrides: sized,
             confirm: { asked += 1; return true }))
         #expect(asked == 1)
@@ -195,7 +195,7 @@ import Testing
     /// Nothing sized on its own means nothing to lose, so there is nothing to ask.
     @Test func allColumnsDoesNotAskWhenNoColumnWasSizedOnItsOwn() {
         var asked = 0
-        let choice = ReadabilitySettingsTab.chooseResizeMode(
+        let choice = BrowseSettingsTab.chooseResizeMode(
             ColumnResizeMode.allColumns.rawValue, overrides: ColumnWidthOverrides(),
             confirm: { asked += 1; return false })
         #expect(asked == 0)
@@ -205,7 +205,7 @@ import Testing
     /// Each column keeps the widths, so choosing it never asks and never touches them.
     @Test func eachColumnNeverAsksAndKeepsTheWidths() {
         var asked = 0
-        let choice = ReadabilitySettingsTab.chooseResizeMode(
+        let choice = BrowseSettingsTab.chooseResizeMode(
             ColumnResizeMode.eachColumn.rawValue, overrides: sized,
             confirm: { asked += 1; return false })
         #expect(asked == 0)
@@ -372,7 +372,7 @@ import Testing
 
         #expect(count("clearFilingVerdictCache(", in: settings) == 1)
         #expect(settings.contains("clear: { syncManager.clearFilingVerdictCache() }"))
-        #expect(settings.contains("Self.clearSavedSuggestionsIfConfirmed("), "saved suggestions' Clear no longer asks")
+        #expect(settings.contains("IntelligenceSettingsTab.clearSavedSuggestionsIfConfirmed("), "saved suggestions' Clear no longer asks")
         #expect(settings.contains("confirm: RemovalPrompt.clearSavedSuggestions("))
 
         #expect(count("columnWidthOverrides = ", in: settings) == 1,

@@ -183,7 +183,9 @@ public struct SettingEntry: Identifiable, Hashable, Sendable {
     public let indexTitles: [String]
     /// Every other title on screen that belongs to it (buttons, a picker's own label).
     public let otherLabels: [String]
-    let tab: SettingsView.SettingsTab
+    /// The page it is on.
+    public let place: SettingsPlace
+    var tab: SettingsView.SettingsTab { place.tab }
     public let storage: SettingStorage
     public let control: SettingControl
     public let defaultValue: SettingValue?
@@ -200,8 +202,8 @@ public struct SettingEntry: Identifiable, Hashable, Sendable {
     /// Settings' own help text, word for word, where it has one.
     public let help: String?
 
-    /// The tab's name as the rail shows it.
-    public var tabName: String { tab.displayName }
+    /// Where it is, as Settings names it ("Compare ▸ Ignored"), for prose after "Settings ▸ ".
+    public var tabName: String { place.name }
 
     public func raises(from old: SettingValue?, to new: SettingValue) -> Bool {
         raises?.matches(from: old, to: new) ?? false
@@ -231,7 +233,7 @@ public enum SettingsCatalog {
         e("general.launchAtLogin", .general, "Launch SyncCloud at login", indexed: true,
           storage: .owner("LoginItemController"), control: .toggle, default: .bool(false), tier: .suggested,
           help: "Adds SyncCloud to your Mac’s Login Items, so it opens when you log in."),
-        e("general.showHiddenByDefault", .general, "Show hidden files by default", indexed: true,
+        e("general.showHiddenByDefault", .panes, "Show hidden files by default", indexed: true,
           storage: app(GeneralSettings.showHiddenByDefaultKey, "GeneralSettings.showHiddenByDefaultKey", "false"),
           control: .toggle, default: .bool(false), tier: .suggested, effects: .nextLaunch,
           raises: .turningOn,
@@ -240,7 +242,7 @@ public enum SettingsCatalog {
           storage: app(GeneralSettings.restoreLastFocusKey, "GeneralSettings.restoreLastFocusKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, effects: .nextLaunch,
           help: "Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder."),
-        e("general.sortPanesBy", .general, "Sort panes by", indexed: true,
+        e("general.sortPanesBy", .panes, "Sort panes by", indexed: true,
           storage: .settingsManager(key: "defaultSortOption"),
           control: .menu(["Name", "Kind", "Date Modified", "Size", "Tags"].map { SettingChoice(.string($0), $0) }),
           default: .string("Name"), tier: .direct),
@@ -252,44 +254,44 @@ public enum SettingsCatalog {
           storage: app(GeneralSettings.warnBeforeQuitKey, "GeneralSettings.warnBeforeQuitKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, lessSafe: .turningOff,
           help: "Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once."),
-        e("general.runSetupAgain", .general, "Run Setup Again", indexed: true, others: ["Run Setup Again…"],
+        e("general.runSetupAgain", .advanced, "Run Setup Again", indexed: true, others: ["Run Setup Again…"],
           control: .button("Run Setup Again…"), tier: .suggested),
 
         // MARK: Appearance
-        e("appearance.theme", .appearance, "Theme", indexed: true,
+        e("appearance.theme", .look, "Theme", indexed: true,
           storage: app(LiquidGlass.appearanceModeKey, "LiquidGlass.appearanceModeKey", "AppearanceMode.system.rawValue"),
           control: .segmented([.init(.string("system"), "System"), .init(.string("light"), "Light"), .init(.string("dark"), "Dark")]),
           default: .string(AppearanceMode.system.rawValue), tier: .direct),
-        e("appearance.accent", .appearance, "Accent color", indexed: true,
+        e("appearance.accent", .look, "Accent color", indexed: true,
           storage: app(LiquidGlass.hueKey, "LiquidGlass.hueKey", "LiquidGlassHue.blue.rawValue"),
           control: .swatches(LiquidGlassHue.allCases.map { SettingChoice(.string($0.rawValue), $0.rawValue.capitalized) }),
           default: .string(LiquidGlassHue.blue.rawValue), tier: .direct),
-        e("appearance.glass", .appearance, "Glass effect", indexed: true,
+        e("appearance.glass", .look, "Glass effect", indexed: true,
           storage: app(LiquidGlass.levelKey, "LiquidGlass.levelKey", "GlassLevel.frosted.rawValue"),
           control: .segmented(GlassLevel.allCases.map { SettingChoice(.string($0.rawValue), $0.rawValue.capitalized) }),
           default: .string(GlassLevel.frosted.rawValue), tier: .direct),
-        e("appearance.tint", .appearance, "Tint", index: ["Surface tint"],
+        e("appearance.tint", .look, "Tint", index: ["Surface tint"],
           storage: app(LiquidGlass.tintKey, "LiquidGlass.tintKey", "0"),
           control: .slider(min: 0, max: 1), default: .double(0), tier: .direct, dependsOn: ["appearance.accent"]),
-        e("appearance.surface", .appearance, "Content surface", index: ["Content surface style"],
+        e("appearance.surface", .look, "Content surface", index: ["Content surface style"],
           storage: app(LiquidGlass.surfaceStyleKey, "LiquidGlass.surfaceStyleKey", "SurfaceStyle.unified.rawValue"),
           control: .segmented([.init(.string(SurfaceStyle.unified.rawValue), "Unified"), .init(.string(SurfaceStyle.cards.rawValue), "Cards")]),
           default: .string(SurfaceStyle.unified.rawValue), tier: .direct),
 
-        // MARK: Readability
-        e("readability.presets", .readability, "Size & spacing", indexed: true,
+        // MARK: Appearance ▸ Text & Spacing
+        e("readability.presets", .textAndSpacing, "Size & spacing", indexed: true,
           // Nothing of its own to set: it sets Text size and Row spacing, which Claude can.
           control: .menu(SizePreset.all.map { SettingChoice(.string($0.id), "\($0.fontSize.percent)%, \($0.density.rawValue)") }),
           tier: .readOnly),
-        e("readability.textSize", .readability, "Text size", indexed: true,
+        e("readability.textSize", .textAndSpacing, "Text size", indexed: true,
           storage: app(FontSize.defaultsKey, "FontSize.defaultsKey", "FontSize.medium.percent"),
           control: .stepper(min: FontSize.minimumPercent, max: FontSize.maximumPercent, step: FontSize.step),
           default: .int(FontSize.medium.percent), tier: .direct),
-        e("readability.rowSpacing", .readability, "Row spacing", indexed: true,
+        e("readability.rowSpacing", .textAndSpacing, "Row spacing", indexed: true,
           storage: app(ListDensity.defaultsKey, "ListDensity.defaultsKey", "ListDensity.comfortable.rawValue"),
           control: .segmented([.init(.string(ListDensity.comfortable.rawValue), "Comfortable"), .init(.string(ListDensity.compact.rawValue), "Compact")]),
           default: .string(ListDensity.comfortable.rawValue), tier: .direct),
-        e("readability.columnWidths", .readability, "Column widths", indexed: true,
+        e("readability.columnWidths", .panes, "Column widths", indexed: true,
           storage: .appStorage(key: ColumnResizeMode.defaultsKey, keySource: "ColumnResizeMode.defaultsKey",
                                defaultSource: "ColumnResizeMode.default.rawValue"),
           control: .segmented([.init(.string(ColumnResizeMode.eachColumn.rawValue), "Each column"),
@@ -297,35 +299,35 @@ public enum SettingsCatalog {
           default: .string(ColumnResizeMode.default.rawValue), tier: .suggested),
 
         // MARK: Sources
-        e("sources.refresh", .providers, "Refresh", index: ["Cloud providers"], control: .button("Refresh"), tier: .suggested),
-        e("sources.addFolder", .providers, "Add Folder…", index: ["Local folders"], control: .folder, tier: .suggested),
-        e("sources.removeFolder", .providers, "Remove…", control: .button("Remove…"), tier: .asksTwice,
+        e("sources.refresh", .cloudProviders, "Refresh", index: ["Cloud providers"], control: .button("Refresh"), tier: .suggested),
+        e("sources.addFolder", .localFolders, "Add Folder…", index: ["Local folders"], control: .folder, tier: .suggested),
+        e("sources.removeFolder", .localFolders, "Remove…", control: .button("Remove…"), tier: .asksTwice,
           target: .folderSource, lessSafe: .always),
-        e("sources.showInFinder", .providers, "Show in Finder", control: .button("Show in Finder"), tier: .suggested,
+        e("sources.showInFinder", .cloudProviders, "Show in Finder", control: .button("Show in Finder"), tier: .suggested,
           target: .source),
-        e("sources.folderNameRule", .providers, "Check folder names against", indexed: true,
+        e("sources.folderNameRule", .nameChecks, "Check folder names against", indexed: true,
           storage: .settingsManager(key: "folderNameRuleProvider"),
           control: .menu([.init(.string(CloudProvider.ProviderType.oneDrive.rawValue), "OneDrive (strictest)"),
                           .init(.string(CloudProvider.ProviderType.dropBox.rawValue), "Dropbox"),
                           .init(.string(CloudProvider.ProviderType.localFolder.rawValue), "Don’t check")]),
           default: .string(CloudProvider.ProviderType.oneDrive.rawValue), tier: .suggested),
-        e("sources.name", .providers, "Source name", index: ["Source name", "Display name"],
+        e("sources.name", .cloudProviders, "Source name", index: ["Source name", "Display name"],
           storage: .settingsManager(key: "name_override_<id>"), control: .text, tier: .suggested, target: .source),
-        e("sources.path", .providers, "Synchronized path", indexed: true, others: ["Browse…"],
+        e("sources.path", .cloudProviders, "Synchronized path", indexed: true, others: ["Browse…"],
           storage: .settingsManager(key: "folderSources"), control: .folder, tier: .suggested,
           target: .folderSource, privacy: .hiddenFiltered, dependsOn: ["sources.enabled"]),
-        e("sources.rootReset", .providers, "Reset root", control: .button("Reset"), tier: .suggested, target: .cloudSource),
-        e("sources.openAt", .providers, "Open at", indexed: true, others: ["Choose…"],
+        e("sources.rootReset", .cloudProviders, "Reset root", control: .button("Reset"), tier: .suggested, target: .cloudSource),
+        e("sources.openAt", .cloudProviders, "Open at", indexed: true, others: ["Choose…"],
           storage: .settingsManager(key: "openAt_override_<id>"), control: .folder, tier: .suggested,
           target: .cloudSource, privacy: .hiddenFiltered, dependsOn: ["sources.enabled"]),
-        e("sources.openAtReset", .providers, "Reset Open at", control: .button("Reset"), tier: .suggested, target: .cloudSource),
-        e("sources.providerSettings", .providers, "Provider settings", control: .button("Settings"), tier: .suggested,
+        e("sources.openAtReset", .cloudProviders, "Reset Open at", control: .button("Reset"), tier: .suggested, target: .cloudSource),
+        e("sources.providerSettings", .cloudProviders, "Provider settings", control: .button("Settings"), tier: .suggested,
           target: .cloudSource),
-        e("sources.enabled", .providers, "Enable or disable a source", indexed: true,
+        e("sources.enabled", .cloudProviders, "Enable or disable a source", indexed: true,
           storage: .settingsManager(key: "disabledProviderIds"), control: .toggle, default: .bool(true), tier: .suggested,
           target: .source, raises: .turningOn, lessSafe: .turningOff),
 
-        // MARK: People
+        // MARK: Organize ▸ People
         e("people.edit", .people, "People", indexed: true, others: ["Edit…", "Move Up", "Move Down"],
           storage: .owner("PeopleStore"), control: .list, tier: .suggested, target: .person),
         e("people.defaultOrder", .people, "Use Default Order", control: .button("Use Default Order"), tier: .suggested),
@@ -338,28 +340,28 @@ public enum SettingsCatalog {
           control: .button("Add"), tier: .suggested),
         e("people.tryFilename", .people, "Try a filename", indexed: true, control: .readout, tier: .readOnly),
 
-        // MARK: Sync
-        e("oneWay.whenDeleted", .sync, "If a Dropbox file is deleted, renamed or moved", index: ["One-Way Sync"],
+        // MARK: Compare
+        e("oneWay.whenDeleted", .oneWaySync, "If a Dropbox file is deleted, renamed or moved", index: ["One-Way Sync"],
           storage: .owner("OneWaySyncStore"),
           control: .menu([.init(.string(OneWaySyncSettings.WhenDeletedRenamedOrMoved.matchICloud.rawValue), "Match iCloud"),
                           .init(.string(OneWaySyncSettings.WhenDeletedRenamedOrMoved.askMe.rawValue), "Ask Me")]),
           tier: .suggested, target: .syncPair,
           lessSafe: .toAny([.string(OneWaySyncSettings.WhenDeletedRenamedOrMoved.matchICloud.rawValue)])),
-        e("oneWay.whenEdited", .sync, "If a Dropbox file is edited", storage: .owner("OneWaySyncStore"),
+        e("oneWay.whenEdited", .oneWaySync, "If a Dropbox file is edited", storage: .owner("OneWaySyncStore"),
           control: .menu([.init(.string(OneWaySyncSettings.WhenEdited.askMe.rawValue), "Ask Me"),
                           .init(.string(OneWaySyncSettings.WhenEdited.useICloud.rawValue), "Use iCloud’s")]),
           tier: .suggested, target: .syncPair,
           lessSafe: .toAny([.string(OneWaySyncSettings.WhenEdited.useICloud.rawValue)])),
-        e("oneWay.pause", .sync, "Pause", others: ["Sync Now"], control: .button("Pause"), tier: .suggested, target: .syncPair),
-        e("oneWay.resume", .sync, "Resume…", control: .button("Resume…"), tier: .suggested, target: .syncPair),
-        e("oneWay.show", .sync, "Show…", others: ["Show", "Choose Items to Empty…"], control: .button("Show…"),
+        e("oneWay.pause", .oneWaySync, "Pause", others: ["Sync Now"], control: .button("Pause"), tier: .suggested, target: .syncPair),
+        e("oneWay.resume", .oneWaySync, "Resume…", control: .button("Resume…"), tier: .suggested, target: .syncPair),
+        e("oneWay.show", .oneWaySync, "Show…", others: ["Show", "Choose Items to Empty…"], control: .button("Show…"),
           tier: .suggested, target: .syncPair),
-        e("oneWay.setUp", .sync, "Set Up One-Way Sync…", others: ["Choose Folders…"],
+        e("oneWay.setUp", .oneWaySync, "Set Up One-Way Sync…", others: ["Choose Folders…"],
           control: .button("Set Up One-Way Sync…"), tier: .suggested),
-        e("oneWay.turnOff", .sync, "Turn Off One-Way Sync…", others: ["Sync From This Mac Instead…"],
+        e("oneWay.turnOff", .oneWaySync, "Turn Off One-Way Sync…", others: ["Sync From This Mac Instead…"],
           control: .button("Turn Off One-Way Sync…"),
           tier: .asksTwice, target: .syncPair, lessSafe: .always),
-        e("sync.whenFileExists", .sync, "When a file already exists", indexed: true,
+        e("sync.whenFileExists", .general, "When a file already exists", indexed: true,
           storage: .settingsManager(key: ConflictPolicy.defaultsKey),
           control: .menu([.init(.string(ConflictPolicy.ask.rawValue), "Ask every time"),
                           .init(.string(ConflictPolicy.keepBoth.rawValue), "Keep both"),
@@ -367,54 +369,54 @@ public enum SettingsCatalog {
                           .init(.string(ConflictPolicy.skip.rawValue), "Skip")]),
           default: .string(ConflictPolicy.ask.rawValue), tier: .suggested,
           lessSafe: .toAny([.string(ConflictPolicy.replace.rawValue)])),
-        e("sync.dateTolerance", .sync, "Treat dates as equal within", indexed: true,
+        e("sync.dateTolerance", .differences, "Treat dates as equal within", indexed: true,
           storage: .settingsManager(key: "dateToleranceSeconds"),
           control: .menu([0, 1, 2, 5, 60].map { SettingChoice(.double(Double($0)), SettingsPickerOptions.dateToleranceLabel(Double($0))) }),
           default: .double(1), tier: .suggested, effects: .rescans,
           help: "Counts two modification dates as the same when they are this close, so a provider rounding dates on upload doesn’t show up as a difference."),
-        e("sync.verifySameSize", .sync, "Verify same-size files during scans", indexed: true,
+        e("sync.verifySameSize", .differences, "Verify same-size files during scans", indexed: true,
           storage: .settingsManager(key: "autoVerifySameSizeDuringScan"), control: .toggle, default: .bool(false),
           tier: .suggested, effects: .rescans,
-          help: "During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Slower on large folders."),
-        e("sync.rescanOnChange", .sync, "Rescan when files change", indexed: true,
+          help: "During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Thorough, but slower on large folders."),
+        e("sync.rescanOnChange", .panes, "Rescan when files change", indexed: true,
           storage: .settingsManager(key: "rescanWhenFilesChange"), control: .toggle, default: .bool(false), tier: .suggested),
-        e("sync.ignoreGoogleDriveNewer", .sync, "Ignore “newer on Google Drive” when same size", indexed: true,
+        e("sync.ignoreGoogleDriveNewer", .differences, "Ignore “newer on Google Drive” when same size", indexed: true,
           storage: .settingsManager(key: "ignoreGoogleDriveNewerDateOnly"), control: .toggle, default: .bool(false),
           tier: .suggested),
-        e("sync.confirmTransfer", .sync, "Confirm before copying or moving", indexed: true,
+        e("sync.confirmTransfer", .general, "Confirm before copying or moving", indexed: true,
           storage: app(GeneralSettings.confirmBeforeTransferKey, "GeneralSettings.confirmBeforeTransferKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, lessSafe: .turningOff,
           help: "Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once."),
-        e("sync.confirmDelete", .sync, "Confirm before deleting", indexed: true,
+        e("sync.confirmDelete", .general, "Confirm before deleting", indexed: true,
           storage: app(GeneralSettings.confirmBeforeDeleteKey, "GeneralSettings.confirmBeforeDeleteKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, lessSafe: .turningOff,
           help: "Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back."),
-        e("sync.rememberIgnored", .sync, "Remember ignored items across rescans", indexed: true,
+        e("sync.rememberIgnored", .ignored, "Remember ignored items across rescans", indexed: true,
           storage: .settingsManager(key: "rememberIgnoredItems"), control: .toggle, default: .bool(true), tier: .suggested),
-        e("sync.ignoredItems", .sync, "Ignored items", others: ["Stop ignoring"], storage: .owner("IgnoredItemsStore"),
+        e("sync.ignoredItems", .ignored, "Ignored items", others: ["Stop ignoring"], storage: .owner("IgnoredItemsStore"),
           control: .list, tier: .suggested, privacy: .hiddenFiltered),
-        e("sync.ignoredItemsClearAll", .sync, "Clear All ignored items", others: ["Clear All…"],
+        e("sync.ignoredItemsClearAll", .ignored, "Clear All ignored items", others: ["Clear All…"],
           control: .button("Clear All…"), tier: .asksTwice, lessSafe: .always),
-        e("sync.ignorePatterns", .sync, "Ignored name patterns", indexed: true,
+        e("sync.ignorePatterns", .ignored, "Ignored name patterns", indexed: true,
           storage: .settingsManager(key: "ignorePatterns"), control: .list, tier: .suggested),
 
         // MARK: Organize
-        e("organize.inbox", .filing, "Loose-files inbox", indexed: true,
+        e("organize.inbox", .toFile, "Loose-files inbox", indexed: true,
           storage: app(GeneralSettings.filingInboxRelativePathKey, "GeneralSettings.filingInboxRelativePathKey", "\"TODO\""),
           control: .text, default: .string("TODO"), tier: .suggested),
-        e("organize.rules", .filing, "Remembered rules", indexed: true, control: .readout, tier: .readOnly,
+        e("organize.rules", .toFile, "Rules you taught by correcting", indexed: true, others: ["Open Rules"], control: .readout, tier: .readOnly,
           privacy: .hiddenFiltered),
-        e("organize.surveys", .filing, "Folder surveys", indexed: true,
+        e("organize.surveys", .toFile, "Folder surveys", indexed: true,
           others: ["Learn Its Folders", "Read Documents…", "Stop"], storage: .owner("FolderSurveys"),
           control: .button("Learn Its Folders"), tier: .suggested, target: .cloudSource, privacy: .hiddenFiltered),
-        e("organize.surveyForget", .filing, "Forget survey", others: ["Forget…"], control: .button("Forget…"),
+        e("organize.surveyForget", .toFile, "Forget survey", others: ["Forget…"], control: .button("Forget…"),
           tier: .asksTwice, target: .cloudSource),
-        e("organize.keptNames", .filing, "Kept names", indexed: true, storage: .owner("KeptNamesStore"),
+        e("organize.keptNames", .nameChecks, "Allowed names", indexed: true, storage: .owner("KeptNamesStore"),
           control: .list, tier: .suggested, privacy: .hiddenFiltered),
-        e("organize.keptNamesClearAll", .filing, "Clear All kept names", others: ["Clear All…"],
+        e("organize.keptNamesClearAll", .nameChecks, "Clear All allowed names", others: ["Clear All…"],
           control: .button("Clear All…"), tier: .asksTwice),
 
-        // MARK: Duplicates
+        // MARK: Organize ▸ Duplicates
         e("duplicates.minSize", .duplicates, "Ignore files smaller than", indexed: true,
           storage: app(DuplicateFinderOptions.DefaultsKey.minFileSize, "DuplicateFinderOptions.DefaultsKey.minFileSize", "4096"),
           control: .menu([0, 4096, 102_400, 1_048_576].map { SettingChoice(.int($0), SettingsPickerOptions.fileSizeLabel($0)) }),
@@ -430,72 +432,72 @@ public enum SettingsCatalog {
           storage: app(DuplicateFinderOptions.DefaultsKey.detectSameText, "DuplicateFinderOptions.DefaultsKey.detectSameText", "true"),
           control: .toggle, default: .bool(true), tier: .suggested),
 
-        // MARK: Intelligence
-        e("intelligence.onDeviceAI", .intelligence, "Suggest folders with on-device AI", indexed: true,
+        // MARK: Organize ▸ Suggestions and Ask Claude
+        e("intelligence.onDeviceAI", .suggestions, "Suggest folders with Apple Intelligence", indexed: true,
           storage: app(FileSyncManager.usesAIDefaultsKey, "FileSyncManager.usesAIDefaultsKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, raises: .turningOn),
-        e("intelligence.readContents", .intelligence, "Read file contents on-device for better signals", indexed: true,
+        e("intelligence.readContents", .suggestions, "Read file contents on this Mac", indexed: true,
           storage: app(FileSyncManager.readContentsDefaultsKey, "FileSyncManager.readContentsDefaultsKey", "true"),
           // On, Refine sends Claude excerpts of what it read.
           control: .toggle, default: .bool(true), tier: .suggested, raises: .turningOn),
-        e("intelligence.cloudRefine", .intelligence, "Use Claude (cloud) to refine suggestions", indexed: true,
+        e("intelligence.cloudRefine", .suggestions, "Use Claude (cloud) to refine suggestions", indexed: true,
           storage: app(FileSyncManager.usesCloudDefaultsKey, "FileSyncManager.usesCloudDefaultsKey", "false"),
           control: .toggle, default: .bool(false), tier: .directWhenTightening, dependsOn: ["intelligence.onDeviceAI"],
           raises: .turningOn),
-        e("intelligence.apiKey", .intelligence, "Claude API key", indexed: true, others: ["Save", "Replace…", "Test"],
+        e("intelligence.apiKey", .keyAndSpending, "Claude API key", indexed: true, others: ["Save", "Replace…", "Test"],
           storage: .owner("AnthropicKeychain"), control: .secret, tier: .suggested, privacy: .secret),
-        e("intelligence.apiKeyRemove", .intelligence, "Remove API key", others: ["Remove"], control: .button("Remove"),
+        e("intelligence.apiKeyRemove", .keyAndSpending, "Remove API key", others: ["Remove"], control: .button("Remove"),
           tier: .asksTwice),
-        e("intelligence.apiKeyReveal", .intelligence, "Reveal API key", others: ["Copy"], control: .button("Reveal"),
+        e("intelligence.apiKeyReveal", .keyAndSpending, "Reveal API key", others: ["Copy"], control: .button("Reveal"),
           tier: .notInChat, privacy: .secret),
-        e("intelligence.askClaudeModel", .intelligence, "Model", index: ["Ask Claude"],
+        e("intelligence.askClaudeModel", .claudeGeneral, "Model", index: ["Ask Claude"],
           storage: app(AskClaudeModels.defaultsKey, "AskClaudeModels.defaultsKey", "AskClaudeModels.defaultModel.id"),
           control: .menu(AskClaudeModels.options.map { SettingChoice(.string($0.id), $0.label) }),
           default: .string(AskClaudeModels.defaultModel.id), tier: .suggested,
           raises: .laterIn([.string(AskClaudeModels.haiku.id), .string(AskClaudeModels.sonnet.id), .string(AskClaudeModels.opus.id)])),
-        e("intelligence.answers", .intelligence, "Answers", indexed: true,
+        e("intelligence.answers", .claudeGeneral, "Answers", indexed: true,
           storage: app(AskClaudeDetail.defaultsKey, "AskClaudeDetail.defaultsKey", "AskClaudeDetail.brief.rawValue"),
           control: .segmented(AskClaudeDetail.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
           default: .string(AskClaudeDetail.brief.rawValue), tier: .suggested,
           raises: .laterIn([.string(AskClaudeDetail.brief.rawValue), .string(AskClaudeDetail.detailed.rawValue)])),
-        e("intelligence.hidden", .intelligence, "Hidden from Claude", indexed: true, others: ["Add…"],
+        e("intelligence.hidden", .privacy, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat: a folder shared without asking loosens what reaches Claude, so only the
         // person sets it, from the shield menu, and only they take one off.
-        e("intelligence.shared", .intelligence, "Shared without asking", indexed: true,
+        e("intelligence.shared", .privacy, "Shared without asking", indexed: true,
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .notInChat, privacy: .countOnly),
-        e("intelligence.monthlyLimit", .intelligence, "Monthly limit", indexed: true,
+        e("intelligence.monthlyLimit", .keyAndSpending, "Monthly limit", indexed: true,
           storage: app(AskClaudeSpend.limitDefaultsKey, "AskClaudeSpend.limitDefaultsKey", "AskClaudeSpend.defaultLimitUSD"),
           control: .menu(AskClaudeSpend.limitChoices.map { SettingChoice(.double($0), $0 == 0 ? "No limit" : AskClaudeSpend.format($0)) }),
           default: .double(AskClaudeSpend.defaultLimitUSD), tier: .directWhenTightening,
           raises: .higher(zeroIsUnlimited: true),
           help: "Ask Claude warns at 80% of this and stops taking questions at it, until the month turns. Estimated from list prices; the Console has what was billed."),
-        e("intelligence.thisMonth", .intelligence, "This month", indexed: true, control: .readout, tier: .readOnly),
-        e("intelligence.cloudModel", .intelligence, "Cloud model", indexed: true,
+        e("intelligence.thisMonth", .keyAndSpending, "This month", indexed: true, control: .readout, tier: .readOnly),
+        e("intelligence.cloudModel", .suggestions, "Cloud model", indexed: true,
           storage: app(FileSyncManager.cloudModelDefaultsKey, "FileSyncManager.cloudModelDefaultsKey", "CloudFilingProtocol.defaultModel"),
           control: .menu(CloudFilingProtocol.selectableModelOptions.map { SettingChoice(.string($0.id), $0.label) }),
           default: .string(CloudFilingProtocol.defaultModel), tier: .suggested,
           dependsOn: ["intelligence.onDeviceAI", "intelligence.cloudRefine"],
           raises: .laterIn(CloudFilingProtocol.selectableModelOptions.map { .string($0.id) }),
           help: "Saved suggestions are per model — switching means the next Refine asks, and pays for, every file again."),
-        e("intelligence.costHistory", .intelligence, "Cost and limits", indexed: true, others: ["View History…"],
+        e("intelligence.costHistory", .keyAndSpending, "Cost and limits", indexed: true, others: ["View History…"],
           control: .readout, tier: .readOnly),
-        e("intelligence.costClear", .intelligence, "Clear spend history", others: ["Clear"], control: .button("Clear"),
+        e("intelligence.costClear", .keyAndSpending, "Clear spend history", others: ["Clear"], control: .button("Clear"),
           tier: .asksTwice, raises: .always),
-        e("intelligence.monthlyCap", .intelligence, "Monthly budget cap", indexed: true,
+        e("intelligence.monthlyCap", .keyAndSpending, "Monthly budget cap", indexed: true,
           storage: app(FileSyncManager.monthlyBudgetCapKey, "FileSyncManager.monthlyBudgetCapKey", "0"),
           control: .menu([0, 1, 5, 10, 25, 50].map { SettingChoice(.double(Double($0)), SettingsPickerOptions.budgetLabel(Double($0))) }),
           default: .double(0), tier: .directWhenTightening, raises: .higher(zeroIsUnlimited: true)),
-        e("intelligence.totalCap", .intelligence, "Total budget cap", indexed: true,
+        e("intelligence.totalCap", .keyAndSpending, "Total budget cap", indexed: true,
           storage: app(FileSyncManager.totalBudgetCapKey, "FileSyncManager.totalBudgetCapKey", "FileSyncManager.defaultTotalBudgetCapUSD"),
           control: .menu([0, 5, 10, 25, 50, 100].map { SettingChoice(.double(Double($0)), SettingsPickerOptions.budgetLabel(Double($0))) }),
           default: .double(FileSyncManager.defaultTotalBudgetCapUSD), tier: .directWhenTightening,
           raises: .higher(zeroIsUnlimited: true)),
-        e("intelligence.reuseSuggestions", .intelligence, "Reuse suggestions for files that haven’t changed", indexed: true,
+        e("intelligence.reuseSuggestions", .suggestions, "Reuse suggestions for files that haven’t changed", indexed: true,
           storage: app(FileSyncManager.reuseVerdictsDefaultsKey, "FileSyncManager.reuseVerdictsDefaultsKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, dependsOn: ["intelligence.onDeviceAI"],
           raises: .turningOff),
-        e("intelligence.savedSuggestionsClear", .intelligence, "Saved suggestions", indexed: true, others: ["Clear…"],
+        e("intelligence.savedSuggestionsClear", .suggestions, "Saved suggestions", indexed: true, others: ["Clear…"],
           control: .button("Clear…"), tier: .asksTwice, raises: .always),
 
         // MARK: Advanced
@@ -521,16 +523,41 @@ public enum SettingsCatalog {
     // swiftlint:enable function_body_length
 
     /// Stored keys a Settings control binds that are deliberately not entries of their own.
-    public static let excludedAppStorageKeySources: Set<String> = [
+    public static let excludedAppStorageKeySources: Set<String> = Set([
         // Part of Column widths: All columns erases it; nothing sets it from a card.
         "PaneViewMode.columnWidthOverridesDefaultsKey",
+        // Which page each paged tab last showed: where the sheet is, not a setting.
+        "SettingsSubTabMemory.defaultsKey",
+    ]).union(awaitingCatalogKeySources)
+
+    /// The Browse and Edit settings TE332's regroup brought into Settings, which join the catalog
+    /// with its drop 2 (TE332 step 2). Until then Claude can neither read nor change them; Settings
+    /// and the menus can. `awaitingCatalogIndexTitles` are their search rows.
+    static let awaitingCatalogKeySources: Set<String> = [
+        "PaneViewMode.browseDefaultsKey",
+        "BrowseWindowSettings.sidebarVisibleKey", "BrowseWindowSettings.sidebarRecentsModeKey",
+        "BrowseWindowSettings.tabBarVisibleKey", "BrowseWindowSettings.statusBarVisibleKey",
+        "EditorTextSettings.wrapsKey", "EditorTextSettings.readableLineLengthKey",
+        "EditorTextSettings.drawsPageKey", "EditorTextSettings.typewriterScrollingKey",
+        "EditorTextSettings.checksSpellingKey", "EditorTextSettings.showsFormatBarKey",
+        "EditorTextSettings.formatBarShowsLabelsKey", "EditorTextSettings.continuesListsKey",
+        "EditorTextSettings.editsInPreviewKey",
+        "EditorPDFSettings.layoutKey", "EditorPDFSettings.coverSeparatelyKey",
+    ]
+
+    /// The search rows of `awaitingCatalogKeySources`, which reach no entry until drop 2.
+    static let awaitingCatalogIndexTitles: Set<String> = [
+        "View as", "Show sidebar", "Sidebar recents", "Show tab bar", "Show status bar",
+        "Wrap lines", "Readable line length", "Paper background", "Typewriter scrolling",
+        "Check spelling while typing", "Format bar", "Labels on the format bar", "Continue lists",
+        "Edit in Preview (experimental)", "Page layout", "Cover page separately",
     ]
 
     private static func app(_ key: String, _ keySource: String, _ defaultSource: String) -> SettingStorage {
         .appStorage(key: key, keySource: keySource, defaultSource: defaultSource)
     }
 
-    private static func e(_ id: String, _ tab: SettingsView.SettingsTab, _ label: String,
+    private static func e(_ id: String, _ place: SettingsPlace, _ label: String,
                           indexed: Bool = false, index: [String] = [], others: [String] = [],
                           storage: SettingStorage = .none, control: SettingControl,
                           default value: SettingValue? = nil, tier: SettingTier,
@@ -539,7 +566,7 @@ public enum SettingsCatalog {
                           raises: SettingDirection? = nil, lessSafe: SettingDirection? = nil,
                           help: String? = nil) -> SettingEntry {
         SettingEntry(id: id, label: label, indexTitles: indexed ? [label] + index : index, otherLabels: others,
-                     tab: tab, storage: storage, control: control, defaultValue: value, tier: tier,
+                     place: place, storage: storage, control: control, defaultValue: value, tier: tier,
                      target: target, privacy: privacy, effects: effects, dependsOn: dependsOn,
                      raises: raises, lessSafe: lessSafe, help: help)
     }

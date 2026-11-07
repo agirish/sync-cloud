@@ -173,7 +173,7 @@ public enum PaletteGroup: String, CaseIterable, Sendable {
     /// answers both a folder and a preferences page nearly always means the folder.
     ///
     /// **That tie is real and measured, not a theoretical one.** A folder named `People` scores 400
-    /// against Settings ▸ People's 396 and wins on score alone; the same folder five levels deep
+    /// against a Settings row's 396 and wins on score alone; the same folder five levels deep
     /// takes a depth penalty to exactly 396 and is separated *only* by this rank. So moving this
     /// case earlier in `allCases` would put a preferences page above the folder somebody was
     /// looking for — `aFolderNamedLikeATabKeepsItsLead` is what fails if it moves.

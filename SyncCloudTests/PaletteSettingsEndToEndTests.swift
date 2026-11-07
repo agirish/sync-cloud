@@ -50,11 +50,11 @@ import Settings
             ("glass", .appearance), ("blur", .appearance), ("dark mode", .appearance),
             ("api key", .intelligence), ("anthropic", .intelligence), ("sk-ant", .intelligence),
             ("log level", .advanced), ("factory reset", .advanced),
-            ("node_modules", .sync), ("keep both", .sync),
+            ("node_modules", .sync), ("keep both", .general),
             ("icloud", .providers), ("dropbox", .providers),
-            ("household", .people), ("loose files", .filing),
-            ("row spacing", .readability), ("dotfiles", .general),
-            ("fingerprint", .duplicates)
+            ("household", .filing), ("loose files", .filing),
+            ("row spacing", .appearance), ("dotfiles", .browse),
+            ("fingerprint", .filing), ("word wrap", .edit)
         ]
         for (query, tab) in promised {
             let row = try #require(leadingSettingsRow(query), "nothing answers “\(query)”")
@@ -63,20 +63,21 @@ import Settings
         }
     }
 
-    /// Readability keeps `appearance` deliberately, so both tabs answer it and Appearance must
-    /// lead: the live case of the collision the penalty exists for.
-    @Test func bothTabsAnswerAppearanceAndTheRightOneLeads() throws {
-        let rows = PaletteRouter.rows(query: "appearance", index: Self.index)
+    /// Sources carries `browse` as a keyword (Synchronized path's Browse… button), so both Sources
+    /// and the Browse tab answer it and Browse must lead: the live case of the collision the
+    /// penalty exists for.
+    @Test func bothTabsAnswerBrowseAndTheRightOneLeads() throws {
+        let rows = PaletteRouter.rows(query: "browse", index: Self.index)
             .filter { $0.group == .settings }
         let ids = rows.map(\.id)
-        #expect(ids.contains("settings.readability"),
-                "Readability no longer answers “appearance” — the penalty has nothing left to order")
-        let appearance = try #require(ids.firstIndex(of: "settings.appearance"))
-        let readability = try #require(ids.firstIndex(of: "settings.readability"))
-        #expect(appearance < readability)
+        #expect(ids.contains("settings.providers"),
+                "Sources no longer answers “browse” — the penalty has nothing left to order")
+        let browse = try #require(ids.firstIndex(of: "settings.browse"))
+        let sources = try #require(ids.firstIndex(of: "settings.providers"))
+        #expect(browse < sources)
     }
 
-    /// Typing the parent lists all ten, in the rail's order.
+    /// Typing the parent lists all nine, in the rail's order.
     @Test func typingSettingsListsEveryTabInRailOrder() {
         let rows = PaletteRouter.rows(query: "settings", index: Self.index)
             .filter { $0.group == .settings }

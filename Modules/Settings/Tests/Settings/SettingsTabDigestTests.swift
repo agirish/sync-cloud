@@ -67,11 +67,11 @@ import Testing
             ("glass", .appearance), ("dark mode", .appearance),
             ("api key", .intelligence), ("anthropic", .intelligence), ("sk-ant", .intelligence),
             ("log level", .advanced), ("factory reset", .advanced),
-            ("node_modules", .sync), ("keep both", .sync),
+            ("node_modules", .sync), ("keep both", .general),
             ("icloud", .providers), ("dropbox", .providers),
-            ("household", .people), ("loose files", .filing),
-            ("row spacing", .readability), ("startup", .general),
-            ("fingerprint", .duplicates)
+            ("household", .filing), ("loose files", .filing),
+            ("row spacing", .appearance), ("startup", .general),
+            ("fingerprint", .filing), ("sidebar", .browse), ("word wrap", .edit)
         ]
         for (word, tab) in promised {
             let reached = Tab.digests.filter { digest in
@@ -82,10 +82,11 @@ import Testing
         }
     }
 
-    /// `appearance` is a keyword on Readability on purpose, because people look for its controls
-    /// under Appearance. That collision is why the palette penalises a vocabulary match, so it is
-    /// pinned: if it stopped being true, the penalty's justification would go with it.
-    @Test func readabilityStillAnswersTheWordAppearance() {
-        #expect(Tab.readability.digest.vocabulary.contains("appearance"))
+    /// `browse` is a keyword on Sources (Synchronized path's Browse… button) and the name of the
+    /// Browse tab. That collision is why the palette penalises a vocabulary match below a name, so
+    /// it is pinned: if it stopped being true, the penalty's justification would go with it.
+    @Test func sourcesStillAnswersTheWordBrowse() {
+        #expect(Tab.providers.digest.vocabulary.contains("browse"))
+        #expect(Tab.browse.displayName.lowercased() == "browse")
     }
 }

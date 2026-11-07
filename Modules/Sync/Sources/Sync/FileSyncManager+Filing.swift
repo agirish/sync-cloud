@@ -175,7 +175,7 @@ extension FileSyncManager {
     ///
     /// Not the toggle: with cloud on and no key stored, the toggle would promise a model the router
     /// won't use, and the pass would report "no better homes found" having asked nothing. The
-    /// invitation is the honest control there; it opens Settings ▸ Intelligence, where the key goes.
+    /// invitation is the honest control there; it opens Settings ▸ Organize ▸ Suggestions, a jump from the key.
     ///
     /// Not the real route either (hence ``filingCloudRefineConfigured``): this is read on every
     /// render of the Organize toolbar, and resolving the route decrypts the Keychain item, which
@@ -833,7 +833,7 @@ extension FileSyncManager {
     ///
     /// The refine pass keeps its dialog, showing a cap breach as an informational alert: it is a
     /// bulk action the user asked to price. A single card is not, and the remedy for a hit cap is
-    /// the same either way: Settings ▸ Intelligence.
+    /// the same either way: Settings ▸ Organize.
     func cloudSpendWithinCapsWithoutPrompting(files: [FilingCandidateFile],
                                               taxonomyFolders: [String]) -> Bool {
         switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
@@ -845,7 +845,7 @@ extension FileSyncManager {
             // specifics; this says the sentence the user needs.
             banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
                               + "known price, so the cost can’t be checked. Keeping the on-device "
-                              + "suggestion; pick one of the offered models in Settings ▸ Intelligence.")
+                              + "suggestion; pick one of the offered models in Settings ▸ Organize.")
             return false
         case .billable(let preflight):
             guard preflight.wouldExceedCap else { return true }
@@ -853,11 +853,11 @@ extension FileSyncManager {
                 + "(est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month "
                 + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
                 + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
-                + "suggestion; raise the cap in Settings ▸ Intelligence to keep using Claude.")
+                + "suggestion; raise the cap in Settings ▸ Ask Claude to keep using Claude.")
             // As for `.blocked` above, with a different remedy, so a different sentence.
             banner = .warning("Couldn’t ask Claude for another folder — it would pass a budget "
                               + "cap. Keeping the on-device suggestion; raise the cap in "
-                              + "Settings ▸ Intelligence to keep using Claude.")
+                              + "Settings ▸ Ask Claude to keep using Claude.")
             return false
         }
     }
@@ -892,13 +892,13 @@ extension FileSyncManager {
         // No substitute number is honest, so the pass stands down and keeps the free on-device
         // suggestions, as `CloudFilingClassifier` does when the spend record can't be read: no paid
         // call while no cap can be enforced. The log names the model, since the remedy is one
-        // Settings ▸ Intelligence change away.
+        // Settings ▸ Organize change away.
         guard let estCost = CloudFilingProtocol.estimatedCostUSD(
                 model: model, taxonomyFolders: taxonomyFolders, files: files) else {
             Logger.shared.warning("Filing: cloud classify skipped for \(files.count) file(s) — no price "
                 + "is known for model “\(model)”, so the cost could not be quoted and neither budget "
                 + "cap could be enforced against it. Using the free on-device suggestions; pick one of "
-                + "the offered models in Settings ▸ Intelligence to use Claude.")
+                + "the offered models in Settings ▸ Organize to use Claude.")
             return .blocked
         }
         // Spend and caps must come from the same store, or the pre-flight compares spend in one

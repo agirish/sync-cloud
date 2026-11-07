@@ -1,23 +1,25 @@
 import Design
 import SwiftUI
 
-/// The Appearance tab's accent picker: eleven swatches, a live sample of what the accent paints,
-/// and a caption naming the choice and where it lands. Takes its hue as a plain value, so snapshot
+/// Appearance ▸ Look's accent picker: eleven swatches and a live sample of what the accent paints.
+/// No caption (TE332): the swatch and the sample show the choice, and None's tooltip says why its
+/// sample is still coloured. Takes its hue as a plain value, so snapshot
 /// tests can render a hue without a defaults suite; the storage stays in the tab.
 struct AccentColorSection: View {
     let selectedHue: LiquidGlassHue
     let onSelect: (LiquidGlassHue) -> Void
 
     var body: some View {
-        SettingsSection("Accent color", caption: Self.caption(for: selectedHue)) {
+        SettingsSection("Accent color") {
             // Eleven hues share this row; the tighter spacing gives each swatch more room.
             HStack(spacing: 5) {
                 ForEach(LiquidGlassHue.allCases) { hue in
-                    HueOptionView(
-                        hue: hue,
-                        isSelected: selectedHue == hue,
-                        action: { onSelect(hue) }
-                    )
+                    if hue == .none {
+                        HueOptionView(hue: hue, isSelected: selectedHue == hue, action: { onSelect(hue) })
+                            .help(Self.noneHelp)
+                    } else {
+                        HueOptionView(hue: hue, isSelected: selectedHue == hue, action: { onSelect(hue) })
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -39,28 +41,13 @@ struct AccentColorSection: View {
         shape: .circle, color: HueOptionView.ringColor, markerOpacity: 0,
         ring: .init(color: HueOptionView.ringColor, width: HueOptionView.ringWidth), outset: 3)
 
-    /// The caption, in the idiom of the neighbouring sections (`AppearanceMode.detail`,
-    /// `GlassLevel.detail`): name the current value, then say what it does.
-    ///
-    /// The three uses named are the three that exist: filled controls (`PaneActionBar`'s transfer
-    /// buttons, `DestinationPicker`'s selected rail row), the pane selection wash (`FileTreeView`),
-    /// and the seam chrome (`ContentView`'s swap button and rail spine). The tint wash has its own
-    /// section below. `.none` keeps all three, because `LiquidGlassHue.none.accentColor` is the
-    /// system accent; what it removes is the glass background (clear `gradientColors`, no surface
-    /// tint wash).
-    ///
-    /// Keep it to one line at the settings column's 547pt, about 108 characters: a wrap costs the
-    /// tab ~13pt of height. `appearanceFitsEveryAccentHue` measures every hue's caption; if it
-    /// fails, shorten the sentence rather than widen the test.
-    static func caption(for hue: LiquidGlassHue) -> String {
-        guard hue != .none else {
-            // `.none` defers to the system accent, which is why the strip still shows a filled
-            // button; without saying so, a coloured button under "None" reads as a bug. 98
-            // characters, one line at the 11pt caption size: measure before lengthening.
-            return "None. Filled controls, selection, and seam chrome use your macOS accent; the glass stays untinted."
-        }
-        return "\(hue.displayName). Used for filled controls, selection, and the seam chrome."
-    }
+    /// None's tooltip. `.none` defers to the system accent, so the sample still shows a filled
+    /// button, and without saying so a coloured button under "None" reads as a bug. `.none` keeps
+    /// filled controls, the pane selection wash and the seam chrome; what it removes is the glass
+    /// tint (clear `gradientColors`, no surface tint wash). A tooltip, not the caption it was until
+    /// TE332: Tint's caption already speaks to None, and a second line under the swatches cost the
+    /// page its margin (`appearanceFitsEveryAccentHue`).
+    static let noneHelp = "None. Filled controls, selection, and seam chrome use your macOS accent; the glass stays untinted."
 }
 
 /// A live sample of the accent in use: the pane action bar's filled transfer button beside the

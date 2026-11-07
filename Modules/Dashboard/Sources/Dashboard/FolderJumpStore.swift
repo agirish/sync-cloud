@@ -163,7 +163,7 @@ public final class FolderJumpStore: ObservableObject {
     /// **Unreadable is not absent.** A `try?` that falls back to `[:]` looks like a fresh install,
     /// and the next `togglePin` would encode that empty map over the key and destroy the real pins.
     ///
-    /// `PeopleStore` refuses to write in this state, because Settings ▸ People has a banner to
+    /// `PeopleStore` refuses to write in this state, because Settings ▸ Organize ▸ People has a banner to
     /// explain it. This surface has none, and a refused write would just make the pin item stop
     /// working, so the bytes are kept aside and the store carries on, which loses nothing.
     static func salvageKey(for key: String) -> String { key + ".unreadable" }

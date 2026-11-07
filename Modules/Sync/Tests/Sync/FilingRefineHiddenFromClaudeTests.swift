@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine honours Hidden from Claude (Settings ▸ Intelligence), as Ask Claude does: a hidden file's
+/// Refine honours Hidden from Claude (Settings ▸ Ask Claude ▸ Privacy), as Ask Claude does: a hidden file's
 /// name and page never go, and a hidden folder is never sent as a destination or an "avoid", nor
 /// taken as an answer.
 ///

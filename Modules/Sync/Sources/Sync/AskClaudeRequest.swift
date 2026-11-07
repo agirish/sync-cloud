@@ -153,7 +153,7 @@ public enum AskClaudeRequest {
     - A file only in the cloud over 25 MB is downloaded only when they click Download on a card the \
     tool shows them. When a tool says it offered one, say so in a line and stop; the question comes \
     back to you once the file is here.
-    - Folders and files they put on their Hidden from Claude list (Settings ▸ Intelligence) appear only as a count. Never guess what is in them.
+    - Folders and files they put on their Hidden from Claude list (Settings ▸ Ask Claude) appear only as a count. Never guess what is in them.
     - An attached section lists what they right-clicked to ask about; their question is about those, wherever they are.
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
     Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
@@ -184,7 +184,7 @@ public enum AskClaudeRequest {
     - If you aren’t sure which file they mean, ask.
     """
 
-    /// Both answer styles (Settings ▸ Intelligence ▸ Answers, or the chat's menu), in the fixed
+    /// Both answer styles (Settings ▸ Ask Claude ▸ Answers, or the chat's menu), in the fixed
     /// text: the `<setting>` block picks one per question, so switching costs no cache write.
     public static let styles = """
 
@@ -360,7 +360,7 @@ public enum AskClaudeToolCatalog {
         tool(.showInApp,
              "Open or toggle a place in SyncCloud itself: settings (at a tab or a setting), activity (runs, history and the log), help, trash (shown in Finder, as SyncCloud’s own Trash row does), info (the Info inspector on the right, ⌘I), or sidebar (the folder sidebar on the left).",
              properties: ["place": string("settings, activity, help, trash, info or sidebar."),
-                          "tab": string("For settings: a tab (General, Appearance, Readability, Sources, People, Sync, Organize, Duplicates, Intelligence, Advanced) or a setting’s name, e.g. Ask Claude, Monthly limit, API key. Ask Claude’s own settings are under Intelligence."),
+                          "tab": string("For settings: a tab (General, Appearance, Sources, Browse, Compare, Organize, Edit, Ask Claude, Advanced) or a setting’s name, e.g. Monthly limit, API key, People. Ask Claude’s own settings are under Ask Claude."),
                           "visible": .object(["type": .string("boolean"), "description": .string("For info and sidebar: show (true, the default) or hide.")])],
              required: ["place"]),
         // The whole tool, show and set included, is one fixed entry, so the cached prefix (and

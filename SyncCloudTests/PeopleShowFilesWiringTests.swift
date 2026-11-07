@@ -4,7 +4,7 @@ import Settings
 import Sync
 @testable import SyncCloud
 
-/// Settings ▸ People's "Show Their Files", the button that takes a person from the roster to the
+/// Organize ▸ People's "Show Their Files", the button that takes a person from the roster to the
 /// documents the row counts. The feature is a closure passed across a package wall: `SettingsView`
 /// draws no button if `onShowPerson` is nil, and `ContentView.acceptPersonScope` lives on a
 /// SwiftUI `View` no test can call. So this scans the one call site; `MacApp` is in no SPM package,

@@ -19,8 +19,13 @@ import SwiftUI
 /// card) drive one round-trip and show one value.
 public struct LaunchAtLoginRow: View {
     @ObservedObject private var loginItem = LoginItemController.shared
+    /// Whether the plain explanation shows under the switch. Settings ▸ General drops it (TE332:
+    /// the label says it); the approval hint shows either way, since it is what to do next.
+    private let showsCaption: Bool
 
-    public init() {}
+    public init(showsCaption: Bool = true) {
+        self.showsCaption = showsCaption
+    }
 
     public var body: some View {
     SettingsSection {
@@ -38,7 +43,7 @@ public struct LaunchAtLoginRow: View {
                 .buttonStyle(.link)
                 .controlSize(.small)
             }
-        } else {
+        } else if showsCaption {
             Text("Automatically start SyncCloud when you log in to your Mac.")
         }
     }
@@ -57,8 +62,13 @@ public struct NotifyInBackgroundRow: View {
     /// Whether the system has DENIED notification permission while the toggle is on — the one
     /// state where the feature looks enabled here but can never fire.
     @State private var notificationsDenied = false
+    /// Whether the plain explanation shows under the switch — see `LaunchAtLoginRow.showsCaption`.
+    /// The refused-permission hint shows either way.
+    private let showsCaption: Bool
 
-    public init() {}
+    public init(showsCaption: Bool = true) {
+        self.showsCaption = showsCaption
+    }
 
     public var body: some View {
     SettingsSection {
@@ -76,7 +86,7 @@ public struct NotifyInBackgroundRow: View {
         if notifyInBackground && notificationsDenied {
             Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
                 .foregroundStyle(.orange)
-        } else {
+        } else if showsCaption {
             Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Requires notification permission.")
         }
     }

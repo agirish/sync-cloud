@@ -119,7 +119,7 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
     }
     public let kind: Kind
     public let message: String
-    /// Whether opening Settings ▸ Intelligence would fix it.
+    /// Whether opening Settings ▸ Ask Claude would fix it.
     public var opensSettings: Bool { kind == .noKey || kind == .keyRejected || kind == .limitReached }
 
     public init(_ kind: Kind, _ message: String) {
@@ -144,7 +144,7 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
         }
         switch status {
         case 401:
-            return AskClaudeProblem(.keyRejected, "Claude didn’t accept the API key. Check it in Settings ▸ Intelligence.")
+            return AskClaudeProblem(.keyRejected, "Claude didn’t accept the API key. Check it in Settings ▸ Ask Claude.")
         case 403:
             // A permission error, not a bad key: the key's workspace or region can't use this.
             let what = detail.isEmpty ? "" : " (\(detail))"
@@ -370,13 +370,13 @@ public final class AskClaudeEngine {
             onEvent(event)
         }
         guard let key, !key.isEmpty else {
-            emit(.problem(AskClaudeProblem(.noKey, "Add your Claude API key in Settings ▸ Intelligence to ask questions.")))
+            emit(.problem(AskClaudeProblem(.noKey, "Add your Claude API key in Settings ▸ Ask Claude to ask questions.")))
             return false
         }
         if case .overLimit(let spent, let limit) = AskClaudeSpend.state(in: defaults, now: now()) {
             let reset = AskClaudeSpend.resetDate(after: now()).formatted(.dateTime.month(.wide).day())
             emit(.problem(AskClaudeProblem(.limitReached,
-                "Ask Claude has used \(AskClaudeSpend.format(spent)) of its \(AskClaudeSpend.format(limit)) monthly limit. It resets on \(reset), or you can raise the limit in Settings ▸ Intelligence.")))
+                "Ask Claude has used \(AskClaudeSpend.format(spent)) of its \(AskClaudeSpend.format(limit)) monthly limit. It resets on \(reset), or you can raise the limit in Settings ▸ Ask Claude.")))
             return false
         }
 

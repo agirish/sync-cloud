@@ -200,7 +200,7 @@ public struct FolderNameRuleRow: View {
 
 /// The two filing preferences setup offers under *More options* on its Learn screen.
 ///
-/// The same two keys Settings ▸ Organize and Settings ▸ Intelligence write, through the same
+/// The same two keys Organize ▸ To File and Organize ▸ Suggestions write, through the same
 /// constants: the inbox folder, which the walk marks as refusing files, and the on-device pass
 /// Organize uses when a name alone isn't enough. Both take effect at once, as in Settings.
 public struct InboxAndSuggestionRows: View {
@@ -223,7 +223,7 @@ public struct InboxAndSuggestionRows: View {
                     .multilineTextAlignment(.trailing)
             }
             .help("The folder (relative to the location’s root) where loose files pile up — e.g. “TODO”. Nothing is filed into it.")
-            Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
+            Toggle("Suggest folders with Apple Intelligence", isOn: $filingUseAI)
                 .toggleStyle(.checkbox)
                 .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone.")
         }

@@ -152,7 +152,7 @@ import Testing
         let container = CGSize(width: 1000, height: 800)
         let host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
                                                           accentFill: .blue, onAccent: .white, onAsk: { asked.append($0) },
-                                                          onClose: {}, onOpenSettings: {}, container: container,
+                                                          onClose: {}, onOpenSettings: { _ in }, container: container,
                                                           settingsBridge: .keySaved))
         host.frame = NSRect(origin: .zero, size: container)
         let window = AskClaudePanelWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)

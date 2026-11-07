@@ -4,7 +4,7 @@ import Design
 import SwiftUI
 @testable import Settings
 
-/// Settings ▸ Readability ▸ Column widths — the choice between sizing Columns one column at a time
+/// Settings ▸ Browse ▸ Panes ▸ Column widths — the choice between sizing Columns one column at a time
 /// and all together.
 ///
 /// "All columns" promises the columns are one width, not only what the next drag does, so the
@@ -33,9 +33,10 @@ import SwiftUI
         test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
 
         var asked: [Int] = []
-        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: {
+        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
             asked.append($0); return true
-        }).defaultAppStorage(test.defaults))
+        }).defaultAppStorage(test.defaults)
+            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -78,9 +79,10 @@ import SwiftUI
         test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
 
         var asked: [Int] = []
-        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: {
+        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
             asked.append($0); return false
-        }).defaultAppStorage(test.defaults))
+        }).defaultAppStorage(test.defaults)
+            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
         host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -125,9 +127,10 @@ import SwiftUI
         let tinyWindow = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,
                                 height: SettingsSheetMetrics.floorSize.height + SettingsSheetMetrics.hostMargin)
         let column = SettingsSheetMetrics.contentWidth(textScale: FontSize.extraLarge.scale, available: tinyWindow)
-        let host = NSHostingView(rootView: ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false })
+        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: { _ in false })
             .appFontSize(.extraLarge)
-            .defaultAppStorage(test.defaults))
+            .defaultAppStorage(test.defaults)
+            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
         host.frame = NSRect(x: 0, y: 0, width: column, height: 1600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -19,7 +19,7 @@ public struct SettingsTabDigest: Equatable, Sendable {
     public let name: String
 
     /// One line saying what is on the tab — the only prose here not already on screen. It explains
-    /// a keyword match: "Settings ▸ Intelligence" alone doesn't say why `api key` found it, and
+    /// a keyword match: "Settings ▸ Ask Claude" alone doesn't say why `api key` found it, and
     /// `PaletteRouter.matchRange` bolds only text the query is in.
     public let detail: String
 
@@ -57,21 +57,15 @@ extension SettingsView.SettingsTab {
     /// against the row's real opening. Internal: `digest` is the public door.
     var paletteDetail: String {
         switch self {
-        case .general: return "Startup, sorting, and notifications"
-        case .appearance: return "Theme, accent, glass, and surfaces"
-        case .readability: return "Text size and row spacing"
-        // Names the two kinds of source without repeating the tab's title, Sources, and short
-        // enough to fit the floor width.
-        case .providers: return "Cloud accounts and local folders"
-        // Says why the household is here, for someone deciding from the row whether to open it.
-        // The 215pt opening leaves no room for a longer phrasing.
-        case .people: return "Who filing attributes documents to"
-        case .sync: return "Conflicts, confirmations, and ignores"
-        // No serial comma: with it the line measures 220pt against a 215pt opening.
-        case .filing: return "Inbox, remembered rules, kept names"
-        case .duplicates: return "Thresholds, and how copies are found"
-        case .intelligence: return "On-device AI, Claude, and what it costs"
-        case .advanced: return "Logging, digests, and maintenance"
+        case .general: return "Startup, copying, notifications"
+        case .appearance: return "Theme, accent, glass, text size"
+        case .providers: return "Accounts, folders, name checks"
+        case .browse: return "Hidden files, sorting, sidebar"
+        case .sync: return "Differences, ignores, One-Way Sync"
+        case .filing: return "Suggestions, people, duplicates"
+        case .edit: return "Text, Markdown, and PDF"
+        case .intelligence: return "Model, privacy, key, spending"
+        case .advanced: return "Logging, digests, setup, resets"
         }
     }
 }

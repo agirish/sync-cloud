@@ -425,7 +425,7 @@ public struct LensWorkspaceView: View {
     /// presented from the menu would live outside the anchor that keeps it alive across a lens
     /// switch, which is the bug main's round-4 fixed for the two sheets that already existed.
     @Binding private var restructureVerbRequest: RestructureVerbRequest?
-    /// Opens Settings ▸ Intelligence, where the cloud backend is set up. Optional so the previews and
+    /// Opens Settings ▸ Organize's Suggestions page, where Refine is set up. Optional so the previews and
     /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
     /// host that has no Settings to open.
@@ -2556,7 +2556,7 @@ public struct LensWorkspaceView: View {
             .chromeHover()
             .controlSize(.small)
             .help("These suggestions came from the free on-device pass. Set up Claude in "
-                  + "Settings ▸ Intelligence to re-ask a stronger model about them — billed to your "
+                  + "Settings ▸ Organize to re-ask a stronger model about them — billed to your "
                   + "own API key, and never used by a scan.")
         }
     }
@@ -2582,7 +2582,7 @@ public struct LensWorkspaceView: View {
 
     /// The disabled Refine button's tooltip when every file listed is hidden from Claude.
     static let allHiddenFromClaudeHelp = "Every file listed is hidden from Claude, so Refine has "
-        + "nothing it may send. Settings ▸ Intelligence holds the Hidden from Claude list."
+        + "nothing it may send. Settings ▸ Ask Claude holds the Hidden from Claude list."
 
     /// Runs the refine pass over `scope`, which the pass filters itself. Unstructured on purpose:
     /// this is a user-initiated round trip that must survive the view re-rendering underneath it

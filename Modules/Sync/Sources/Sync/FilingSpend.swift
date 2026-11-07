@@ -245,7 +245,7 @@ public enum FilingSpendStore {
         return true
     }
 
-    /// What the confirmation says, shared by Settings ▸ Intelligence and the Organize lens's
+    /// What the confirmation says, shared by Settings ▸ Ask Claude ▸ Key & Spending and the Organize lens's
     /// history sheet so the two Clear buttons ask the same question.
     public static let clearPrompt = (
         messageText: "Clear the recorded Claude spend?",

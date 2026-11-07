@@ -268,7 +268,7 @@ import Sync
     @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
         let host = try Self.source("CommandPaletteHost.swift")
         let code = Self.codeOnly(host)
-        #expect(code.contains("openSettings(on: tab)"),
+        #expect(code.contains("openSettings(on: SettingsPlace(tab))"),
                 "the Settings tab route no longer opens through openSettings(on:)")
         // `runPaletteAction`'s `case .settings` is the one legitimate bare latch in this file —
         // "put Settings back where I left it" names no tab. Anything beyond that one is the

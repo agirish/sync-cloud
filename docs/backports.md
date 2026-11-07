@@ -14561,3 +14561,25 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Hidden from Claude list, so no promise for Refine to break | CLOSED — doesn't apply |
+
+## Settings regrouped into pages (TE332 step 1) — main only
+
+2026-11-06, for v7.1. On `main`, Settings has nine tabs, most with a strip of pages: General ·
+Appearance (Look · Text & Spacing) · Sources (Cloud Providers · Local Folders · Name Checks) ·
+Browse (Panes · Window) · Compare (Differences · Ignored · One-Way Sync) · Organize (To File ·
+Suggestions · People · Duplicates) · Edit (Text · PDF) · Ask Claude (General · Privacy · Key &
+Spending) · Advanced, with one-line captions. Readability, People and Duplicates folded in; their
+stored tab values open their new pages. Browse and Edit are new tabs over settings the menus
+already had, so no setting changed what it does. The sheet is 512pt tall at the default size,
+down from 648pt.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s intelligence=%s subtabs=%s\n' $l "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift | grep -c 'case intelligence')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Settings/Sources/Settings/SettingsPlace.swift | wc -l | tr -d ' ')"; done
+# measured 2026-11-06, against origin, before this landed: v6.x–v4.x intelligence=1, v3.x–v2.x 0; every line subtabs=0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The flat rail, long captions | RECORDED — not owed (a redesign, not a fix) |

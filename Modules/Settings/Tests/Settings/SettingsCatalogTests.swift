@@ -58,7 +58,7 @@ import Sync
 
     @Test func everySearchIndexRowReachesAnEntry() {
         let titles = Set(SettingsCatalog.all.flatMap(\.indexTitles))
-        for row in SettingsSearchIndex.all {
+        for row in SettingsSearchIndex.all where !SettingsCatalog.awaitingCatalogIndexTitles.contains(row.title) {
             #expect(titles.contains(row.title), "index row “\(row.title)” reaches no catalog entry")
         }
     }
@@ -72,12 +72,33 @@ import Sync
         }
     }
 
-    @Test func anIndexedEntrySitsOnItsRowsTab() {
+    @Test func anIndexedEntrySitsOnItsRowsPage() {
         for entry in SettingsCatalog.all {
             for title in entry.indexTitles {
                 guard let row = SettingsSearchIndex.all.first(where: { $0.title == title }) else { continue }
-                #expect(row.tab == entry.tab, "\(entry.id) is on \(entry.tab), its index row on \(row.tab)")
+                #expect(row.place == entry.place, "\(entry.id) is on \(entry.place.name), its index row on \(row.place.name)")
             }
+        }
+    }
+
+    /// The rows waiting for catalog drop 2 are exactly the Browse and Edit rows that reach no entry:
+    /// a title that gains an entry, or is renamed, must leave the list.
+    @Test func theRowsAwaitingTheCatalogAreRealAndUncatalogued() {
+        let rows = Set(SettingsSearchIndex.all.map(\.title))
+        let catalogued = Set(SettingsCatalog.all.flatMap(\.indexTitles))
+        for title in SettingsCatalog.awaitingCatalogIndexTitles {
+            #expect(rows.contains(title), "“\(title)” awaits the catalog but is no index row")
+            #expect(!catalogued.contains(title), "“\(title)” is catalogued now; take it off the waiting list")
+        }
+        for key in SettingsCatalog.awaitingCatalogKeySources {
+            #expect(Self.appStorageBindings.contains { $0.key == key }, "\(key) awaits the catalog but no Settings view binds it")
+        }
+    }
+
+    /// A catalog entry on a paged tab names its page, as the search index's rows do.
+    @Test func everyEntryOnAPagedTabNamesItsPage() {
+        for entry in SettingsCatalog.all {
+            #expect(entry.tab.subTabs.isEmpty == (entry.place.subTab == nil), "\(entry.id) at \(entry.place.name)")
         }
     }
 
@@ -185,7 +206,7 @@ import Sync
     @Test func onlyLookAndFeelIsDirect() {
         let direct = SettingsCatalog.all.filter { $0.tier == .direct }
         for entry in direct {
-            #expect([.appearance, .readability].contains(entry.tab) || entry.id == "general.sortPanesBy",
+            #expect(entry.tab == .appearance || entry.id == "general.sortPanesBy",
                     "\(entry.id) is Direct but isn't look and feel")
         }
     }

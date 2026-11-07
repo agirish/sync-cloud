@@ -1136,7 +1136,7 @@ struct ContentView: View {
                     ActivityCenter.shared.tab = .history
                     openWindow(id: ActivityCenter.windowID)
                 }
-                oneWaySync.onOpenSettings = { openSettings(on: .sync) }
+                oneWaySync.onOpenSettings = { openSettings(on: SettingsPlace(.oneWaySync)) }
                 // The sync's own writes are this process's, which the watcher doesn't report: the
                 // walks listing them are dropped and the panes read again.
                 oneWaySync.onWrote = { paths in
@@ -1405,7 +1405,7 @@ struct ContentView: View {
                         // Through `resolvingStored` rather than spelling the fallback here: this
                         // file is in no SPM package, so an inline `??` would be reachable by no
                         // test. See `StoredTabResolutionTests`.
-                        openSettings(on: SettingsView.SettingsTab.resolvingStored(
+                        openSettings(on: SettingsPlace.resolvingStored(
                             UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey)))
                     }
                     // `openCommandPaletteOnLaunch` set to YES in the defaults domain brings up ⌘K
@@ -2268,20 +2268,23 @@ struct ContentView: View {
         refreshAction()
     }
 
-    /// Opens the settings overlay preselected on the Providers tab — the fix-it action for the
-    /// invalid-root / disabled-provider pane placeholders.
-    private func openProviderSettings() { openSettings(on: .providers) }
+    /// Opens the settings overlay preselected on Sources — the fix-it action for the
+    /// invalid-root / disabled-provider pane placeholders — on the page last shown there, since a
+    /// placeholder can belong to a cloud account or a folder.
+    private func openProviderSettings() { openSettings(on: SettingsPlace(.providers)) }
 
     /// The one door for every Settings deep link. The tab is preset before the latch, because the
     /// overlay reads `settingsTab` as it appears; the displaced tab is stashed so
     /// `onChange(of: showSettings)` can put it back if the open is refused mid-destination-pick.
+    /// A place's page is remembered first (`SettingsSubTabMemory`), so the tab opens on it.
     /// Internal for `CommandPaletteHost.swift`'s `.settings(tab:)`.
-    func openSettings(on tab: SettingsView.SettingsTab) {
+    func openSettings(on place: SettingsPlace) {
         // Only while the latch is actually flipping. `onChange` consumes the stash and does not
         // fire for a redundant `true`, so stashing on an already-open panel would leave a value to
         // be restored later over a tab the user had since chosen by hand.
         if !showSettings { settingsTabBeforeDeepLink = settingsTab }
-        settingsTab = tab
+        SettingsSubTabMemory.remember(place)
+        settingsTab = place.tab
         showSettings = true
     }
 
@@ -2652,19 +2655,25 @@ struct ContentView: View {
                 showSetup = true
             },
             onResetSetup: { resetSetupAction() },
-            // Settings ▸ People's "Show Their Files": the same gather ⌘K's People rows reach, with
+            // Organize ▸ People's "Show Their Files": the same gather ⌘K's People rows reach, with
             // the sheet closed first so the answer lands on a pane the user can see.
             onShowPerson: { person in
                 showSettings = false
                 acceptPersonScope(person)
             },
-            // Settings ▸ Intelligence's pointer at "Reading your documents". Settings and Help are
+            // Organize ▸ Suggestions' pointer at "Reading your documents". Settings and Help are
             // mutually exclusive in the latch chain above, so the sheet closes on the way rather
             // than staying behind the article, the same hand-off `onShowPerson` makes.
             onOpenHelp: { topic in
                 showSettings = false
                 helpTopic = topic
                 showHelp = true
+            },
+            // To File's "Open Rules": the Organize workspace on its Rules, with the sheet closed
+            // so the answer is on screen.
+            onOpenRules: {
+                showSettings = false
+                show(.rules)
             },
             availableSize: available,
             oneWaySync: AnyView(OneWaySyncSettingsView())
@@ -2746,7 +2755,7 @@ struct ContentView: View {
         refreshAction()
     }
 
-    /// The folder watcher's opt-in step: the panes in `scope` changed on disk and Settings ▸ Sync ▸
+    /// The folder watcher's opt-in step: the panes in `scope` changed on disk and Settings ▸ Browse ▸
     /// "Rescan when files change" is on, so re-read them. Off (the default), the scan age says
     /// "changed since" instead, so rows never move mid-review. No cache drop: the manager already
     /// dropped the stale walks and bumped the epoch, and never calls this while another refresh
@@ -4754,7 +4763,7 @@ struct ContentView: View {
                 // results offer it, and this deep-links the tab so the user lands on the cloud
                 // toggle. `.intelligence`, not `.filing`: that is where the toggle, key and model
                 // live (`theCloudRefineOfferLandsOnTheTabThatHoldsTheKey`).
-                onConfigureCloudRefine: { openSettings(on: .cloudRefineSetup) },
+                onConfigureCloudRefine: { openSettings(on: SettingsView.SettingsTab.cloudRefineSetup) },
                 // The app's one Help front door, opened at a named page: Settings and Help never
                 // stack, and this must not grow a second overlay beside them.
                 onOpenHelp: { topic in

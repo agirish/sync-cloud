@@ -80,11 +80,11 @@ import Sync
         let manager = FileSyncManager()
         manager.keptNamesStore = store
 
-        let empty = laidOutHeight(FilingSettingsTab(syncManager: manager))
+        let empty = laidOutHeight(ProvidersSettingsTab(page: .nameChecks, syncManager: manager).environmentObject(SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })))
         #expect(empty > 0, "the tab did not lay out at all")
 
         for name in ["report ", "Q3: final.pdf", "memo\u{200B}.txt"] { store.keep(name) }
-        let populated = laidOutHeight(FilingSettingsTab(syncManager: manager))
+        let populated = laidOutHeight(ProvidersSettingsTab(page: .nameChecks, syncManager: manager).environmentObject(SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })))
 
         #expect(populated > empty,
                 "three kept rows and a Clear All added \(populated - empty)pt — the rows are not being rendered")
@@ -102,22 +102,23 @@ import Sync
 
     // MARK: Findability
 
-    /// The control sits at the bottom of Settings' longest tab, so search is how it is reached.
-    /// Users type the menu items' words ("Always Allow This Name") or the problem ("risky name",
-    /// "trailing space"), not the section title.
-    @Test func keptNamesIsFindableByTheWordsItsControlUses() {
-        for query in ["kept names", "always allow", "allow name", "stop allowing",
+    /// Users type the menu items' words ("Always Allow This Name"), the list's old name ("kept
+    /// names"), or the problem ("risky name", "trailing space"), not the section title.
+    @Test func allowedNamesIsFindableByTheWordsItsControlUses() {
+        for query in ["kept names", "allowed names", "always allow", "allow name", "stop allowing",
                       "risky name", "badge", "trailing space"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
-            #expect(results.contains { $0.title == "Kept names" && $0.tab == .filing },
-                    "'\(query)' should surface the Kept names control")
+            #expect(results.contains { $0.title == "Allowed names" && $0.place == SettingsPlace(.nameChecks) },
+                    "'\(query)' should surface the Allowed names control")
         }
     }
 
-    /// It belongs on Organize, with the rename finding whose rows it suppresses, not on Sync
-    /// beside Ignored items, whose shape it shares: a keep answers Organize's risky-name chip.
-    @Test func keptNamesLivesOnOrganizeRatherThanBesideIgnoredItems() {
-        let entry = SettingsSearchIndex.all.first { $0.title == "Kept names" }
-        #expect(entry?.tab == .filing, "Kept names points at \(entry?.tab.displayName ?? "nothing")")
+    /// It belongs beside the rule that raises a risky-name badge (TE332), not on Compare beside
+    /// Ignored items, whose shape it shares: an allowed name clears its badge in every pane.
+    @Test func allowedNamesLiveBesideTheNameRule() {
+        let entry = SettingsSearchIndex.all.first { $0.title == "Allowed names" }
+        let rule = SettingsSearchIndex.all.first { $0.title == "Check folder names against" }
+        #expect(entry?.place == SettingsPlace(.nameChecks), "Allowed names points at \(entry?.place.name ?? "nothing")")
+        #expect(entry?.place == rule?.place)
     }
 }

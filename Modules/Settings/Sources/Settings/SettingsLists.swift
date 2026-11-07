@@ -72,7 +72,7 @@ public struct SettingsLists {
             guard let store = sync?.ignoredItemsStore else { return .refused("Ignored items can’t be changed here.") }
             store.add([item])
         case "organize.keptNames":
-            guard let store = sync?.keptNamesStore else { return .refused("Kept names can’t be changed here.") }
+            guard let store = sync?.keptNamesStore else { return .refused("Allowed names can’t be changed here.") }
             store.keep(item)
         case "intelligence.hidden":
             AskClaudePrivacy.hide(item, in: defaults)

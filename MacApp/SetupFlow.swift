@@ -331,10 +331,10 @@ enum SetupFlow {
         let others = "\(otherCount) other\(otherCount == 1 ? "" : "s")"
         if rosterIsReadOnly, rosterRepeatsAnId {
             return "\(others) listed, but people.json lists someone twice, so changes can’t be "
-                + "saved — fix it in Settings ▸ People"
+                + "saved — fix it in Settings ▸ Organize, under People"
         }
         if rosterIsReadOnly {
-            return "\(others) listed, but people.json could not be read — fix it in Settings ▸ People"
+            return "\(others) listed, but people.json could not be read — fix it in Settings ▸ Organize, under People"
         }
         return otherCount == 0 ? "Nobody else on the list yet" : "\(others) on the list"
     }
@@ -394,7 +394,7 @@ enum SetupFlow {
     static let surveyThirdPartyNote =
         "One thing can reach a third party, and setup does not turn it on: Organize’s optional "
         + "Refine pass asks Claude — Anthropic’s service, on an API key you supply. It never runs "
-        + "on its own, and it is off unless you turn it on in Settings ▸ Intelligence."
+        + "on its own, and it is off unless you turn it on in Settings ▸ Organize."
 
     // MARK: - The You screen's pre-fill
 

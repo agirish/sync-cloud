@@ -28,7 +28,7 @@ import Testing
         bridge.saveSetupKey = saveSetupKey
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: Self.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: onAsk, onClose: {}, onOpenSettings: {}, container: container, settingsBridge: bridge)
+                                   onAsk: onAsk, onClose: {}, onOpenSettings: { _ in }, container: container, settingsBridge: bridge)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
         let host = NSHostingView(rootView: panel)
         host.frame = NSRect(origin: .zero, size: container)

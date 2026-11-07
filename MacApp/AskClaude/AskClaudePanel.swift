@@ -21,7 +21,9 @@ struct AskClaudePanel: View {
     var level: GlassLevel = .frosted
     let onAsk: (String) -> Void
     let onClose: () -> Void
-    let onOpenSettings: () -> Void
+    /// Opens Settings on one of the Ask Claude tab's pages: General for the model menu,
+    /// Privacy for the hidden list, Key & Spending for a key or limit problem.
+    let onOpenSettings: (SettingsSubTab) -> Void
     /// The area the panel lives in, for keeping a moved panel inside the window.
     var container: CGSize = .zero
     /// The shield's choice of what Claude gets from the folder on screen: ask each time, share
@@ -370,7 +372,7 @@ struct AskClaudePanel: View {
                     AskClaudePlaceMenu(place: place, spent: spentText, accentFill: accentFill, onAccent: onAccent,
                                        onGoTo: { showsPlace = false; onGoToFolder() },
                                        onSetAccess: { access in showsPlace = false; onSetAccess(access) },
-                                       onEditHiddenList: { showsPlace = false; onOpenSettings() })
+                                       onEditHiddenList: { showsPlace = false; onOpenSettings(.privacy) })
                         .presentedNativeControlAccent()
                 }
             AskClaudeHeaderButton(symbol: "plus.bubble", help: "New chat", label: "New Chat") { chat.newChat() }
@@ -461,7 +463,7 @@ struct AskClaudePanel: View {
                 // mic, then Stop or Send.
                 HStack(spacing: 6) {
                     AskClaudeModelMenu(defaults: chat.settingsDefaults, chatModel: chat.chatModel,
-                                       contextTokens: chat.contextTokens, onOpenSettings: onOpenSettings)
+                                       contextTokens: chat.contextTokens, onOpenSettings: { onOpenSettings(.claudeGeneral) })
                         .disabled(chat.isRunning || voice.isActive)
                         .opacity(voice.isActive ? 0.55 : 1)
                     Spacer(minLength: 0)
@@ -881,7 +883,7 @@ private struct AskClaudeThreadRow: View, Equatable {
     let accentFill: Color
     let onAccent: Color
     let hue: LiquidGlassHue
-    let onOpenSettings: () -> Void
+    let onOpenSettings: (SettingsSubTab) -> Void
     let linkTargets: [String: String]
     let onReveal: (String) -> Void
     let onSendOffer: (UUID, AskClaudeChat.OfferPart) -> Void
@@ -1077,7 +1079,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Label(problem.message, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.primary)
                 if problem.opensSettings {
-                    Button("Open Settings ▸ Intelligence", action: onOpenSettings).controlSize(.small)
+                    Button("Open Settings ▸ Ask Claude") { onOpenSettings(.keyAndSpending) }.controlSize(.small)
                 }
             }
             .scaledFont(.callout)

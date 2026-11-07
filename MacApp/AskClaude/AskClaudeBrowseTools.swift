@@ -342,6 +342,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     /// Tools that act on the Browse pane itself.
+    /// The name Settings gives what `show_in_app` was asked to open: a tab by its raw value or
+    /// name ("intelligence" is Ask Claude), else the page holding a named setting, else the words.
+    static func settingsPlaceName(_ asked: String) -> String {
+        let wanted = asked.lowercased()
+        if let tab = SettingsView.SettingsTab.allCases.first(where: { $0.rawValue == wanted || $0.displayName.lowercased() == wanted }) {
+            return tab.displayName
+        }
+        return SettingsPlace.holding(asked)?.name ?? asked.capitalized
+    }
+
     static func needsBrowsePane(_ call: AskClaudeToolCall) -> Bool {
         switch AskClaudeToolCatalog.Name(rawValue: call.name) {
         case .reveal, .select, .view: return true
@@ -604,7 +614,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 let did = visible ? "Showed \(name)" : "Hid \(name)"
                 return AskClaudeToolOutcome(result: did + ".", step: did)
             }
-            let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \($0.capitalized)" } ?? "") : place.capitalized
+            let label = place == "settings" ? "Settings" + (call.string("tab").map { " ▸ \(Self.settingsPlaceName($0))" } ?? "") : place.capitalized
             return AskClaudeToolOutcome(result: "Opened \(label).", step: "Opened \(label)", movedView: "Opened \(label)")
         case .settings: return await settings(call, ctx)
         case .listFolder: return await listFolder(call, ctx, &handles)

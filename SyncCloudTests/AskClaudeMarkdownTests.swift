@@ -322,7 +322,7 @@ import Testing
             chat: chat, place: AskClaudePanelHandleTests.place,
             accent: LiquidGlassHue.none.accentColor, accentFill: LiquidGlassHue.none.accentFillColor,
             onAccent: LiquidGlassHue.none.onAccentLabelColor, hue: .none, tint: 0, level: .solid,
-            onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container)
+            onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container)
             .frame(width: container.width, height: container.height, alignment: .topLeading), width: container.width)
     }
 

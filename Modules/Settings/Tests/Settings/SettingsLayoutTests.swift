@@ -5,23 +5,24 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Pins the promise the sidebar layout keeps: the must-fit tabs fit their opening without
-/// scrolling, and the sheet never outgrows the window it is centered in. Heights are measured from
+/// Pins the promise the sidebar layout keeps: the must-fit pages fit their opening without
+/// scrolling, and the sheet never outgrows the window it is centered in. A page of a paged tab
+/// (TE332) gets the opening under the sub-tab strip, `SettingsSheetMetrics.pageOpening`. Heights are measured from
 /// the laid-out view (`NSHostingView.fittingSize`), not computed from the constants that feed it:
 /// constants agreeing with each other prove nothing about what SwiftUI lays out.
 ///
-/// Appearance carries the detailed budget, because it reads only `@AppStorage`, so its height is a
-/// property of the layout rather than the machine's data. The other must-fit tabs are checked by
-/// `everyMustFitTabFitsTheClampedOpening`. The exempt tabs and their reasons live in one place,
-/// ``SettingsView/SettingsTab/exemptFromFitGuard``, and
-/// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds `mustFitTabs` to `allCases` minus that set.
+/// Appearance ▸ Look carries the detailed budget, because it reads only `@AppStorage`, so its
+/// height is a property of the layout rather than the machine's data. The other must-fit pages are
+/// checked by `everyMustFitPageFitsTheClampedOpening`. The exempt pages and their reasons live in
+/// one place, ``SettingsView/SettingsTab/exemptFromFitGuard``, and
+/// `everyPageIsEitherFitTestedOrExplicitlyExempt` holds `mustFitPages` to every page minus that set.
 /// General is measured too: its SMAppService reads are in `.task`, which an offscreen
 /// `NSHostingView` driven by `layoutSubtreeIfNeeded` never fires.
 ///
-/// Distrust a fit fixture that passes `nil`: `FilingSettingsTab(syncManager: nil)` renders a
-/// one-line placeholder where the app draws a row per kept name. So Organize is exempt, and
-/// `theOrganizeTabFitsItsOpeningWithNothingKept` and
-/// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept` carry what is true and what earns the
+/// Distrust a fit fixture that passes `nil`: Name Checks with `syncManager: nil` renders a
+/// one-line placeholder where the app draws a row per allowed name. So Name Checks is exempt, and
+/// `theNameChecksPageFitsItsOpeningWithNothingAllowed` and
+/// `theNameChecksPageOutgrowsItsOpeningOnceNamesAreAllowed` carry what is true and what earns the
 /// exemption.
 ///
 /// The rail is measured too (`theRailFitsItsOpening`): it shares the tabs' opening but is sized
@@ -59,24 +60,24 @@ import Testing
         let height = laidOutHeight(AppearanceSettingsTab(),
                                    width: SettingsSheetMetrics.contentWidth(textScale: scale),
                                    scale: scale)
-        return SettingsSheetMetrics.contentOpening(textScale: scale) - height
+        return SettingsSheetMetrics.pageOpening(textScale: scale) - height
     }
 
-    /// The opening's margin over the tallest must-fit tab, whichever that is. Named for the
-    /// property, not a tab, because which tab is tallest changes as tabs are reorganized, and a
-    /// helper naming one would keep passing while measuring the wrong tab.
+    /// The smallest margin any must-fit page has over its own opening, whichever page that is.
+    /// Named for the property, not a page, because which page is tightest changes as pages are
+    /// reorganized, and a helper naming one would keep passing while measuring the wrong page.
     @MainActor
-    private func tallestMustFitMargin(at scale: CGFloat) -> CGFloat {
+    private func tightestMustFitMargin(at scale: CGFloat) -> CGFloat {
         let test = TestDefaults("tallest-\(scale)")
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
-        let tallest = mustFitTabs(settings)
-            .map { laidOutHeight($0.1,
-                                 width: SettingsSheetMetrics.contentWidth(textScale: scale),
-                                 scale: scale) }
-            .max() ?? 0
-        return SettingsSheetMetrics.contentOpening(textScale: scale) - tallest
+        return mustFitPages(settings)
+            .map { place, view in
+                SettingsSheetMetrics.opening(for: place, textScale: scale)
+                    - laidOutHeight(view, width: SettingsSheetMetrics.contentWidth(textScale: scale), scale: scale)
+            }
+            .min() ?? 0
     }
 
     /// A 1280×800-class display's window: an 800pt screen loses 24pt to the menu bar and ~36pt to
@@ -114,13 +115,13 @@ import Testing
         let height = laidOutHeight(AppearanceSettingsTab().defaultAppStorage(test.defaults),
                                    width: SettingsSheetMetrics.contentWidth(textScale: scale, available: available),
                                    scale: scale)
-        return SettingsSheetMetrics.contentOpening(textScale: scale, available: available) - height
+        return SettingsSheetMetrics.pageOpening(textScale: scale, available: available) - height
     }
 
     @MainActor
     @Test func appearanceFitsItsOpeningWithoutScrolling() async throws {
         let height = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1)
+        let opening = SettingsSheetMetrics.pageOpening(textScale: 1)
 
         #expect(height <= opening,
                 "Appearance lays out at \(height)pt in a \(opening)pt opening — it scrolls again.")
@@ -143,17 +144,17 @@ import Testing
     ///
     /// Two copy edits of slack is the limit. Past that, lower `baseSize`; don't widen this bound.
     @MainActor
-    @Test func theSheetIsSizedAgainstTheTallestTabItMustFit() async throws {
-        let margin = tallestMustFitMargin(at: 1)
+    @Test func theSheetIsSizedAgainstTheTightestPageItMustFit() async throws {
+        let margin = tightestMustFitMargin(at: 1)
 
-        // Measured over every must-fit tab rather than a named one, since which tab is tallest
-        // moves as tabs change.
+        // Measured over every must-fit page rather than a named one, since which page is tightest
+        // moves as pages change.
         #expect(margin <= 30,
-                "The opening carries \(margin)pt over the tallest must-fit tab — baseSize has stopped being sized against that measurement.")
+                "The tightest must-fit page has \(margin)pt to spare — baseSize has stopped being sized against that measurement.")
         // The other half, so a `baseSize` lowered too far fails here rather than in a fit test
-        // somewhere else: the tallest tab still has to clear the opening with a copy edit spare.
+        // somewhere else: the tightest page still has to clear its opening with a copy edit spare.
         #expect(margin >= 15,
-                "The opening clears the tallest must-fit tab by only \(margin)pt — one copy edit from scrolling.")
+                "The tightest must-fit page clears its opening by only \(margin)pt — one copy edit from scrolling.")
     }
 
     /// The fit at every text size, not just the default. A tab's height isn't proportional to the
@@ -170,7 +171,7 @@ import Testing
                 "Appearance has \(margin)pt of slack at \(size.displayName) (scale \(size.scale)).")
     }
 
-    /// Readability fits a 1280×800 display at every text size.
+    /// Text & Spacing (Readability until TE332) fits a 1280×800 display at every text size.
     /// `everyMustFitTabFitsTheClampedOpening` runs at scale 1 only and the per-size sweep covers
     /// only Appearance, while Readability exists for large text and grows with it: the preset
     /// tiles, detent labels and preview all scale.
@@ -181,12 +182,12 @@ import Testing
     @Test func readabilityFitsASmallDisplayAtEveryTextSize() async throws {
         let fitting = FontSize.allCases.filter { size in
             let height = laidOutHeight(
-                ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }),
+                ReadabilitySettingsTab(),
                 width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
                                                         available: Self.smallDisplayWindow),
                 scale: size.scale)
-            return height <= SettingsSheetMetrics.contentOpening(textScale: size.scale,
-                                                                 available: Self.smallDisplayWindow)
+            return height <= SettingsSheetMetrics.pageOpening(textScale: size.scale,
+                                                              available: Self.smallDisplayWindow)
         }
 
         #expect(fitting == FontSize.allCases,
@@ -204,11 +205,11 @@ import Testing
     @MainActor
     @Test func appearanceFitsA1280x800Display() async throws {
         let window = Self.smallDisplayWindow
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: window)
+        let opening = SettingsSheetMetrics.pageOpening(textScale: 1, available: window)
         // At today's `baseSize` the whole sheet fits this display, so the clamped and unclamped
         // openings are equal. The test measures the display, not the clamp: if `baseSize` grows
         // past what this window holds, the height assertion is what fails.
-        #expect(opening <= SettingsSheetMetrics.contentOpening(textScale: 1),
+        #expect(opening <= SettingsSheetMetrics.pageOpening(textScale: 1),
                 "a 1280×800 window opening is somehow larger than the unclamped one")
 
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: window)
@@ -218,12 +219,10 @@ import Testing
                 "Appearance lays out at \(height)pt but a 1280×800 display's clamped opening is \(opening)pt — it scrolls on small screens.")
     }
 
-    /// Every accent hue, because the caption is part of the layout and some hues' are longer.
-    /// `AppearanceSettingsTab` defaults to `.blue`, so the other fit tests measure the short
-    /// caption, while `.none` needs a sentence explaining a "None" swatch over a coloured button,
-    /// and a wrapped line costs ~13pt. Over `allCases`, so a future hue with a long caption is
-    /// covered. Over raw values because `LiquidGlassHue` isn't `Sendable` and can't be a test
-    /// argument; resolving it inside keeps the failure naming the hue.
+    /// Every accent hue, because the Tint caption is part of the layout and changes with the hue:
+    /// under `.none` it asks for an accent instead. Over `allCases`, so a future hue that brings a
+    /// caption back is covered. Over raw values because `LiquidGlassHue` isn't `Sendable` and can't
+    /// be a test argument; resolving it inside keeps the failure naming the hue.
     @MainActor
     @Test(arguments: LiquidGlassHue.allCases.map(\.rawValue))
     func appearanceFitsEveryAccentHue(_ rawValue: String) async throws {
@@ -231,7 +230,7 @@ import Testing
 
         let margin = appearanceMargin(hue: hue, at: 1)
         #expect(margin >= 15,
-                "Appearance has \(margin)pt of slack with the \(rawValue) accent — its caption is costing a line.")
+                "Appearance has \(margin)pt of slack with the \(rawValue) accent — a caption is costing a line.")
 
         let clamped = appearanceMargin(hue: hue, at: 1, available: Self.smallDisplayWindow)
         #expect(clamped >= 0,
@@ -254,8 +253,8 @@ import Testing
                                        width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
                                                                                 available: Self.smallDisplayWindow),
                                        scale: size.scale)
-            return height <= SettingsSheetMetrics.contentOpening(textScale: size.scale,
-                                                                 available: Self.smallDisplayWindow)
+            return height <= SettingsSheetMetrics.pageOpening(textScale: size.scale,
+                                                              available: Self.smallDisplayWindow)
         }
 
         // Every size fits at today's `baseSize`. An equality, not "at least these", so it can't go
@@ -275,9 +274,9 @@ import Testing
             #expect(sheet.height <= Self.smallDisplayWindow.height,
                     "at \(size.displayName) the sheet is \(sheet.height)pt in a \(Self.smallDisplayWindow.height)pt window — the overflow is off-screen, not scrollable.")
             #expect(sheet.width <= Self.smallDisplayWindow.width)
-            #expect(SettingsSheetMetrics.contentOpening(textScale: size.scale,
-                                                        available: Self.smallDisplayWindow) > 0,
-                    "at \(size.displayName) the title row has eaten the whole sheet.")
+            #expect(SettingsSheetMetrics.pageOpening(textScale: size.scale,
+                                                     available: Self.smallDisplayWindow) > 0,
+                    "at \(size.displayName) the title row and the sub-tab strip have eaten the whole sheet.")
         }
     }
 
@@ -293,67 +292,72 @@ import Testing
         }
     }
 
-    /// Intelligence is long by nature (four sections) and expected to scroll, so there is no fit to
-    /// assert. This pins that it lays out at all without reading the Anthropic key from the
-    /// Keychain, which would block this host and, in the app, put a password prompt on screen for
-    /// anyone who opened the tab. If that read comes back, this test stops finishing.
-    ///
-    /// `CloudKeyRow` is drawn unconditionally here (disabled when the cloud toggles are off), so
-    /// its `onAppear` runs for every visitor. That is safe only because
+    /// Ask Claude ▸ Key & Spending draws `CloudKeyRow`, whose `onAppear` runs for every visitor.
+    /// This pins that the page lays out without reading the Anthropic key from the Keychain, which
+    /// would block this host and, in the app, put a password prompt on screen for anyone who opened
+    /// the page. If that read comes back, this test stops finishing. Safe only because
     /// `AnthropicKeychain.isConfigured` checks existence without reading the secret.
     @MainActor
-    @Test func intelligenceLaysOutWithoutReachingForTheKeychain() async throws {
-        let height = laidOutHeight(IntelligenceSettingsTab(syncManager: nil), width: Self.contentWidth)
+    @Test func keyAndSpendingLaysOutWithoutReachingForTheKeychain() async throws {
+        let height = laidOutHeight(IntelligenceSettingsTab(page: .keyAndSpending), width: Self.contentWidth)
 
         #expect(height > 0)
-
-        // And the exemption is falsifiable: a tab that went short must not keep a stale "long by
-        // nature" line in `exemptFromFitGuard`. Measured on the fit guard's terms (a 1280×800
-        // display's clamped width and opening, as `everyMustFitTabFitsTheClampedOpening` uses). If
-        // this fails, drop the exemption, not this line.
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
-        let clampedHeight = laidOutHeight(
-            IntelligenceSettingsTab(syncManager: nil),
-            width: SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow))
-        #expect(clampedHeight > opening,
-                "Intelligence now fits (\(clampedHeight)pt in a \(opening)pt opening); drop its exemption")
     }
 
-    // MARK: - The other tabs
+    // MARK: - The other pages
 
-    /// The tabs that must fit, and the view each is measured as. `SettingsTab.exemptFromFitGuard`
-    /// names the others (Providers, People, Organize, Intelligence) with their reasons, and
-    /// `everyTabIsEitherFitTestedOrExplicitlyExempt` holds this list to `allCases` minus that set.
-    /// The list is hand-built, since a tab's fixture can't be derived from the case, but its
-    /// membership is checked, so a new tab must appear here or take a recorded exemption.
+    /// The pages that must fit, and the view each is measured as. `SettingsTab.exemptFromFitGuard`
+    /// names the others with their reasons, and `everyPageIsEitherFitTestedOrExplicitlyExempt`
+    /// holds this list to every page minus that set. The list is hand-built, since a page's fixture
+    /// can't be derived from its case, but its membership is checked, so a new page must appear
+    /// here or take a recorded exemption.
     ///
-    /// A fixture that passes `nil` for the dependency a tab's list comes from measures the empty
-    /// state. Organize is exempt for that reason: with `syncManager: nil` it measures
-    /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per kept name. `sync` and
-    /// `advanced` also take `syncManager: nil` but belong here: neither draws a row per anything.
-    /// Ask that question of a new entry.
+    /// A fixture that passes `nil` for the dependency a page's list comes from measures the empty
+    /// state. Name Checks is exempt for that reason: with `syncManager: nil` it measures
+    /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per allowed name. Compare ▸
+    /// Ignored, To File, Suggestions and Advanced also take `syncManager: nil` but belong here:
+    /// none of their rows grows with the user's data past a few. Ask that question of a new entry.
     @MainActor
-    private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
-        // Non-nil closures, or sections go unmeasured: the setup and reset buttons are drawn only
-        // when their closure is there.
-        [(.general, AnyView(GeneralSettingsTab(onRunSetup: {}).environmentObject(settings))),
-         (.appearance, AnyView(AppearanceSettingsTab())),
-         (.readability, AnyView(ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }))),
-         (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
-         (.duplicates, AnyView(DuplicatesSettingsTab())),
-         (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: {},
-                                                 onResetSetup: {})))]
+    private func mustFitPages(_ settings: SettingsManager) -> [(SettingsPlace, AnyView)] {
+        // Non-nil closures, or sections go unmeasured: the setup, reset, rules and help buttons are
+        // drawn only when their closure is there.
+        [(SettingsPlace(.general), AnyView(GeneralSettingsTab().environmentObject(settings))),
+         (SettingsPlace(.look), AnyView(AppearanceSettingsTab())),
+         (SettingsPlace(.textAndSpacing), AnyView(ReadabilitySettingsTab())),
+         (SettingsPlace(.panes), AnyView(BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: { _ in false })
+            .environmentObject(settings))),
+         (SettingsPlace(.window), AnyView(BrowseSettingsTab(page: .window).environmentObject(settings))),
+         (SettingsPlace(.differences), AnyView(SyncSettingsTab(page: .differences, syncManager: nil).environmentObject(settings))),
+         (SettingsPlace(.ignored), AnyView(SyncSettingsTab(page: .ignored, syncManager: nil).environmentObject(settings))),
+         (SettingsPlace(.toFile), AnyView(FilingSettingsTab(syncManager: nil, onOpenRules: {}))),
+         (SettingsPlace(.suggestions), AnyView(OrganizeSuggestionsPage(syncManager: nil, onOpenHelp: { _ in },
+                                                                     onJump: { _ in }))),
+         (SettingsPlace(.duplicates), AnyView(DuplicatesSettingsTab())),
+         (SettingsPlace(.text), AnyView(EditSettingsTab(page: .text))),
+         (SettingsPlace(.pdf), AnyView(EditSettingsTab(page: .pdf))),
+         (SettingsPlace(.claudeGeneral), AnyView(IntelligenceSettingsTab(page: .claudeGeneral))),
+         (SettingsPlace(.keyAndSpending), AnyView(IntelligenceSettingsTab(page: .keyAndSpending))),
+         (SettingsPlace(.advanced), AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: {},
+                                                                onRunSetup: {}, onResetSetup: {})))]
     }
 
-    // MARK: - Organize: the tab whose height is its user's data
+    /// Every page there is: each one-page tab, and each sub-tab.
+    private static var allPages: Set<SettingsPlace> {
+        Set(SettingsView.SettingsTab.allCases.filter(\.subTabs.isEmpty).map { SettingsPlace($0) }
+            + SettingsSubTab.allCases.map { SettingsPlace($0) })
+    }
 
-    /// An Organize tab carrying `count` kept names, laid out through the real store the tab reads.
-    /// The suite is a scratch `TestDefaults`, wiped once the store and manager let go:
+
+
+    // MARK: - Name Checks: the page whose height is its user's data
+
+    /// Sources ▸ Name Checks carrying `count` allowed names, laid out through the real store the
+    /// page reads. The suite is a scratch `TestDefaults`, wiped once the store and manager let go:
     /// `KeptNamesStore` persists to whatever it is handed, and `.standard` would inherit the
     /// machine's kept names and take test junk.
     @MainActor
-    private func organizeTab(keptNames count: Int,
-                             _ body: (AnyView) -> Void) {
+    private func nameChecksPage(allowedNames count: Int,
+                                _ body: (AnyView) -> Void) {
         let test = TestDefaults("keptNames-\(count)")
 
         let store = KeptNamesStore(userDefaults: test.defaults)
@@ -362,88 +366,104 @@ import Testing
         for index in 0..<count { store.keep("kept name \(index).pdf") }
         let manager = FileSyncManager()
         manager.keptNamesStore = store
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
+                                       cloudStorageLister: { .read([]) })
 
-        body(AnyView(FilingSettingsTab(syncManager: manager)))
+        body(AnyView(ProvidersSettingsTab(page: .nameChecks, syncManager: manager).environmentObject(settings)))
     }
 
-    /// Organize's fixed chrome fits: the inbox row, the signpost row, both captions and the Kept
-    /// names header. It is what a new user sees, and a caption gaining lines is how a tab starts
-    /// scrolling. The name says what it claims: the empty state fits, not the tab. Built through a
-    /// real store with nothing kept, not `syncManager: nil`, so it uses the app's branch.
+    /// Name Checks' fixed chrome fits: the rule, both captions and the Allowed names header. It is
+    /// what a new user sees, and a caption gaining lines is how a page starts scrolling. The name
+    /// says what it claims: the empty state fits, not the page. Built through a real store with
+    /// nothing allowed, not `syncManager: nil`, so it uses the app's branch.
     @MainActor
-    @Test func theOrganizeTabFitsItsOpeningWithNothingKept() async throws {
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+    @Test func theNameChecksPageFitsItsOpeningWithNothingAllowed() async throws {
+        let opening = SettingsSheetMetrics.pageOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
-        organizeTab(keptNames: 0) { tab in
-            let height = laidOutHeight(tab, width: width)
+        nameChecksPage(allowedNames: 0) { page in
+            let height = laidOutHeight(page, width: width)
 
             #expect(height <= opening,
-                    "Organize with nothing kept lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — its fixed chrome alone now scrolls.")
+                    "Name Checks with nothing allowed lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — its fixed chrome alone now scrolls.")
         }
     }
 
-    /// The other half: with a plausible number of kept names the tab outgrows its opening, so
-    /// `filing`'s line in `exemptFromFitGuard` is a measurement, not a label. If the list is ever
+    /// The other half: with a plausible number of allowed names the page outgrows its opening, so
+    /// Name Checks' line in `exemptFromFitGuard` is a measurement, not a label. If the list is ever
     /// bounded (a scroll view, "show first N", a max height), this fails: drop the exemption and put
-    /// Organize back in `mustFitTabs`, don't raise the number. Twenty-five names is well past where
-    /// the tab starts scrolling, and the second check pins that growth continues past it.
+    /// the page in `mustFitPages`, don't raise the number. Thirty names is well past where the page
+    /// starts scrolling, and the second check pins that growth continues past it.
     @MainActor
-    @Test func theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept() async throws {
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+    @Test func theNameChecksPageOutgrowsItsOpeningOnceNamesAreAllowed() async throws {
+        let opening = SettingsSheetMetrics.pageOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
         var populated: CGFloat = 0
-        organizeTab(keptNames: 25) { tab in populated = laidOutHeight(tab, width: width) }
+        nameChecksPage(allowedNames: 30) { page in populated = laidOutHeight(page, width: width) }
 
         #expect(populated > opening,
-                "Organize with 25 kept names lays out at \(populated)pt and fits the \(opening)pt opening — the list must have been bounded; drop filing's exemption and fit-test it.")
+                "Name Checks with 30 allowed names lays out at \(populated)pt and fits the \(opening)pt opening — the list must have been bounded; drop its exemption and fit-test it.")
 
         var doubled: CGFloat = 0
-        organizeTab(keptNames: 50) { tab in doubled = laidOutHeight(tab, width: width) }
+        nameChecksPage(allowedNames: 60) { page in doubled = laidOutHeight(page, width: width) }
 
         #expect(doubled > populated,
-                "50 kept names lay out at \(doubled)pt against 25 names' \(populated)pt — the list has stopped growing with the data, so the tab's height is no longer the user's.")
+                "60 allowed names lay out at \(doubled)pt against 30 names' \(populated)pt — the list has stopped growing with the data, so the page's height is no longer the user's.")
     }
 
-    /// Every tab is either measured or explicitly exempted, never both. A new tab that joins
+    /// Every page is either measured or explicitly exempted, never both. A new page that joins
     /// neither list fails here by name; one in both is a stale exemption and fails too.
     @MainActor
-    @Test func everyTabIsEitherFitTestedOrExplicitlyExempt() async throws {
+    @Test func everyPageIsEitherFitTestedOrExplicitlyExempt() async throws {
         let test = TestDefaults()
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
-        let fitTested = Set(mustFitTabs(settings).map { $0.0 })
+        let fitTested = Set(mustFitPages(settings).map { $0.0 })
         let exempt = SettingsView.SettingsTab.exemptFromFitGuard
 
         let doubleCounted = fitTested.intersection(exempt)
         #expect(doubleCounted.isEmpty,
-                "\(doubleCounted.map(\.displayName).sorted()) are measured by mustFitTabs AND named in exemptFromFitGuard — the exemption is stale, drop it.")
+                "\(doubleCounted.map(\.name).sorted()) are measured by mustFitPages AND named in exemptFromFitGuard — the exemption is stale, drop it.")
 
-        let unaccounted = Set(SettingsView.SettingsTab.allCases)
-            .subtracting(fitTested)
-            .subtracting(exempt)
+        let unaccounted = Self.allPages.subtracting(fitTested).subtracting(exempt)
         #expect(unaccounted.isEmpty,
-                "\(unaccounted.map(\.displayName).sorted()) are neither fit-tested in mustFitTabs nor exempted in SettingsTab.exemptFromFitGuard — decide, and record the decision.")
+                "\(unaccounted.map(\.name).sorted()) are neither fit-tested in mustFitPages nor exempted in SettingsTab.exemptFromFitGuard — decide, and record the decision.")
+        // And nothing names a page that isn't one, such as a paged tab without its sub-tab.
+        #expect(fitTested.union(exempt).isSubset(of: Self.allPages))
     }
 
-    /// Every must-fit tab, against the opening a 1280×800 display gives, so shrinking the sheet for
-    /// one tab can't make another scroll unnoticed.
+    /// Every must-fit page, against the opening a 1280×800 display gives, so shrinking the sheet for
+    /// one page can't make another scroll unnoticed.
     @MainActor
-    @Test func everyMustFitTabFitsTheClampedOpening() async throws {
+    @Test func everyMustFitPageFitsTheClampedOpening() async throws {
         let test = TestDefaults()
         let settings = SettingsManager(autoDiscover: false,
                                        userDefaults: test.defaults,
                                        cloudStorageLister: { .read([]) })
-        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
-        for (tab, view) in mustFitTabs(settings) {
+        for (place, view) in mustFitPages(settings) {
+            let opening = SettingsSheetMetrics.opening(for: place, textScale: 1, available: Self.smallDisplayWindow)
             let height = laidOutHeight(view, width: width)
 
             #expect(height <= opening,
-                    "\(tab.displayName) lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — it scrolls.")
+                    "\(place.name) lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — it scrolls.")
+        }
+    }
+
+    /// Every paged tab's strip fits the narrowest content column the sheet offers, at the largest
+    /// text size: Organize's four labels are the longest.
+    @MainActor
+    @Test func everySubTabStripFitsTheNarrowestColumnAtTheLargestText() {
+        let scale = FontSize.allCases.map(\.scale).max() ?? 1
+        let column = SettingsSheetMetrics.contentWidth(textScale: scale, available: Self.windowFloor)
+        for tab in SettingsView.SettingsTab.allCases where !tab.subTabs.isEmpty {
+            let strip = SettingsSubTabStrip(tab: tab, selection: .constant(tab.subTabs[0]), hue: .blue)
+            let width = laidOutWidth(strip.fixedSize(), scale: scale)
+            #expect(width <= column - 2 * SettingsSheetMetrics.pagePaddingH,
+                    "\(tab.displayName)'s strip is \(width)pt wide in a \(column)pt column at the largest text")
         }
     }
 
@@ -528,7 +548,7 @@ import Testing
     /// `appearanceFitsA1280x800Display`, and at every text size, because the rows grow with it.
     ///
     /// There is plenty of slack here. It binds hardest at the window floor
-    /// (`theRailFitsTheWindowFloorAtTheSmallerTextSizesOnly`) and below it at `floorSize`
+    /// (`theRailFitsTheWindowFloorAtEveryTextSize`) and below it at `floorSize`
     /// (`theRailIsWhatTheFloorSizedSheetRunsOutOf`).
     @MainActor
     @Test(arguments: FontSize.allCases)
@@ -548,17 +568,16 @@ import Testing
     /// from `ContentView`), which stops `resolvedSize` well above `floorSize`. This is the rail's
     /// real worst case; `theRailIsWhatTheFloorSizedSheetRunsOutOf` covers smaller hosts.
     ///
-    /// At the floor the tab list fits at the two smaller text sizes and scrolls at the two larger.
-    /// That is acceptable because the rail scrolls visibly, and only at the window's floor; on a
-    /// larger window every row is visible at every size (`theRailFitsItsOpening`). Asserted as the
-    /// exact list of sizes that fit, so a change either way fails and the list is updated.
+    /// With nine tabs (TE332) the tab list fits at the floor at every text size; with ten it
+    /// scrolled at the two larger. Asserted as the exact list of sizes that fit, so a change either
+    /// way fails and the list is updated.
     @MainActor
-    @Test func theRailFitsTheWindowFloorAtTheSmallerTextSizesOnly() async throws {
+    @Test func theRailFitsTheWindowFloorAtEveryTextSize() async throws {
         let fitting = FontSize.allCases.filter {
             tabListMargin(at: $0.scale, available: Self.windowFloor) >= 0
         }
 
-        #expect(fitting == [.small, .medium],
+        #expect(fitting == FontSize.allCases,
                 """
                 At the window's own floor (\(Self.windowFloor.width)×\(Self.windowFloor.height)) \
                 the tab list fits at \(fitting.map(\.displayName)) — the boundary recorded on \
@@ -879,7 +898,7 @@ import Testing
 
             // And the tab lays out rather than trapping or measuring nothing on such a value.
             let height = laidOutHeight(
-                ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false }).defaultAppStorage(test.defaults), width: Self.contentWidth)
+                ReadabilitySettingsTab().defaultAppStorage(test.defaults), width: Self.contentWidth)
             #expect(height > 0, "Readability laid out to nothing with \(stored) stored")
         }
 

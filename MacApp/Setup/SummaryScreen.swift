@@ -12,7 +12,7 @@ struct SummaryScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
     let hue: LiquidGlassHue
-    let onChange: (SettingsView.SettingsTab) -> Void
+    let onChange: (SettingsPlace) -> Void
     let onStartWith: (SetupStart) -> Void
 
     var body: some View {
@@ -34,7 +34,7 @@ struct SummaryScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 0) {
-                row("cloud", "Locations: \(locationsSummary)", tab: .providers, verb: "Change")
+                row("cloud", "Locations: \(locationsSummary)", tab: SettingsPlace(.providers), verb: "Change")
                 Divider()
                 // Back to Learn, not out to Settings: no Settings tab learns a folder, and the
                 // Countries row below relies on this button to change them.
@@ -43,9 +43,9 @@ struct SummaryScreen: View {
                     help: "Go back to the Learn screen and read a folder",
                     action: { model.returnToLearn() })
                 Divider()
-                row("person", "You: \(youSummary)", tab: .people, verb: "Change")
+                row("person", "You: \(youSummary)", tab: SettingsPlace(.people), verb: "Change")
                 Divider()
-                row("person.2", "People: \(peopleSummary)", tab: .people, verb: "Change")
+                row("person.2", "People: \(peopleSummary)", tab: SettingsPlace(.people), verb: "Change")
                 if let countries = Self.countriesLine(for: model) {
                     Divider()
                     // No Change link: the confirmed countries live in the profile, and nothing in
@@ -102,7 +102,7 @@ struct SummaryScreen: View {
             HStack {
                 Text(SetupFlow.runAgainNote).scaledFont(.caption2).foregroundStyle(.tertiary)
                 Spacer()
-                Button("Open Settings") { onChange(.general) }
+                Button("Open Settings") { onChange(SettingsPlace(.general)) }
                     .controlSize(.small)
             }
         }
@@ -111,9 +111,9 @@ struct SummaryScreen: View {
     // MARK: - The rows
 
     private func row(_ symbol: String, _ text: String,
-                     tab: SettingsView.SettingsTab?, verb: String?) -> some View {
+                     tab: SettingsPlace?, verb: String?) -> some View {
         row(symbol, text, verb: tab == nil ? nil : verb,
-            help: tab.map { "Finish setup and open Settings ▸ \($0.displayName)" },
+            help: tab.map { "Finish setup and open Settings ▸ \($0.tab.displayName)" },
             action: tab.map { tab in { onChange(tab) } })
     }
 

@@ -48,7 +48,7 @@ extension ContentView {
                               level: glassLevel,
                               onAsk: { askClaudeSend($0) },
                               onClose: { toggleAskClaude() },
-                              onOpenSettings: { openSettings(on: .intelligence) },
+                              onOpenSettings: { openSettings(on: SettingsPlace($0)) },
                               container: container,
                               onSetAccess: { askClaudeSetCurrentFolderAccess($0) },
                               onGoToFolder: { askClaudeShowFolderPane() },
@@ -832,12 +832,13 @@ extension ContentView {
             showPlace: { place, tab, visible in
                 switch place {
                 case "settings":
-                    // A tab by name, or the tab holding a named setting ("Ask Claude", "Monthly
-                    // limit"), by Settings' own search index; Intelligence when it's about this chat.
+                    // A tab or page by name, or the page holding a named setting ("Monthly
+                    // limit"), by Settings' own search index; Ask Claude when it's about this chat.
                     let wanted = tab?.lowercased()
                     let chosen = SettingsView.SettingsTab.allCases.first { $0.displayName.lowercased() == wanted || $0.rawValue == wanted }
-                        ?? tab.flatMap(SettingsView.SettingsTab.holding)
-                        ?? (tab == nil ? .intelligence : nil)
+                        .map { SettingsPlace($0) }
+                        ?? tab.flatMap(SettingsPlace.holding)
+                        ?? (tab == nil ? SettingsPlace(.intelligence) : nil)
                     guard let chosen else { return false }
                     openSettings(on: chosen)
                 case "info", "inspector":

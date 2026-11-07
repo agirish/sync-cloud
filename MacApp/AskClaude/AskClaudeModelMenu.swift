@@ -3,7 +3,7 @@ import Sync
 import Design
 
 /// The model and answer style the next question goes to, in the text box's bottom row. A pick
-/// carries on in this chat and becomes the default, the same keys Settings ▸ Intelligence shows; a
+/// carries on in this chat and becomes the default, the same keys Settings ▸ Ask Claude shows; a
 /// change there moves this chat too.
 struct AskClaudeModelMenu: View {
     @AppStorage private var modelID: String

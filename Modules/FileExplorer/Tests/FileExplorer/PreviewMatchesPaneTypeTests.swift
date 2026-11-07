@@ -3,7 +3,7 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The Readability tab's preview claims to draw file rows the way the panes do. This is what makes
+/// Text & Spacing's preview claims to draw file rows the way the panes do. This is what makes
 /// that a checked claim rather than an intention.
 ///
 /// **The two cannot be shared as one expression.** `PaneRowFonts` lives here in FileExplorer and

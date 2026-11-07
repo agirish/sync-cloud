@@ -6,7 +6,7 @@ import Foundation
 /// Its own table, not `CloudFilingProtocol`’s: Filing prices by family prefix and forces one
 /// tool, which the 5.5 models refuse (a forced `tool_choice` is a 400 on Opus 5.5 and Sonnet 5.5).
 /// Ask Claude lets the model choose its tools, so it can offer the current models; the two pickers
-/// stay separate rows in Settings ▸ Intelligence and share only the key.
+/// stay separate rows in Settings ▸ Ask Claude and share only the key.
 public enum AskClaudeModels {
 
     /// List prices in US dollars per million tokens. The Console is authoritative; these only feed

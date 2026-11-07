@@ -349,7 +349,7 @@ private final class Heard {
             window.isReleasedWhenClosed = false
             host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
                                                           accentFill: .blue, onAccent: .white, onAsk: { _ in }, onClose: {},
-                                                          onOpenSettings: {}, container: container,
+                                                          onOpenSettings: { _ in }, container: container,
                                                           settingsBridge: .keySaved))
             host.frame = NSRect(origin: .zero, size: container)
             // Weak, not unowned: a turn still listening when a case ends (a failing one, or a
@@ -357,7 +357,7 @@ private final class Heard {
             // unowned capture there would abort the whole test host.
             host.rootView = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue,
                                            onAccent: .white, onAsk: { [weak self] in self?.typed.append($0) },
-                                           onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: {}, container: container,
+                                           onClose: { [weak self] in self?.closed += 1 }, onOpenSettings: { _ in }, container: container,
                                            settingsBridge: .keySaved, onAskSpoken: { [weak self] in self?.spoken.append($0) },
                                            voiceHints: { ["Receipts"] }, voiceSource: { source })
             window.contentView = host

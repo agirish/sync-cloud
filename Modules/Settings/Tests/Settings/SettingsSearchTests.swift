@@ -21,16 +21,37 @@ import Testing
         #expect(filterSettings(SettingsSearchIndex.all, query: "zzzznotasetting").isEmpty)
     }
 
-    /// Ask Claude's show_in_app opens Settings at the tab holding a named setting.
-    @Test func aSettingNamedInWordsFindsItsTab() {
-        #expect(SettingsView.SettingsTab.holding("Ask Claude") == .intelligence)
-        #expect(SettingsView.SettingsTab.holding("monthly limit") == .intelligence)
-        #expect(SettingsView.SettingsTab.holding("API key") == .intelligence)
-        #expect(SettingsView.SettingsTab.holding("Theme") == .appearance)
-        #expect(SettingsView.SettingsTab.holding("Log level") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.tab)
-        #expect(SettingsView.SettingsTab.holding("log") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.tab)
-        #expect(SettingsView.SettingsTab.holding("zzzznotasetting") == nil)
-        #expect(SettingsView.SettingsTab.holding("  ") == nil)
+    /// Ask Claude's show_in_app opens Settings at the page holding a named setting.
+    @Test func aSettingNamedInWordsFindsItsPage() {
+        #expect(SettingsPlace.holding("Ask Claude") == SettingsPlace(.claudeGeneral))
+        #expect(SettingsPlace.holding("monthly limit") == SettingsPlace(.keyAndSpending))
+        #expect(SettingsPlace.holding("API key") == SettingsPlace(.keyAndSpending))
+        #expect(SettingsPlace.holding("Theme") == SettingsPlace(.look))
+        #expect(SettingsPlace.holding("row spacing") == SettingsPlace(.textAndSpacing))
+        #expect(SettingsPlace.holding("Log level") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.place)
+        #expect(SettingsPlace.holding("log") == SettingsSearchIndex.all.first { $0.title == "Log level" }?.place)
+        #expect(SettingsPlace.holding("zzzznotasetting") == nil)
+        #expect(SettingsPlace.holding("  ") == nil)
+    }
+
+    /// An entry on a paged tab names its page, or a jump to it lands on whichever page was last
+    /// shown, which may not hold it. A one-page tab's entry names no page.
+    @Test func everyEntryOnAPagedTabNamesItsPage() {
+        for entry in SettingsSearchIndex.all {
+            if entry.tab.subTabs.isEmpty {
+                #expect(entry.place.subTab == nil, "\(entry.title) names a page on a one-page tab")
+            } else {
+                #expect(entry.place.subTab != nil, "\(entry.title) is on \(entry.tab.displayName) but names no page")
+            }
+        }
+    }
+
+    /// Every page has something to find, so a search can reach each.
+    @Test func everyPageHasAnEntry() {
+        for page in SettingsSubTab.allCases {
+            #expect(SettingsSearchIndex.all.contains { $0.place.subTab == page },
+                    "No searchable settings on \(SettingsPlace(page).name)")
+        }
     }
 
     @Test func titleMatchIsFound() {
@@ -76,10 +97,10 @@ import Testing
         // its retired title "List density", which stays in the entry's keywords so anyone who
         // learned that word still finds it.
         let byOldTitle = filterSettings(SettingsSearchIndex.all, query: "list density")
-        #expect(byOldTitle.contains { $0.title == "Row spacing" && $0.tab == .readability })
+        #expect(byOldTitle.contains { $0.title == "Row spacing" && $0.place == SettingsPlace(.textAndSpacing) })
 
         let byNewTitle = filterSettings(SettingsSearchIndex.all, query: "row spacing")
-        #expect(byNewTitle.contains { $0.title == "Row spacing" && $0.tab == .readability })
+        #expect(byNewTitle.contains { $0.title == "Row spacing" && $0.place == SettingsPlace(.textAndSpacing) })
 
         for value in ["compact", "comfortable"] {
             #expect(filterSettings(SettingsSearchIndex.all, query: value)
@@ -102,7 +123,7 @@ import Testing
     // MARK: matches() on a single entry
 
     @Test func entryMatchesTitleAndKeyword() {
-        let entry = SettingsSearchEntry(tab: .sync, title: "Confirm before deleting",
+        let entry = SettingsSearchEntry(at: .general, title: "Confirm before deleting",
                                         keywords: ["trash", "delete confirmation"])
         #expect(entry.matches("confirm"))       // title substring
         #expect(entry.matches("Trash"))         // keyword, case-insensitive
@@ -131,78 +152,80 @@ import Testing
         #expect(Set(ids).count == ids.count)
     }
 
-    // MARK: The Tidy split
+    // MARK: The pages that own each control
 
-    /// Each of the old Tidy entries must point at the one of four tabs that holds its control.
-    /// `everyEntryPointsAtARealTab` can't tell: all four are real, so pointing every entry at any
-    /// one of them passes it. Landing on the wrong tab is worse than no result, because the setting
-    /// isn't there and the rail says it should be. Spelled out per title, so a failure names the
-    /// misfiled control.
-    @Test func theOldTidyEntriesLandOnTheTabThatOwnsTheirControl() {
-        let expected: [SettingsView.SettingsTab: [String]] = [
+    /// Each entry that moved in TE332 must point at the page that holds its control.
+    /// `everyEntryOnAPagedTabNamesItsPage` can't tell: every page is real, so pointing every entry
+    /// at any one of them passes it. Landing on the wrong page is worse than no result, because the
+    /// setting isn't there and the strip says it should be. Spelled out per title, so a failure
+    /// names the misfiled control.
+    @Test func theRegroupedEntriesLandOnThePageThatOwnsTheirControl() {
+        let expected: [SettingsSubTab?: [String]] = [
+            nil: ["When a file already exists", "Confirm before copying or moving",
+                  "Confirm before deleting", "Warn before quitting during file operations"],
+            .panes: ["Show hidden files by default", "Sort panes by", "Rescan when files change", "Column widths"],
+            .textAndSpacing: ["Size & spacing", "Text size", "Row spacing"],
+            .nameChecks: ["Check folder names against", "Allowed names"],
             .duplicates: ["Ignore files smaller than", "Folders overlap at", "Detect versions"],
-            // What Organize kept: the job, not the machinery.
-            .filing: ["Loose-files inbox", "Remembered rules", "Kept names"],
-            .intelligence: ["Suggest folders with on-device AI",
-                            "Read file contents on-device for better signals",
-                            "Use Claude (cloud) to refine suggestions",
-                            "Claude API key", "Cloud model",
-                            "Cost and limits", "Monthly budget cap", "Total budget cap",
-                            "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
+            .toFile: ["Loose-files inbox", "Rules you taught by correcting", "Folder surveys"],
+            .suggestions: ["Suggest folders with Apple Intelligence", "Read file contents on this Mac",
+                           "Use Claude (cloud) to refine suggestions", "Cloud model",
+                           "Reuse suggestions for files that haven’t changed", "Saved suggestions"],
+            .keyAndSpending: ["Claude API key", "Cost and limits", "Monthly budget cap", "Total budget cap",
+                              "Monthly limit"],
             .people: ["People", "Add Person…"],
+            .oneWaySync: ["One-Way Sync"],
         ]
 
-        for (tab, titles) in expected {
+        for (page, titles) in expected {
+            let place = page.map(SettingsPlace.init) ?? SettingsPlace(.general)
             for title in titles {
                 let entry = SettingsSearchIndex.all.first { $0.title == title }
-                #expect(entry?.tab == tab,
-                        "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing"), not \(tab.displayName)")
+                #expect(entry?.place == place,
+                        "\"\(title)\" points at \(entry?.place.name ?? "nothing"), not \(place.name)")
             }
         }
     }
 
-    /// Someone who knew these settings as Organize's must still find them on their new tabs. The
-    /// keyword lists carry "organize" and "filing" to the entries that left, and nothing else
-    /// checks it: every entry stays well-formed with those words dropped.
-    @Test func theSettingsThatLeftOrganizeAreStillFoundByItsName() {
+    /// Someone who knew these settings by Organize's old names must still find them. The keyword
+    /// lists carry "organize" and "filing", and nothing else checks it: every entry stays
+    /// well-formed with those words dropped.
+    @Test func organizesSettingsAreStillFoundByItsOldNames() {
         for query in ["organize", "filing"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
-            #expect(results.contains { $0.tab == .intelligence },
-                    "'\(query)' reaches nothing on Intelligence — the engine settings left Organize silently")
-            #expect(results.contains { $0.tab == .people },
-                    "'\(query)' reaches nothing on People — the roster left Organize silently")
-            // The Organize tab too: "filing" no longer appears on screen, so it only finds the
-            // settings that keep it as an alias keyword. Asserted on the entry, not the tab:
-            // `$0.tab == .filing` can't fail, because "Remembered rules" on that tab carries
-            // "filing rules" and matching is substring. Naming the title makes deleting the alias
-            // red, as in `looseFilesInboxIsFindableByTheWordsItsControlUses`.
+            #expect(results.contains { $0.place == SettingsPlace(.suggestions) },
+                    "'\(query)' reaches nothing on Organize ▸ Suggestions")
+            #expect(results.contains { $0.place == SettingsPlace(.people) },
+                    "'\(query)' reaches nothing on Organize ▸ People")
+            // Asserted on the entry, not the page: "Rules you taught by correcting" carries
+            // "filing rules" and matching is substring, so a page check can't fail. Naming the title
+            // makes deleting the alias red, as in `looseFilesInboxIsFindableByTheWordsItsControlUses`.
             #expect(results.contains { $0.title == "Loose-files inbox" && $0.tab == .filing },
                     "'\(query)' does not reach the Loose-files inbox — the alias keyword left the entry that carries it")
         }
     }
 
-    /// The offer that says "set up cloud refine" has to open the tab that can actually set it up.
+    /// The offer that says "set up cloud refine" has to open the page that can actually set it up.
     ///
     /// The link lives in `MacApp/ContentView.swift`, which no package test compiles, so this pins
-    /// the `cloudRefineSetup` tab it opens. Asserted against the index, not a spelled-out tab: the
-    /// right destination is wherever the key is, so if the key moves this fails instead of
-    /// agreeing with itself.
-    @Test func theCloudRefineOfferLandsOnTheTabThatHoldsTheKey() throws {
+    /// the `cloudRefineSetup` place it opens. Asserted against the index, not a spelled-out page:
+    /// the right destination is wherever the switch is, so if it moves this fails instead of
+    /// agreeing with itself. Until TE335 the key is a page away, on Ask Claude ▸ Key & Spending,
+    /// which the Suggestions page's jump opens.
+    @Test func theCloudRefineOfferLandsOnThePageThatHoldsItsSwitch() throws {
         let key = try #require(SettingsSearchIndex.all.first { $0.title == "Claude API key" })
         let toggle = try #require(SettingsSearchIndex.all.first {
             $0.title == "Use Claude (cloud) to refine suggestions"
         })
+        let model = try #require(SettingsSearchIndex.all.first { $0.title == "Cloud model" })
 
-        #expect(SettingsView.SettingsTab.cloudRefineSetup == key.tab,
-                """
-                The cloud-refine offer opens \(SettingsView.SettingsTab.cloudRefineSetup.displayName) \
-                but the API key is on \(key.tab.displayName).
-                """)
-        #expect(SettingsView.SettingsTab.cloudRefineSetup == toggle.tab,
-                """
-                The cloud-refine offer opens \(SettingsView.SettingsTab.cloudRefineSetup.displayName) \
-                but the toggle it exists to turn on is on \(toggle.tab.displayName).
-                """)
+        let offer = SettingsView.SettingsTab.cloudRefineSetup
+        #expect(offer == toggle.place,
+                "The cloud-refine offer opens \(offer.name) but the switch it exists to turn on is on \(toggle.place.name).")
+        #expect(offer == model.place,
+                "The cloud-refine offer opens \(offer.name) but Refine's model is on \(model.place.name).")
+        #expect(key.place == SettingsPlace(.keyAndSpending),
+                "The Suggestions page's jump opens Key & Spending, but the key is on \(key.place.name).")
     }
 
     /// The API key is the most-hunted control in Settings, and "Intelligence" is not what anyone
@@ -211,18 +234,18 @@ import Testing
     @Test func theApiKeyIsFindableByTheWordsPeopleActuallyType() {
         for query in ["api key", "anthropic", "claude", "keychain", "sk-ant", "token", "secret"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
-            #expect(results.contains { $0.title == "Claude API key" && $0.tab == .intelligence },
+            #expect(results.contains { $0.title == "Claude API key" && $0.place == SettingsPlace(.keyAndSpending) },
                     "'\(query)' should surface the Claude API key control")
         }
     }
 
     /// "Tidy" is no longer a tab, but someone who remembers it has nothing else to type, and an
-    /// empty result reads as "that setting is gone". The word must reach both tabs it split into.
-    @Test func searchingTidyStillReachesBothTabsItSplitInto() {
+    /// empty result reads as "that setting is gone". The word must reach both pages it became.
+    @Test func searchingTidyStillReachesBothPagesItBecame() {
         let results = filterSettings(SettingsSearchIndex.all, query: "tidy")
 
-        #expect(results.contains { $0.tab == .filing }, "\"tidy\" surfaces nothing on Organize")
-        #expect(results.contains { $0.tab == .duplicates }, "\"tidy\" surfaces nothing on Duplicates")
+        #expect(results.contains { $0.place == SettingsPlace(.toFile) }, "\"tidy\" surfaces nothing on To File")
+        #expect(results.contains { $0.place == SettingsPlace(.duplicates) }, "\"tidy\" surfaces nothing on Duplicates")
     }
 
     // MARK: Index coverage, checked against the tab sources
@@ -261,19 +284,21 @@ import Testing
     /// Two kinds, and nothing else belongs here:
     ///
     /// - Group headers: a `SettingsSection` title over controls indexed under their own row
-    ///   titles. "Conflicts" heads the conflict-policy picker; "Inbox and rules" heads Organize's
+    ///   titles. "Copying and moving" heads the conflict-policy picker; "Inbox" heads To File's
     ///   inbox path and rules pointer. A header that is its section's only control is indexed.
     /// - Readouts in section clothing, on People: "Across your tree" heads `PeopleOverviewRow`,
     ///   and "Names found in your documents" heads the queue "Look for Names" fills, offers to
-    ///   accept or refuse rather than settings.
+    ///   accept or refuse rather than settings. And Ask Claude ▸ Privacy's "Every folder", which
+    ///   says what a folder neither shared nor hidden does, and sets nothing.
     ///
     /// Every entry is load-bearing: drop one and the scan fails on it. Headers covered by a control
     /// entry under `indexCovers`'s containment rule ("On-device", "Claude (cloud)") stay out. An
     /// exemption added to silence a real control is the failure this test exists to catch.
     static let unindexedByDesign: Set<String> = [
-        "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance",
-        "Inbox and rules", "Saved scan data",
-        "Across your tree", "Names found in your documents",
+        "Startup", "Copying and moving", "Notifications", "Logging", "Maintenance", "Setup",
+        "Inbox", "Saved scan data", "Markdown", "Reading", "Organize",
+        "On-device", "What Claude may see",
+        "Across your tree", "Names found in your documents", "Every folder",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs

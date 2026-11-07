@@ -5,9 +5,9 @@ import SwiftUI
 import Sync
 import UserNotifications
 
-/// **Settings ▸ Sync ▸ One-Way Sync**: the pair and its state, Pause and Choose Folders, the two
+/// **Settings ▸ Compare ▸ One-Way Sync**: the pair and its state, Pause and Choose Folders, the two
 /// settings, files you stopped syncing, SyncCloud Removed, and Turn Off. Before setup, *Set Up
-/// One-Way Sync…*. Hosted by Settings' Sync tab, which wraps it in a section of its own.
+/// One-Way Sync…*. Hosted by Settings' Compare tab, which gives it a page of its own.
 public struct OneWaySyncSettingsView: View {
     @ObservedObject var controller: OneWaySyncController
     @ObservedObject var center: ActivityCenter

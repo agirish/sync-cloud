@@ -157,7 +157,7 @@ struct SetupSheet: View {
     let glassLevel: GlassLevel
     let surfaceTint: Double
     let availableSize: CGSize
-    let onOpenSettings: (SettingsView.SettingsTab) -> Void
+    let onOpenSettings: (SettingsPlace) -> Void
     /// The user reached the end. The caller persists the completed flag.
     let onFinish: () -> Void
     /// Esc, ✕, a click outside, or *Not Now*, once the open screen's answers are committed
@@ -202,7 +202,7 @@ struct SetupSheet: View {
          model: SetupModel? = nil,
          onProfileWritten: @escaping () -> Void = {},
          onStartSurvey: @escaping (URL) -> Void = { _ in },
-         onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
+         onOpenSettings: @escaping (SettingsPlace) -> Void,
          onFinish: @escaping () -> Void,
          onDismiss: @escaping () -> Void,
          onStartWith: @escaping (SetupStart) -> Void = { _ in }) {

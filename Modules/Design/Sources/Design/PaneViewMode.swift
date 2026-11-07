@@ -235,7 +235,7 @@ public enum ColumnResizeMode: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
-    /// The Settings segment labels — short, because the Readability tab's floor leaves about 340pt
+    /// The Settings segment labels — short, because the Browse ▸ Panes page's floor leaves about 340pt
     /// beside the rail; the caption under the control says the rest.
     public var displayName: String {
         switch self {

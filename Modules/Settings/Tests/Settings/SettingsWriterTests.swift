@@ -148,7 +148,7 @@ import Sync
         defaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
         let w = writer(defaults, nil, Calls())
         let refused = w.write("intelligence.cloudRefine", .bool(true))
-        #expect(refused == .refused("Suggest folders with on-device AI is off, so Use Claude (cloud) to refine suggestions can’t change. Turn it on first."))
+        #expect(refused == .refused("Suggest folders with Apple Intelligence is off, so Use Claude (cloud) to refine suggestions can’t change. Turn it on first."))
         #expect(defaults.object(forKey: FileSyncManager.usesCloudDefaultsKey) == nil)
         defaults.set(true, forKey: FileSyncManager.usesAIDefaultsKey)
         #expect(w.write("intelligence.cloudRefine", .bool(true)) == .done)

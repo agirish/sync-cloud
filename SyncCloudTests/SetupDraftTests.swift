@@ -246,7 +246,7 @@ import Testing
     }
 
     /// Setup adds to a record, never takes from one: the user may have typed a full name into
-    /// Settings ▸ People before the draft applies, and overwriting it would delete their work.
+    /// Organize ▸ People before the draft applies, and overwriting it would delete their work.
     @MainActor
     @Test func applyingAddsFullNamesWithoutRemovingOnesTheUserTyped() throws {
         let dir = try Self.scratchDirectory()

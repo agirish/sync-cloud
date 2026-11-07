@@ -64,7 +64,7 @@ import Testing
         let settings = try source("Modules/Settings/Sources/Settings/SettingsView.swift")
         let lensSheet = try source("Modules/FileExplorer/Sources/FileExplorer/FilingSpendHistoryView.swift")
         #expect(settings.contains("FilingSpendStore.clearIfConfirmed("),
-                "Settings ▸ Intelligence's Clear no longer asks")
+                "Ask Claude ▸ Key & Spending's Clear no longer asks")
         #expect(lensSheet.contains("FilingSpendStore.clearIfConfirmed"),
                 "the Organize lens's Clear History no longer asks")
         for (name, text) in [("SettingsView.swift", settings), ("FilingSpendHistoryView.swift", lensSheet)] {

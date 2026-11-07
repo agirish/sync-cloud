@@ -34,14 +34,14 @@ struct FolderSurveysSection: View {
     var body: some View {
         SettingsSection(
             "Folder surveys",
-            caption: "What To File knows about each source’s folders. \(FilingSurveyInUse.possessive(primaryName)) "
-                + "survey is the primary one: a source laid out like it uses it, and a source laid out "
-                + "differently can learn its own. Learning reads folder names only, so nothing downloads."
+            caption: "What To File knows about each source’s folders. Learning reads names only; nothing downloads."
         ) {
             ForEach(sources, id: \.root) { source in
                 row(source)
             }
         }
+        // What the caption gave up, for anyone who points at it.
+        .help("\(FilingSurveyInUse.possessive(primaryName)) survey is the primary one: a source laid out like it uses it, and a source laid out differently can learn its own.")
         .task(id: generation) { await measure() }
         .confirmationDialog(
             forgetTitle,

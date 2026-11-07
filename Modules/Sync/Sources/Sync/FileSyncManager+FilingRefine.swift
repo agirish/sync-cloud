@@ -89,7 +89,7 @@ extension FileSyncManager {
         // `uniqueKeysWithValues`, which traps on a repeated key, and sending a file twice would be
         // a double charge and an over-quoted count.
         //
-        // A file hidden from Claude is never eligible (Settings ▸ Intelligence ▸ Hidden from
+        // A file hidden from Claude is never eligible (Settings ▸ Ask Claude ▸ Privacy ▸ Hidden from
         // Claude): not its name, not its page, not a download to read it.
         let hidden = claudeHiddenMatcher()
         var seen: Set<String> = []
@@ -452,7 +452,7 @@ extension FileSyncManager {
             Logger.shared.warning("Filing: refine ran on-device — Claude is switched on but the "
                 + "saved key could not be read, so nothing was sent or billed")
             banner = .warning("Couldn’t reach Claude — your saved API key couldn’t be read. "
-                              + "These are the on-device suggestions; check the key in Settings ▸ Intelligence.")
+                              + "These are the on-device suggestions; check the key in Settings ▸ Ask Claude.")
             return summary
         }
         // A declined charge is not a result. Nothing was sent or re-routed, so only cached answers
@@ -565,7 +565,7 @@ extension FileSyncManager {
                                                                    request: request) else {
             Logger.shared.warning("Mapping refine skipped — no price is known for model "
                 + "“\(model)”, so the cost could not be quoted. Pick one of the offered "
-                + "models in Settings ▸ Intelligence.")
+                + "models in Settings ▸ Organize.")
             return .unavailable
         }
         let tokens = MappingRefineProtocol.estimateTokens(request: request)

@@ -16,7 +16,7 @@ import SwiftUI
 public struct SizePresetRow: View {
     /// How a tile labels itself.
     public enum Style: Sendable {
-        /// Percentage over the row-spacing name. Settings ▸ Readability.
+        /// Percentage over the row-spacing name. Settings ▸ Appearance ▸ Text & Spacing.
         case named
         /// Percentage under a miniature of the resulting rows. The setup form.
         case specimen

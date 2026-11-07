@@ -100,7 +100,7 @@ struct AskClaudePlaceMenu: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .help("Spent on Ask Claude this month, of the monthly limit in Settings ▸ Intelligence")
+            .help("Spent on Ask Claude this month, of the monthly limit in Settings ▸ Ask Claude")
         }
         .font(.callout)
         .padding(6)

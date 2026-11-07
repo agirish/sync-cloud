@@ -61,28 +61,26 @@ public struct SettingsView: View {
     /// at window creation, so the raw values are stable. `CaseIterable` backs both the rail and the
     /// search index's "every entry points at a real tab" invariant.
     ///
-    /// Never rename a case: a label can change (`providers` shows as "Sources"), but the raw value
-    /// is what a stored `settingsSelectedTab` holds. A tab split out of another gets a new case,
-    /// so the old one keeps meaning what the user last looked at.
-    ///
-    /// The stored value is resolved through `resolvingStored(_:)`, which falls back to Appearance
-    /// rather than trapping on a value this build doesn't know (`StoredTabResolutionTests`).
+    /// Never rename a case: a label can change (`providers` shows as "Sources", `sync` as
+    /// "Compare", `intelligence` as "Ask Claude"), but the raw value is what a stored
+    /// `settingsSelectedTab` holds. A tab folded into another (Readability, People, Duplicates)
+    /// loses its case and keeps its raw value in `SettingsPlace.resolvingStored(_:)`, which opens
+    /// its new home.
     public enum SettingsTab: String, CaseIterable, Sendable {
         case general
+        /// Look, and Text & Spacing (Readability until TE332).
         case appearance
-        /// Text size and row spacing — how large the type is and how tightly the rows pack. Its
-        /// own tab because its controls and preview come to ~875pt, and Appearance's opening on a
-        /// 1280×800 display is 647pt. See `ReadabilitySettingsTab`.
-        case readability
         case providers
-        /// The people the filing rules attribute documents to.
-        case people
+        /// The Browse workspace's panes and window, most of which apply in every workspace.
+        case browse
+        /// Shown as "Compare", the workspace's own name.
         case sync
         /// Shown as "Organize". Named for `Workspace.filing`, not the label, so the tab is one
-        /// grep away from the code it governs.
+        /// grep away from the code it governs. People and Duplicates are its sub-tabs.
         case filing
-        case duplicates
-        /// The suggestion engine — on-device AI, the opt-in Claude path, and what that path costs.
+        /// The Edit workspace's remembered choices, otherwise set only from its menus.
+        case edit
+        /// Shown as "Ask Claude": the chat, its privacy, the key and what Claude costs.
         case intelligence
         case advanced
 
@@ -92,80 +90,84 @@ public struct SettingsView: View {
             switch self {
             case .general: return "General"
             case .appearance: return "Appearance"
-            // "Readability", not "Text size": row spacing is half the tab and isn't type. Not
-            // "Display" either, which in a Mac app promises monitors and resolution.
-            case .readability: return "Readability"
             // "Sources", not "Providers": the tab lists plain folders beside the cloud accounts,
             // and a folder is not a provider. The case keeps its name for the stored raw value.
             case .providers: return "Sources"
-            case .people: return "People"
-            case .sync: return "Sync"
+            case .browse: return "Browse"
+            // The workspace bar's name for the same feature.
+            case .sync: return "Compare"
             case .filing: return "Organize"
-            case .duplicates: return "Duplicates"
-            // Not "Claude": the tab holds the free on-device pass too. Not "AI & Cloud": "Cloud"
-            // collides with Sources' cloud providers. `SettingsSearchIndex` carries "API key" and
-            // "Anthropic" here.
-            case .intelligence: return "Intelligence"
+            case .edit: return "Edit"
+            // One tab for everything Claude (TE332 JT). `SettingsSearchIndex` carries "API key"
+            // and "Anthropic" here.
+            case .intelligence: return "Ask Claude"
             case .advanced: return "Advanced"
             }
         }
 
         /// The rail row's SF Symbol. Outline weight throughout: mixed filled and outline glyphs
-        /// read as though the filled ones meant something. Organize and Duplicates use their
-        /// workspaces' glyphs (`Workspace.symbol`), since the row and the bar button reach the
-        /// same feature.
+        /// read as though the filled ones meant something. Browse, Compare, Organize and Edit use
+        /// their workspaces' glyphs (`Workspace.symbol`), since the row and the bar button reach
+        /// the same feature.
         public var symbolName: String {
             switch self {
             case .general: return "gearshape"
             case .appearance: return "paintbrush"
-            // The system's own text-size glyph, the one macOS puts on this exact control.
-            case .readability: return "textformat.size"
             case .providers: return "cloud"
-            case .people: return "person.2"
+            case .browse: return "folder"
             case .sync: return "arrow.left.arrow.right"
             case .filing: return "folder.badge.gearshape"
-            case .duplicates: return "doc.on.doc"
+            case .edit: return "square.and.pencil"
             case .intelligence: return "sparkles"
             case .advanced: return "wrench.and.screwdriver"
             }
         }
 
-        /// Where the "set up cloud refine" offer on Organize's results deep-links to: the tab that
-        /// holds the Claude toggle, the key and the model.
+        /// The tab's sub-tabs, in strip order. Empty for a tab that is one page.
+        public var subTabs: [SettingsSubTab] {
+            SettingsSubTab.allCases.filter { $0.tab == self }
+        }
+
+        /// Where the "set up cloud refine" offer on Organize's results deep-links to: the page
+        /// that holds Refine's switch and model, with a jump to the key beside them.
         ///
         /// Named here, not written at the call site, because that site is in `MacApp/`, which no
-        /// package test can reach. A wrong tab there would still compile and open Settings; this
-        /// constant lets `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` check it.
-        public static let cloudRefineSetup: SettingsTab = .intelligence
+        /// package test can reach. A wrong page there would still compile and open Settings; this
+        /// constant lets `theCloudRefineOfferLandsOnThePageThatHoldsItsSwitch` check it.
+        public static let cloudRefineSetup = SettingsPlace(.suggestions)
 
-        /// The tabs the layout fit-guard (`SettingsLayoutTests`) does not hold to fitting the
-        /// sheet's opening without scrolling. `everyTabIsEitherFitTestedOrExplicitlyExempt`
-        /// measures `allCases` minus this set, so a new case either fits or earns a line here:
-        /// - `providers` grows with the Mac's provider and folder-source lists.
-        /// - `people` grows with the roster (`PeopleList` draws one row per person).
-        /// - `filing` grows with the kept-names list (`KeptNamesList`, one row per name), passing
-        ///   a 1280×800 display's opening at about the 17th name.
-        /// - `intelligence` is long by nature and expected to scroll.
+        /// The pages the layout fit-guard (`SettingsLayoutTests`) does not hold to fitting the
+        /// sheet's opening without scrolling. `everyPageIsEitherFitTestedOrExplicitlyExempt`
+        /// measures every page minus this set, so a new page either fits or earns a line here:
+        /// - Cloud Providers and Local Folders grow with the Mac's provider and folder lists.
+        /// - Name Checks grows with the allowed-names list (`KeptNamesList`, one row per name),
+        ///   passing a 1280×800 display's opening at about the 20th name.
+        /// - People grows with the roster (`PeopleList` draws one row per person).
+        /// - One-Way Sync is drawn by the app (`SettingsView.oneWaySync`), so a test here has
+        ///   nothing to measure.
+        /// - Ask Claude ▸ Privacy grows with the hidden and shared lists.
         ///
         /// **A fit-guard fixture built with a nil dependency measures only the empty state**, so a
-        /// tab with an unbounded list belongs here however well its `else` branch fits. Tests hold
-        /// two exemptions to their claim: `intelligenceLaysOutWithoutReachingForTheKeychain` and
-        /// `theOrganizeTabOutgrowsItsOpeningOnceNamesAreKept`. Organize's empty state is still
-        /// fit-tested, by `theOrganizeTabFitsItsOpeningWithNothingKept`. `providers` and `people`
-        /// have no such test yet. Revisit an exemption when a tab's shape changes.
-        public static let exemptFromFitGuard: Set<SettingsTab> = [.providers, .people, .filing, .intelligence]
+        /// page with an unbounded list belongs here however well its `else` branch fits. Name
+        /// Checks' empty state is still fit-tested, by `theNameChecksPageFitsItsOpeningWithNothingAllowed`,
+        /// and its exemption by `theNameChecksPageOutgrowsItsOpeningOnceNamesAreAllowed`.
+        /// Revisit an exemption when a page's shape changes.
+        public static let exemptFromFitGuard: Set<SettingsPlace> = [
+            SettingsPlace(.cloudProviders), SettingsPlace(.localFolders), SettingsPlace(.nameChecks),
+            SettingsPlace(.people), SettingsPlace(.oneWaySync), SettingsPlace(.privacy),
+        ]
 
         /// The rail's rows in groups, separated by a hairline.
         ///
         /// Flat rows read as a pile, but the rail is fixed-height and doesn't scroll, so each
         /// separator costs space; `theRailFitsItsOpening` measures the rail with them. Groups are by
-        /// question asked: the app itself, the user's world, what a scan does, the engine room.
-        /// Spelled out, not derived, so a new case must name its group (`railGroupsCoverEveryTab`).
+        /// question asked: the app itself, where files come from, the workspaces in the workspace
+        /// bar's order, then Claude and the engine room. Spelled out, not derived, so a new case
+        /// must name its group (`railGroupsCoverEveryTab`).
         public static let railGroups: [[SettingsTab]] = [
-            // Readability sits next to Appearance: how it looks, then how it reads.
-            [.general, .appearance, .readability],
-            [.providers, .people],
-            [.sync, .filing, .duplicates],
+            [.general, .appearance],
+            [.providers],
+            [.browse, .sync, .filing, .edit],
             [.intelligence, .advanced],
         ]
     }
@@ -246,6 +248,7 @@ public struct SettingsView: View {
         onResetSetup: (() -> Void)? = nil,
         onShowPerson: ((Person) -> Void)? = nil,
         onOpenHelp: ((String) -> Void)? = nil,
+        onOpenRules: (() -> Void)? = nil,
         availableSize: CGSize? = nil,
         oneWaySync: AnyView? = nil
     ) {
@@ -257,12 +260,36 @@ public struct SettingsView: View {
         self.onResetSetup = onResetSetup
         self.onShowPerson = onShowPerson
         self.onOpenHelp = onOpenHelp
+        self.onOpenRules = onOpenRules
         self.availableSize = availableSize
         self.oneWaySync = oneWaySync
     }
 
-    /// Sync ▸ One-Way Sync, supplied by the app because its state lives above Settings.
+    /// Compare ▸ One-Way Sync, supplied by the app because its state lives above Settings.
     private let oneWaySync: AnyView?
+
+    /// Opens the Organize workspace on its Rules, for To File's "Open Rules". A callback because
+    /// the workspace lives in `MacApp`; nil hides the button.
+    private let onOpenRules: (() -> Void)?
+
+    /// The page last shown on each paged tab — see `SettingsSubTabMemory`.
+    @AppStorage(SettingsSubTabMemory.defaultsKey) private var subTabMemory = ""
+
+    /// The page the selected tab shows, or nil for a one-page tab.
+    private var selectedPage: SettingsSubTab? {
+        SettingsSubTabMemory.page(for: selectedTab, in: subTabMemory)
+    }
+
+    /// The one way to a place inside the sheet: a search result, a page in the strip, or a jump
+    /// from one page to another. Remembers the page before switching the tab, so the tab never
+    /// draws a page it is about to leave.
+    private func go(to place: SettingsPlace) {
+        if let page = place.subTab {
+            subTabMemory = SettingsSubTabMemory.remembering(page, in: subTabMemory)
+        }
+        selectedTab = place.tab
+        searchQuery = ""
+    }
 
     /// The sheet's size: see `SettingsSheetMetrics`, which owns the arithmetic.
     private var sheetSize: CGSize {
@@ -307,57 +334,105 @@ public struct SettingsView: View {
         .nativeControlAccent(selectedHue)
     }
 
-    /// The right-hand column: the selected tab, or the search results standing in for it.
+    /// The right-hand column: the selected page, or the search results standing in for it.
     @ViewBuilder
     private var content: some View {
         if isSearching {
-            SettingsSearchResults(results: searchResults) { tab in
-                // The jump: land on the matching tab and drop back to normal content.
-                selectedTab = tab
-                searchQuery = ""
+            SettingsSearchResults(results: searchResults) { place in
+                // The jump: land on the matching page and drop back to normal content.
+                go(to: place)
             }
         } else {
-            switch selectedTab {
-            case .general:
-                GeneralSettingsTab(onRunSetup: onRunSetup)
-            case .appearance:
-                AppearanceSettingsTab()
-            case .readability:
-                ReadabilitySettingsTab()
-            case .providers:
-                ProvidersSettingsTab()
-            case .people:
-                PeopleSettingsTab(syncManager: syncManager, onShowPerson: onShowPerson)
-            case .sync:
-                SyncSettingsTab(syncManager: syncManager, oneWaySync: oneWaySync)
-            case .filing:
-                FilingSettingsTab(syncManager: syncManager,
-                                  surveySources: settings.enabledProviders.filter { !$0.isLocalFolder }
-                                      .map { ($0.displayName, settings.landingPath(for: $0.id)) })
-            case .duplicates:
-                DuplicatesSettingsTab()
-            case .intelligence:
-                IntelligenceSettingsTab(syncManager: syncManager, onOpenHelp: onOpenHelp)
-            case .advanced:
-                AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
-                                    onResetSetup: onResetSetup, resetAllRaises: { [settings, syncManager] in
-                    SettingsActions(settings: settings, sync: syncManager,
-                                    lookup: SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { false },
-                                                           hiddenCount: { 0 }, isHidden: { _ in false },
-                                                           loginItemIsOn: { false })).resetAllRaises()
-                })
+            VStack(spacing: 0) {
+                if let selectedPage {
+                    SettingsSubTabStrip(tab: selectedTab,
+                                        selection: Binding(get: { selectedPage },
+                                                           set: { go(to: SettingsPlace($0)) }),
+                                        hue: selectedHue)
+                    Divider()
+                }
+                page(selectedTab, selectedPage)
             }
         }
+    }
+
+    /// One page: a one-page tab, or a tab's sub-tab.
+    @ViewBuilder
+    private func page(_ tab: SettingsTab, _ subTab: SettingsSubTab?) -> some View {
+        switch tab {
+        case .general:
+            GeneralSettingsTab()
+        case .appearance:
+            if subTab == .textAndSpacing { ReadabilitySettingsTab() } else { AppearanceSettingsTab() }
+        case .providers:
+            ProvidersSettingsTab(page: subTab ?? .cloudProviders, syncManager: syncManager)
+        case .browse:
+            BrowseSettingsTab(page: subTab ?? .panes)
+        case .sync:
+            SyncSettingsTab(page: subTab ?? .differences, syncManager: syncManager, oneWaySync: oneWaySync)
+        case .filing:
+            switch subTab ?? .toFile {
+            case .people:
+                PeopleSettingsTab(syncManager: syncManager, onShowPerson: onShowPerson)
+            case .duplicates:
+                DuplicatesSettingsTab()
+            case .suggestions:
+                OrganizeSuggestionsPage(syncManager: syncManager, onOpenHelp: onOpenHelp,
+                                        onJump: { go(to: $0) })
+            default:
+                FilingSettingsTab(syncManager: syncManager,
+                                  surveySources: settings.enabledProviders.filter { !$0.isLocalFolder }
+                                      .map { ($0.displayName, settings.landingPath(for: $0.id)) },
+                                  onOpenRules: onOpenRules)
+            }
+        case .edit:
+            EditSettingsTab(page: subTab ?? .text)
+        case .intelligence:
+            IntelligenceSettingsTab(page: subTab ?? .claudeGeneral, syncManager: syncManager)
+        case .advanced:
+            AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
+                                onRunSetup: onRunSetup, onResetSetup: onResetSetup,
+                                resetAllRaises: { [settings, syncManager] in
+                SettingsActions(settings: settings, sync: syncManager,
+                                lookup: SettingsLookup(defaults: .standard, settings: settings, keyIsSaved: { false },
+                                                       hiddenCount: { 0 }, isHidden: { _ in false },
+                                                       loginItemIsOn: { false })).resetAllRaises()
+            })
+        }
+    }
+}
+
+/// The strip of a paged tab's sub-tabs, centred over its page. A segmented control, as System
+/// Settings puts one over a pane's pages. Fixed in height, like the title row, so each page's
+/// opening is arithmetic (`SettingsSheetMetrics.pageOpening`).
+struct SettingsSubTabStrip: View {
+    let tab: SettingsView.SettingsTab
+    @Binding var selection: SettingsSubTab
+    let hue: LiquidGlassHue
+    @Environment(\.appFontScale) private var scale
+
+    var body: some View {
+        Picker("\(tab.displayName) pages", selection: $selection) {
+            ForEach(tab.subTabs, id: \.self) { page in
+                Text(page.displayName).tag(page)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accentedSegments(hue)
+        .fixedSize()
+        .frame(maxWidth: .infinity)
+        .frame(height: SettingsSheetMetrics.subTabStripHeight * scale)
     }
 }
 
 // MARK: - Settings search
 
-public extension SettingsView.SettingsTab {
-    /// The tab that holds a setting or section named in words (“Ask Claude”, “monthly limit”,
+public extension SettingsPlace {
+    /// The page that holds a setting or section named in words (“Ask Claude”, “monthly limit”,
     /// “API key”), by the same index Settings' own search reads: an exact title first, then a title
     /// containing it, then a keyword. Nil when nothing matches.
-    static func holding(_ words: String) -> SettingsView.SettingsTab? {
+    static func holding(_ words: String) -> SettingsPlace? {
         let needle = words.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return nil }
         let entries = SettingsSearchIndex.all
@@ -373,17 +448,25 @@ public extension SettingsView.SettingsTab {
         return (entries.first { $0.title.lowercased() == needle }
                 ?? entries.first { $0.keywords.contains { $0.lowercased() == needle } }
                 ?? entries.first { holdsWords($0.title) }
-                ?? entries.first { $0.matches(needle) })?.tab
+                ?? entries.first { $0.matches(needle) })?.place
     }
 }
 
-/// One searchable settings control: the tab it lives on, its display title, and a few
+/// One searchable settings control: the page it lives on, its display title, and a few
 /// synonyms/keywords so a search for "blur" finds "Glass effect" and "trash" finds the
 /// delete confirmation. Pure data with a pure match — no SwiftUI — so the filter is unit-testable.
 struct SettingsSearchEntry: Identifiable, Sendable {
-    let tab: SettingsView.SettingsTab
+    let place: SettingsPlace
     let title: String
     let keywords: [String]
+
+    init(at place: SettingsPlace, title: String, keywords: [String]) {
+        self.place = place
+        self.title = title
+        self.keywords = keywords
+    }
+
+    var tab: SettingsView.SettingsTab { place.tab }
 
     /// Stable across renders: a title is unique within its tab, and tabs are distinct.
     var id: String { "\(tab.rawValue).\(title)" }
@@ -399,7 +482,7 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 }
 
 /// The catalog of settings the header search can jump to: one entry per control that *changes*
-/// something, across every tab. One kind of on-screen label deliberately gets no entry of its own,
+/// something, across every page. An entry on a paged tab names its page, so the jump lands on it. One kind of on-screen label deliberately gets no entry of its own,
 /// because it is not a setting: the `SettingsSection` headers that only group other controls
 /// ("Conflicts", "Logging", "Inbox and rules"). Each is reached through a control it belongs to.
 ///
@@ -413,95 +496,175 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 enum SettingsSearchIndex {
     static let all: [SettingsSearchEntry] = [
         // General
-        .init(tab: .general, title: "Launch SyncCloud at login",
+        .init(at: .general, title: "Launch SyncCloud at login",
               keywords: ["launch", "login", "startup", "start", "open at login", "boot", "auto start"]),
-        .init(tab: .general, title: "Show hidden files by default",
-              keywords: ["hidden", "dotfiles", "invisible", "show hidden"]),
-        .init(tab: .general, title: "Reopen panes where I left off",
+        .init(at: .general, title: "Reopen panes where I left off",
               keywords: ["restore", "reopen", "last focus", "remember folders", "panes", "resume"]),
-        .init(tab: .general, title: "Sort panes by",
-              keywords: ["sort", "order", "sorting", "name", "size", "date", "default sort"]),
-        .init(tab: .general, title: "Notify when operations finish in the background",
+        .init(at: .general, title: "Notify when operations finish in the background",
               keywords: ["notification", "notify", "background", "alert", "banner", "system notification"]),
-        .init(tab: .general, title: "Warn before quitting during file operations",
+        .init(at: .general, title: "Warn before quitting during file operations",
               keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
+        .init(at: .general, title: "When a file already exists",
+              keywords: ["conflict", "conflict policy", "overwrite", "replace", "keep both", "duplicate handling"]),
+        .init(at: .general, title: "Confirm before copying or moving",
+              keywords: ["confirm copy", "confirm move", "transfer confirmation", "what goes where", "confirm before copy"]),
+        .init(at: .general, title: "Confirm before deleting",
+              keywords: ["confirm delete", "delete confirmation", "trash", "remove"]),
 
-        // Appearance
+        // Appearance ▸ Look
         // "theme" lives here, not on Accent color: to users it means light/dark.
-        .init(tab: .appearance, title: "Theme",
+        .init(at: .look, title: "Theme",
               keywords: ["theme", "light", "dark", "dark mode", "light mode", "appearance",
                          "system", "night", "follow macos"]),
-        .init(tab: .appearance, title: "Accent color",
+        .init(at: .look, title: "Accent color",
               keywords: ["accent", "color", "colour", "hue", "highlight"]),
-        .init(tab: .appearance, title: "Glass effect",
+        .init(at: .look, title: "Glass effect",
               keywords: ["glass", "translucency", "transparency", "frosted", "clear", "solid",
                          "blur", "liquid glass", "material", "opaque", "see-through"]),
-        .init(tab: .appearance, title: "Surface tint",
+        .init(at: .look, title: "Surface tint",
               keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
         // "solid" belongs to Glass effect, not here: this control is shape only.
-        .init(tab: .appearance, title: "Content surface style",
+        .init(at: .look, title: "Content surface style",
               keywords: ["surface", "unified", "cards", "pane background", "content surface"]),
+
+        // Appearance ▸ Text & Spacing
         // Three entries for one section: the heading a search for "spacing" should land on, and
         // the two controls inside it, which people look for by name. "list density" stays a
         // keyword of Row spacing because users learned the control by that name.
-        .init(tab: .readability, title: "Size & spacing",
+        .init(at: .textAndSpacing, title: "Size & spacing",
               keywords: ["size", "spacing", "size and spacing", "preset", "presets", "scale",
                          "zoom", "how much fits", "bigger", "smaller", "readability", "legibility",
                          // Anyone who knows these controls as part of Appearance types that.
                          "appearance"]),
-        .init(tab: .readability, title: "Text size",
+        .init(at: .textAndSpacing, title: "Text size",
               keywords: ["text size", "font", "font size", "type size", "bigger text", "larger text",
                          "smaller text", "readability", "zoom", "scale", "percent", "percentage"]),
-        .init(tab: .readability, title: "Row spacing",
+        .init(at: .textAndSpacing, title: "Row spacing",
               keywords: ["density", "list density", "compact", "comfortable", "row height",
                          "spacing", "row spacing", "tighter rows", "row size"]),
-        .init(tab: .readability, title: "Column widths",
-              keywords: ["column width", "column widths", "columns", "resize columns", "width",
-                         "each column", "all columns", "divider", "wider", "narrower", "fit"]),
 
-        // Sources
-        .init(tab: .providers, title: "Cloud providers",
+        // Sources ▸ Cloud Providers. The per-source rows are on both lists, indexed here once.
+        // Display name and Open at are the two the setup sheet also offers, under More options.
+        .init(at: .cloudProviders, title: "Cloud providers",
               keywords: ["providers", "cloud", "discover", "refresh", "cloudstorage", "sources",
                          "icloud", "dropbox", "onedrive", "google drive"]),
-        .init(tab: .providers, title: "Local folders",
-              keywords: ["folder", "local", "add folder", "choose folder", "mac", "home folder",
-                         "volume", "disk", "external drive", "source", "remove folder"]),
-        .init(tab: .providers, title: "Check folder names against",
-              keywords: ["names", "risky names", "rename", "name rules", "onedrive rules",
-                         "reserved", "check names", "folder names"]),
-        .init(tab: .providers, title: "Source name",
+        .init(at: .cloudProviders, title: "Source name",
               keywords: ["rename", "name", "provider name", "custom name", "label"]),
-        .init(tab: .providers, title: "Synchronized path",
+        .init(at: .cloudProviders, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
-        // Display name and Open at are the two per-location rows the setup sheet also offers,
-        // under More options on its Locations screen; indexed under their own row labels.
-        .init(tab: .general, title: "Run Setup Again",
-              keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",
-                         "run setup", "set up syncCloud"]),
-        .init(tab: .advanced, title: "Reset Setup",
-              keywords: ["reset setup", "setup", "first run", "onboarding", "forget setup",
-                         "run setup again", "start over"]),
-        .init(tab: .providers, title: "Display name",
+        .init(at: .cloudProviders, title: "Display name",
               keywords: ["rename", "display name", "name", "provider name", "custom name",
                          "label", "setup"]),
-        .init(tab: .providers, title: "Open at",
+        .init(at: .cloudProviders, title: "Open at",
               keywords: ["open at", "landing", "starting folder", "opens at", "default folder",
                          "where panes open", "setup"]),
-        .init(tab: .providers, title: "Enable or disable a source",
+        .init(at: .cloudProviders, title: "Enable or disable a source",
               keywords: ["enable", "disable", "show", "hide", "toggle provider",
                          "toggle source"]),
 
-        // People. Indexed by what it's about as much as by its label: people type a relationship
-        // or the problem ("wrong person"). "organize" and "filing" stay for anyone who knows the
-        // roster as part of Organize.
-        .init(tab: .people, title: "People",
+        // Sources ▸ Local Folders
+        .init(at: .localFolders, title: "Local folders",
+              keywords: ["folder", "local", "add folder", "choose folder", "mac", "home folder",
+                         "volume", "disk", "external drive", "source", "remove folder"]),
+
+        // Sources ▸ Name Checks
+        .init(at: .nameChecks, title: "Check folder names against",
+              keywords: ["names", "risky names", "rename", "name rules", "onedrive rules",
+                         "reserved", "check names", "folder names"]),
+        // Most queries miss the label: the menu items say "Always Allow This Name" and "Stop
+        // Allowing This Name", so "allow" is the word users have read, and they describe the
+        // problem ("risky name", "trailing space", "badge") more than the state.
+        .init(at: .nameChecks, title: "Allowed names",
+              keywords: ["kept names", "kept name", "keep name", "allow name", "always allow", "stop allowing",
+                         "allowed names", "risky name", "risky names", "badge", "name badge",
+                         "trailing space", "forbidden character", "rename", "exceptions"]),
+
+        // Browse ▸ Panes: they apply to every pane, in every workspace.
+        .init(at: .panes, title: "Show hidden files by default",
+              keywords: ["hidden", "dotfiles", "invisible", "show hidden"]),
+        .init(at: .panes, title: "Sort panes by",
+              keywords: ["sort", "order", "sorting", "name", "size", "date", "default sort"]),
+        .init(at: .panes, title: "Column widths",
+              keywords: ["column width", "column widths", "columns", "resize columns", "width",
+                         "each column", "all columns", "divider", "wider", "narrower", "fit"]),
+        .init(at: .panes, title: "Rescan when files change",
+              keywords: ["rescan", "auto rescan", "watch", "folder watching", "file changes", "changed on disk",
+                         "refresh automatically", "live", "fsevents"]),
+
+        // Browse ▸ Window: the View menu’s switches.
+        .init(at: .window, title: "View as",
+              keywords: ["view as", "columns", "tree", "list", "browse view", "view mode", "outline"]),
+        .init(at: .window, title: "Show sidebar",
+              keywords: ["sidebar", "folder sidebar", "favorites", "places", "hide sidebar"]),
+        .init(at: .window, title: "Sidebar recents",
+              keywords: ["recents", "revisited", "frequent", "recent folders", "history"]),
+        .init(at: .window, title: "Show tab bar",
+              keywords: ["tab bar", "tabs", "hide tabs"]),
+        .init(at: .window, title: "Show status bar",
+              keywords: ["status bar", "item count", "footer"]),
+
+        // Compare ▸ Differences
+        .init(at: .differences, title: "Treat dates as equal within",
+              keywords: ["date tolerance", "date", "timestamp", "tolerance", "modified date", "rounding"]),
+        .init(at: .differences, title: "Verify same-size files during scans",
+              keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
+        .init(at: .differences, title: "Ignore “newer on Google Drive” when same size",
+              keywords: ["google drive", "newer", "ignore date", "gdrive"]),
+
+        // Compare ▸ Ignored
+        .init(at: .ignored, title: "Remember ignored items across rescans",
+              keywords: ["ignored items", "remember ignores", "hidden differences", "ignore"]),
+        .init(at: .ignored, title: "Ignored name patterns",
+              keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
+
+        // Compare ▸ One-Way Sync
+        .init(at: .oneWaySync, title: "One-Way Sync",
+              keywords: ["one-way", "one way", "mirror", "sync now", "icloud to dropbox", "dropbox", "pause", "synccloud removed",
+                         "stopped syncing", "first run", "turn off"]),
+
+        // Organize ▸ To File. "tidy" and "filing" are old names for Organize that users still type.
+        // "loose files" is needed because the title hyphenates it, and "todo" is the default value,
+        // not in the label.
+        .init(at: .toFile, title: "Loose-files inbox",
+              keywords: ["inbox", "loose files", "todo", "default folder", "scan folder",
+                         "organize", "tidy", "filing"]),
+        .init(at: .toFile, title: "Rules you taught by correcting",
+              keywords: ["filing rules", "rules", "remembered rules", "open rules", "corrections", "manage rules", "automation", "automations"]),
+        .init(at: .toFile, title: "Folder surveys",
+              keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
+                         "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
+
+        // Organize ▸ Suggestions. "organize" and "filing" stay for anyone who learned these as Organize’s.
+        .init(at: .suggestions, title: "Suggest folders with Apple Intelligence",
+              keywords: ["filing", "apple intelligence", "on-device ai", "on-device", "suggestions", "suggest folders",
+                         "sort files", "organize", "tidy", "intelligence"]),
+        .init(at: .suggestions, title: "Read file contents on this Mac",
+              keywords: ["read contents", "content signals", "on-device", "excerpt", "ocr", "text", "pdf", "vision"]),
+        // "refine" is the word on the button this row enables; "best suggestions" is an older
+        // name for the row.
+        .init(at: .suggestions, title: "Use Claude (cloud) to refine suggestions",
+              // Not "anthropic": that word is for the key, on Ask Claude, and ⌘K would otherwise
+              // lead with Organize for it.
+              keywords: ["claude", "cloud", "cloud filing", "ai", "refine",
+                         "best suggestions", "organize"]),
+        .init(at: .suggestions, title: "Cloud model",
+              keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
+        // "cache" is the word the UI never says but an engineer types, so it lives here.
+        .init(at: .suggestions, title: "Reuse suggestions for files that haven’t changed",
+              keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
+        .init(at: .suggestions, title: "Saved suggestions",
+              keywords: ["saved suggestions", "clear cache", "cache", "forget suggestions", "reset suggestions"]),
+
+        // Organize ▸ People. Indexed by what it’s about as much as by its label: people type a
+        // relationship or the problem ("wrong person").
+        .init(at: .people, title: "People",
               keywords: ["people", "person", "family", "household", "names", "full name",
                          "wife", "husband", "son", "daughter", "mother", "father", "kids",
                          "wrong person", "whose document", "who", "aliases", "privacy",
                          "what is stored", "data", "organize", "filing"]),
         // The Add button is its own entry: "add person" is what someone types when the roster is
         // missing somebody, and the section title doesn't contain it.
-        .init(tab: .people, title: "Add Person…",
+        .init(at: .people, title: "Add Person…",
               keywords: ["add person", "new person", "add family member", "add someone",
                          "remove person", "delete person", "edit person", "rename person",
                          "relationship", "brother", "sister", "roster",
@@ -509,129 +672,101 @@ enum SettingsSearchIndex {
                          "look for names", "find names", "suggest names", "name suggestions",
                          "reorder", "move up", "move down", "order", "show files", "their files"]),
         // The tester, indexed by what someone wants from it: who a document would be filed for.
-        .init(tab: .people, title: "Try a filename",
+        .init(at: .people, title: "Try a filename",
               keywords: ["try a filename", "test a filename", "test", "who does this belong to",
                          "which person", "match", "attribute", "explain"]),
 
-        // Sync
-        .init(tab: .sync, title: "One-Way Sync",
-              keywords: ["one-way", "one way", "mirror", "sync now", "icloud to dropbox", "dropbox", "pause", "synccloud removed",
-                         "stopped syncing", "first run", "turn off"]),
-        .init(tab: .sync, title: "When a file already exists",
-              keywords: ["conflict", "conflict policy", "overwrite", "replace", "keep both", "duplicate handling"]),
-        .init(tab: .sync, title: "Treat dates as equal within",
-              keywords: ["date tolerance", "date", "timestamp", "tolerance", "modified date", "rounding"]),
-        .init(tab: .sync, title: "Verify same-size files during scans",
-              keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
-        .init(tab: .sync, title: "Rescan when files change",
-              keywords: ["rescan", "auto rescan", "watch", "folder watching", "file changes", "changed on disk",
-                         "refresh automatically", "live", "fsevents"]),
-        .init(tab: .sync, title: "Ignore “newer on Google Drive” when same size",
-              keywords: ["google drive", "newer", "ignore date", "gdrive"]),
-        .init(tab: .sync, title: "Confirm before copying or moving",
-              keywords: ["confirm copy", "confirm move", "transfer confirmation", "what goes where", "confirm before copy"]),
-        .init(tab: .sync, title: "Confirm before deleting",
-              keywords: ["confirm delete", "delete confirmation", "trash", "remove"]),
-        .init(tab: .sync, title: "Remember ignored items across rescans",
-              keywords: ["ignored items", "remember ignores", "hidden differences", "ignore"]),
-        .init(tab: .sync, title: "Ignored name patterns",
-              keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
-
-        // Organize: the settings that describe the job rather than the machinery. "tidy" and
-        // "filing" are old names for this feature that users still type.
-        //
-        // "loose files" is needed because the title hyphenates it, and "todo" is the default value,
-        // not in the label.
-        .init(tab: .filing, title: "Loose-files inbox",
-              keywords: ["inbox", "loose files", "todo", "default folder", "scan folder",
-                         "organize", "tidy", "filing"]),
-        .init(tab: .filing, title: "Remembered rules",
-              keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
-        .init(tab: .filing, title: "Folder surveys",
-              keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
-                         "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
-        // Most queries miss the label: the menu items say "Always Allow This Name" and "Stop
-        // Allowing This Name", so "allow" is the word users have read, and they describe the
-        // problem ("risky name", "trailing space", "badge") more than the state.
-        .init(tab: .filing, title: "Kept names",
-              keywords: ["kept name", "keep name", "allow name", "always allow", "stop allowing",
-                         "allowed names", "risky name", "risky names", "badge", "name badge",
-                         "trailing space", "forbidden character", "rename", "exceptions"]),
-
-        // Duplicates
-        .init(tab: .duplicates, title: "Ignore files smaller than",
+        // Organize ▸ Duplicates
+        .init(at: .duplicates, title: "Ignore files smaller than",
               keywords: ["minimum size", "min file size", "small files", "duplicates", "threshold size", "tidy"]),
-        .init(tab: .duplicates, title: "Folders overlap at",
+        .init(at: .duplicates, title: "Folders overlap at",
               keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
-        .init(tab: .duplicates, title: "Detect versions",
+        .init(at: .duplicates, title: "Detect versions",
               keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
         // Nobody types this label; they type what they noticed: the same bill downloaded twice,
         // or a slow first scan.
-        .init(tab: .duplicates, title: "Read PDFs to find copies a byte hash misses",
+        .init(at: .duplicates, title: "Read PDFs to find copies a byte hash misses",
               keywords: ["pdf", "text", "same text", "content", "fingerprint", "re-downloaded",
                          "downloaded twice", "re-stamped", "slow scan", "duplicates"]),
 
-        // Intelligence: the engine and its cost, in tab order. Keywords matter most here, since
-        // nobody looking for where their API key goes types "Intelligence". "organize" and
-        // "filing" stay for the People block's reason.
-        .init(tab: .intelligence, title: "Suggest folders with on-device AI",
-              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
-                         "sort files", "organize", "tidy", "intelligence"]),
-        .init(tab: .intelligence, title: "Read file contents on-device for better signals",
-              keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
-        // "refine" is the word on the button this row enables; "best suggestions" is an older
-        // name for the row.
-        .init(tab: .intelligence, title: "Use Claude (cloud) to refine suggestions",
-              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai", "refine",
-                         "best suggestions", "organize"]),
-        // "claude" belongs on the key too, not only the toggle: someone pasting an `sk-ant-…`
-        // types whichever name they last read, often "claude api key".
-        .init(tab: .intelligence, title: "Claude API key",
-              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "anthropic api key", "token",
-                         "api", "credentials", "secret", "claude", "claude key"]),
-        // Ask Claude: the chat panel's own model and limit, separate from Filing's.
-        .init(tab: .intelligence, title: "Ask Claude",
+        // Edit ▸ Text, by the names the Text and View menus give them.
+        .init(at: .text, title: "Wrap lines",
+              keywords: ["wrap", "word wrap", "line wrap", "soft wrap", "long lines", "editor"]),
+        .init(at: .text, title: "Readable line length",
+              keywords: ["readable", "line length", "margins", "measure", "editor"]),
+        .init(at: .text, title: "Paper background",
+              keywords: ["paper", "page", "background", "white page", "editor"]),
+        .init(at: .text, title: "Typewriter scrolling",
+              keywords: ["typewriter", "center line", "scrolling", "editor"]),
+        .init(at: .text, title: "Check spelling while typing",
+              keywords: ["spelling", "spell check", "spellcheck", "typos", "red underline", "editor"]),
+        .init(at: .text, title: "Format bar",
+              keywords: ["format bar", "markdown", "toolbar", "markup", "editor"]),
+        .init(at: .text, title: "Labels on the format bar",
+              keywords: ["icon and text", "icon only", "format bar labels", "words", "markdown"]),
+        .init(at: .text, title: "Continue lists",
+              keywords: ["lists", "bullets", "return", "indent", "markdown", "numbered list"]),
+        .init(at: .text, title: "Edit in Preview (experimental)",
+              keywords: ["edit in preview", "preview", "wysiwyg", "rendered", "markdown", "experimental"]),
+
+        // Edit ▸ PDF
+        .init(at: .pdf, title: "Page layout",
+              keywords: ["pdf", "single page", "continuous", "two pages", "spread", "layout", "reader"]),
+        .init(at: .pdf, title: "Cover page separately",
+              keywords: ["cover", "cover page", "book", "spreads", "pdf", "two pages"]),
+
+        // Ask Claude ▸ General. Keywords matter most on this tab: nobody hunting for where the API
+        // key goes types the tab’s name.
+        .init(at: .claudeGeneral, title: "Ask Claude",
               keywords: ["chat", "assistant", "ask", "claude chat", "panel", "⌘J", "copilot", "help me"]),
-        .init(tab: .intelligence, title: "Answers",
+        .init(at: .claudeGeneral, title: "Answers",
               keywords: ["brief", "detailed", "verbose", "answer length", "concise", "ask claude answers"]),
-        .init(tab: .intelligence, title: "Hidden from Claude",
+
+        // Ask Claude ▸ Privacy
+        .init(at: .privacy, title: "Hidden from Claude",
               keywords: ["never show claude", "hide folder", "privacy", "exclude", "private folders"]),
-        .init(tab: .intelligence, title: "Shared without asking",
+        .init(at: .privacy, title: "Shared without asking",
               keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time",
                          "let claude read files", "read files", "file contents", "passage", "send text"]),
-        .init(tab: .intelligence, title: "Monthly limit",
+
+        // Ask Claude ▸ Key & Spending: the key, Ask Claude’s limit, and Refine’s caps under Organize.
+        // "claude" belongs on the key too, not only the toggle: someone pasting an `sk-ant-…`
+        // types whichever name they last read, often "claude api key".
+        .init(at: .keyAndSpending, title: "Claude API key",
+              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "anthropic api key", "token",
+                         "api", "credentials", "secret", "claude", "claude key"]),
+        .init(at: .keyAndSpending, title: "Monthly limit",
               keywords: ["ask claude limit", "chat limit", "spend limit", "budget", "cap", "money"]),
-        .init(tab: .intelligence, title: "This month",
+        .init(at: .keyAndSpending, title: "This month",
               keywords: ["ask claude spend", "chat cost", "spent", "usage", "cost"]),
-        .init(tab: .intelligence, title: "Cloud model",
-              keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
         // "cloud spend" stays a keyword because the history sheet says it.
-        .init(tab: .intelligence, title: "Cost and limits",
+        .init(at: .keyAndSpending, title: "Cost and limits",
               keywords: ["spend", "cloud spend", "cost", "tokens", "billing", "usage", "money", "price"]),
-        .init(tab: .intelligence, title: "Monthly budget cap",
+        .init(at: .keyAndSpending, title: "Monthly budget cap",
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
-        .init(tab: .intelligence, title: "Total budget cap",
+        .init(at: .keyAndSpending, title: "Total budget cap",
               keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
-        // "cache" is the word the UI never says but an engineer types, so it lives here.
-        .init(tab: .intelligence, title: "Reuse suggestions for files that haven’t changed",
-              keywords: ["reuse", "cache", "cached suggestions", "rescan", "re-ask", "cost", "save money"]),
-        .init(tab: .intelligence, title: "Saved suggestions",
-              keywords: ["saved suggestions", "clear cache", "cache", "forget suggestions", "reset suggestions"]),
 
         // Advanced
-        .init(tab: .advanced, title: "Log level",
+        .init(at: .advanced, title: "Run Setup Again",
+              keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",
+                         "run setup", "set up syncCloud"]),
+        .init(at: .advanced, title: "Reset Setup",
+              keywords: ["reset setup", "setup", "first run", "onboarding", "forget setup",
+                         "run setup again", "start over"]),
+        .init(at: .advanced, title: "Log level",
               keywords: ["log", "logging", "debug", "verbosity", "log level", "info", "warnings", "errors"]),
-        .init(tab: .advanced, title: "Log file",
+        .init(at: .advanced, title: "Log file",
               keywords: ["log file", "logs", "clear log", "show log"]),
-        .init(tab: .advanced, title: "Sweep orphaned temporary files",
+        .init(at: .advanced, title: "Sweep orphaned temporary files",
               keywords: ["orphan", "temp files", "tmp", "sweep", "maintenance", "cleanup", "clean up"]),
-        .init(tab: .advanced, title: "File digests",
+        .init(at: .advanced, title: "File digests",
               keywords: ["digests", "checksums", "hashes", "content hash", "cache", "disk space",
                          "storage", "saved scan data", "duplicates", "verify"]),
-        .init(tab: .advanced, title: "Saved Storage reports",
+        .init(at: .advanced, title: "Saved Storage reports",
               keywords: ["storage lens", "saved reports", "snapshots", "cache", "disk space",
                          "saved scan data"]),
-        .init(tab: .advanced, title: "Reset all settings",
+        .init(at: .advanced, title: "Reset all settings",
               keywords: ["reset", "defaults", "restore defaults", "factory reset", "wipe"]),
     ]
 }
@@ -646,11 +781,11 @@ func filterSettings(_ entries: [SettingsSearchEntry], query: String) -> [Setting
 }
 
 /// The search results that stand in for the tab content while the field has text: a scrollable
-/// list of matching settings, each showing its title and — dimmed — the tab it lives on. A tap
-/// hands the tab back to `SettingsView` for the jump. An empty result set shows a gentle miss.
+/// list of matching settings, each showing its title and — dimmed — the page it lives on. A tap
+/// hands the place back to `SettingsView` for the jump. An empty result set shows a gentle miss.
 private struct SettingsSearchResults: View {
     let results: [SettingsSearchEntry]
-    let onSelect: (SettingsView.SettingsTab) -> Void
+    let onSelect: (SettingsPlace) -> Void
 
     var body: some View {
         if results.isEmpty {
@@ -664,13 +799,13 @@ private struct SettingsSearchResults: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(results) { entry in
                         Button {
-                            onSelect(entry.tab)
+                            onSelect(entry.place)
                         } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(entry.title)
                                         .foregroundStyle(.primary)
-                                    Text(entry.tab.displayName)
+                                    Text(entry.place.name)
                                         .scaledFont(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -693,63 +828,57 @@ private struct SettingsSearchResults: View {
 
 // MARK: - General
 
-/// App-level preferences: login item, startup state (hidden files, last folders, sort),
-/// background notifications, and the quit safety guard.
+/// What the app does around your work: how it starts, how every copy and move behaves, and what it
+/// tells you afterwards. Copying and moving came from Sync (TE332): the conflict policy and the two
+/// confirmations govern every copy and move, not only Compare's.
 struct GeneralSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
-    /// Opens the guided setup sheet. Defaulted: this tab is memberwise-only and is built bare in
-    /// `SettingsLayoutTests.mustFitTabs`.
-    var onRunSetup: (() -> Void)? = nil
-    @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
     @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
+    @AppStorage(GeneralSettings.confirmBeforeDeleteKey) private var confirmBeforeDelete: Bool = true
+    @AppStorage(GeneralSettings.confirmBeforeTransferKey) private var confirmBeforeTransfer: Bool = true
 
     var body: some View {
         SettingsPage {
-            LaunchAtLoginRow()
-
-            SettingsSection(
-                "Startup",
-                caption: "Panes reopen at the folders they showed when you last quit (falling back to the root if a folder is gone). Sort changes made from the pane menus are remembered here too."
-            ) {
-                Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
-                    .help("Starts each launch with hidden files shown in both panes. Showing or hiding them while you work lasts until you quit.")
+            SettingsSection("Startup") {
+                LaunchAtLoginRow(showsCaption: false)
                 Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
                     .help("Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder.")
-                if let onRunSetup {
-                    SettingsRow("Setup") {
-                        Button("Run Setup Again…", action: onRunSetup)
-                            .controlSize(.small)
-                    }
-                    .help("Reopens the guided setup sheet with your current answers filled in. Nothing is reset.")
-                }
-                SettingsRow("Sort panes by") {
-                    Picker("Sort panes by", selection: $settings.defaultSortOption) {
-                        ForEach(SortOption.allCases, id: \.self) { option in
-                            Text(option.rawValue).tag(option)
+            }
+
+            SettingsSection(
+                "Copying and moving",
+                caption: "For every copy, move and sync. Folder conflicts always ask; deleted items go to the Trash either way."
+            ) {
+                SettingsRow("When a file already exists") {
+                    Picker("When a file already exists", selection: $settings.conflictPolicy) {
+                        ForEach(ConflictPolicy.allCases) { policy in
+                            Text(policy.displayName).tag(policy)
                         }
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .help("Sorts the files in both panes. Changing the sort from a pane’s menu changes this too.")
+                    .help("What a copy, move, or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
                 }
-            }
-
-            NotifyInBackgroundRow()
-
-            SettingsSection(caption: "Shows a confirmation if you try to quit while a copy, move, or delete is still running.") {
+                Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
+                    .help("Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once.")
+                Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
+                    .help("Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back.")
                 Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
                     .help("Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once.")
             }
+
+            SettingsSection("Notifications") {
+                NotifyInBackgroundRow(showsCaption: false)
+            }
         }
     }
-
 }
 
 // MARK: - Appearance
 
-/// Theme, accent hue, glass material and surface shape, all shared with MacApp through
-/// UserDefaults.
+/// Appearance ▸ Look: theme, accent hue, glass material and surface shape, all shared with MacApp
+/// through UserDefaults. No captions but Tint's (TE332): each control shows what it does.
 ///
 /// Theme (light/dark), Glass effect (material) and Content surface (shape) are separate controls:
 /// any combination is valid, and none overrides another.
@@ -758,11 +887,7 @@ struct GeneralSettingsTab: View {
 /// renders nothing here: `ContentView` pushes it to NSApp.
 struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw: String = AppearanceMode.system.rawValue
-    /// The resolved theme; `.system` (follow macOS) if unrecognized.
-    private var appearanceMode: AppearanceMode { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
-    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
-    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -771,13 +896,9 @@ struct AppearanceSettingsTab: View {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
     }
 
-    private var selectedSurfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
-    }
-
     var body: some View {
         SettingsPage {
-            SettingsSection("Theme", caption: appearanceMode.detail) {
+            SettingsSection("Theme") {
                 Picker("Theme", selection: $appearanceModeRaw) {
                     ForEach(AppearanceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
@@ -792,7 +913,7 @@ struct AppearanceSettingsTab: View {
             AccentColorSection(selectedHue: selectedHue,
                                onSelect: { selectedHueRaw = $0.rawValue })
 
-            SettingsSection("Glass effect", caption: glassLevel.detail) {
+            SettingsSection("Glass effect") {
                 Picker("Glass effect", selection: $glassLevelRaw) {
                     ForEach(GlassLevel.allCases) { level in
                         Text(level.displayName).tag(level.rawValue)
@@ -808,7 +929,7 @@ struct AppearanceSettingsTab: View {
                 "Tint",
                 caption: selectedHue == .none
                     ? "Choose an accent color above to tint the window."
-                    : "How strongly the accent color colors the window. Subtle keeps a faint tint rather than removing it — for none at all, choose the None accent above."
+                    : "For no tint at all, choose None above."
             ) {
                 HStack(spacing: 12) {
                     // Label hidden, not dropped: the section title already says "Tint", and it
@@ -839,7 +960,7 @@ struct AppearanceSettingsTab: View {
                 }
             }
 
-            SettingsSection("Content surface", caption: selectedSurfaceStyle.detail) {
+            SettingsSection("Content surface") {
                 Picker("Content surface", selection: $surfaceStyleRaw) {
                     ForEach(SurfaceStyle.allCases) { style in
                         Text(style.displayName).tag(style.rawValue)
@@ -939,14 +1060,14 @@ struct HueSwatchDisc: View {
     }
 }
 
-// MARK: - Readability
+// MARK: - Appearance ▸ Text & Spacing
 
-/// Text size and row spacing, with a preset row over them and a live preview under them.
+/// Appearance ▸ Text & Spacing (Readability until TE332): text size and row spacing, with a preset
+/// row over them and a live preview under them.
 ///
 /// Both controls answer one question, how much you want on screen, so they sit together. With the
-/// presets, detent labels and preview the group comes to ~875pt, more than Appearance's 647pt
-/// opening on a 1280×800 display, hence its own tab. `readabilityFitsItsOpeningWithoutScrolling`
-/// holds it to the same fit bar as the others.
+/// presets, detent labels and preview the group is taller than Look, hence its own page.
+/// `readabilityFitsItsOpeningWithoutScrolling` holds it to the same fit bar as the others.
 ///
 /// Nothing here is stored by this view: `FontSize.defaultsKey` and `ListDensity.defaultsKey` stay
 /// the two sources of truth, and the preset row reads them to decide which tile is lit.
@@ -954,63 +1075,6 @@ struct ReadabilitySettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
-    /// Whether a Columns divider sizes its own column or every column — see `ColumnResizeMode`.
-    @AppStorage(ColumnResizeMode.defaultsKey) private var columnResizeModeRaw: String =
-        ColumnResizeMode.default.rawValue
-    /// The columns sized one at a time, which choosing "All columns" releases.
-    @AppStorage(PaneViewMode.columnWidthOverridesDefaultsKey) private var columnWidthOverrides =
-        ColumnWidthOverrides()
-    /// Asks before "All columns" erases the widths of that many columns sized on their own.
-    private let confirmReleasingColumnWidths: @MainActor (Int) -> Bool
-    /// Bumped by a declined "All columns", to rebuild the picker. Otherwise the clicked segment
-    /// stays lit: the setter wrote nothing, so SwiftUI has no change to redraw from.
-    @State private var declinedResizeChoices = 0
-    /// Whether keyboard focus is on the picker. The decline's rebuild drops focus with the old
-    /// control, so a keyboard or VoiceOver user is put back where they were.
-    @FocusState private var resizePickerFocused: Bool
-
-    /// The app takes the standard alert; a test that drives the picker passes its own answer, since
-    /// a modal alert in a test process blocks its main thread with nothing to dismiss it.
-    init(confirmReleasingColumnWidths: @escaping @MainActor (Int) -> Bool = {
-        RemovalPrompt.releaseColumnWidths(count: $0).ask()
-    }) {
-        self.confirmReleasingColumnWidths = confirmReleasingColumnWidths
-    }
-
-    /// The setting, written through one rule: choosing "All columns" puts every column back to the
-    /// one shared width. Keeping the columns sized on their own would leave one wide column under
-    /// "All columns", which looks broken.
-    private var columnResizeMode: Binding<String> {
-        Binding(
-            get: { columnResizeModeRaw },
-            set: { raw in
-                let overrides = columnWidthOverrides
-                guard let choice = Self.chooseResizeMode(
-                    raw, overrides: overrides,
-                    confirm: { confirmReleasingColumnWidths(overrides.widths.count) })
-                else {
-                    let hadFocus = resizePickerFocused
-                    declinedResizeChoices += 1
-                    // Next turn, once the rebuilt picker exists to take it.
-                    if hadFocus { DispatchQueue.main.async { resizePickerFocused = true } }
-                    return
-                }
-                // Written only after the answer, and only what changed: any write is a defaults
-                // change other windows react to.
-                columnResizeModeRaw = choice.mode
-                if choice.overrides != overrides { columnWidthOverrides = choice.overrides }
-            })
-    }
-
-    /// The setter's rule, reachable without mounting the tab. Asks first when "All columns" would
-    /// release columns sized on their own: their widths are erased, and choosing "Each column"
-    /// again doesn't bring them back. With none, it doesn't ask. The rule is `ColumnResizeChoice`'s,
-    /// so a control outside the tab applies it too.
-    /// - Returns: The mode and widths to store, or nil when declined — nothing is written then.
-    static func chooseResizeMode(_ raw: String, overrides: ColumnWidthOverrides,
-                                 confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {
-        ColumnResizeChoice.choose(raw, overrides: overrides, confirm: confirm)
-    }
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so an out-of-range stored value
     /// is honoured rather than discarded.
@@ -1086,7 +1150,8 @@ struct ReadabilitySettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            SettingsSection("Size & spacing") {
+            // Titleless: the strip already says "Text & Spacing".
+            SettingsSection {
                 SizePresetRow(fontSize: sizeBinding, density: densityBinding, style: .named)
 
                 Text(SizePreset.caption(fontSize: fontSize, density: listDensity))
@@ -1133,12 +1198,6 @@ struct ReadabilitySettingsTab: View {
                         .frame(maxHeight: .infinity, alignment: .top)
                 }
 
-                Text(fontSize.detail)
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
                 // "Row spacing", not "List density": spacing is what the person changes, and it
                 // pairs with "Text size" above. The stored key is still `listDensity`.
                 LabeledContent("Row spacing") {
@@ -1154,39 +1213,8 @@ struct ReadabilitySettingsTab: View {
                     .help("How tightly lists pack their rows. Comfortable keeps the standard height; Compact fits more rows and hides the size-and-date line.")
                 }
 
-                Text(listDensity.detail)
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
                 SizeSpacingPreview(fontSize: fontSize, density: listDensity)
                     .padding(.top, 4)
-
-                // Here because it's about how the columns read. The segments are short because at
-                // the sheet's floor the content is about 340pt wide; the caption carries the rest,
-                // including ⌥ and the double-click, which nothing else shows.
-                LabeledContent("Column widths") {
-                    Picker("Column widths", selection: columnResizeMode) {
-                        ForEach(ColumnResizeMode.allCases) { mode in
-                            Text(mode.displayName).tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accentedSegments(selectedHue)
-                    .fixedSize()
-                    .focused($resizePickerFocused)
-                    .id(declinedResizeChoices)
-                    .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other. All columns asks first when a column was sized on its own.")
-                }
-                .padding(.top, 10)
-
-                Text("Dragging a divider in Columns resizes that column, or every column at once; hold ⌥ to do the other. Double-clicking a divider fits to the longest name the same way. All columns also puts every column back to one width.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             } caption: {
                 // The prose lives inline under what it explains, so the caption slot is empty.
                 EmptyView()
@@ -1197,10 +1225,15 @@ struct ReadabilitySettingsTab: View {
 
 // MARK: - Sources
 
-/// The sources panes can be pointed at: the cloud accounts discovered on this Mac, and the plain
-/// folders the user added. Two sub-sections, because one is found and the other chosen: a cloud
-/// account can be refreshed but never removed, a folder removed but never discovered.
+/// The sources panes can be pointed at, a page each (TE332): the cloud accounts discovered on this
+/// Mac, the plain folders the user added, and the name checks that apply to both. Separate pages,
+/// because one is found and the other chosen: a cloud account can be refreshed but never removed, a
+/// folder removed but never discovered. Each list grows on its own.
 struct ProvidersSettingsTab: View {
+    let page: SettingsSubTab
+    /// Name Checks' allowed-names list reaches `keptNamesStore` through it. Optional because tests
+    /// and previews build the tab without an engine.
+    var syncManager: FileSyncManager? = nil
     @EnvironmentObject var settings: SettingsManager
     @State private var isRefreshingProviders = false
     /// Ids of the rows the user has opened. Collapsed by default, because the tab grows with every
@@ -1218,74 +1251,106 @@ struct ProvidersSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            SettingsSection(
-                caption: "Cloud accounts are discovered from ~/Library/CloudStorage. Disabled sources stay configured but are not offered anywhere a source is picked. At least one source must remain enabled."
-            ) {
-                HStack {
-                    Text("Cloud providers")
-                        .scaledFont(.body.weight(.medium))
-                    Spacer()
-                    Button(action: refreshProviders) {
-                        Label(
-                            isRefreshingProviders ? "Refreshing…" : "Refresh",
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
-                    .disabled(isRefreshingProviders)
-                    .controlSize(.small)
-                    .help("Reads ~/Library/CloudStorage again, picking up cloud accounts added or removed since it last looked.")
-                }
-            }
-
-            // This tab legitimately scrolls: it grows with every provider the Mac has. Collapsed
-            // rows keep the growth to one row per source rather than four fields each.
-            ForEach(cloudProviders) { provider in
-                Divider()
-                ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
-            }
-
-            Divider()
-
-            SettingsSection(
-                caption: "Any folder on this Mac can be a source — Compare and Organize work the same over it. Folders you add appear in every workspace. Removing one leaves the folder itself untouched."
-            ) {
-                HStack {
-                    Text("Local folders")
-                        .scaledFont(.body.weight(.medium))
-                    Spacer()
-                    Button(action: addFolder) {
-                        Label("Add Folder…", systemImage: "plus")
-                    }
-                    .controlSize(.small)
-                }
-
-                if folderProviders.isEmpty {
-                    Text("No folders added.")
-                        .scaledFont(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                SettingsRow("Check folder names against") {
-                    Picker("Check folder names against", selection: $settings.folderNameRule) {
-                        ForEach(FolderNameRuleOption.all) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .fixedSize()
-                    .help(
-                        "A folder accepts any name, so “risky name” has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
-                    )
-                }
-            }
-
-            ForEach(folderProviders) { provider in
-                Divider()
-                ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+            switch page {
+            case .localFolders: localFolders
+            case .nameChecks: nameChecks
+            default: cloudAccounts
             }
         }
+    }
+
+    // Each list's header names it in other words than the strip, which already says the page.
+    @ViewBuilder
+    private var cloudAccounts: some View {
+        SettingsSection(caption: "Found on this Mac. A source you turn off keeps its settings.") {
+            HStack {
+                Text("Accounts")
+                    .scaledFont(.body.weight(.medium))
+                Spacer()
+                Button(action: refreshProviders) {
+                    Label(
+                        isRefreshingProviders ? "Refreshing…" : "Refresh",
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .disabled(isRefreshingProviders)
+                .controlSize(.small)
+                .help("Reads ~/Library/CloudStorage again, picking up cloud accounts added or removed since it last looked. At least one source must stay on.")
+            }
+        }
+
+        // This page legitimately scrolls: it grows with every provider the Mac has. Collapsed
+        // rows keep the growth to one row per source rather than four fields each.
+        ForEach(cloudProviders) { provider in
+            Divider()
+            ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+        }
+    }
+
+    @ViewBuilder
+    private var localFolders: some View {
+        SettingsSection(caption: "Any folder on this Mac can be a source. Removing one leaves the folder untouched.") {
+            HStack {
+                Text("Added by you")
+                    .scaledFont(.body.weight(.medium))
+                Spacer()
+                Button(action: addFolder) {
+                    Label("Add Folder…", systemImage: "plus")
+                }
+                .controlSize(.small)
+                .help("Adds a folder on this Mac as a source. It appears in every workspace, and Compare and Organize work over it as over a cloud account.")
+            }
+
+            if folderProviders.isEmpty {
+                Text("No folders added.")
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+
+        ForEach(folderProviders) { provider in
+            Divider()
+            ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+        }
+    }
+
+    /// The rule that raises a risky-name badge, beside the names allowed past it: an allowed name
+    /// clears its badge in every pane, so the two answer one question.
+    @ViewBuilder
+    private var nameChecks: some View {
+        SettingsSection(caption: "Folder sources accept any name; this says which provider’s rules to hold them to.") {
+            SettingsRow("Check folder names against") {
+                Picker("Check folder names against", selection: $settings.folderNameRule) {
+                    ForEach(FolderNameRuleOption.all) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
+                .help(
+                    "A folder accepts any name, so “risky name” has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
+                )
+            }
+        }
+
+        SettingsSection(
+            "Allowed names",
+            caption: "Names you allowed with Always Allow This Name. Remove one to have it flagged again."
+        ) {
+            if let store = syncManager?.keptNamesStore {
+                KeptNamesList(store: store)
+            } else {
+                // No engine attached (tests, previews): say what an empty store would.
+                //
+                // This branch is not the page. It is one fixed line; the real list grows a row per
+                // name, which is why Name Checks is in `SettingsTab.exemptFromFitGuard`. A layout
+                // test built with `syncManager: nil` measures only this line.
+                KeptNamesList.nothingKeptNote
+            }
+        }
+        .help("A name a cloud provider may mishandle — a trailing space, a forbidden character — draws no badge once allowed, and Organize never offers to rename it. Matched exactly, so it covers every file with that name; the files are never touched either way.")
     }
 
     /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
@@ -1948,130 +2013,272 @@ enum SettingsPickerOptions {
     }
 }
 
-// MARK: - Sync
+// MARK: - Browse
 
-/// Behavior of difference scanning and comparison: date tolerance, checksum verification,
-/// the delete confirmation, and the two ignore mechanisms (remembered items and name patterns).
+/// Browse's two pages (TE332): how every pane lists files, and the Browse window's View-menu
+/// switches.
+///
+/// Panes' settings apply to every pane in every workspace, Compare's included, and the caption says
+/// so; the tab is named for the workspace where people look for them (his call, JS). Window's keys
+/// live in `BrowseWindowSettings` and `PaneViewMode` (Design), because the app that reads them is
+/// above this module.
+struct BrowseSettingsTab: View {
+    let page: SettingsSubTab
+    @EnvironmentObject var settings: SettingsManager
+    @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
+    @AppStorage(PaneViewMode.browseDefaultsKey) private var browseViewModeRaw: String = PaneViewMode.default.rawValue
+    @AppStorage(BrowseWindowSettings.sidebarVisibleKey) private var sidebarVisible: Bool = BrowseWindowSettings.sidebarVisibleDefault
+    @AppStorage(BrowseWindowSettings.sidebarRecentsModeKey) private var recentsModeRaw: String = RecentsMode.recents.rawValue
+    @AppStorage(BrowseWindowSettings.tabBarVisibleKey) private var tabBarVisible: Bool = BrowseWindowSettings.tabBarVisibleDefault
+    @AppStorage(BrowseWindowSettings.statusBarVisibleKey) private var statusBarVisible: Bool = BrowseWindowSettings.statusBarVisibleDefault
+    /// Whether a Columns divider sizes its own column or every column — see `ColumnResizeMode`.
+    @AppStorage(ColumnResizeMode.defaultsKey) private var columnResizeModeRaw: String =
+        ColumnResizeMode.default.rawValue
+    /// The columns sized one at a time, which choosing "All columns" releases.
+    @AppStorage(PaneViewMode.columnWidthOverridesDefaultsKey) private var columnWidthOverrides =
+        ColumnWidthOverrides()
+    /// Asks before "All columns" erases the widths of that many columns sized on their own.
+    private let confirmReleasingColumnWidths: @MainActor (Int) -> Bool
+    /// Bumped by a declined "All columns", to rebuild the picker. Otherwise the clicked segment
+    /// stays lit: the setter wrote nothing, so SwiftUI has no change to redraw from.
+    @State private var declinedResizeChoices = 0
+    /// Whether keyboard focus is on the picker. The decline's rebuild drops focus with the old
+    /// control, so a keyboard or VoiceOver user is put back where they were.
+    @FocusState private var resizePickerFocused: Bool
+
+    /// The app takes the standard alert; a test that drives the picker passes its own answer, since
+    /// a modal alert in a test process blocks its main thread with nothing to dismiss it.
+    init(page: SettingsSubTab, confirmReleasingColumnWidths: @escaping @MainActor (Int) -> Bool = {
+        RemovalPrompt.releaseColumnWidths(count: $0).ask()
+    }) {
+        self.page = page
+        self.confirmReleasingColumnWidths = confirmReleasingColumnWidths
+    }
+
+    private var selectedHue: LiquidGlassHue { LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue }
+
+    /// The setting, written through one rule: choosing "All columns" puts every column back to the
+    /// one shared width. Keeping the columns sized on their own would leave one wide column under
+    /// "All columns", which looks broken.
+    private var columnResizeMode: Binding<String> {
+        Binding(
+            get: { columnResizeModeRaw },
+            set: { raw in
+                let overrides = columnWidthOverrides
+                guard let choice = Self.chooseResizeMode(
+                    raw, overrides: overrides,
+                    confirm: { confirmReleasingColumnWidths(overrides.widths.count) })
+                else {
+                    let hadFocus = resizePickerFocused
+                    declinedResizeChoices += 1
+                    // Next turn, once the rebuilt picker exists to take it.
+                    if hadFocus { DispatchQueue.main.async { resizePickerFocused = true } }
+                    return
+                }
+                // Written only after the answer, and only what changed: any write is a defaults
+                // change other windows react to.
+                columnResizeModeRaw = choice.mode
+                if choice.overrides != overrides { columnWidthOverrides = choice.overrides }
+            })
+    }
+
+    /// The setter's rule, reachable without mounting the tab. Asks first when "All columns" would
+    /// release columns sized on their own: their widths are erased, and choosing "Each column"
+    /// again doesn't bring them back. With none, it doesn't ask. The rule is `ColumnResizeChoice`'s,
+    /// so a control outside the tab applies it too.
+    /// - Returns: The mode and widths to store, or nil when declined — nothing is written then.
+    static func chooseResizeMode(_ raw: String, overrides: ColumnWidthOverrides,
+                                 confirm: () -> Bool) -> (mode: String, overrides: ColumnWidthOverrides)? {
+        ColumnResizeChoice.choose(raw, overrides: overrides, confirm: confirm)
+    }
+
+    var body: some View {
+        SettingsPage {
+            if page == .window { window } else { panes }
+        }
+    }
+
+    // Titleless sections: each page is one group, and the strip already names it.
+    private var panes: some View {
+        SettingsSection(caption: "For every pane in every workspace, Compare’s Differences included.") {
+            Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
+                .help("Starts each launch with hidden files shown in both panes. Showing or hiding them while you work lasts until you quit.")
+            SettingsRow("Sort panes by") {
+                Picker("Sort panes by", selection: $settings.defaultSortOption) {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Sorts the files in both panes. Changing the sort from a pane’s menu changes this too.")
+            }
+            Toggle(isOn: $settings.rescanWhenFilesChange) {
+                Text("Rescan when files change")
+            }
+            .help("Rescans a pane by itself when something in its folder changes, so rows can move while you look at them. Off, the scan age says “changed since” and the list waits for Refresh.")
+            // The segments are short because at the sheet's floor the content is about 340pt
+            // wide; the note carries ⌥, which nothing else shows.
+            LabeledContent("Column widths") {
+                Picker("Column widths", selection: columnResizeMode) {
+                    ForEach(ColumnResizeMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accentedSegments(selectedHue)
+                .fixedSize()
+                .focused($resizePickerFocused)
+                .id(declinedResizeChoices)
+                .help("What dragging a divider in Columns resizes: Each column resizes that column, All columns resizes every column. Hold ⌥ for the other; double-clicking a divider fits to the longest name the same way. All columns also puts every column back to one width, and asks first when a column was sized on its own.")
+            }
+            Text("Hold ⌥ while dragging a divider to do the other.")
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var window: some View {
+        SettingsSection(caption: "The View menu’s switches. View as and the status bar are Browse’s; the rest apply everywhere.") {
+            SettingsRow("View as") {
+                Picker("View as", selection: $browseViewModeRaw) {
+                    ForEach([PaneViewMode.columns, .tree]) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accentedSegments(selectedHue)
+                .fixedSize()
+                .help("How Browse shows its pane: Columns opens a column per folder, Tree expands folders in place.")
+            }
+            Toggle("Show sidebar", isOn: $sidebarVisible)
+                .help("The folder sidebar beside the panes, in every workspace but Edit, which keeps its own. View ▸ Sidebar changes it too.")
+            SettingsRow("Sidebar recents") {
+                Picker("Sidebar recents", selection: $recentsModeRaw) {
+                    ForEach(RecentsMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.rawValue).tag(mode.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("What the sidebar’s Recents heading lists: the folders you were last in, the ones you return to on different days, or the ones you stay in most. Its icon cycles through them too.")
+            }
+            Toggle("Show tab bar", isOn: $tabBarVisible)
+                .help("The tab bar above each pane. It shows anyway while a pane has a second tab. View ▸ Tab Bar changes it too.")
+            Toggle("Show status bar", isOn: $statusBarVisible)
+                .help("The line under Browse’s pane with its item count. View ▸ Status Bar changes it too.")
+        }
+    }
+}
+
+// MARK: - Compare
+
+/// Compare (Sync until TE332, raw value still `sync`): what counts as a difference, what is
+/// ignored, and One-Way Sync. The conflict policy and the confirmations moved to General, because
+/// they govern every copy and move.
 struct SyncSettingsTab: View {
+    let page: SettingsSubTab
     @EnvironmentObject var settings: SettingsManager
     let syncManager: FileSyncManager?
     var oneWaySync: AnyView?
-    @AppStorage(GeneralSettings.confirmBeforeDeleteKey) private var confirmBeforeDelete: Bool = true
-    @AppStorage(GeneralSettings.confirmBeforeTransferKey) private var confirmBeforeTransfer: Bool = true
     @State private var patternDraft = ""
 
     var body: some View {
         SettingsPage {
-            if let oneWaySync {
-                SettingsSection(
-                    "One-Way Sync",
-                    caption: "iCloud to Dropbox, one way: change files in iCloud and Sync Now copies the change. Whatever SyncCloud removes or replaces in Dropbox goes to Dropbox ▸ SyncCloud Removed."
-                ) {
-                    oneWaySync
-                }
+            switch page {
+            case .ignored: ignored
+            case .oneWaySync: oneWay
+            default: differences
             }
-            SettingsSection(
-                "Conflicts",
-                caption: "Applies to copies, moves, and syncs. Keep both renames the incoming file; Replace moves the existing file to the Trash first. Folder conflicts always ask."
-            ) {
-                SettingsRow("When a file already exists") {
-                    Picker("When a file already exists", selection: $settings.conflictPolicy) {
-                        ForEach(ConflictPolicy.allCases) { policy in
-                            Text(policy.displayName).tag(policy)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("What a copy, move, or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
-                }
-            }
+        }
+    }
 
-            SettingsSection(
-                "Comparison",
-                caption: "Cloud providers round file dates on upload; a small tolerance hides those false differences. Verification checksums same-size pairs that only differ by date and hides identical ones — thorough, but slower on large folders."
-            ) {
-                // Rows come from `SettingsPickerOptions`, which adds the stored value when it isn't
-                // offered, so an off-list tolerance shows rather than leaving the picker blank.
-                SettingsRow("Treat dates as equal within") {
-                    Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
-                        ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Counts two modification dates as the same when they are this close, so a provider rounding dates on upload doesn’t show up as a difference.")
-                }
-                Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
-                    Text("Verify same-size files during scans")
-                }
-                .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Slower on large folders.")
-                Toggle(isOn: $settings.rescanWhenFilesChange) {
-                    Text("Rescan when files change")
-                }
-                .help("Rescans a pane by itself when something in its folder changes, so rows can move while you look at them. Off, the scan age says “changed since” and the list waits for Refresh.")
-                Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
-                    Text("Ignore “newer on Google Drive” when same size")
-                }
-                .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
+    @ViewBuilder
+    private var oneWay: some View {
+        if let oneWaySync {
+            SettingsSection(caption: "Anything replaced or removed in Dropbox goes to Dropbox ▸ SyncCloud Removed.") {
+                oneWaySync
             }
+        }
+    }
 
-            SettingsSection(
-                "Confirmations",
-                caption: "Copies and moves first show what will be transferred and where; turning this off starts them immediately, including moves, with no confirmation. Deleted items go to the Trash either way and can be restored with Undo."
-            ) {
-                Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
-                    .help("Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once.")
-                Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
-                    .help("Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back.")
-            }
-
-            SettingsSection(
-                "Ignored items",
-                caption: "Items you ignore from the Differences list are kept here per provider pair. Remove one to see its differences again."
-            ) {
-                Toggle(isOn: $settings.rememberIgnoredItems) {
-                    Text("Remember ignored items across rescans")
-                }
-                .help("Keeps an item you ignore hidden through rescans, folder changes, and relaunches. Off, an ignore lasts only until you move to another folder.")
-                if let syncManager, let store = syncManager.ignoredItemsStore {
-                    IgnoredItemsList(
-                        store: store,
-                        onRemove: { syncManager.unignoreRootRelative($0) },
-                        onClear: { syncManager.clearAllIgnoredItems() }
-                    )
-                }
-            }
-
-            SettingsSection(
-                "Ignored name patterns",
-                caption: "Hides any item whose name matches a pattern, at any depth, in every comparison. * matches any run of characters and ? matches one."
-            ) {
-                ForEach(settings.ignorePatterns, id: \.self) { pattern in
-                    HStack {
-                        Text(pattern)
-                            .scaledFont(.system(.callout, design: .monospaced))
-                        Spacer()
-                        Button {
-                            settings.removeIgnorePattern(pattern)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .hoverInk()
-                        }
-                        .buttonStyle(.hoverAffordance(.inline))
-                        .help("Remove this pattern")
-                        .accessibilityLabel("Remove this pattern")
+    private var differences: some View {
+        SettingsSection(caption: "Providers round dates on upload; a small tolerance hides those false differences.") {
+            // Rows come from `SettingsPickerOptions`, which adds the stored value when it isn't
+            // offered, so an off-list tolerance shows rather than leaving the picker blank.
+            SettingsRow("Treat dates as equal within") {
+                Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
+                    ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
+                        Text(option.label).tag(option.value)
                     }
                 }
-                HStack(spacing: 8) {
-                    TextField("*.tmp, .DS_Store, node_modules", text: $patternDraft)
-                        .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .fixedSize()
+                .help("Counts two modification dates as the same when they are this close, so a provider rounding dates on upload doesn’t show up as a difference.")
+            }
+            Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
+                Text("Verify same-size files during scans")
+            }
+            .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Thorough, but slower on large folders.")
+            Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
+                Text("Ignore “newer on Google Drive” when same size")
+            }
+            .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
+        }
+    }
+
+    @ViewBuilder
+    private var ignored: some View {
+        SettingsSection(
+            "Ignored items",
+            caption: "Remove one to see its differences again."
+        ) {
+            Toggle(isOn: $settings.rememberIgnoredItems) {
+                Text("Remember ignored items across rescans")
+            }
+            .help("Keeps an item you ignore from the Differences list hidden through rescans, folder changes, and relaunches, for each pair of sources. Off, an ignore lasts only until you move to another folder.")
+            if let syncManager, let store = syncManager.ignoredItemsStore {
+                IgnoredItemsList(
+                    store: store,
+                    onRemove: { syncManager.unignoreRootRelative($0) },
+                    onClear: { syncManager.clearAllIgnoredItems() }
+                )
+            }
+        }
+
+        SettingsSection(
+            "Ignored name patterns",
+            caption: "* matches any run of characters, ? matches one."
+        ) {
+            ForEach(settings.ignorePatterns, id: \.self) { pattern in
+                HStack {
+                    Text(pattern)
                         .scaledFont(.system(.callout, design: .monospaced))
-                        .onSubmit(addPattern)
-                        .help("A name pattern to hide from every comparison — * matches any run of characters, ? matches one. Press Return or click Add.")
-                    Button("Add", action: addPattern)
-                        .disabled(IgnoreRules.normalized(patternDraft) == nil)
+                    Spacer()
+                    Button {
+                        settings.removeIgnorePattern(pattern)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .hoverInk()
+                    }
+                    .buttonStyle(.hoverAffordance(.inline))
+                    .help("Remove this pattern")
+                    .accessibilityLabel("Remove this pattern")
                 }
+            }
+            HStack(spacing: 8) {
+                TextField("*.tmp, .DS_Store, node_modules", text: $patternDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .scaledFont(.system(.callout, design: .monospaced))
+                    .onSubmit(addPattern)
+                    .help("A name pattern to hide from every comparison, at any depth — * matches any run of characters, ? matches one. Press Return or click Add.")
+                Button("Add", action: addPattern)
+                    .disabled(IgnoreRules.normalized(patternDraft) == nil)
             }
         }
     }
@@ -2083,7 +2290,7 @@ struct SyncSettingsTab: View {
     }
 }
 
-/// The remembered-ignores rows inside the Sync tab: a monospaced root-relative path per
+/// The remembered-ignores rows on Compare ▸ Ignored: a monospaced root-relative path per
 /// entry with a remove button, plus Clear All. Split out so it can observe the store
 /// directly — un-ignoring from here must repaint the list immediately.
 ///
@@ -2096,7 +2303,7 @@ struct IgnoredItemsList: View {
 
     var body: some View {
         if store.rootRelativePaths.isEmpty {
-            Text("Nothing ignored right now. Right-click a difference and choose Ignore to hide it.")
+            Text("Nothing ignored. Right-click a difference and choose Ignore.")
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
         } else {
@@ -2151,9 +2358,9 @@ struct IgnoredItemsList: View {
 
 // MARK: - Duplicates
 
-/// How a duplicate scan decides what counts as a match. A thin tab, but it's where anyone hunting
-/// for the overlap threshold looks first. Settings go where the work is, not one tab per
-/// workspace: Storage and Compare have no preferences, so no tab.
+/// Organize ▸ Duplicates: how a duplicate scan decides what counts as a match. A page of Organize
+/// since TE332, because Find Duplicates is a view of the Organize workspace. Changes apply on the
+/// next scan.
 struct DuplicatesSettingsTab: View {
     // The defaults keys keep their `tidy` prefixes ("tidyMinFileSize" and friends, owned by
     // `DuplicateFinderOptions.DefaultsKey`) because they are a persistence format. To trace a
@@ -2165,10 +2372,9 @@ struct DuplicatesSettingsTab: View {
 
     var body: some View {
         SettingsPage {
-            // Titleless: the rail row already says "Duplicates", and a lone header repeating it
-            // would read as a subdivision of a tab that has none.
+            // Titleless: the strip already says "Duplicates".
             SettingsSection(
-                caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Reading PDFs finds a further kind — the same document downloaded twice, which providers re-stamp so its bytes differ — and is the one setting here that costs time rather than shaping results: it extracts text (never OCR, and a scan with no text layer is simply skipped), so the first pass over a large tree takes a few extra minutes and later scans reuse what it read. Changes apply on the next scan."
+                caption: "Identical files are always confirmed by checksum. Reading PDFs slows only the first scan."
             ) {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
                 // offered set still displays (and survives) instead of rendering as no selection.
@@ -2201,28 +2407,28 @@ struct DuplicatesSettingsTab: View {
     }
 }
 
-// MARK: - Organize
+// MARK: - Organize ▸ To File
 
-/// The Organize job: where it looks for loose files, and the names it has been told to stop
-/// offering to rename. The engine and its cost live in `IntelligenceSettingsTab` and the roster in
-/// `PeopleSettingsTab`; what stays here describes the job, not the machinery.
-///
-/// Cloud spend lives with the key on Intelligence, not here: "what does the cloud path cost me?"
-/// is one question, and splitting it would add a place to look.
+/// Organize ▸ To File: where Organize looks for loose files, the rules it was taught, and what it
+/// knows about each source's folders. Suggestions, People and Duplicates are the tab's other pages
+/// (`OrganizeSuggestionsPage`, `PeopleSettingsTab`, `DuplicatesSettingsTab`); the allowed names
+/// went to Sources ▸ Name Checks, beside the rule that raises them.
 struct FilingSettingsTab: View {
-    /// The kept-names list reaches `keptNamesStore` through it, and Folder surveys the surveys.
-    /// Optional because tests and previews build the tab without an engine.
+    /// Folder surveys reach the surveys through it. Optional because tests and previews build the
+    /// page without an engine.
     let syncManager: FileSyncManager?
     /// Cloud sources by name and landing folder, for Folder surveys. Empty hides the section,
-    /// which is how the layout tests build the tab.
+    /// which is how the layout tests build the page.
     var surveySources: [(name: String, root: String)] = []
+    /// See `SettingsView.onOpenRules`. nil hides the button.
+    var onOpenRules: (() -> Void)? = nil
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
 
     var body: some View {
         SettingsPage {
-            // "Inbox and rules" names what the group holds. Not "Filing", a retired word (search
-            // keeps it as a keyword), and not "Organize", which would repeat the rail row.
-            SettingsSection("Inbox and rules", content: {
+            // "Inbox", not "Filing", a retired word (search keeps it as a keyword), and not
+            // "Organize", which would repeat the rail row.
+            SettingsSection("Inbox") {
                 SettingsRow("Loose-files inbox") {
                     // The placeholder is "None", not the default "TODO", so an emptied field reads
                     // as off rather than untouched. The help text says what off does.
@@ -2231,57 +2437,119 @@ struct FilingSettingsTab: View {
                         .multilineTextAlignment(.trailing)
                 }
                 .help("The folder (relative to the provider root) where loose files pile up — e.g. “TODO”. Organize offers it on its overview as a one-click way to narrow to that folder. It does not open there on its own; leave this blank and the offer disappears.")
-                SettingsRow("Remembered rules") {
-                    Text("Now live in Organize ▸ Rules")
-                        .foregroundStyle(.secondary)
+                if let onOpenRules {
+                    SettingsRow("Rules you taught by correcting") {
+                        Button("Open Rules", action: onOpenRules)
+                            .controlSize(.small)
+                    }
+                    .help("A rule you teach by correcting a suggestion is saved. Review, edit or delete it under Rules in the Organize workspace.")
                 }
-                .help("A rule you teach by correcting a suggestion is saved — review, edit, or delete it under Rules in the Organize workspace.")
-            }, caption: {
-                // Names the two tabs this one hands off to, so "where is the API key?" has an
-                // answer here.
-                Text("Organize suggests where loose files belong, starting from the inbox folder above. What it suggests, and what the cloud pass costs, now live under **Intelligence**; the household it files for lives under **People**. Corrections you ask it to remember are saved as rules, listed under Rules in the Organize workspace.")
-            })
+            }
 
             if let syncManager, !surveySources.isEmpty {
                 FolderSurveysSection(syncManager: syncManager, sources: surveySources)
-            }
-
-            SettingsSection(
-                "Kept names",
-                caption: "Names you kept with “Always Allow This Name” after SyncCloud flagged them as ones a cloud provider may mishandle — a trailing space, a forbidden character, and so on. A kept name draws no badge anywhere it is listed, and Organize never offers to rename it. Kept names are matched exactly, so the decision covers every file with that name and follows it when it moves. Remove one to have it reported again; the files themselves are never touched either way."
-            ) {
-                if let store = syncManager?.keptNamesStore {
-                    KeptNamesList(store: store)
-                } else {
-                    // No engine attached (tests, previews): say what an empty store would.
-                    //
-                    // This branch is not the tab. It is one fixed line; the real list grows a
-                    // row per name, which is why this tab is in `SettingsTab.exemptFromFitGuard`.
-                    // A layout test built with `syncManager: nil` measures only this line.
-                    KeptNamesList.nothingKeptNote
-                }
             }
         }
     }
 }
 
-// MARK: - Intelligence
+// MARK: - Edit
 
-/// The suggestion engine and what it costs: the free on-device pass, the opt-in Claude pass with
-/// its key and model, the spend those calls run up, and the cache that stops them being repeated.
+/// Edit (new in TE332): the Edit workspace's remembered choices, which were set only from the
+/// Text and View menus, the format bar's menu and the reader's own controls. A page per kind of
+/// document, Markdown inside Text.
 ///
-/// Named "Intelligence" for the reasons on `SettingsTab.displayName`; `SettingsSearchIndex` carries
-/// "API key" and "Anthropic" here.
+/// The keys live in `EditorTextSettings` and `EditorPDFSettings` (Design), because the editor
+/// that reads them is in FileExplorer, which this module can't see. Autosave stays per file, on
+/// the file: the page says where.
+struct EditSettingsTab: View {
+    let page: SettingsSubTab
+    @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(EditorTextSettings.wrapsKey) private var wraps = EditorTextSettings.wrapsDefault
+    @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength = EditorTextSettings.readableLineLengthDefault
+    @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage = EditorTextSettings.drawsPageDefault
+    @AppStorage(EditorTextSettings.typewriterScrollingKey) private var typewriterScrolling = EditorTextSettings.typewriterScrollingDefault
+    @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
+    @AppStorage(EditorTextSettings.showsFormatBarKey) private var showsFormatBar = EditorTextSettings.showsFormatBarDefault
+    @AppStorage(EditorTextSettings.formatBarShowsLabelsKey) private var formatBarShowsLabels = EditorTextSettings.formatBarShowsLabelsDefault
+    @AppStorage(EditorTextSettings.continuesListsKey) private var continuesLists = EditorTextSettings.continuesListsDefault
+    @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreview = EditorTextSettings.editsInPreviewDefault
+    @AppStorage(EditorPDFSettings.layoutKey) private var pdfLayoutRaw: String = EditorPDFSettings.layoutDefault.rawValue
+    @AppStorage(EditorPDFSettings.coverSeparatelyKey) private var coverSeparately = EditorPDFSettings.coverSeparatelyDefault
+
+    var body: some View {
+        SettingsPage {
+            if page == .pdf { pdf } else { text }
+        }
+    }
+
+    @ViewBuilder
+    private var text: some View {
+        SettingsSection("Text", caption: "The same switches as the Text menu, for every file.") {
+            Toggle("Wrap lines", isOn: $wraps)
+                .help("Wraps lines at the column edge. Off, a long line runs on with a horizontal scroller, as a log or a CSV needs.")
+            Toggle("Readable line length", isOn: $readableLineLength)
+                .disabled(!wraps)
+                .help("Keeps wrapped text to a readable column in a wide window, rather than edge to edge. It means nothing while Wrap lines is off.")
+            Toggle("Paper background", isOn: $drawsPage)
+                .help("Sets Source’s text on a page — white in Light Mode, dark gray in Dark Mode — rather than on the window’s glass.")
+            Toggle("Typewriter scrolling", isOn: $typewriterScrolling)
+                .help("Holds the caret’s line at mid-height as you type and move with the keyboard. A click, a drag and the trackpad leave the text where it is.")
+            Toggle("Check spelling while typing", isOn: $checksSpelling)
+                .help("Underlines misspelled words. It never changes your text: nothing in the editor corrects or replaces words for you.")
+            Text("Autosave is set per file: Text ▸ Autosave This File.")
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        SettingsSection("Markdown") {
+            Toggle("Format bar", isOn: $showsFormatBar)
+                .help("The bar of formatting buttons above a Markdown file’s text. View ▸ Format Bar changes it too.")
+            Toggle("Labels on the format bar", isOn: $formatBarShowsLabels)
+                .help("Puts a word beside each icon where there is room. Right-clicking the bar changes it too: Icon and Text, or Icon Only.")
+            Toggle("Continue lists", isOn: $continuesLists)
+                .help("Return carries a list on, and Tab and ⇧Tab move an item in and out. ⌘Z takes a new marker back.")
+            Toggle("Edit in Preview (experimental)", isOn: $editsInPreview)
+                .help("Lets you type in Preview, for small changes. Experimental, and for Markdown files only.")
+        }
+    }
+
+    private var pdf: some View {
+        SettingsSection("Reading") {
+            SettingsRow("Page layout") {
+                Picker("Page layout", selection: $pdfLayoutRaw) {
+                    ForEach(EditorPDFLayout.allCases, id: \.rawValue) { layout in
+                        Text(layout.title).tag(layout.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("How a PDF’s pages are laid out when it opens. The reader’s own layout menu changes it too.")
+            }
+            Toggle("Cover page separately", isOn: $coverSeparately)
+                .disabled(!(EditorPDFLayout(rawValue: pdfLayoutRaw) ?? EditorPDFSettings.layoutDefault).isTwoUp)
+                .help("In the two-page layouts, shows the first page on its own, so a book’s spreads pair as they do in print.")
+        }
+    }
+}
+
+// MARK: - Organize ▸ Suggestions
+
+/// Organize ▸ Suggestions: how Organize suggests where files go — the free on-device pass, the
+/// opt-in Claude pass (Refine) with its model, and the cache that stops either being asked twice.
 ///
-/// The sections escalate top to bottom: what runs for free, what runs for money, what that money
-/// has come to, and what stops it being spent twice.
-struct IntelligenceSettingsTab: View {
+/// Until TE335 runs Refine as an Ask Claude chat, Refine keeps its own switch and model here and
+/// its own caps on Ask Claude ▸ Key & Spending, under Organize; the key is there too, a jump away.
+struct OrganizeSuggestionsPage: View {
     /// Reaches `filingVerdictCache*` for the saved-suggestion count. Optional because tests and
-    /// previews build the tab without an engine.
+    /// previews build the page without an engine.
     let syncManager: FileSyncManager?
-    /// See `SettingsView.onOpenHelp`. nil hides the pointer beside the on-device caption.
-    /// Defaulted, so the layout tests can build the tab without one.
-    var onOpenHelp: ((String) -> Void)?
+    /// See `SettingsView.onOpenHelp`. nil hides the pointer beside the on-device switch.
+    var onOpenHelp: ((String) -> Void)? = nil
+    /// Moves the sheet to another page, for the jump to the key. nil hides it.
+    var onJump: ((SettingsPlace) -> Void)? = nil
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
@@ -2289,38 +2557,12 @@ struct IntelligenceSettingsTab: View {
     // to `CloudFilingProtocol.defaultModel`, and a copy would drift when the default moves.
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
     @AppStorage(FileSyncManager.reuseVerdictsDefaultsKey) private var filingReuseVerdicts: Bool = true
-    @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
-    @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
-    @AppStorage(AskClaudeModels.defaultsKey) private var askClaudeModel: String = AskClaudeModels.defaultModel.id
-    @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
-    @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue
-    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @State private var askClaudeHidden: [String] = []
-    @State private var askClaudeShared: [String] = []
-    @State private var askClaudeSpentUSD = 0.0
 
     /// How many saved suggestions there are. Read on appear and after a clear, not in `body`,
     /// because answering it touches the cache file.
     @State private var savedSuggestionCount = 0
 
-    // Cloud spend, refreshed on appear and when the history sheet closes.
-    @State private var spendTotals = FilingSpendTotals()
-    @State private var spendLast: FilingSpendEntry?
-    @State private var showSpendHistory = false
-
-    /// Whether the key and model rows can be operated. The cloud path rides on top of on-device
-    /// AI, so turning either flag off takes them with it. Static so the rule can be tested: a
-    /// SwiftUI control's disabled state isn't observable from a unit test.
-    static func cloudControlsEnabled(useAI: Bool, useCloud: Bool) -> Bool { useAI && useCloud }
-
-    /// Whether the cloud toggle itself can be operated: gated on on-device AI and nothing else.
-    ///
-    /// Not `cloudControlsEnabled`: `filingUseCloud` defaults to false, so gating the toggle on it
-    /// would leave cloud refining impossible to turn on, and no unit test can see a disabled
-    /// control. **A control that turns something on must never be gated on that thing being on.**
-    static func cloudToggleEnabled(useAI: Bool) -> Bool { useAI }
-
-    /// The Help pointer beside "Read file contents on-device", a privacy switch whose caption can
+    /// The Help pointer beside "Read file contents on this Mac", a privacy switch whose caption can
     /// say what is read but not what happens to it afterwards.
     ///
     /// Shaped like `RestructureLens.helpPointer`, glyph included: one affordance through the app's
@@ -2346,160 +2588,31 @@ struct IntelligenceSettingsTab: View {
         SettingsPage {
             SettingsSection(
                 "On-device",
-                caption: "Free, private, and always the first pass: the on-device model (Apple Intelligence, macOS 26) runs at no cost, and where it isn’t available Organize falls back to matching on names and metadata. Reading contents gives it more to go on for files whose name says nothing. Nothing here opens a network connection — the reading happens on this Mac and is never sent anywhere. Changes apply on the next scan."
+                caption: "Free, and runs on this Mac. Changes apply on the next scan."
             ) {
-                Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
-                    .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone. Claude refining and saved suggestions need it on.")
+                Toggle("Suggest folders with Apple Intelligence", isOn: $filingUseAI)
+                    .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone. Nothing here opens a network connection. Claude refining and saved suggestions need it on.")
                 // `.firstTextBaseline`, so the glyph sits on the label's baseline rather than
                 // centring on the switch, which at Large text leaves it high.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
-                        .help("Lets Organize read the text inside your files, on this Mac, for better folder suggestions.")
+                    Toggle("Read file contents on this Mac", isOn: $filingReadContents)
+                        .help("Lets Organize read the text inside your files, on this Mac, for better folder suggestions. With Refine on, Refine sends an excerpt of each file too.")
                     helpPointer
                 }
             }
 
+            // Q6: with Read file contents on, Refine sends an excerpt of every file, not only the
+            // nameless ones, and the caption says so until TE335 hands the choice to each folder.
             SettingsSection(
-                "Claude API key",
-                caption: "Used by Organize’s Refine and by Ask Claude, and billed to that key. A Max or Ultra plan’s monthly API credit pays for both once its Console organization is linked. The key is stored in the macOS Keychain."
-            ) {
-                CloudKeyRow()
-            }
-
-            SettingsSection(
-                "Ask Claude",
-                caption: "The chat button in the toolbar, ⌘J. Claude sees a description of the screen you’re on — the names, kinds, sizes, dates and tags of what’s shown — and can look things up, move your view and open your places. When it needs what’s inside a file, this Mac reads it, and a card shows Apple Intelligence’s answer; nothing from the file goes to Claude until you share it there, unless its folder is shared without asking. When you ask, it changes how SyncCloud looks, or lowers its own spending or access, with Undo on its card; any other change, files included, waits for your click on a card. Every answer says what it sent and what it cost."
-            ) {
-                SettingsRow("Model") {
-                    Picker("Model", selection: Binding(
-                        get: { AskClaudeModels.option(for: askClaudeModel).id },
-                        set: { askClaudeModel = $0 })) {
-                        ForEach(AskClaudeModels.options) { option in
-                            Text(option.label).tag(option.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Sonnet 5.5 answers a typical question for about a cent. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
-                }
-                SettingsRow("Answers") {
-                    Picker("Answers", selection: $askClaudeAnswers) {
-                        ForEach(AskClaudeDetail.allCases, id: \.rawValue) { detail in
-                            Text(detail.label).tag(detail.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
-                }
-                SettingsRow("Monthly limit") {
-                    Picker("Monthly limit", selection: $askClaudeLimitUSD) {
-                        ForEach(AskClaudeSpend.limitChoices, id: \.self) { value in
-                            Text(value == 0 ? "No limit" : AskClaudeSpend.format(value)).tag(value)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Ask Claude warns at 80% of this and stops taking questions at it, until the month turns. Estimated from list prices; the Console has what was billed.")
-                }
-                SettingsRow("This month") {
-                    Text(AskClaudeSpend.format(askClaudeSpentUSD))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                SettingsRow("Hidden from Claude") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if askClaudeHidden.isEmpty {
-                            Text("None").foregroundStyle(.secondary)
-                        }
-                        ForEach(askClaudeHidden, id: \.self) { folder in
-                            HStack(spacing: 6) {
-                                Text((folder as NSString).abbreviatingWithTildeInPath)
-                                    .lineLimit(1).truncationMode(.middle)
-                                // Hidden by path: a folder renamed or moved since is no longer
-                                // covered, so the list says so rather than looking protected.
-                                if !FileManager.default.fileExists(atPath: folder) {
-                                    Text("Not found — renamed or moved?")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                        .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
-                                }
-                                Button("Remove") {
-                                    Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
-                                        named: (folder as NSString).lastPathComponent,
-                                        isFolder: Self.isFolderOrMissing(folder)).ask)
-                                    askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
-                                }
-                                .controlSize(.small)
-                                .accessibilityLabel("Remove \((folder as NSString).lastPathComponent) from the hidden list")
-                                .help("Shows it to Claude again. Asks first.")
-                            }
-                        }
-                        // Files too, as a row's Hide from Claude allows.
-                        Button("Add…") {
-                            let panel = NSOpenPanel()
-                            panel.canChooseDirectories = true
-                            panel.canChooseFiles = true
-                            panel.allowsMultipleSelection = true
-                            panel.prompt = "Hide from Claude"
-                            if panel.runModal() == .OK {
-                                for url in panel.urls { AskClaudePrivacy.hide(url.path, in: .standard) }
-                                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
-                            }
-                        }
-                        .controlSize(.small)
-                    }
-                    .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
-                }
-                // Set from the shield menu in Ask Claude; taken off here with no question, since
-                // taking one off is the stricter way.
-                SettingsRow("Shared without asking") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if askClaudeShared.isEmpty {
-                            Text("None").foregroundStyle(.secondary)
-                        }
-                        ForEach(askClaudeShared, id: \.self) { folder in
-                            HStack(spacing: 6) {
-                                Text((folder as NSString).abbreviatingWithTildeInPath)
-                                    .lineLimit(1).truncationMode(.middle)
-                                Button("Remove") {
-                                    AskClaudePrivacy.stopSharing(folder, in: .standard)
-                                    askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
-                                }
-                                .controlSize(.small)
-                                .accessibilityLabel("Stop sharing \((folder as NSString).lastPathComponent) without asking")
-                                .help("Claude asks before anything from it goes again.")
-                            }
-                        }
-                    }
-                    .help("From these folders, Apple Intelligence’s answers, page text, search names and lookups go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
-                }
-            }
-            .onAppear {
-                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
-                askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)
-                .receive(on: DispatchQueue.main)) { _ in
-                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
-                askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
-            }
-            .onAppear { askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
-            .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)
-                .receive(on: DispatchQueue.main)) { _ in askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
-
-            SettingsSection(
-                "Claude (cloud)",
-                caption: "Refining is the opt-in second pass — once a scan has results, a Refine button re-asks Claude about them, billed to your API key. With Ask Claude above, it is what spends money here; it never runs on its own, and you see a cost estimate before each one. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per pass. Pick Haiku for the cheapest runs (roughly a penny a pass). The key is stored in the macOS Keychain."
+                "Refine",
+                caption: "Only when you click Refine: file and folder names, and excerpts while Read file contents is on."
             ) {
                 Toggle("Use Claude (cloud) to refine suggestions", isOn: $filingUseCloud)
-                    .disabled(!Self.cloudToggleEnabled(useAI: filingUseAI))
-                    .help("Lets Organize’s Refine button send to Claude — with the key above; without one it offers to bring you back here instead. Scans stay free and on-device either way; Organize reaches Claude only when you click Refine.")
+                    .disabled(!IntelligenceSettingsTab.cloudToggleEnabled(useAI: filingUseAI))
+                    .help("Lets Organize’s Refine button send to Claude — with the key on Ask Claude ▸ Key & Spending; without one it offers to bring you back here instead. Scans stay free and on-device either way; Organize reaches Claude only when you click Refine.")
                 // Shown always, disabled rather than absent when the toggles are off. Grouped so
                 // the `.disabled` covers the model row without the toggle above it; see
-                // `cloudToggleEnabled`. (The key row has its own section above.)
+                // `cloudToggleEnabled`. (The key is on Ask Claude ▸ Key & Spending.)
                 Group {
                     // Read through `currentModel(for:)` so a superseded model id still lights its
                     // family's row, as the scan resolves it. "Cloud model" matches the search
@@ -2519,56 +2632,20 @@ struct IntelligenceSettingsTab: View {
                     .help("Saved suggestions are per model — switching means the next Refine asks, and pays for, every file again.")
                 }
                 // The group only, never the toggle above.
-                .disabled(!Self.cloudControlsEnabled(useAI: filingUseAI, useCloud: filingUseCloud))
-            }
-
-            SettingsSection(
-                "Cost and limits",
-                caption: "Before each Refine you’ll see a cost estimate to confirm. Two caps pause cloud classification when a refine would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached leaves the free on-device suggestions in place until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); scanning is free."
-            ) {
-                // What has been spent, above the caps that bound it, so you can see how close the
-                // $5 backstop is. A readout strip, not label/value rows: these report, not set.
-                FilingSpendReadout(totals: spendTotals, last: spendLast)
-                // A blank cap picker is dangerous: the stored value keeps governing cloud scans
-                // whatever the control shows. Rows via `SettingsPickerOptions`.
-                SettingsRow("Monthly budget cap") {
-                    Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
-                        ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
-                            Text(option.label).tag(option.value)
-                        }
+                .disabled(!IntelligenceSettingsTab.cloudControlsEnabled(useAI: filingUseAI, useCloud: filingUseCloud))
+                if let onJump {
+                    HStack {
+                        Text("Key and spending")
+                        Spacer(minLength: 12)
+                        Button("Ask Claude ▸ Key & Spending") { onJump(SettingsPlace(.keyAndSpending)) }
+                            .controlSize(.small)
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Stops a Refine that would take this calendar month’s estimated Claude spend past this amount.")
                 }
-                SettingsRow("Total budget cap") {
-                    Picker("Total budget cap", selection: $totalBudgetUSD) {
-                        ForEach(SettingsPickerOptions.totalBudget(including: totalBudgetUSD)) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Stops a Refine that would take the estimated Claude spend recorded here, across all time, past this amount.")
-                }
-                HStack {
-                    Button("View History…") { showSpendHistory = true }
-                        .disabled(spendTotals.scans == 0)
-                    // Asks first: this resets what both caps count against, the $5 backstop included.
-                    Button("Clear", role: .destructive) {
-                        if FilingSpendStore.clearIfConfirmed(confirm: Self.confirmClearSpend) {
-                            refreshSpend()
-                        }
-                    }
-                    .disabled(spendTotals.scans == 0)
-                    .help("Deletes the recorded spend history and totals, so both caps count from zero again. What Anthropic has billed is unchanged. Asks first.")
-                }
-                .controlSize(.small)
             }
 
             SettingsSection(
                 "Saved suggestions",
-                caption: "A file that hasn’t been edited, renamed, or moved gets the same suggestion it got last time, so scanning — or refining — the same folder again doesn’t ask the model, or pay Claude, a second time. Clearing forgets every saved suggestion: the next scan asks the on-device model about each file again, and the next Refine asks — and pays — Claude again."
+                caption: "Refine won’t pay twice for an unchanged file, unless you change its Cloud model."
             ) {
                 Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
                     .disabled(!filingUseAI)
@@ -2587,7 +2664,7 @@ struct IntelligenceSettingsTab: View {
                             savedSuggestionCount = syncManager.filingVerdictCacheCountNow
                             // Cleared elsewhere meanwhile: nothing to ask, and the button disables.
                             guard savedSuggestionCount > 0 else { return }
-                            if Self.clearSavedSuggestionsIfConfirmed(
+                            if IntelligenceSettingsTab.clearSavedSuggestionsIfConfirmed(
                                 confirm: RemovalPrompt.clearSavedSuggestions(count: savedSuggestionCount).ask,
                                 clear: { syncManager.clearFilingVerdictCache() }) {
                                 savedSuggestionCount = syncManager.filingVerdictCacheCountNow
@@ -2599,15 +2676,260 @@ struct IntelligenceSettingsTab: View {
                 }
             }
         }
+        // **Never move this into `body`'s reads:** the count decodes a cache file of up to ~12 MB,
+        // which must not run on the main actor.
+        .task { savedSuggestionCount = await syncManager?.filingVerdictCacheCount() ?? 0 }
+    }
+}
+
+// MARK: - Ask Claude
+
+/// Ask Claude (Intelligence until TE332, raw value still `intelligence`): the chat's model and
+/// answers, what Claude may see, and the key and what Claude costs.
+///
+/// Key & Spending holds Refine's two caps too, under Organize, until TE335 puts Refine under the
+/// chat's one monthly limit.
+struct IntelligenceSettingsTab: View {
+    let page: SettingsSubTab
+    /// Optional because tests and previews build the tab without an engine.
+    var syncManager: FileSyncManager? = nil
+    @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
+    @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
+    @AppStorage(AskClaudeModels.defaultsKey) private var askClaudeModel: String = AskClaudeModels.defaultModel.id
+    @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
+    @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @State private var askClaudeHidden: [String] = []
+    @State private var askClaudeShared: [String] = []
+    @State private var askClaudeSpentUSD = 0.0
+
+    // Refine's spend, refreshed on appear and when the history sheet closes.
+    @State private var spendTotals = FilingSpendTotals()
+    @State private var spendLast: FilingSpendEntry?
+    @State private var showSpendHistory = false
+
+    /// Whether the key and model rows can be operated. The cloud path rides on top of on-device
+    /// AI, so turning either flag off takes them with it. Static so the rule can be tested: a
+    /// SwiftUI control's disabled state isn't observable from a unit test.
+    static func cloudControlsEnabled(useAI: Bool, useCloud: Bool) -> Bool { useAI && useCloud }
+
+    /// Whether the cloud toggle itself can be operated: gated on on-device AI and nothing else.
+    ///
+    /// Not `cloudControlsEnabled`: `filingUseCloud` defaults to false, so gating the toggle on it
+    /// would leave cloud refining impossible to turn on, and no unit test can see a disabled
+    /// control. **A control that turns something on must never be gated on that thing being on.**
+    static func cloudToggleEnabled(useAI: Bool) -> Bool { useAI }
+
+    var body: some View {
+        SettingsPage {
+            switch page {
+            case .privacy: privacy
+            case .keyAndSpending: keyAndSpending
+            default: general
+            }
+        }
+    }
+
+    private var general: some View {
+        SettingsSection(caption: "Model and answers apply from the next question, in an open chat too.") {
+            SettingsRow("Model") {
+                Picker("Model", selection: Binding(
+                    get: { AskClaudeModels.option(for: askClaudeModel).id },
+                    set: { askClaudeModel = $0 })) {
+                    ForEach(AskClaudeModels.options) { option in
+                        Text(option.label).tag(option.id)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Sonnet 5.5 answers a typical question for about a cent. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
+            }
+            SettingsRow("Answers") {
+                Picker("Answers", selection: $askClaudeAnswers) {
+                    ForEach(AskClaudeDetail.allCases, id: \.rawValue) { detail in
+                        Text(detail.label).tag(detail.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accentedSegments(LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
+                .labelsHidden()
+                .fixedSize()
+                .help("Brief answers in a sentence or two. Detailed explains what it checked and names close alternatives, and costs a little more per answer. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
+            }
+        }
+    }
+
+    private var privacy: some View {
+        SettingsSection(
+            "What Claude may see",
+            caption: "A folder asks each time unless it’s shared or hidden. Refine leaves hidden ones out."
+        ) {
+            SettingsRow("Every folder") {
+                Text("Ask Each Time").foregroundStyle(.secondary)
+            }
+            .help("Claude sees the names, sizes and dates on screen. Before anything from inside a file goes to it, the chat asks, unless the file’s folder is shared or hidden below.")
+            SettingsRow("Hidden from Claude") {
+                VStack(alignment: .leading, spacing: 4) {
+                    if askClaudeHidden.isEmpty {
+                        Text("None").foregroundStyle(.secondary)
+                    }
+                    ForEach(askClaudeHidden, id: \.self) { folder in
+                        HStack(spacing: 6) {
+                            Text((folder as NSString).abbreviatingWithTildeInPath)
+                                .lineLimit(1).truncationMode(.middle)
+                            // Hidden by path: a folder renamed or moved since is no longer
+                            // covered, so the list says so rather than looking protected.
+                            if !FileManager.default.fileExists(atPath: folder) {
+                                Text("Not found — renamed or moved?")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
+                            }
+                            Button("Remove") {
+                                Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
+                                    named: (folder as NSString).lastPathComponent,
+                                    isFolder: Self.isFolderOrMissing(folder)).ask)
+                                askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                            }
+                            .controlSize(.small)
+                            .accessibilityLabel("Remove \((folder as NSString).lastPathComponent) from the hidden list")
+                            .help("Shows it to Claude again. Asks first.")
+                        }
+                    }
+                    // Files too, as a row's Hide from Claude allows.
+                    Button("Add…") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = true
+                        panel.allowsMultipleSelection = true
+                        panel.prompt = "Hide from Claude"
+                        if panel.runModal() == .OK {
+                            for url in panel.urls { AskClaudePrivacy.hide(url.path, in: .standard) }
+                            askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                        }
+                    }
+                    .controlSize(.small)
+                }
+                .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
+            }
+            // Set from the shield menu in Ask Claude; taken off here with no question, since
+            // taking one off is the stricter way.
+            SettingsRow("Shared without asking") {
+                VStack(alignment: .leading, spacing: 4) {
+                    if askClaudeShared.isEmpty {
+                        Text("None").foregroundStyle(.secondary)
+                    }
+                    ForEach(askClaudeShared, id: \.self) { folder in
+                        HStack(spacing: 6) {
+                            Text((folder as NSString).abbreviatingWithTildeInPath)
+                                .lineLimit(1).truncationMode(.middle)
+                            Button("Remove") {
+                                AskClaudePrivacy.stopSharing(folder, in: .standard)
+                                askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+                            }
+                            .controlSize(.small)
+                            .accessibilityLabel("Stop sharing \((folder as NSString).lastPathComponent) without asking")
+                            .help("Claude asks before anything from it goes again.")
+                        }
+                    }
+                }
+                .help("From these folders, Apple Intelligence’s answers, page text, search names and lookups go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
+            }
+        }
+        .onAppear {
+            askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+            askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AskClaudePrivacy.didChange)
+            .receive(on: DispatchQueue.main)) { _ in
+            askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+            askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+        }
+    }
+
+    @ViewBuilder
+    private var keyAndSpending: some View {
+        SettingsSection(
+            "Claude API key",
+            caption: "Stored in your Keychain. Pays for Ask Claude and Refine."
+        ) {
+            CloudKeyRow()
+        }
+
+        SettingsSection(
+            "Ask Claude",
+            caption: "Estimated from list prices. Ask Claude stops at the limit until the month turns."
+        ) {
+            SettingsRow("Monthly limit") {
+                Picker("Monthly limit", selection: $askClaudeLimitUSD) {
+                    ForEach(AskClaudeSpend.limitChoices, id: \.self) { value in
+                        Text(value == 0 ? "No limit" : AskClaudeSpend.format(value)).tag(value)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Ask Claude warns at 80% of this and stops taking questions at it, until the month turns. Estimated from list prices; the Console has what was billed.")
+            }
+            SettingsRow("This month") {
+                Text(AskClaudeSpend.format(askClaudeSpentUSD))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .onAppear { askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
+        .onReceive(NotificationCenter.default.publisher(for: AskClaudeSpend.didChange)
+            .receive(on: DispatchQueue.main)) { _ in askClaudeSpentUSD = AskClaudeSpend.spent(in: .standard) }
+
+        // Refine's caps, until TE335 puts Refine under the chat's limit above.
+        SettingsSection(
+            "Organize",
+            caption: "Refine’s own caps, estimated from list prices. The Claude Console has what was billed."
+        ) {
+            // What has been spent, above the caps that bound it, so you can see how close the
+            // $5 backstop is. A readout strip, not label/value rows: these report, not set.
+            FilingSpendReadout(totals: spendTotals, last: spendLast)
+            // A blank cap picker is dangerous: the stored value keeps governing cloud scans
+            // whatever the control shows. Rows via `SettingsPickerOptions`.
+            SettingsRow("Monthly budget cap") {
+                Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
+                    ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Stops a Refine that would take this calendar month’s estimated Claude spend past this amount.")
+            }
+            SettingsRow("Total budget cap") {
+                Picker("Total budget cap", selection: $totalBudgetUSD) {
+                    ForEach(SettingsPickerOptions.totalBudget(including: totalBudgetUSD)) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("Stops a Refine that would take the estimated Claude spend recorded here, across all time, past this amount.")
+            }
+            HStack {
+                Button("View History…") { showSpendHistory = true }
+                    .disabled(spendTotals.scans == 0)
+                // Asks first: this resets what both caps count against, the $5 backstop included.
+                Button("Clear", role: .destructive) {
+                    if FilingSpendStore.clearIfConfirmed(confirm: Self.confirmClearSpend) {
+                        refreshSpend()
+                    }
+                }
+                .disabled(spendTotals.scans == 0)
+                .help("Deletes the recorded spend history and totals, so both caps count from zero again. What Anthropic has billed is unchanged. Asks first.")
+            }
+            .controlSize(.small)
+        }
         .onAppear(perform: refreshSpend)
         // The store's change signal: the Organize lens's history sheet can clear history while
-        // this tab is open, and a scan can record spend mid-view. `receive(on:)` because `record`
+        // this page is open, and a scan can record spend mid-view. `receive(on:)` because `record`
         // posts off the main actor.
         .onReceive(NotificationCenter.default.publisher(for: FilingSpendStore.didChange)
             .receive(on: DispatchQueue.main)) { _ in refreshSpend() }
-        // **Never fold this into `refreshSpend`:** the count decodes a cache file of up to ~12 MB,
-        // which must not run on the main actor. The spend reads are small defaults blobs.
-        .task { savedSuggestionCount = await syncManager?.filingVerdictCacheCount() ?? 0 }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             FilingSpendHistorySheet().presentedNativeControlAccent()
         }
@@ -2695,9 +3017,9 @@ struct FilingSpendReadout: View {
 
 // MARK: - People
 
-/// Who Organize files for.
+/// Organize ▸ People: who Organize files for.
 ///
-/// A tab because it is a roster, not a preference: rows with their own facts and veto counts, an
+/// A page of its own because it is a roster, not a preference: rows with their own facts and veto counts, an
 /// overview of what the set governs, a name-suggestion queue, a tester and an editor sheet, like
 /// `ProvidersSettingsTab`'s list of things the user maintains.
 ///
@@ -2791,7 +3113,7 @@ struct KeptNamesList: View {
 
     /// Shown by an empty store, and by a tab built without an engine attached.
     static var nothingKeptNote: some View {
-        Text("No kept names. Right-click a file with a flagged name and choose Always Allow This Name to keep it.")
+        Text("No allowed names yet.")
             .scaledFont(.callout)
             .foregroundStyle(.secondary)
     }
@@ -2934,6 +3256,7 @@ struct PeopleList: View {
                 }
             }
         }
+        .help(Self.purposeHelp)
         .sheet(item: $editing) { person in
             PersonEditor(person: person,
                          isNew: person.id.isEmpty,
@@ -2997,7 +3320,7 @@ struct PeopleList: View {
     /// What "Look for Names" read off the tree, or the sentence that says it found nothing.
     private var namesFound: some View {
         SettingsSection("Names found in your documents",
-                        caption: "Read from the file names already in each person’s folders. Nothing is added without asking, and “Not a Name” is remembered.") {
+                        caption: "From file names in each person’s folders. Nothing is added without asking.") {
             if suggestions.isEmpty {
                 Label("No new names — every form your filed documents use is already recorded.",
                       systemImage: "checkmark.circle")
@@ -3105,13 +3428,17 @@ struct PeopleList: View {
 
     private var sourceNote: String {
         store.source == .file
-            ? "Saved in people.json."
+            ? "Saved in people.json, on this Mac."
             : "This list was suggested from your folder names — edit anyone to make it yours."
     }
 
-    /// What the roster is for, briefly; the longer version with a worked example is in Help. The
-    /// order sentence is here because the reader would otherwise have to guess the rule.
-    static let purposeCaption = "Who your documents belong to — the people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Daughter beside School/Son). A full name is matched before any single word, so add each person’s names as documents print them. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
+    /// What the roster is for, in a line (TE332); the rest is `purposeHelp`, and the longer
+    /// version with a worked example is in Help.
+    static let purposeCaption = "Who Organize files documents for. Add each person’s names as their documents print them."
+
+    /// What the caption gave up: what the roster decides, and the order rule, which the reader
+    /// would otherwise have to guess.
+    static let purposeHelp = "The people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Daughter beside School/Son). A full name is matched before any single word. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
 
     /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
     /// edits won't save, or the roster would look ordinary while its edits went nowhere.
@@ -3582,11 +3909,14 @@ struct FilingSpendHistorySheet: View {
 
 // MARK: - Advanced
 
-/// Logging, maintenance, saved scan data, and the setup and settings resets: engine machinery
-/// given a user-facing surface.
+/// Logging, maintenance, saved scan data, both ways back into setup, and the settings reset:
+/// engine machinery given a user-facing surface.
 struct AdvancedSettingsTab: View {
     let syncManager: FileSyncManager?
     let onResetAllSettings: (() -> Void)?
+    /// Opens the guided setup sheet with the current answers (General's until TE332, which put it
+    /// beside Reset Setup). Defaulted for the reason on `onResetSetup`.
+    var onRunSetup: (() -> Void)? = nil
     /// Clears the three setup flags and the draft, then opens the guided sheet at its first screen.
     ///
     /// **Keep it defaulted.** The tab uses the memberwise `init`, so a parameter without a default
@@ -3608,7 +3938,7 @@ struct AdvancedSettingsTab: View {
         SettingsPage {
             SettingsSection(
                 "Logging",
-                caption: "The log rotates at 5 MB. Levels below the chosen one are skipped entirely."
+                caption: "Rotates at 5 MB."
             ) {
                 SettingsRow("Log level") {
                     Picker("Log level", selection: $minimumLevelRaw) {
@@ -3622,7 +3952,7 @@ struct AdvancedSettingsTab: View {
                     .onChange(of: minimumLevelRaw) { _, raw in
                         LogLevelSetting.applyRunning(raw: raw)
                     }
-                    .help("Which messages the log keeps: the chosen level and everything more severe. Debug keeps everything.")
+                    .help("Which messages the log keeps: the chosen level and everything more severe; the rest are skipped entirely. Debug keeps everything.")
                 }
 
                 SettingsRow("Log file") {
@@ -3647,7 +3977,7 @@ struct AdvancedSettingsTab: View {
 
             SettingsSection(
                 "Maintenance",
-                caption: "Interrupted copies can leave .tmp_ working files behind; they’re moved to the Trash automatically once they’re an hour old. Recovery backups (.rollback_) are never touched."
+                caption: ".tmp_ files over an hour old go to the Trash on their own."
             ) {
                 SettingsRow("Orphaned temporary files") {
                     Button("Sweep Now") {
@@ -3655,7 +3985,7 @@ struct AdvancedSettingsTab: View {
                     }
                     .controlSize(.small)
                     .disabled(syncManager == nil)
-                    .help("Moves .tmp_ working files over an hour old, in the folders the panes have loaded, to the Trash now. .rollback_ backups are left alone.")
+                    .help("Interrupted copies can leave .tmp_ working files behind. Moves the ones over an hour old, in the folders the panes have loaded, to the Trash now. Recovery backups (.rollback_) are never touched.")
                 }
             }
 
@@ -3667,7 +3997,7 @@ struct AdvancedSettingsTab: View {
             // the app writes on the main actor as the tab appears.
             SettingsSection(
                 "Saved scan data",
-                caption: "Kept so a rescan doesn’t repeat work it already did. Clearing costs time on the next scan and nothing else — your files aren’t affected, and neither are your saved suggestions (Organize)."
+                caption: "Clearing only makes the next scan slower."
             ) {
                 SettingsRow("File digests") {
                     HStack(spacing: 8) {
@@ -3719,20 +4049,32 @@ struct AdvancedSettingsTab: View {
                 .help("The last Storage analysis for each folder, shown while a fresh one runs. Clearing means Storage starts from an empty panel again.")
             }
 
-            if let onResetSetup {
+            // Both ways back into setup, together (TE332): one keeps your answers, one starts over.
+            if onRunSetup != nil || onResetSetup != nil {
                 SettingsSection(
-                    caption: "Forgets that setup has run and which location it learns from, and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one. Your folder profile, people and other settings stay."
+                    "Setup",
+                    caption: "Reset Setup starts over. Your folder profile and people stay; with no profile yet, its answers go."
                 ) {
-                    Button("Reset Setup…", role: .destructive) {
-                        confirmResetSetup(onResetSetup)
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        if let onRunSetup {
+                            Button("Run Setup Again…", action: onRunSetup)
+                                .help("Reopens the guided setup sheet with your current answers filled in. Nothing is reset.")
+                        }
+                        if let onResetSetup {
+                            Button("Reset Setup…", role: .destructive) {
+                                confirmResetSetup(onResetSetup)
+                            }
+                            .help("Forgets that setup has run and which location it learns from, and opens it now, from the beginning. On a Mac with no folder profile yet this also discards the name and household answers setup was holding for one. Asks first.")
+                        }
                     }
-                    .help("Forgets that setup has run and which location it learns from, and opens it now, from the beginning. Asks first.")
+                    .controlSize(.small)
                 }
             }
 
             if let onResetAllSettings {
                 SettingsSection(
-                    caption: "Restores defaults for appearance, sync behavior, and source names and paths, and clears the folders you added as sources. Keeps what you made — Rules, signatures, Favorites, pins and your choices while organizing — the folders hidden from Claude, and Claude’s spending limits and record. Your files aren’t affected."
+                    caption: "Restores defaults. Keeps what you made, the folders hidden from Claude, and Claude’s limits and record. Your files aren’t affected."
                 ) {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
@@ -3829,21 +4171,5 @@ struct AdvancedSettingsTab: View {
             return (attributes?[.size] as? NSNumber)?.intValue
         }.value
         logFileSizeText = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
-    }
-}
-
-extension SettingsView.SettingsTab {
-
-    /// Where a stored `settingsSelectedTab` resolves to, including when it resolves to nothing.
-    ///
-    /// Here, not in `MacApp/ContentView.swift` where the launch read happens, so a test can reach
-    /// it. The stored value comes from past builds and from `defaults`, outside the app's control:
-    /// **never trap on it**, or a retired tab crashes the launch.
-    ///
-    /// Falls back to Appearance, the tab that depends on nothing (no engine, provider list or
-    /// roster), so it's safe whatever state the app is in.
-    public static func resolvingStored(_ raw: String?) -> Self {
-        guard let raw, let tab = Self(rawValue: raw) else { return .appearance }
-        return tab
     }
 }

@@ -4,7 +4,7 @@ import SwiftUI
 import Testing
 @testable import Settings
 
-/// Visual snapshot net over the Settings module: the Appearance tab's accent section as it ships.
+/// Visual snapshot net over the Settings module: Appearance ▸ Look's accent section as it ships.
 /// Marked `.machinePinned(.referenceImages)` so CI excludes it like the other packages' snapshot
 /// suites (Modules/Design/Tests/DesignTests/SNAPSHOTS.md has the re-record workflow).
 ///
@@ -14,7 +14,7 @@ import Testing
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct SettingsSnapshotTests {
 
-    /// The section as it ships, swatches, preview strip and caption, at the real content width in
+    /// The section as it ships, swatches and preview strip (no caption but None's, since TE332), at the real content width in
     /// both appearances. Amber and Cyan are the lightest accents, the ones `AccentFill` deepens
     /// most; Indigo and Graphite come back untouched. `.none` is absent: it resolves the machine's
     /// system accent, so the reference would not be portable.
@@ -26,7 +26,7 @@ import Testing
     @Test func accentSectionSnapshot() {
         assertViewSnapshot(
             of: AccentSectionSpecimen(),
-            // 700 clears four sections at their measured 163pt pitch plus the page padding. Not
+            // 700 clears four sections at their measured pitch plus the page padding. Not
             // generous on purpose: a section growing past a fixed frame is cropped, not failed.
             size: CGSize(width: SettingsSheetMetrics.contentWidth(textScale: 1), height: 700),
             named: "accent-section")

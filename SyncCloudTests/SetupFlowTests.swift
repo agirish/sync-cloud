@@ -421,14 +421,14 @@ import Testing
 
         let refused = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: true)
         #expect(refused.contains("could not be read"))
-        #expect(refused.contains("Settings ▸ People"), "it has to say where to fix it")
+        #expect(refused.contains("Settings ▸ Organize, under People"), "it has to say where to fix it")
         #expect(refused != honest)
 
         // A roster read perfectly well, with one id twice, is not called unreadable.
         let repeated = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: true,
                                                rosterRepeatsAnId: true)
         #expect(!repeated.contains("could not be read"), "a readable roster was called unreadable")
-        #expect(repeated.contains("lists someone twice") && repeated.contains("Settings ▸ People"))
+        #expect(repeated.contains("lists someone twice") && repeated.contains("Settings ▸ Organize, under People"))
     }
 
     @Test func theSummaryCountsInSingularAndPlural() {
@@ -595,7 +595,7 @@ import Testing
         #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("Claude"))
         #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("Anthropic"))
         #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("never runs on its own"))
-        #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("Settings ▸ Intelligence"),
+        #expect(SetupFlow.surveyThirdPartyNote.localizedCaseInsensitiveContains("Settings ▸ Organize"),
                 "the exception has to say where it can be turned on")
     }
 

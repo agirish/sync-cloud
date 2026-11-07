@@ -441,14 +441,14 @@ import Sync
         let settings = manager(defaults)
         await settings.discoverProviders()
 
-        let empty = laidOutHeight(ProvidersSettingsTab().environmentObject(settings))
+        let empty = laidOutHeight(ProvidersSettingsTab(page: .localFolders).environmentObject(settings))
         #expect(empty > 0, "the tab did not lay out at all")
 
         for path in ["/Users/u/Projects", "/Users/u/Archive", "/Volumes/Backup"] {
             settings.addFolderSource(path: path)
         }
         await settings.discoverProviders()
-        let populated = laidOutHeight(ProvidersSettingsTab().environmentObject(settings))
+        let populated = laidOutHeight(ProvidersSettingsTab(page: .localFolders).environmentObject(settings))
 
         #expect(populated > empty,
                 "three folder rows added \(populated - empty)pt — they are not being rendered")

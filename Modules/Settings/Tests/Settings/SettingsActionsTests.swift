@@ -52,7 +52,7 @@ import Sync
         let question = actions.prompt("advanced.resetAll", target: nil)?.informativeText ?? ""
         #expect(question.contains("This also raises what Claude may do: Model back to Sonnet"))
         defaults.set(false, forKey: FileSyncManager.readContentsDefaultsKey)
-        #expect(actions.resetAllRaises().contains("Read file contents on-device for better signals back to On"))
+        #expect(actions.resetAllRaises().contains("Read file contents on this Mac back to On"))
     }
 
     @Test func aPressRunsSettingsOwnCode() async throws {

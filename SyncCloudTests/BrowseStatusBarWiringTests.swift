@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import Design
 import Foundation
 @testable import SyncCloud
 
@@ -96,9 +97,11 @@ import Foundation
     /// own: reusing `browseTabBarVisible` would tie two switches together.
     @Test func theStatusBarPreferenceDefaultsOnAndKeepsItsOwnKey() throws {
         let source = try Self.source("ContentView.swift")
-        #expect(source.contains(#"@AppStorage("browseStatusBarVisible") var statusBarVisible: Bool = true"#),
+        #expect(source.contains(#"@AppStorage(BrowseWindowSettings.statusBarVisibleKey) var statusBarVisible: Bool = BrowseWindowSettings.statusBarVisibleDefault"#)
+                && BrowseWindowSettings.statusBarVisibleKey == "browseStatusBarVisible" && BrowseWindowSettings.statusBarVisibleDefault,
                 "the status bar preference is gone, renamed, or no longer defaults on")
-        #expect(source.contains(#"@AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false"#),
+        #expect(source.contains(#"@AppStorage(BrowseWindowSettings.tabBarVisibleKey) var tabBarVisible: Bool = BrowseWindowSettings.tabBarVisibleDefault"#)
+                && BrowseWindowSettings.tabBarVisibleKey == "browseTabBarVisible" && !BrowseWindowSettings.tabBarVisibleDefault,
                 "the tab bar preference moved — the two switches may now share a key")
     }
 

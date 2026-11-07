@@ -4,7 +4,7 @@ import AppKit
 @testable import Settings
 @testable import Design
 
-/// The Readability tab rendered in the states that matter, with the assertions geometry can make,
+/// Appearance ▸ Text & Spacing (Readability until TE332) rendered in the states that matter, with the assertions geometry can make,
 /// and a PNG per state when `READ_PROBE_DIR` is set, so a person can look. A preview that ignored
 /// its settings would pass every fit test; what it wouldn't do is change when the settings do.
 @Suite struct ReadabilityRenderProbe {
@@ -17,7 +17,7 @@ import AppKit
         defaults.set(density.rawValue, forKey: ListDensity.defaultsKey)
 
         let host = NSHostingView(rootView:
-            ReadabilitySettingsTab(confirmReleasingColumnWidths: { _ in false })
+            ReadabilitySettingsTab()
                 .defaultAppStorage(defaults)
                 .appFontSize(size)
                 .frame(width: 547)

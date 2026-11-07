@@ -323,7 +323,7 @@ struct SyncOperationAlerts {
                 + (p.unit == "file"
                    ? "Organize will use its free on-device suggestions instead. "
                    : "this pass only runs in the cloud, so nothing will be sent. ")
-                + "Raise or turn off the cap in Settings ▸ Intelligence."
+                + "Raise or turn off the cap in Settings ▸ Ask Claude, under Key & Spending."
         }
         return text
     }

@@ -2,7 +2,7 @@ import Testing
 import Settings
 @testable import SyncCloud
 
-/// Settings ▸ Intelligence names a Help topic; this checks the book has it. Like
+/// Organize ▸ Suggestions names a Help topic; this checks the book has it. Like
 /// `RestructureHelpTopicTests`: pointer and article live in different modules, and an id that
 /// doesn't resolve opens the book at its cover instead of failing. This article carries the app's
 /// privacy claim, so the checks also pin that it still says what the switch beside the pointer

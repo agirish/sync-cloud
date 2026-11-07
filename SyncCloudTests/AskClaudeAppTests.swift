@@ -111,14 +111,14 @@ import FileExplorer
 
         let found = await runner.run(call("settings", ["action": .string("find"), "words": .string("dark mode")]), handles: &handles)
         #expect(!found.isError)
-        #expect(found.result.hasPrefix("appearance.theme · Theme (Appearance): Dark"))
+        #expect(found.result.hasPrefix("appearance.theme · Theme (Appearance ▸ Look): Dark"))
 
         let read = await runner.run(call("settings", ["action": .string("get"), "ids": .array([.string("intelligence.apiKey")])]),
                                     handles: &handles)
         #expect(read.result.contains("value: a key is saved"))
 
         let changed = await runner.run(call("settings", ["action": .string("changed")]), handles: &handles)
-        #expect(changed.result == "Theme (Appearance): Dark — default System")
+        #expect(changed.result == "Theme (Appearance ▸ Look): Dark — default System")
     }
 
     /// Claude changes a setting itself only for look-and-feel, or to lower its own reach, never to
@@ -1470,7 +1470,7 @@ import FileExplorer
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
         var handles = AskClaudeHandles()
         let settings = await runner.run(call("show_in_app", ["place": .string("Settings"), "tab": .string("intelligence")]), handles: &handles)
-        #expect(settings.step == "Opened Settings ▸ Intelligence")
+        #expect(settings.step == "Opened Settings ▸ Ask Claude")
         _ = await runner.run(call("show_in_app", ["place": .string("trash")]), handles: &handles)
         let bad = await runner.run(call("show_in_app", ["place": .string("printer")]), handles: &handles)
         #expect(bad.isError)
@@ -1804,7 +1804,7 @@ private final class NoTools: AskClaudeToolRunning {
         await waitUntilIdle(chat)
         guard case .problem(let problem) = chat.items.last?.kind else { Issue.record("no problem shown"); return }
         #expect(problem.kind == .noKey)
-        #expect(problem.message.contains("Settings ▸ Intelligence"))
+        #expect(problem.message.contains("Settings ▸ Ask Claude"))
     }
 
     @Test func anHourAwayStartsANewChat() async {
@@ -2827,7 +2827,7 @@ private final class Counter: @unchecked Sendable {
         let chat = AskClaudeChat(readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container,
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
                                    settingsBridge: .keySaved)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
         let host = NSHostingView(rootView: panel)
@@ -2854,7 +2854,7 @@ private final class Counter: @unchecked Sendable {
         let chat = AskClaudeChat(readKey: { nil })
         let container = CGSize(width: 1000, height: 800)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container,
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
                                    settingsBridge: .keySaved)
         let host = NSHostingView(rootView: panel)
         host.frame = NSRect(origin: .zero, size: container)
@@ -2928,7 +2928,7 @@ private final class Counter: @unchecked Sendable {
             chat: AskClaudeChat(readKey: { nil }), place: AskClaudePanelHandleTests.place,
             accent: hue.accentColor, accentFill: hue.accentFillColor, onAccent: hue.onAccentLabelColor,
             hue: hue, tint: tint, level: level,
-            onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: container, settingsBridge: .keySaved)
+            onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container, settingsBridge: .keySaved)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
             .background(Color.black)
             .environment(\.colorScheme, .light))
@@ -3000,7 +3000,7 @@ private final class Counter: @unchecked Sendable {
         let controller = AskClaudeWindowController()
         controller.container = NSRect(x: -30_000, y: -30_000, width: 1000, height: 720)
         let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: {}, container: CGSize(width: 1000, height: 720),
+                                   onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: CGSize(width: 1000, height: 720),
                                    settingsBridge: .keySaved, onPlace: { controller.panelRect = $0 })
         controller.show(AnyView(panel), over: parent, activate: false)
         let child = try #require(parent.childWindows?.first)

@@ -266,7 +266,7 @@ extension ContentView {
                     + "the row was built from a digest this app no longer recognises")
                 return
             }
-            openSettings(on: tab)
+            openSettings(on: SettingsPlace(tab))
         }
     }
 

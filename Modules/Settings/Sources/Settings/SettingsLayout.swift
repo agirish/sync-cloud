@@ -17,12 +17,15 @@ import SwiftUI
 /// error. This is plain math.
 enum SettingsSheetMetrics {
     /// The sheet at the default text size. The height is sized against a measurement, not a round
-    /// number: `theSheetIsSizedAgainstTheTallestTabItMustFit` holds the opening 15–30pt over the
-    /// tallest must-fit tab (Sync), so a copy edit can't push it into scrolling and no dead air
-    /// builds up. When that tab grows, raise this deliberately; when it is trimmed, lower this.
-    /// Never widen the bound. Keep it under the ~692pt a 1280×800 display's window clamps the sheet
-    /// to (`appearanceFitsA1280x800Display`).
-    static let baseSize = CGSize(width: 760, height: 648)
+    /// number: `theSheetIsSizedAgainstTheTightestPageItMustFit` holds the tightest must-fit page
+    /// 15–30pt inside its opening (Appearance ▸ Look, under its strip), so a copy edit can't push it
+    /// into scrolling and no dead air builds up. When that page grows, raise this deliberately;
+    /// when it is trimmed, lower this. Never widen the bound. Keep it under the ~692pt a 1280×800
+    /// display's window clamps the sheet to (`appearanceFitsA1280x800Display`).
+    ///
+    /// 648pt until TE332 split the tabs into pages and cut the captions to a line: the tallest page
+    /// then had 158pt to spare.
+    static let baseSize = CGSize(width: 760, height: 512)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
@@ -48,6 +51,11 @@ enum SettingsSheetMetrics {
     /// 44pt clears `.headline` at the largest text scale (15.85pt: 13pt is above the 11pt knee, so
     /// it grows damped, 11 × 1.35 + 2 × 0.5) with padding.
     static let headerHeight: CGFloat = 44
+
+    /// The sub-tab strip's height on a paged tab, fixed for `headerHeight`'s reason: each page's
+    /// opening is `pageOpening`, arithmetic rather than a guess. Clears a small segmented control
+    /// at the largest text scale with air above and below.
+    static let subTabStripHeight: CGFloat = 40
 
     /// Air between a section's last control and its caption. Tight, to save height: a caption
     /// belongs to the group it explains, so close to its controls it reads as grouping, and it
@@ -103,6 +111,20 @@ enum SettingsSheetMetrics {
         resolvedSize(textScale: textScale, available: available).height
             - headerHeight * textScale
             - 1
+    }
+
+    /// The height a page of a paged tab gets: the content opening, less the sub-tab strip and the
+    /// divider under it, both scaled as `SettingsView` draws them.
+    static func pageOpening(textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
+        contentOpening(textScale: textScale, available: available) - subTabStripHeight * textScale - 1
+    }
+
+    /// The opening a place's page gets: a one-page tab's content opening, or a sub-tab's page
+    /// opening under its strip.
+    static func opening(for place: SettingsPlace, textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
+        place.tab.subTabs.isEmpty
+            ? contentOpening(textScale: textScale, available: available)
+            : pageOpening(textScale: textScale, available: available)
     }
 
     /// The content column's width: the sheet, less the rail and the divider beside it.
@@ -299,7 +321,7 @@ struct SettingsRail: View {
                 // frame.
                 .selectionLensTracksVisibleRegion(visibleTabs)
                 // Bring the selected row into view when the rail can't show every row, or a deep
-                // link (`cloudRefineSetup` opens Intelligence, ninth of ten rows) lands on a rail
+                // link (`cloudRefineSetup` opens Organize, sixth of nine rows) lands on a rail
                 // showing no selection. Unanimated: it is a jump, and `withAnimation { scrollTo }`
                 // does nothing while the display is asleep. A no-op when the row is visible.
                 //

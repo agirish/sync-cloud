@@ -51,7 +51,7 @@ import Sync
         #expect(darkMode.components(separatedBy: "\n").first?.hasPrefix("appearance.theme ·") == true)
 
         let limit = await lookup.find("monthly limit")
-        #expect(limit.contains("intelligence.monthlyLimit · Monthly limit (Intelligence): $25"))
+        #expect(limit.contains("intelligence.monthlyLimit · Monthly limit (Ask Claude ▸ Key & Spending): $25"))
 
         #expect(await lookup.find("").hasPrefix("Give words"))
         #expect(await lookup.find("xylophone").hasPrefix("No setting matches"))
@@ -102,7 +102,7 @@ import Sync
         #expect(hidden.contains("value: 3 items hidden"))
         #expect(!hidden.contains("Medical"))
         let changed = await lookup.changed()
-        #expect(changed.contains("Hidden from Claude (Intelligence): 3 items"))
+        #expect(changed.contains("Hidden from Claude (Ask Claude ▸ Privacy): 3 items"))
         #expect(!changed.contains("Medical"))
     }
 
@@ -116,8 +116,8 @@ import Sync
         defaults.set(false, forKey: GeneralSettings.confirmBeforeTransferKey)
         defaults.set(50.0, forKey: AskClaudeSpend.limitDefaultsKey)
         let lines = await lookup.changed().components(separatedBy: "\n")
-        #expect(lines.contains("Confirm before copying or moving (Sync): Off — default On"))
-        #expect(lines.contains("Monthly limit (Intelligence): $50 — default $25"))
+        #expect(lines.contains("Confirm before copying or moving (General): Off — default On"))
+        #expect(lines.contains("Monthly limit (Ask Claude ▸ Key & Spending): $50 — default $25"))
         #expect(lines.contains("Launch SyncCloud at login (General): On — default Off"))
         #expect(lines.count == 3)
     }
@@ -128,7 +128,7 @@ import Sync
         defaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
 
         let model = await lookup.get(["intelligence.cloudModel"])
-        #expect(model.contains("disabled: until Suggest folders with on-device AI is on"))
+        #expect(model.contains("disabled: until Suggest folders with Apple Intelligence is on"))
     }
 
     @Test func tintSaysItIsDisabledWhileAccentColorIsNone() async {
