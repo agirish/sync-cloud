@@ -331,8 +331,17 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 // Stop pressed while it was written still means nothing is written, as the
                 // capsule's Stop says: the file just made goes, if it is still the one made.
                 if stopRequested {
-                    if EditorFileStore.stamp(ofPath: landed.path) == landed.stamp {
-                        try? FileManager.default.removeItem(atPath: landed.path)
+                    guard EditorFileStore.stamp(ofPath: landed.path) == landed.stamp else { return end(stoppedNote) }
+                    do {
+                        try FileManager.default.removeItem(atPath: landed.path)
+                    } catch {
+                        // Said, not swallowed: the file is still there, so "Nothing was written" would be false.
+                        let copyName = (landed.path as NSString).lastPathComponent
+                        Logger.shared.warning("\(writer) stopped combining \(inputs.count) PDFs, but couldn't remove "
+                                              + "\(landed.path): \(error.localizedDescription)")
+                        return end(EditorPDFToolBanner(
+                            message: "Stopped, but “\(copyName)” couldn’t be removed — it’s still in the folder.",
+                            kind: .failure))
                     }
                     return end(stoppedNote)
                 }

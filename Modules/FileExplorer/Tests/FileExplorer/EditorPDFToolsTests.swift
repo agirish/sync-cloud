@@ -418,6 +418,29 @@ extension PDFFixtures {
         #expect(files().count == 2)
     }
 
+    /// A cancel whose copy can't be taken back says so: the banner names the copy left beside the
+    /// original instead of "nothing was written", and the failure is a WARN with the path.
+    @Test func aCancelThatCantRemoveItsCopySaysTheCopyIsStillThere() async throws {
+        let file = path("Four.pdf")
+        PDFFixtures.write(file, pages: 4)
+        let folder = (file as NSString).deletingLastPathComponent
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder) }
+        let tools = tools(file)
+        tools.writeStartedHook = { tools.cancelRun() }
+        // The folder goes read-only once the copy is in it, so taking the copy back fails.
+        tools.writeLandedHook = { _ in
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder)
+        }
+        let log = LogCapture()
+        #expect(await tools.run(.rotate(pages: [1], quarterTurns: 1)) == .cancelled)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder)
+        let left = files().filter { $0 != "Four.pdf" }
+        try #require(left.count == 1, "the fixture's removal did not fail: \(files())")
+        #expect(tools.banner?.message.contains("“\(left[0])” couldn’t be removed") == true,
+                "the banner says \(tools.banner?.message ?? "nothing") while the copy is still there")
+        #expect(await log.holds(.warning, containing: "couldn't remove the copy at \(path(left[0]))"))
+    }
+
     // MARK: Rotate
 
     /// Exactly the pages asked for turn, and by the amount asked.

@@ -14754,3 +14754,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Changed from Chat record | CLOSED — doesn't apply |
+
+## A stopped PDF tool says when its copy couldn't be taken back — owed nowhere
+
+2026-11-07, for v7.1. On `main`, cancelling a PDF tool while its copy is being written, or stopping
+Combine, still removes the copy; when that removal fails, the banner now names the copy left beside
+the original and the log has a WARN with its path. Before, a failed `try? removeItem` was silent and
+the banner said nothing was written. v6.x carries the PDF tools half; Combine is `main`-only.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s tools=%s combine=%s\n' $l \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorPDFTools.swift 2>/dev/null | grep -cF 'if ours { try? FileManager.default.removeItem')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'EditorPDFCombineSplit.swift')"; done
+# measured 2026-11-07, against origin, before this landed: v6.x tools=1 combine=0; v5.x–v2.x 0 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` | The silent removal after a cancelled tool, and its "nothing was written" banner | RECORDED — not owed |
+| `v5.x` / `v4.x` / `v3.x` / `v2.x` | No PDF tools in Edit | CLOSED — doesn't apply |

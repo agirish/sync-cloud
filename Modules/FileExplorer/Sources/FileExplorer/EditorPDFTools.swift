@@ -547,6 +547,9 @@ public final class EditorPDFTools: ObservableObject {
 
         // What the copy could not do as asked, for the saved banner (`Output.bytes`'s note).
         var wroteNote: String?
+        // A cancel whose copy couldn't be taken back: its name, so the banner doesn't claim that
+        // nothing was written while the copy is still beside the original.
+        var cancelLeftCopy: String?
         func end(_ outcome: EditorPDFToolOutcome, download: String? = nil) -> EditorPDFToolOutcome {
             // Another file is open now: this run's ending is about one not on screen, and
             // ``detach()`` has already logged that it went.
@@ -567,8 +570,14 @@ public final class EditorPDFTools: ObservableObject {
                 report(EditorPDFToolBanner(message: message, kind: .note))
             case .cancelled:
                 Logger.shared.info("\(writer) cancelled \(tool.title.lowercased()) of \(logName) — nothing written")
-                report(EditorPDFToolBanner(message: "\(Running(tool).sentence) was canceled — nothing was written.",
-                                           kind: .note))
+                if let left = cancelLeftCopy {
+                    report(EditorPDFToolBanner(
+                        message: "\(Running(tool).sentence) was canceled, but its copy “\(left)” couldn’t be removed — it’s still beside the original.",
+                        kind: .failure))
+                } else {
+                    report(EditorPDFToolBanner(message: "\(Running(tool).sentence) was canceled — nothing was written.",
+                                               kind: .note))
+                }
             case .failed(let message):
                 if bannerFailures { report(EditorPDFToolBanner(message: message, kind: .failure, download: download)) }
             case .declined:
@@ -676,9 +685,21 @@ public final class EditorPDFTools: ObservableObject {
             // run created.
             if case .success(let landed) = written, flag.isCancelled || generation != self.generation {
                 let ours = EditorFileStore.stamp(ofPath: landed.path) == landed.stamp
-                if ours { try? FileManager.default.removeItem(atPath: landed.path) }
-                Logger.shared.info("\(writer) cancelled \(tool.logDetail) of \(logName) while its copy was being written — "
-                                   + (ours ? "the copy was removed" : "the copy had already been replaced, so it was left"))
+                guard ours else {
+                    Logger.shared.info("\(writer) cancelled \(tool.logDetail) of \(logName) while its copy was being written — "
+                                       + "the copy had already been replaced, so it was left")
+                    return end(.cancelled)
+                }
+                do {
+                    try FileManager.default.removeItem(atPath: landed.path)
+                    Logger.shared.info("\(writer) cancelled \(tool.logDetail) of \(logName) while its copy was being written — "
+                                       + "the copy was removed")
+                } catch {
+                    // Said, not swallowed: the copy is still on disk, so "nothing was written" would be false.
+                    cancelLeftCopy = (landed.path as NSString).lastPathComponent
+                    Logger.shared.warning("\(writer) cancelled \(tool.logDetail) of \(logName) while its copy was being written, "
+                                          + "but couldn't remove the copy at \(landed.path): \(error.localizedDescription)")
+                }
                 return end(.cancelled)
             }
             switch written.map({ $0.path }) {
