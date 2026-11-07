@@ -429,7 +429,7 @@ public final class PeopleStore: ObservableObject {
             // the same value would wake every observer on each save.
             if source != .file { source = .file }
         } catch {
-            Logger.shared.warning("Couldn't save people.json — the change is in memory only "
+            Logger.shared.error("Couldn't save people.json — the change is in memory only "
                                   + "this session: \(error.localizedDescription)")
         }
     }

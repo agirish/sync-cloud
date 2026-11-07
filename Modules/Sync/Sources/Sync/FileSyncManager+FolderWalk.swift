@@ -204,7 +204,7 @@ extension FileSyncManager {
         // Checked after the build's await, with no await between here and the write: a landing
         // that started during the build would publish its re-derived profile over this one.
         guard !restructureLandingInProgress else {
-            Logger.shared.warning("Folder walk refused: a reorganization is landing, and its "
+            Logger.shared.info("Folder walk refused: a reorganization is landing, and its "
                 + "re-derive would replace this profile when it finishes")
             return .failure(.landingInProgress)
         }
@@ -214,7 +214,7 @@ extension FileSyncManager {
         if filingSurveyLifecycle.isRunning,
            FilingProfileStore.mayRepoint(activeId: FilingProfileStore.activeProfileId(in: directory),
                                          in: directory) {
-            Logger.shared.warning("Folder walk refused: the documents are being read into the "
+            Logger.shared.info("Folder walk refused: the documents are being read into the "
                 + "profile this would replace")
             return .failure(.documentsBeingRead)
         }
@@ -235,7 +235,7 @@ extension FileSyncManager {
         do {
             _ = try FilingProfileStore.writeProfile(profile, in: directory, now: now)
         } catch {
-            Logger.shared.warning("Folder walk could not write its profile: \(LogError.describe(error))")
+            Logger.shared.error("Folder walk could not write its profile: \(LogError.describe(error))")
             return .failure(.refused(FolderWalkFailure.plainRefusal(error)))
         }
 
@@ -351,7 +351,7 @@ extension FileSyncManager {
         do {
             try RestructureRootMap.write(entries, in: directory)
         } catch {
-            Logger.shared.warning("Restructure: could not record \(previousRecorded) in "
+            Logger.shared.error("Restructure: could not record \(previousRecorded) in "
                 + "\(RestructureRootMap.filename): \(error.localizedDescription) — the walk was "
                 + "refused, and \(previousId) stays in use")
             return .failure(HistoryNotRecorded(sentence: "SyncCloud couldn’t note where "

@@ -283,7 +283,7 @@ public enum FilingVerdictStore {
             // would ping-pong between builds, each launch minting another ~12 MB dated copy nothing
             // sweeps. The file stays put, this launch works from memory, and `save` refuses.
             markForeignSchema(url, foreign)
-            Logger.shared.error("The Filing verdict cache at \(url.lastPathComponent) was written "
+            Logger.shared.warning("The Filing verdict cache at \(url.lastPathComponent) was written "
                                 + "by a newer SyncCloud (schema \(foreign.found), this build reads "
                                 + "\(foreign.expected)). It is left exactly as it is and nothing is "
                                 + "cached to disk this launch — every scan re-asks (and, on the "

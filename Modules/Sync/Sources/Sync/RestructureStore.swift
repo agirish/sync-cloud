@@ -491,7 +491,7 @@ public final class RestructureStore: ObservableObject {
                               _ change: (inout AppliedRecord) -> Void) -> Bool {
         guard let index = applied.firstIndex(where: { $0.manifest.manifestId == manifestId })
         else {
-            Logger.shared.warning("restructure.json holds no record \(manifestId) to update — "
+            Logger.shared.error("restructure.json holds no record \(manifestId) to update — "
                                   + "the change was dropped")
             return false
         }
@@ -781,7 +781,7 @@ public final class RestructureStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             return true
         } catch {
-            Logger.shared.warning("Could not write restructure.json: \(error.localizedDescription)")
+            Logger.shared.error("Could not write restructure.json: \(error.localizedDescription)")
             return false
         }
     }

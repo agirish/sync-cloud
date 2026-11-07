@@ -585,8 +585,8 @@ extension FileSyncManager {
               syncingDifferenceIds.isEmpty else {
             // `isBulkSyncRunning` is the only flag up during syncAll's confirm prompt, when a swap
             // would mirror rows under a snapshot the sync still holds.
-            Logger.shared.warning("Ignored pane swap while file operations are in flight")
-            banner = .warning("Can’t swap panes while an operation is running", log: .loggedAtSite)
+            Logger.shared.info("Ignored pane swap while file operations are in flight")
+            banner = .warning("Can’t swap panes while an operation is running", log: .info)
             return false
         }
         Logger.shared.info("User swapped the left and right panes")

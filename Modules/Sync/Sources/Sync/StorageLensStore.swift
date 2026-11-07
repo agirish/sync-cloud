@@ -180,7 +180,7 @@ public enum StorageLensStore {
 
     /// Says a newer build's file is in the way, once per call, naming what to do about it.
     private static func refuseForeignSchema(_ url: URL, _ schema: Int, action: String) {
-        Logger.shared.error("Storage snapshots at \(url.lastPathComponent) were written by a newer "
+        Logger.shared.warning("Storage snapshots at \(url.lastPathComponent) were written by a newer "
                             + "SyncCloud (schema \(schema), this build reads \(currentSchema)) — "
                             + "\(action). The file is good data this build cannot read, so it is "
                             + "left exactly as it is rather than replaced; move it aside by hand "
@@ -199,7 +199,7 @@ public enum StorageLensStore {
         let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: fileManager)
         do {
             try fileManager.moveItem(at: url, to: kept)
-            Logger.shared.error("Storage snapshots at \(url.lastPathComponent) could not be read "
+            Logger.shared.warning("Storage snapshots at \(url.lastPathComponent) could not be read "
                                 + "(or were written by a newer SyncCloud), so they have been kept "
                                 + "as \(kept.lastPathComponent). Nothing was overwritten.")
             return kept

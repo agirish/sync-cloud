@@ -224,7 +224,14 @@ extension FileSyncManager {
                 let waiters = read.waiters
                 read.waiters = [:]
                 self.lock.unlock()
-                Logger.shared.warning("Scan: “\(path)” did not answer in \(Self.text(deadline)) — its contents are not on this Mac and the app that syncs it did not supply them. Shown as unexplored, not empty; walks skip it until it answers")
+                let logLine = "Scan: “\(path)” did not answer in \(Self.text(deadline)) — its contents are not on this Mac and the app that syncs it did not supply them. Shown as unexplored, not empty; walks skip it until it answers"
+                // A hidden folder is the provider's own (OneDrive's `.Trash`): its silence is its
+                // business, so INFO. A folder the user keeps not answering is the warning.
+                if (path as NSString).lastPathComponent.hasPrefix(".") {
+                    Logger.shared.info(logLine)
+                } else {
+                    Logger.shared.warning(logLine)
+                }
                 for tell in waiters.values { tell(false) }
                 self.announceUnansweredChange()
             }

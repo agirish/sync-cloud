@@ -215,7 +215,7 @@ extension FileSyncManager {
                 }
             }
         } catch {
-            Logger.shared.warning("Source survey: could not save \(root)'s survey: \(LogError.describe(error))")
+            Logger.shared.error("Source survey: could not save \(root)'s survey: \(LogError.describe(error))")
             return .failure(.refused(FolderWalkFailure.plainRefusal(error)))
         }
         sourceSurveyProfiles[id] = profile
@@ -233,7 +233,7 @@ extension FileSyncManager {
             Logger.shared.info("Source survey: \((root as NSString).lastPathComponent) now uses "
                 + (choice.map { $0 == .own ? "its own survey" : "the primary survey" } ?? "its measured default"))
         } catch {
-            Logger.shared.warning("Source survey: could not save the choice for \(root): \(LogError.describe(error))")
+            Logger.shared.error("Source survey: could not save the choice for \(root): \(LogError.describe(error))")
         }
         refreshSurveyInUse(forRoot: root)
     }
@@ -257,7 +257,7 @@ extension FileSyncManager {
                 $0.documentsRead = nil
             }
         } catch {
-            Logger.shared.warning("Source survey: could not forget \(root)'s survey: \(LogError.describe(error))")
+            Logger.shared.error("Source survey: could not forget \(root)'s survey: \(LogError.describe(error))")
             return
         }
         if let id = entry.profileId { retireSourceSurveyFolder(id, in: directory) }

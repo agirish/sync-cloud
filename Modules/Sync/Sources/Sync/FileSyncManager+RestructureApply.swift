@@ -907,7 +907,7 @@ extension FileSyncManager {
                         try FileSyncManager.safeMoveItem(at: item.to, to: item.from,
                                                          fileManager: fm)
                     } catch {
-                        logger.warning("Undo (\(actionName)): could not rename "
+                        logger.error("Undo (\(actionName)): could not rename "
                             + "\(item.to.lastPathComponent) back: \(error.localizedDescription)")
                     }
                 }
@@ -944,7 +944,7 @@ extension FileSyncManager {
                         try FileSyncManager.safeMoveItem(at: item.from, to: item.to,
                                                          fileManager: fm)
                     } catch {
-                        logger.warning("Redo (\(actionName)): could not rename "
+                        logger.error("Redo (\(actionName)): could not rename "
                             + "\(item.from.lastPathComponent): \(error.localizedDescription)")
                     }
                 }

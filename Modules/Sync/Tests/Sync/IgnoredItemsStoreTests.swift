@@ -82,7 +82,7 @@ import EventsTestSupport
         #expect(store.rootRelativePaths == ["Docs/orphan.txt"])
         // …but nothing was written under any pair key.
         #expect(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("ignoredItems_v1_") } == false)
-        #expect(await log.holds(.warning, containing: "no provider pair is active yet"),
+        #expect(await log.holds(.error, containing: "no provider pair is active yet"),
                 "the dropped save was not logged")
     }
 

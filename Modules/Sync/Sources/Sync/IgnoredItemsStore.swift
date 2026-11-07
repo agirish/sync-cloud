@@ -70,7 +70,7 @@ public final class IgnoredItemsStore: ObservableObject {
             // edit: an ignore made before `activate()` would look saved and vanish on relaunch.
             // Logged so that is explainable. No count: `rootRelativePaths` is the whole
             // post-mutation set, not this edit.
-            Logger.shared.warning("Ignored items: this change was not persisted — no provider pair is active yet, so it is session-only and will be gone on relaunch")
+            Logger.shared.error("Ignored items: this change was not persisted — no provider pair is active yet, so it is session-only and will be gone on relaunch")
             return
         }
         if rootRelativePaths.isEmpty {

@@ -367,6 +367,9 @@ public enum OneWaySyncRun {
     ) async throws -> OneWaySyncRunResult {
         let plan = look.plan
         var state = state
+        // History's own writes in this pass: the first that fails is one ERROR, as the steps'
+        // ticks are (`writeSteps`); the pass still applies, and History shows them unticked.
+        let historyLog = OneWaySyncHistoryWriteLog()
         // What the user changes while the pass runs (Pause, the settings, answers) is saved by
         // others, from the moment the pass started: each save here reads the state again and
         // changes only the pass's own fields.
@@ -379,7 +382,7 @@ public enum OneWaySyncRun {
         try savingState { $0.window = plan.window }
 
         let history = store.history
-        for unfinished in history.unfinished(firstRun: firstRun) { try? history.finish(unfinished.id, now: now()) }
+        for unfinished in history.unfinished(firstRun: firstRun) { historyLog.attempt { try history.finish(unfinished.id, now: now()) } }
         let entry = try history.begin(steps: plan.steps, held: plan.waits, firstRun: firstRun, now: now())
 
         nonisolated(unsafe) let writer = writer
@@ -423,7 +426,7 @@ public enum OneWaySyncRun {
                 switch reports[upload.absolute] ?? .notConfirmed {
                 case .uploaded(let id):
                     outcomes[upload.step] = .landed(dropboxID: id)
-                    if let entry { try? history.tick(entry.id, step: upload.step, status: .confirmed, now: now()) }
+                    if let entry { historyLog.attempt { try history.tick(entry.id, step: upload.step, status: .confirmed, now: now()) } }
                 case .refused(let why):
                     // Never counted as synced, however alike the copies: listed until iCloud's file changes.
                     let copy = (try? OneWaySyncDisk.state(at: upload.absolute)).map {
@@ -432,7 +435,7 @@ public enum OneWaySyncRun {
                     outcomes[upload.step] = .refused(why: why, copy: copy)
                     refused.append(OneWaySyncSkippedItem(path: iCloudPath(of: plan.steps[upload.step].action) ?? upload.relative,
                                                          reason: OneWaySyncSkippedItem.dropboxWontTakeIt))
-                    if let entry { try? history.tick(entry.id, step: upload.step, status: .skipped(why), now: now()) }
+                    if let entry { historyLog.attempt { try history.tick(entry.id, step: upload.step, status: .skipped(why), now: now()) } }
                 case .gone:
                     outcomes[upload.step] = .notDone
                     notDone.append((upload.relative, "it was moved or deleted in Dropbox before it uploaded"))
@@ -468,7 +471,7 @@ public enum OneWaySyncRun {
                 guard let recorded else { continue }
                 let keptAt: String?
                 if case .removed(let path) = outcomes[index] { keptAt = path } else { keptAt = nil }
-                try? history.tick(entry.id, step: index, status: .confirmed, now: now(), keptAt: keptAt, recorded: recorded)
+                historyLog.attempt { try history.tick(entry.id, step: index, status: .confirmed, now: now(), keptAt: keptAt, recorded: recorded) }
             }
         }
 
@@ -494,7 +497,7 @@ public enum OneWaySyncRun {
             $0.confirmed.removeAll(where: done.contains)
             $0.lastSyncAt = lastSyncAt
         }
-        if let entry { try? history.finish(entry.id, now: finished) }
+        if let entry { historyLog.attempt { try history.finish(entry.id, now: finished) } }
         history.prune(now: finished, firstRun: firstRun)
         // Only over this Mac's own marker: another Mac that took the sync over while this pass ran
         // keeps it, and this Mac stops at its next start check.
@@ -650,7 +653,7 @@ public enum OneWaySyncRun {
             guard let entry else { return }
             do { try history.tick(entry, step: index, status: status, now: now(), keptAt: keptAt, emptied: emptied) } catch {
                 // Once a pass: the steps still apply; History shows them as not ticked off.
-                if !tickFailed { Logger.shared.warning("One-way sync: History couldn’t be written: \(error.localizedDescription)") }
+                if !tickFailed { Logger.shared.error("One-way sync: History couldn’t be written: \(error.localizedDescription)") }
                 tickFailed = true
             }
         }
@@ -899,6 +902,27 @@ public enum OneWaySyncRun {
     public static func onWriteQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
             writeQueue.async { continuation.resume(returning: work()) }
+        }
+    }
+}
+
+/// The first failed History write of a one-way pass, as one ERROR: History records where removed
+/// files were kept, which Reverse depends on, so a lost write is a record lost. Once a pass,
+/// because every later write fails the same way.
+final class OneWaySyncHistoryWriteLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failed = false
+
+    func attempt(_ write: () throws -> Void) {
+        do {
+            try write()
+        } catch {
+            lock.lock()
+            let first = !failed
+            failed = true
+            lock.unlock()
+            guard first else { return }
+            Logger.shared.error("One-way sync: History couldn’t be written: \(error.localizedDescription)")
         }
     }
 }

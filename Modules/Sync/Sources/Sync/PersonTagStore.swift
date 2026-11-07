@@ -309,7 +309,7 @@ public final class PersonTagStore: ObservableObject {
             try data.write(to: fileURL, options: .atomic)
             savedRevision &+= 1
         } catch {
-            Logger.shared.warning("Couldn't save person-tags.json — the verdict is in memory only "
+            Logger.shared.error("Couldn't save person-tags.json — the verdict is in memory only "
                                   + "this session: \(error.localizedDescription)")
         }
     }

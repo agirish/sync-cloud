@@ -69,6 +69,24 @@ extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
 
+    /// Whether `path` lies in a folder macOS manages rather than one the user keeps: under a
+    /// `Library` folder, a hidden (dot) folder, or a package (asked of the file system, so a
+    /// Photos library or an app counts without a list of names). Such a folder refusing to be
+    /// listed is expected, and logged at INFO; the user's own folder refusing is a WARN.
+    nonisolated static func isSystemManagedFolder(_ path: String) -> Bool {
+        let components = (path as NSString).pathComponents
+        if components.contains("Library") || components.contains(where: { $0.hasPrefix(".") && $0 != "." }) {
+            return true
+        }
+        var url = URL(fileURLWithPath: path)
+        while url.path != "/" {
+            if (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage == true { return true }
+            url.deleteLastPathComponent()
+        }
+        return false
+    }
+
+
     /// Loads the file tree for one pane — served from the prefetch cache when the focused
     /// folder (or an ancestor's cached deep tree containing it) is available, otherwise from
     /// disk with a shallow-first progressive paint.
@@ -1052,14 +1070,21 @@ extension FileSyncManager {
                 /// value-type builder; the lock makes "only the first" race-free.
                 final class UnreadableListingLog: @unchecked Sendable {
                     private let lock = NSLock()
-                    private var logged = false
+                    /// One gate per class, so a protected folder met first can't hide a later
+                    /// failure in the user's own folders.
+                    private var loggedManaged = false
+                    private var loggedOwn = false
                     func note(_ path: String) {
+                        let managed = FileSyncManager.isSystemManagedFolder(path)
                         lock.lock()
-                        let first = !logged
-                        logged = true
+                        let first = managed ? !loggedManaged : !loggedOwn
+                        if managed { loggedManaged = true } else { loggedOwn = true }
                         lock.unlock()
                         guard first else { return }
-                        Logger.shared.warning("Scan: could not list “\(path)” (permission denied or unreadable) — shown as unexplored, not empty; further unreadable directories in this scan are not logged individually")
+                        let logLine = "Scan: could not list “\(path)” (permission denied or unreadable) — shown as unexplored, not empty; further unreadable directories in this scan are not logged individually"
+                        // A folder macOS keeps to itself (a library, a package, a hidden folder) is
+                        // expected to refuse; the user's own folder refusing is the warning.
+                        if managed { Logger.shared.info(logLine) } else { Logger.shared.warning(logLine) }
                     }
                 }
                 let unreadableLog = UnreadableListingLog()

@@ -187,7 +187,7 @@ extension FileSyncManager {
             bannerMessage = "Undo left “\(name)” in place"
         }
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
             target.banner = .warning(bannerMessage, log: .loggedAtSite)
         }
     }
@@ -204,7 +204,7 @@ extension FileSyncManager {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to move \"\(name)\" back to its original location — nothing was recorded at \(destination.path) when this undo was registered, so there is no item to move back; leaving the disk exactly as it is"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning("Undo left “\(name)” in place — there was nothing to move back", log: .loggedAtSite)
         }
     }
@@ -237,7 +237,7 @@ extension FileSyncManager {
             bannerMessage = "Redo left “\(name)” in place"
         }
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
             target.banner = .warning(bannerMessage, log: .loggedAtSite)
         }
     }
@@ -282,7 +282,7 @@ extension FileSyncManager {
             bannerMessage = "Redo left “\(name)” alone — a different item is at its destination now"
         }
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning(bannerMessage, log: .loggedAtSite)
         }
     }
@@ -297,7 +297,7 @@ extension FileSyncManager {
         let name = folder.lastPathComponent
         let logMessage = "Redo (\(actionName)): left \"\(name)\" at \(folder.path) in place rather than move it to the Trash — the merge trashed it only once it was empty, and it still holds items this redo did not move"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning("Redo left “\(name)” in place — it still holds items the redo didn’t move", log: .loggedAtSite)
         }
     }
@@ -329,7 +329,7 @@ extension FileSyncManager {
             bannerMessage = "Redo left “\(name)” in place"
         }
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
             target.banner = .warning(bannerMessage, log: .loggedAtSite)
         }
     }
@@ -344,7 +344,7 @@ extension FileSyncManager {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it is locked, and the lock was not one the copy carried from its original, so this undo does not lift it; leaving it in place"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning("Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again", log: .loggedAtSite)
         }
     }
@@ -395,7 +395,7 @@ extension FileSyncManager {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): couldn't move \"\(name)\" at \(destination.path) to the Trash — transient failure, left in place for a retry instead of escalating to a permanent delete (\(error.localizedDescription))"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning("Undo couldn’t remove “\(name)” — it looks busy; try again", log: .loggedAtSite)
         }
     }
@@ -552,7 +552,7 @@ extension FileSyncManager {
             ? "Undo didn’t restore “\(name)” — the item in the Trash under that name couldn’t be read"
             : "Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning(bannerMessage, log: .loggedAtSite)
         }
     }
@@ -569,7 +569,7 @@ extension FileSyncManager {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to undo \"\(name)\" at \(destination.path) — the original it would restore from \(backup.path) could not be read, so it cannot be confirmed as the item this operation put in the Trash; leaving both as they are"
         await MainActor.run {
-            Logger.shared.error(logMessage)
+            Logger.shared.warning(logMessage)
             target.banner = .warning("Undo left “\(name)” in place — the original in the Trash couldn’t be read", log: .loggedAtSite)
         }
     }

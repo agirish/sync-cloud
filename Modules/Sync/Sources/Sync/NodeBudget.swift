@@ -62,7 +62,7 @@ extension FileSyncManager {
             lock.unlock()
             guard first, let note else { return }
             let limit = self.limit
-            Logger.shared.warning("\(note) (stopped at \(limit) entries, first at “\(path)”)")
+            Logger.shared.info("\(note) (stopped at \(limit) entries, first at “\(path)”)")
         }
     }
 }

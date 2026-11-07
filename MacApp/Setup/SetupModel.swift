@@ -1068,7 +1068,9 @@ final class SetupModel: ObservableObject {
             // The reading stays: it was the write that failed, and the tree is what a second press
             // needs. The plain sentence goes on screen; the log keeps the store's own words.
             saveFailure = failure.plainReason
-            Logger.shared.warning("Setup could not write its profile: \(failure.description)")
+            // The folder walk has logged the failure itself, at its level (a busy refusal INFO, a
+            // failed write ERROR); this says only that Setup's Save is what it stopped.
+            Logger.shared.info("Setup did not save: its profile write failed (the folder walk's line has why)")
             return false
         }
     }

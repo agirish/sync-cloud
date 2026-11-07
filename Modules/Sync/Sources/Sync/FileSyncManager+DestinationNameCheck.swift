@@ -88,12 +88,12 @@ extension FileSyncManager {
                 + "writing as \"\(prompt.sanitizedName)\" instead")
             return .sanitized(sanitizedURL)
         case .keepOriginalName:
-            Logger.shared.warning(
+            Logger.shared.info(
                 "Writing \"\(prompt.itemName)\" to \(prompt.providerName) despite its name rules "
                 + "(user's choice) — the item may stay local-only: \(prompt.destinationPath)")
             return .keepOriginal
         case .skip:
-            Logger.shared.warning(
+            Logger.shared.info(
                 "Skipped writing \"\(prompt.itemName)\": \(prompt.reason) (\(prompt.destinationPath))")
             return .skip
         }
