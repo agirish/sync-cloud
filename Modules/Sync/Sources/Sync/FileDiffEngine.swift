@@ -281,7 +281,7 @@ public struct FileDiffEngine {
                 }
                 unreadableCount += 1
                 if unreadableSamples.count < maxIndividuallyLogged {
-                    unreadableSamples.append("Error enumerating \(failedURL): \(error)")
+                    unreadableSamples.append("Error enumerating \(failedURL): \(LogError.describe(error))")
                 }
                 var rel = failedURL.path
                 if rel.hasPrefix(basePath) { rel = String(rel.dropFirst(basePath.count)) }

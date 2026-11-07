@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 @testable import Sync
+import Events
+import EventsTestSupport
 
 // MARK: - Fixtures
 
@@ -491,6 +493,64 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
 
 @MainActor
 @Suite struct AskClaudeEngineTests {
+
+    /// The question, the answer and the key never reach the log, on a run that used a tool. Unique
+    /// tokens, a marker that proves the capture saw this test, and a presence check that proves the
+    /// question was logged at all, so the absence can't pass on an empty window.
+    @Test func theQuestionTheAnswerAndTheKeyNeverReachTheLog() async throws {
+        let log = LogCapture()
+        let question = "question-\(UUID().uuidString.prefix(8))"
+        let answer = "answer-\(UUID().uuidString.prefix(8))"
+        let key = "sk-ant-api03-\(UUID().uuidString)"
+        let transport = ScriptedTransport([
+            .init(status: 200, lines: toolResponse(id: "toolu_1", name: "go_to", inputJSON: #"{"folder":"Taxes"}"#)),
+            .init(status: 200, lines: textResponse(answer)),
+        ])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask(question, card: "<screen/>", key: key, model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let marker = "ask-claude privacy marker \(UUID().uuidString)"
+        Logger.shared.debug(marker)
+        let entries = await log.entries
+        try #require(entries.contains { $0.message == marker }, "the capture saw nothing of this test")
+        #expect(entries.contains { $0.message.hasPrefix("Ask Claude question done:") }, "the question was not logged at all")
+        let leaked = entries.filter { entry in [question, answer, key].contains { entry.message.contains($0) } }
+        #expect(leaked.isEmpty, "Ask Claude's question, answer or key reached the log: \(leaked.map(\.message))")
+    }
+
+    /// A rejected key: one HTTP line with Anthropic's own type and message, at WARN, a problem line
+    /// that names the kind without repeating it, and still no key.
+    @Test func aRejectedKeysReplyIsLoggedOnceAndWithoutTheKey() async throws {
+        let log = LogCapture()
+        let key = "sk-ant-api03-\(UUID().uuidString)"
+        let transport = ScriptedTransport([.init(status: 401, lines: [#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#])])
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask("hello", card: "<screen/>", key: key, model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        let entries = await log.entries
+        let http = entries.filter { $0.message.hasPrefix("Ask Claude HTTP 401") }
+        #expect(http.count >= 1 && http.allSatisfy { $0.level == .warning && $0.message.contains("authentication_error: invalid x-api-key") },
+                "\(http.map(\.message))")
+        // `messageBody`: a WARN line carries the Logger's " | Location: …" tail.
+        #expect(entries.contains { $0.messageBody == "Ask Claude problem (keyRejected), from the HTTP reply above" && $0.level == .warning },
+                "\(entries.filter { $0.message.hasPrefix("Ask Claude problem") }.map(\.message))")
+        #expect(!entries.contains { $0.message.contains(key) }, "the key reached the log")
+    }
+
+    @Test func theHTTPLineCapsAnthropicsMessageAndSizesAPageThatIsntJSON() {
+        let long = String(repeating: "x", count: 400)
+        let line = AskClaudeProblem.httpLogLine(status: 400, requestID: "req_1",
+                                                body: #"{"type":"error","error":{"type":"invalid_request_error","message":"\#(long)"}}"#)
+        #expect(line == "Ask Claude HTTP 400 · request req_1 · invalid_request_error: " + String(repeating: "x", count: 300))
+        #expect(AskClaudeProblem.httpLogLine(status: 502, requestID: nil, body: "<html>portal</html>")
+                == "Ask Claude HTTP 502 · request unknown · 19 bytes, not JSON")
+    }
+
+    @Test func eachProblemKindHasItsLevel() {
+        #expect(AskClaudeProblem.Kind.failed.logLevel == .error)
+        for kind: AskClaudeProblem.Kind in [.keyRejected, .creditUsedUp, .rateLimited, .busy, .offline] {
+            #expect(kind.logLevel == .warning, "\(kind)")
+        }
+        for kind: AskClaudeProblem.Kind in [.noKey, .limitReached, .declined] { #expect(kind.logLevel == .info, "\(kind)") }
+    }
 
     @Test func aPlainAnswerStreamsAndJoinsTheTranscriptAsOneExchange() async throws {
         let transport = ScriptedTransport([.init(status: 200, lines: textResponse("Two files."))])

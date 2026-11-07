@@ -856,8 +856,10 @@ extension FileSyncManager {
                     // Superseded mid-walk; the publish gate below discards the scan anyway.
                     return nil
                 } catch {
-                    let msg = "Error scanning directories: \(error)"
-                    Logger.shared.error(msg)
+                    // Which scan, which two folders: "Error scanning directories" alone matched no
+                    // other line of the scan it belonged to.
+                    Logger.shared.error("[scan] \(scanTag) failed walking “\(leftURL.path)” and “\(rightURL.path)”: "
+                                        + LogError.describe(error))
                     return nil
                 }
             }

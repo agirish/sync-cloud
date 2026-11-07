@@ -449,7 +449,7 @@ extension FileSyncManager {
                 }
             }
             Logger.shared.warning("Restructure re-derive \(ledgerId ?? "(no landing)"): the "
-                + "profile re-derivation failed: \(error)")
+                + "profile re-derivation failed: \(LogError.describe(error))")
             return .failure("the survey could not be refreshed — " + String(describing: error))
         }
 
@@ -556,7 +556,7 @@ extension FileSyncManager {
             }
         } catch {
             Logger.shared.warning("Filing profiles: the superseded profiles could not be "
-                + "retired: \(error)")
+                + "retired: \(LogError.describe(error))")
         }
         // The trend point for the new survey. `landing:` is whether a manifest caused it; a
         // survey refresh moves no files, so its point gets no dot.

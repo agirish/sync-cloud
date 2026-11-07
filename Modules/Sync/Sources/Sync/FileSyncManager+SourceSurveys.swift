@@ -215,7 +215,7 @@ extension FileSyncManager {
                 }
             }
         } catch {
-            Logger.shared.warning("Source survey: could not save \(root)'s survey: \(error)")
+            Logger.shared.warning("Source survey: could not save \(root)'s survey: \(LogError.describe(error))")
             return .failure(.refused(FolderWalkFailure.plainRefusal(error)))
         }
         sourceSurveyProfiles[id] = profile
@@ -233,7 +233,7 @@ extension FileSyncManager {
             Logger.shared.info("Source survey: \((root as NSString).lastPathComponent) now uses "
                 + (choice.map { $0 == .own ? "its own survey" : "the primary survey" } ?? "its measured default"))
         } catch {
-            Logger.shared.warning("Source survey: could not save the choice for \(root): \(error)")
+            Logger.shared.warning("Source survey: could not save the choice for \(root): \(LogError.describe(error))")
         }
         refreshSurveyInUse(forRoot: root)
     }
@@ -257,7 +257,7 @@ extension FileSyncManager {
                 $0.documentsRead = nil
             }
         } catch {
-            Logger.shared.warning("Source survey: could not forget \(root)'s survey: \(error)")
+            Logger.shared.warning("Source survey: could not forget \(root)'s survey: \(LogError.describe(error))")
             return
         }
         if let id = entry.profileId { retireSourceSurveyFolder(id, in: directory) }
@@ -327,7 +327,7 @@ extension FileSyncManager {
         do {
             try sourceSurveyRetire(folder)
         } catch {
-            Logger.shared.warning("Source survey: could not move '\(id)' to the Trash: \(error)")
+            Logger.shared.warning("Source survey: could not move '\(id)' to the Trash: \(LogError.describe(error))")
         }
     }
 
@@ -375,7 +375,7 @@ extension FileSyncManager {
                 $0.documentsRead = documentsRead
             }
         } catch {
-            Logger.shared.warning("Source survey: could not date the reading of \(sourceRoot): \(error)")
+            Logger.shared.warning("Source survey: could not date the reading of \(sourceRoot): \(LogError.describe(error))")
         }
         refreshSurveyInUse(forRoot: sourceRoot)
     }
@@ -398,7 +398,7 @@ extension FileSyncManager {
                                             id: newId, in: directory, root: root,
                                             now: corpus.surveyedAt ?? now)
         } catch {
-            Logger.shared.warning("Source survey: could not carry the documents read from '\(oldId)' to '\(newId)': \(error)")
+            Logger.shared.warning("Source survey: could not carry the documents read from '\(oldId)' to '\(newId)': \(LogError.describe(error))")
             return false
         }
         Logger.shared.info("Source survey: carried the documents read from '\(oldId)' to '\(newId)' — "

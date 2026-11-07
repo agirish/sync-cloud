@@ -23,6 +23,18 @@ import Events
 /// (all scope), and an older build still reads one with it the old way. Redefining `relativePath`
 /// as the scope alone would make an older build reopen the tab at an ancestor of where it was.
 public enum PaneTabsStore {
+    /// Why a stored strip didn't decode, in a few words: which key or value, not the whole error,
+    /// whose description repeats the raw value the line already shows.
+    static func decodeReason(_ error: Error) -> String {
+        switch error as? DecodingError {
+        case .keyNotFound(let key, _): return "missing \(key.stringValue)"
+        case .typeMismatch(_, let context), .valueNotFound(_, let context):
+            return "wrong type at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+        case .dataCorrupted(let context): return "not readable as tabs: \(context.debugDescription)"
+        default: return LogError.describe(error)
+        }
+    }
+
 
     /// The left pane's keys, named without a side because they predate the right pane's: renaming
     /// them would orphan every strip already on disk.
@@ -103,7 +115,10 @@ public enum PaneTabsStore {
             // fresh install and every never-used right pane comes through here.
             return nil
         }
-        guard let decoded = try? JSONDecoder().decode([Entry].self, from: data) else {
+        let decoded: [Entry]
+        do {
+            decoded = try JSONDecoder().decode([Entry].self, from: data)
+        } catch {
             // A key that is there but unreadable is worth a line: the caller can't tell it from
             // "never written", seeds a fresh strip, and the next save overwrites it for good. Right,
             // since there is nothing to restore, but not in silence. Reachable by a hand-edited
@@ -111,7 +126,7 @@ public enum PaneTabsStore {
             // overwrite, or the pane could never save its tabs.
             Logger.shared.warning(
                 "The stored \(isLeft ? "left" : "right") browse tab strip could not be read and will "
-                + "be replaced by the next save: \(raw.prefix(200))")
+                + "be replaced by the next save (\(Self.decodeReason(error))): \(raw.prefix(200))")
             return nil
         }
         // A key that decodes to nothing is, for the caller, no key at all: seeding is right for

@@ -384,7 +384,7 @@ public final class OneWaySyncNoticeStore: @unchecked Sendable {
             try OneWaySyncFiles.writeDurably(OneWaySyncStore.encode(board), to: url)
             written = board
         } catch {
-            reportFailure("One-way sync couldn’t save Activity’s rows: \(error)")
+            reportFailure("One-way sync couldn’t save Activity’s rows: \(LogError.describe(error))")
         }
     }
 }

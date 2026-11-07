@@ -45,4 +45,18 @@ import Testing
         #expect(lines[0].hasPrefix("X 1–200 of 401: n001, n002"))
         #expect(lines[2] == "X 401–401 of 401: n401")
     }
+
+    /// A system error gives its domain, code and message, and its underlying error, and never the
+    /// userInfo's paths; the app's own Swift errors keep their description, which is their reason.
+    @Test func anErrorIsWrittenByItsDomainNotItsUserInfo() {
+        let underlying = NSError(domain: NSPOSIXErrorDomain, code: 28)
+        let cocoa = CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: "/Users/someone/Secret/plan.json",
+                                                             NSUnderlyingErrorKey: underlying])
+        let text = LogError.describe(cocoa)
+        #expect(text.hasPrefix("NSCocoaErrorDomain 512: "))
+        #expect(text.hasSuffix("(underlying NSPOSIXErrorDomain 28)"))
+        #expect(!text.contains("/Users/someone"), "the userInfo's path reached the line: \(text)")
+        struct Refusal: Error, CustomStringConvertible { var description: String { "schema 3, not 2" } }
+        #expect(LogError.describe(Refusal()) == "schema 3, not 2")
+    }
 }

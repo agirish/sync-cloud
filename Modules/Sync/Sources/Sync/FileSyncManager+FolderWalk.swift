@@ -235,7 +235,7 @@ extension FileSyncManager {
         do {
             _ = try FilingProfileStore.writeProfile(profile, in: directory, now: now)
         } catch {
-            Logger.shared.warning("Folder walk could not write its profile: \(error)")
+            Logger.shared.warning("Folder walk could not write its profile: \(LogError.describe(error))")
             return .failure(.refused(FolderWalkFailure.plainRefusal(error)))
         }
 

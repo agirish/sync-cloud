@@ -72,8 +72,11 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     public let pdf: AskClaudePDFCard?
     /// Names a content search found, held for their click.
     public let found: AskClaudeFoundNames?
+    /// The step as the log writes it, when the panel's `step` carries words from the question
+    /// (a search's terms, an argument that matched nothing). Nil logs `step` itself.
+    public let logStep: String?
 
-    public init(result: String, isError: Bool = false, step: String, movedView: String? = nil,
+    public init(result: String, isError: Bool = false, step: String, logStep: String? = nil, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
                 rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil,
@@ -81,6 +84,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.result = result
         self.isError = isError
         self.step = step
+        self.logStep = logStep
         self.movedView = movedView
         self.passage = passage
         self.download = download
@@ -116,6 +120,17 @@ public protocol AskClaudeToolRunning: AnyObject {
 public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
     public enum Kind: String, Equatable, Sendable, Codable {
         case noKey, keyRejected, creditUsedUp, limitReached, rateLimited, busy, offline, declined, failed
+
+        /// The level a problem of this kind is logged at. ERROR: the question failed and nothing on
+        /// the user's side explains it. WARN: it didn't go through, for a reason the user can act on
+        /// or wait out (the app doesn't retry on its own). INFO: a state the user chose or set up.
+        public var logLevel: LogLevel {
+            switch self {
+            case .failed: return .error
+            case .keyRejected, .creditUsedUp, .rateLimited, .busy, .offline: return .warning
+            case .noKey, .limitReached, .declined: return .info
+            }
+        }
     }
     public let kind: Kind
     public let message: String
@@ -160,6 +175,21 @@ public struct AskClaudeProblem: Error, Equatable, Sendable, Codable {
             let what = detail.isEmpty ? (type.isEmpty ? "status \(status)" : type) : detail
             return AskClaudeProblem(.failed, "Claude couldn’t take this question: \(what)")
         }
+    }
+
+    /// The log line for an HTTP error reply: status, request ID, and Anthropic's own error type
+    /// and message, capped at 300 characters. Anthropic's message names a field, a limit or a
+    /// model, never the question. A reply that isn't Anthropic's JSON (a proxy or a portal page)
+    /// is logged by size only.
+    public static func httpLogLine(status: Int, requestID: String?, body: String) -> String {
+        let head = "Ask Claude HTTP \(status) · request \(requestID ?? "unknown")"
+        guard let parsed = try? JSONFragment.decode(body.data(using: .utf8) ?? Data()),
+              let error = parsed["error"] else {
+            return head + " · \(body.utf8.count) bytes, not JSON"
+        }
+        let type = error["type"]?.stringValue ?? "no type"
+        let message = error["message"]?.stringValue ?? ""
+        return head + " · \(type)" + (message.isEmpty ? "" : ": \(message.prefix(300))")
     }
 
     /// Reads a transport error.
@@ -357,11 +387,20 @@ public final class AskClaudeEngine {
         // Every problem and the way the question ended go in the log as well as the panel, so a
         // failed question's summary line never reads like a success.
         var ended = "none"
+        // Set when a problem came back from an HTTP reply, whose line (`stream`) already carries
+        // Anthropic's own message: the problem line then names the kind alone, so it's written once.
+        var fromHTTPReply = false
         func emit(_ event: AskClaudeEvent) {
             switch event {
             case .problem(let problem):
                 ended = problem.kind.rawValue
-                Logger.shared.warning("Ask Claude problem (\(problem.kind.rawValue)): \(problem.message)")
+                let line = "Ask Claude problem (\(problem.kind.rawValue))"
+                    + (fromHTTPReply ? ", from the HTTP reply above" : ": \(problem.message)")
+                switch problem.kind.logLevel {
+                case .error: Logger.shared.error(line)
+                case .warning: Logger.shared.warning(line)
+                default: Logger.shared.info(line)
+                }
             case .finished(let reason):
                 ended = reason ?? "end"
             default:
@@ -438,6 +477,7 @@ public final class AskClaudeEngine {
                 if Task.isCancelled || error is CancellationError {
                     emit(.finished(stopReason: "canceled"))
                 } else if let problem = error as? AskClaudeProblem {
+                    fromHTTPReply = true
                     emit(.problem(problem))
                 } else {
                     emit(.problem(AskClaudeProblem.from(error)))
@@ -540,7 +580,8 @@ public final class AskClaudeEngine {
                     handles = working
                 }
                 // One line per tool call: what it did, or why not, and whether it moved their view.
-                Logger.shared.info("Ask Claude tool \(call.name): \(outcome.step)" + (outcome.isError ? " (refused)" : "")
+                // `logStep` where the panel's words include the question's own (a search's terms).
+                Logger.shared.info("Ask Claude tool \(call.name): \(outcome.logStep ?? outcome.step)" + (outcome.isError ? " (refused)" : "")
                     + (outcome.movedView.map { " · \($0)" } ?? ""))
                 emit(.step(outcome.step, isError: outcome.isError))
                 if let moved = outcome.movedView { emit(.movedView(moved)) }
@@ -610,9 +651,16 @@ public final class AskClaudeEngine {
         if response.status != 200 {
             var body = ""
             for try await line in response.lines { body += line }
-            // The details for the Console; the problem itself is logged where it is shown.
-            Logger.shared.info("Ask Claude HTTP \(response.status) · request \(response.requestID ?? "unknown") · \(body.prefix(300))")
-            throw AskClaudeProblem.from(status: response.status, body: body, retryAfter: response.retryAfter)
+            // The one line with Anthropic's own words for it; the problem line that follows names
+            // the kind. At the kind's level, so a rejected request is an ERROR, a busy server a WARN.
+            let problem = AskClaudeProblem.from(status: response.status, body: body, retryAfter: response.retryAfter)
+            let line = AskClaudeProblem.httpLogLine(status: response.status, requestID: response.requestID, body: body)
+            switch problem.kind.logLevel {
+            case .error: Logger.shared.error(line)
+            case .warning: Logger.shared.warning(line)
+            default: Logger.shared.info(line)
+            }
+            throw problem
         }
         for try await line in response.lines {
             try Task.checkCancellation()

@@ -74,3 +74,24 @@ public enum LogNames {
         }
     }
 }
+
+/// An error as a log line writes it. A system error (Cocoa, POSIX, OSStatus, URL, Mach) gives its
+/// domain, code and message, plus its underlying error's domain and code, which for the Cocoa
+/// file codes 512 and 256 is where the real cause is: not `String(describing:)`, which prints the
+/// whole userInfo, paths and all. The app's own errors are Swift values whose description is
+/// their reason (`FilingProfileStore.WriteRefusal`), so those keep `String(describing:)`. Every
+/// Swift error bridges to an NSError, so the test is the bridged domain, not the type.
+public enum LogError {
+    static let systemDomains: Set<String> = [NSCocoaErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain,
+                                             NSURLErrorDomain, NSMachErrorDomain]
+
+    public static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        guard systemDomains.contains(ns.domain) else { return String(describing: error) }
+        var text = "\(ns.domain) \(ns.code): \(ns.localizedDescription)"
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
+            text += " (underlying \(underlying.domain) \(underlying.code))"
+        }
+        return text
+    }
+}

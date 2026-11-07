@@ -600,7 +600,7 @@ extension FilingProfileStore {
             } catch {
                 // Reported, never silent: a directory that won't go keeps its row, so the next
                 // sweep sees it again.
-                Logger.shared.warning("Filing profiles: could not retire \(id): \(error)")
+                Logger.shared.warning("Filing profiles: could not retire \(id): \(LogError.describe(error))")
             }
         }
         guard !retired.isEmpty else { return [] }

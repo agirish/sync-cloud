@@ -284,7 +284,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if let name = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty {
                 guard let source = Self.source(named: name, in: ctx.sources) else {
                     return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
-                                                isError: true, step: "No source \(name)")
+                                                isError: true, step: "No source \(name)", logStep: "No source that (no match, \(name.count) characters)")
                 }
                 // A source whose own folder is hidden is a hidden folder to move to.
                 if ctx.isHidden(source.root) { return hiddenFolder() }
@@ -301,7 +301,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             }
             if let name = call.string("tab"), Self.tab(named: name, in: ctx.tabs) == nil {
                 return AskClaudeToolOutcome(result: "There’s no tab called \(name). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
-                                            isError: true, step: "No tab \(name)")
+                                            isError: true, step: "No tab \(name)", logStep: "No tab that (no match, \(name.count) characters)")
             }
             if let history = call.string("history")?.lowercased(), history != "back", history != "forward" {
                 return AskClaudeToolOutcome(result: "history is back or forward.", isError: true, step: "No history \(history)")
@@ -375,7 +375,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         switch (call.string("action") ?? "").lowercased() {
         case "find":
             let words = call.string("words") ?? ""
-            return AskClaudeToolOutcome(result: await lookup.find(words), step: "Looked up settings for “\(words)”")
+            return AskClaudeToolOutcome(result: await lookup.find(words), step: "Looked up settings for “\(words)”",
+                                        logStep: "Looked up settings (\(words.count) characters)")
         case "get":
             let ids = call.strings("ids") ?? call.string("id").map { [$0] } ?? []
             return AskClaudeToolOutcome(result: await lookup.get(ids),
@@ -607,7 +608,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let visible = call.input["visible"]?.boolValue ?? true
             guard ctx.showPlace(place, call.string("tab"), visible) else {
                 return AskClaudeToolOutcome(result: "Places are settings, activity, help, trash, info and sidebar; a settings tab or setting must be one Settings has.",
-                                            isError: true, step: "No place called \(place)")
+                                            isError: true, step: "No place called \(place)", logStep: "No place called that (no match, \(place.count) characters)")
             }
             let names = ["info": "the Info inspector", "sidebar": "the sidebar"]
             if let name = names[place] {
@@ -783,6 +784,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         lines.append("If they asked to find or show something, reveal the best row now, without asking.")
         let step = "Found \(total) for “\(label)”"
+        // The log keeps the scope and what answered, not the words, which are the question's.
+        let logStep = "Found \(total) by name under \(folder.label)"
+            + (searchedIndex ? " (Spotlight)" : " (open folders only)") + (goes ? "" : ", held on a card")
         guard goes else {
             // Names found beyond the folder on screen wait on a card for their click.
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: hits.map(\.name), count: total,
@@ -790,9 +794,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                             source: .names, fromIndex: searchedIndex, allFiles: !hits.contains(where: \.isDirectory))
             let who = searchedIndex ? "Spotlight found" : "The folders the pane has opened hold"
             return AskClaudeToolOutcome(result: Self.heldNames("\(who) \(total) match\(total == 1 ? "" : "es") for “\(label)” under \(AskClaudeScreenCard.escape(folder.label)), on their Mac."),
-                                        step: step, found: found)
+                                        step: step, logStep: logStep, found: found)
         }
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step, logStep: logStep)
     }
 
     private func fileDetails(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: AskClaudeHandles) -> AskClaudeToolOutcome {
@@ -1123,7 +1127,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let tabName = call.string("tab") {
             guard let tab = Self.tab(named: tabName, in: ctx.tabs) else {
                 return AskClaudeToolOutcome(result: "There’s no tab called \(tabName). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
-                                            isError: true, step: "No tab \(tabName)")
+                                            isError: true, step: "No tab \(tabName)", logStep: "No tab that (no match, \(tabName.count) characters)")
             }
             ctx.switchTab(tab.id)
             try? await Task.sleep(for: .milliseconds(300))
@@ -1154,7 +1158,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let sourceArg {
             guard let source = Self.source(named: sourceArg, in: ctx.sources) else {
                 return AskClaudeToolOutcome(result: "There is no source called \(sourceArg). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
-                                            isError: true, step: "No source \(sourceArg)")
+                                            isError: true, step: "No source \(sourceArg)", logStep: "No source that (no match, \(sourceArg.count) characters)")
             }
             if ctx.isHidden(source.root) { return hiddenFolder() }
             if source.id != ctx.sourceID {
@@ -1236,7 +1240,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let name = call.string("source")?.trimmingCharacters(in: .whitespaces).nonEmpty {
             guard let named = Self.source(named: name, in: ctx.sources) else {
                 return AskClaudeToolOutcome(result: "There is no source called \(name). Sources: \(ctx.sources.map(\.name).joined(separator: ", ")).",
-                                            isError: true, step: "No source \(name)")
+                                            isError: true, step: "No source \(name)", logStep: "No source that (no match, \(name.count) characters)")
             }
             if ctx.isHidden(named.root) { return hiddenFolder() }
             source = named
@@ -1308,7 +1312,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             }
             guard unknown.isEmpty else {
                 return AskClaudeToolOutcome(result: "There’s no tab called \(unknown.joined(separator: ", ")). Tabs: \(ctx.tabs.map(\.title).joined(separator: ", ")).",
-                                            isError: true, step: "No tab \(unknown.joined(separator: ", "))")
+                                            isError: true, step: "No tab \(unknown.joined(separator: ", "))",
+                                            logStep: "No tab that (no match, \(unknown.count) name(s))")
             }
         }
         // Each tab once, however many times it was named.
@@ -1546,6 +1551,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }
         if nodes.count > Self.maxFound { lines.append("\(nodes.count - Self.maxFound) more not listed.") }
         let step = "Found \(nodes.count) with “\(label)” inside"
+        let logStep = "Searched contents under \(folder.label): \(nodes.count) hit(s)" + (free ? "" : ", held on a card")
         guard free else {
             // Which files mention a word says what is in them, so outside a shared folder the
             // names wait on a card for their click, as a file's answer does.
@@ -1553,9 +1559,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let found = AskClaudeFoundNames(words: label, folderLabel: folder.label, names: listed.map(\.name),
                                             count: nodes.count, rows: lines.joined(separator: "\n"), paths: listed.map(\.id),
                                             files: files, header: header)
-            return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: step, found: found)
+            return AskClaudeToolOutcome(result: Self.heldSearch(label, folder.label), step: step, logStep: logStep, found: found)
         }
-        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
+        return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step, logStep: logStep)
     }
 
     // MARK: Filing help (TE255)
@@ -1572,7 +1578,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         if let into = call.string("into")?.trimmingCharacters(in: .whitespaces).nonEmpty {
             guard let resolved = Self.place(into, ctx) else {
                 return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
-                                            isError: true, step: "No place called \(into)")
+                                            isError: true, step: "No place called \(into)", logStep: "No place called that (no match, \(into.count) characters)")
             }
             if ctx.isHidden(resolved) { return hiddenFolder() }
             place = resolved
@@ -1631,7 +1637,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let into = call.string("folder")?.trimmingCharacters(in: .whitespaces) ?? ""
         guard !into.isEmpty, let folder = Self.place(into, ctx) else {
             return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
-                                        isError: true, step: "No folder called \(into)")
+                                        isError: true, step: "No folder called \(into)", logStep: "No folder called that (no match, \(into.count) characters)")
         }
         if ctx.isHidden(folder) { return hiddenFolder() }
         let words = call.input["words"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -1886,7 +1892,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let namesSurvey = into.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")).caseInsensitiveCompare(surveyName) == .orderedSame
         guard let place = namesSurvey ? surveyRoot : Self.place(into, ctx) else {
             return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
-                                        isError: true, step: "No place called \(into)")
+                                        isError: true, step: "No place called \(into)", logStep: "No place called that (no match, \(into.count) characters)")
         }
         if ctx.isHidden(place) { return hiddenFolder() }
         let placeLabel = Self.breadcrumb(place, sources: ctx.sources, fallback: (place as NSString).lastPathComponent)
@@ -2092,7 +2098,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let kindArg = (call.string("kind") ?? "all").lowercased()
         guard let kind = AskClaudeDifferences.Kind(rawValue: kindArg) else {
             return AskClaudeToolOutcome(result: "kind is all, only_left, only_right, changed, name_conflicts or held_back.",
-                                        isError: true, step: "No kind called \(kindArg)")
+                                        isError: true, step: "No kind called \(kindArg)", logStep: "No kind called that (no match, \(kindArg.count) characters)")
         }
         var steps: [String] = []
         var scanDidntLand = false
