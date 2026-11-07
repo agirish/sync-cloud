@@ -11,7 +11,7 @@ import SwiftUI
 public struct InlineSpinner: View {
 
     /// What `.controlSize(.small)` reserves. Measured, not chosen:
-    /// `theFootprintMatchesTheRecipeItReplaces` checks it against a real `.small` spinner, so an
+    /// `itIsDrawnSmallerThanTheSmallControlSize` checks it against a real `.small` spinner, so an
     /// AppKit change fails the test instead of disagreeing with this literal.
     static let reservedSide: CGFloat = 16
 

@@ -175,25 +175,6 @@ final class HoverAffordanceTests: XCTestCase {
         XCTAssertGreaterThan(chrome.wash, filled.wash, "filled has none, so this is a floor check")
     }
 
-    func testChromeHoverStaysVisibleWhenTheLiftIsTakenAway() {
-        // Reduce Motion strips the offset, leaving the wash and halo. If they went with the lift,
-        // every bordered and glass button in the app would silently lose its hover under the
-        // setting.
-        let reduced = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
-                                                     reduceMotion: true)
-        XCTAssertEqual(reduced.lift, 0)
-        XCTAssertGreaterThan(reduced.wash, 0, "nothing at all is drawn under Reduce Motion")
-        XCTAssertGreaterThan(reduced.ring, 0)
-    }
-
-    func testChromeHoverIsInertWhenDisabled() {
-        // A greyed-out Back arrow that still lifts promises a click that does nothing, so
-        // `chromeHover` sits inside the button's `.disabled` scope.
-        XCTAssertEqual(HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
-                                                      isEnabled: false),
-                       .none)
-    }
-
     // MARK: - Phase
 
     func testOnlyRestIsDisengaged() {

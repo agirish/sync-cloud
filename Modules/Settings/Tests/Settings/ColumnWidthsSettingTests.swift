@@ -23,6 +23,20 @@ import SwiftUI
         return found
     }
 
+    /// `tab` with the test's defaults, hosted in a titled window at `width`×`height` and laid out.
+    /// The caller clears `window.contentView` when done.
+    private func mount(_ tab: some View, defaults: UserDefaults, width: CGFloat,
+                       height: CGFloat) -> (host: NSView, window: NSWindow) {
+        let host = NSHostingView(rootView: tab.defaultAppStorage(defaults)
+            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return (host, window)
+    }
+
     /// Mounted, and chosen through the control's own action, so it tests the picker's real binding.
     /// Paired with the opposite choice, which must leave the widths alone: a setter that cleared on
     /// every write would pass the first half.
@@ -33,16 +47,10 @@ import SwiftUI
         test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
 
         var asked: [Int] = []
-        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
+        let (host, window) = mount(BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
             asked.append($0); return true
-        }).defaultAppStorage(test.defaults)
-            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
-        host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
+        }), defaults: test.defaults, width: 520, height: 900)
         defer { window.contentView = nil }
-        host.layoutSubtreeIfNeeded()
 
         let control = try #require(
             segmentedControls(in: host).first { $0.segmentCount == 2 && $0.label(forSegment: 1) == "All columns" },
@@ -79,16 +87,10 @@ import SwiftUI
         test.defaults.set(sized.rawValue, forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
 
         var asked: [Int] = []
-        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
+        let (host, window) = mount(BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: {
             asked.append($0); return false
-        }).defaultAppStorage(test.defaults)
-            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
-        host.frame = NSRect(x: 0, y: 0, width: 520, height: 900)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
+        }), defaults: test.defaults, width: 520, height: 900)
         defer { window.contentView = nil }
-        host.layoutSubtreeIfNeeded()
 
         func picker() -> NSSegmentedControl? {
             segmentedControls(in: host).first { $0.segmentCount == 2 && $0.label(forSegment: 1) == "All columns" }
@@ -127,16 +129,9 @@ import SwiftUI
         let tinyWindow = CGSize(width: SettingsSheetMetrics.floorSize.width + SettingsSheetMetrics.hostMargin,
                                 height: SettingsSheetMetrics.floorSize.height + SettingsSheetMetrics.hostMargin)
         let column = SettingsSheetMetrics.contentWidth(textScale: FontSize.extraLarge.scale, available: tinyWindow)
-        let host = NSHostingView(rootView: BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: { _ in false })
-            .appFontSize(.extraLarge)
-            .defaultAppStorage(test.defaults)
-            .environmentObject(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })))
-        host.frame = NSRect(x: 0, y: 0, width: column, height: 1600)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
+        let (host, window) = mount(BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: { _ in false })
+            .appFontSize(.extraLarge), defaults: test.defaults, width: column, height: 1600)
         defer { window.contentView = nil }
-        host.layoutSubtreeIfNeeded()
 
         let control = try #require(
             segmentedControls(in: host).first { $0.segmentCount == 2 && $0.label(forSegment: 1) == "All columns" },

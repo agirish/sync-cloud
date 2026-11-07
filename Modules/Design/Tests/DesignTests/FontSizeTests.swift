@@ -484,7 +484,7 @@ import Testing
     /// Reported from within the cell, because a SwiftUI `Table` draws its cell text itself and
     /// there are no `NSTextField`s to inspect.
     ///
-    /// Mounted as `SnapshotRendering` mounts its subjects: a borderless window never ordered in,
+    /// Mounted in a borderless window never ordered in,
     /// with `isReleasedWhenClosed = false`. Ordering a window in and closing it inside the test
     /// host segfaults it.
     @MainActor
@@ -517,7 +517,7 @@ import Testing
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         // A `Table` builds its cells lazily during a display pass, not during layout. Drawing it
-        // (as `SnapshotRendering` captures) realizes them, and a brief runloop turn lets `onAppear`
+        // realizes them, and a brief runloop turn lets `onAppear`
         // fire. The caller's non-empty guard fails the test if the cells stop realizing.
         if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: rep)

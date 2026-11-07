@@ -23,16 +23,13 @@ import Sync
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            overridesDomainName: test.suiteName,
-            cloudStorageLister: { .read([
+        let settings = test.manager(
+            lister: { .read([
                 URL(fileURLWithPath: "/CloudStorage/OneDrive-Work"),
                 URL(fileURLWithPath: "/CloudStorage/Dropbox"),
             ]) },
-            pathValidator: { _ in true }
-        )
+            validator: { _ in true },
+            domain: test.suiteName)
         await settings.discoverProviders()
 
         let byId = Dictionary(uniqueKeysWithValues: settings.availableProviders.map { ($0.id, $0) })
@@ -60,16 +57,13 @@ import Sync
         globalStandIn.defaults.set("Evil", forKey: "openAt_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            overridesDomainName: test.suiteName,
-            cloudStorageLister: { .read([
+        let settings = test.manager(
+            lister: { .read([
                 URL(fileURLWithPath: "/CloudStorage/OneDrive-Work"),
                 URL(fileURLWithPath: "/CloudStorage/Dropbox"),
             ]) },
-            pathValidator: { _ in true }
-        )
+            validator: { _ in true },
+            domain: test.suiteName)
         await settings.discoverProviders()
 
         let byId = Dictionary(uniqueKeysWithValues: settings.availableProviders.map { ($0.id, $0) })
@@ -96,13 +90,10 @@ import Sync
         // Precondition: the suite really has no persistent domain yet.
         #expect(test.defaults.persistentDomain(forName: test.suiteName) == nil)
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            overridesDomainName: test.suiteName,
-            cloudStorageLister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
-            pathValidator: { _ in true }
-        )
+        let settings = test.manager(
+            lister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
+            validator: { _ in true },
+            domain: test.suiteName)
         await settings.discoverProviders()
 
         let dropbox = settings.availableProviders.first { $0.id == "Dropbox" }
@@ -117,12 +108,9 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("/suite/override", forKey: "root_override_Dropbox")
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
-            pathValidator: { _ in true }
-        )
+        let settings = test.manager(
+            lister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
+            validator: { _ in true })
         await settings.discoverProviders()
 
         #expect(settings.availableProviders.first { $0.id == "Dropbox" }?.rootPath == "/suite/override")

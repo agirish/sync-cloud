@@ -7,7 +7,7 @@ import Testing
 /// neither is readable from the rule alone: the ink has to reach the rendered control, and the
 /// states that are supposed to stay quiet — disabled above all — have to stay quiet.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct ChromeInkTests {
+@Suite(.serialized) struct ChromeInkTests {
 
     // MARK: The rule
 
@@ -30,7 +30,7 @@ import Testing
 
     /// The two weights that changed, measured through the real button style. A filled-square glyph
     /// stands in for the label so the sample lands on ink rather than on antialiased text.
-    @Test func darkLabelsPaintBrighterThanLightOnes() {
+    @Test(.machinePinned(.pixelSampling)) func darkLabelsPaintBrighterThanLightOnes() {
         for weight in [ActionBarWeight.quiet, .outline] {
             let dark = inkLuminance(weight, appearance: .darkAqua, enabled: true)
             let light = inkLuminance(weight, appearance: .aqua, enabled: true)
@@ -42,7 +42,7 @@ import Testing
     /// `.primary` weight is deliberately NOT routed through `ChromeInk` — it already carries
     /// `onTint` on a deepened fill. Pinned so a later tidy-up doesn't fold it in and quietly change
     /// the one weight whose contrast is already guaranteed by `AccentFill`.
-    @Test func primaryWeightIsUnchangedByAppearance() {
+    @Test(.machinePinned(.pixelSampling)) func primaryWeightIsUnchangedByAppearance() {
         let dark = inkLuminance(.primary, appearance: .darkAqua, enabled: true)
         let light = inkLuminance(.primary, appearance: .aqua, enabled: true)
         #expect(abs(dark - light) < 0.02, "primary should not shift with appearance")
@@ -50,7 +50,7 @@ import Testing
 
     /// The guard rail. A disabled control keeps `ActionBarMetrics.disabledOpacity` over the whole
     /// capsule, so brightening the ink must not make it read as live.
-    @Test func disabledStaysQuietterThanEnabledInDark() {
+    @Test(.machinePinned(.pixelSampling)) func disabledStaysQuietterThanEnabledInDark() {
         for weight in [ActionBarWeight.quiet, .outline] {
             let on = inkLuminance(weight, appearance: .darkAqua, enabled: true)
             let off = inkLuminance(weight, appearance: .darkAqua, enabled: false)

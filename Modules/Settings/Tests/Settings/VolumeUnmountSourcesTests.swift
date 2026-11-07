@@ -14,11 +14,7 @@ import Sync
 
     @MainActor
     private func manager(_ defaults: TestDefaults) -> SettingsManager {
-        SettingsManager(autoDiscover: false,
-                        userDefaults: defaults.defaults,
-                        overridesDomainName: defaults.suiteName,
-                        cloudStorageLister: { .read([]) },
-                        pathValidator: { _ in true })
+        defaults.manager(validator: { _ in true }, domain: defaults.suiteName)
     }
 
     @MainActor
@@ -117,11 +113,10 @@ import Sync
         defaults.defaults.set(try JSONEncoder().encode(card.map(FolderSource.new(path:))),
                               forKey: "folderSources")
         let counter = CallCounter()
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: defaults.defaults,
-                                       overridesDomainName: defaults.suiteName,
-                                       cloudStorageLister: { counter.increment(); return .read([]) },
-                                       pathValidator: { _ in true })
+        let settings = defaults.manager(
+            lister: { counter.increment(); return .read([]) },
+            validator: { _ in true },
+            domain: defaults.suiteName)
         try #require(settings.folderSources.count == 4, "the saved card did not load, so there is nothing to batch")
 
         settings.removeFolderSources(onVolume: "/Volumes/CARD")

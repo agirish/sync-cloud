@@ -3140,7 +3140,7 @@ crashing thread. Distinguish it from the Sync abort in the parallel-start window
 uniform ~4 s durations): this one names its exception on stderr, and it reproduces every run, idle,
 under `--filter <Suite>SnapshotTests`.
 
-**Fix.** `installPerceptualCompareShim()` in `SnapshotRendering.swift` — all four copies, called
+**Fix.** `installPerceptualCompareShim()` in `SnapshotRendering.swift` — every copy, called
 from `assertViewSnapshot`, the one funnel every snapshot goes through — gives `NSValue` the missing
 selector, answering with its `rectValue`. It is additive (`class_addMethod` never replaces) and
 guarded, so it does nothing where the selector already resolves. Delete it once the pinned
@@ -3151,7 +3151,9 @@ strategy on images whose difference is painted pixel by pixel and pins the numbe
 just the absence of a crash. Mutation-tested: shim disabled → the same abort; the shim answering a
 half-width, half-height or offset extent → a named red. The first version painted whole rows and a
 half-width extent **survived** it — rows spread the change evenly across x, so a wrong width still
-averages to the right fraction. The changed pixels are a corner block now.
+averages to the right fraction. The changed pixels are a corner block now. It was retired with
+Design's snapshot suite on 2026-11-06, so the shim in the Dashboard and FileExplorer copies has no
+CI check of its own.
 
 **What it had been hiding.** The same macOS 27.0 upgrade as "An OS upgrade repealed a framework
 convention a test had pinned", reaching the pixels instead of a class name. Once the compare could run, four `DesignSnapshotTests` EmptyState
@@ -3359,7 +3361,7 @@ pixels. Against the new one, both mutations above put all three Browse tests red
 reading 0 painted pixels and 0 runs of ink, and the unmutated suites stay green 5 of 5.
 
 **Nothing else is exposed today.** `SetupArtworkRenderTests` was the only suite reading pixels from
-`ImageRenderer`'s own image. The four `SnapshotRendering.swift` copies render through `NSWindow` +
+`ImageRenderer`'s own image. The `SnapshotRendering.swift` copies render through `NSWindow` +
 `NSHostingView`, and `DocumentPDF` and `DocumentPrinting` already draw through `render(...)` into
 PDF contexts of their own — the path that stays clean.
 

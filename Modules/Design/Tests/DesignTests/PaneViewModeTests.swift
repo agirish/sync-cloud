@@ -155,35 +155,22 @@ import SwiftUI
 
     // MARK: - Trailing deselect filler
 
-    /// An overflowing stack gets a filler of exactly zero: the column stack's scroll behaviour, and
-    /// its mounted test, depend on a stack that really overflows, and padding its content would
-    /// move that condition.
-    @Test func testAnOverflowingStackGetsNoFiller() {
-        let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 500, columnWidths: Array(repeating: 210, count: 3))
-        #expect(width == 0)
-    }
-
-    /// Exactly full is the boundary of the same rule, where an off-by-one would land.
-    @Test func testAnExactlyFullStackGetsNoFiller() {
-        let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 630, columnWidths: Array(repeating: 210, count: 3))
-        #expect(width == 0)
-    }
-
-    /// Under-filled: the filler takes the slack that already existed and nothing more.
-    @Test func testAnUnderFilledStackFillsTheRemainder() {
-        let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidths: Array(repeating: 210, count: 2))
-        #expect(width == 480)
-    }
-
-    /// A resting pane's one column keeps its own width, so the slack after it, most of the pane, is
-    /// the filler's.
-    @Test func testARestingColumnLeavesTheRestToTheFiller() {
-        let width = PaneViewMode.trailingFillerWidth(
-            paneWidth: 900, columnWidths: Array(repeating: 210, count: 1))
-        #expect(width == 690)
+    /// The filler is the viewport minus the columns' real widths, and never negative. An
+    /// overflowing stack gets exactly zero: the column stack's scroll behaviour, and its mounted
+    /// test, depend on a stack that really overflows. Exactly full is the boundary, where an
+    /// off-by-one would land. Under-filled, and a resting pane's one column, the filler takes the
+    /// slack that already existed and nothing more.
+    @Test(arguments: [
+        (500, [210, 210, 210], 0),                                    // overflowing
+        (630, [210, 210, 210], 0),                                    // exactly full
+        (900, [210, 210], 480),                                       // under-filled
+        (900, [210], 690),                                            // one resting column
+        (1000, [300, 200], 500),                                      // real, unequal widths
+        (400, [300, 200], 0),
+        (1000, [300], 700),
+    ] as [(paneWidth: CGFloat, widths: [CGFloat], filler: CGFloat)])
+    func testTheFillerTakesTheSlack(paneWidth: CGFloat, widths: [CGFloat], filler: CGFloat) {
+        #expect(PaneViewMode.trailingFillerWidth(paneWidth: paneWidth, columnWidths: widths) == filler)
     }
 
     /// Push mode renders exactly one column at any depth, framed to the whole viewport, so there is

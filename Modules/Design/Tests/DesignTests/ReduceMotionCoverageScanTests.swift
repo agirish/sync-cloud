@@ -57,29 +57,9 @@ import Testing
         "panesHiddenForCurrentTab": .suppression,     // .animation(nil, …) — a pane toggle snaps
     ]
 
-    /// Source roots to scan: the modules that draw, plus the app target.
+    /// Source roots to scan: every app source (`AccentFillScanTests.appSources`), less the wrapper.
     static func appSources() -> [URL] {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // DesignTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Design
-            .deletingLastPathComponent()   // Modules
-            .deletingLastPathComponent()   // repo root
-        var files: [URL] = []
-        for sub in ["Modules", "MacApp"] {
-            let dir = root.appendingPathComponent(sub)
-            guard let walker = FileManager.default.enumerator(at: dir,
-                                                              includingPropertiesForKeys: nil) else { continue }
-            for case let url as URL in walker {
-                guard url.pathExtension == "swift" else { continue }
-                let path = url.path
-                // Sources only (a test may animate whatever it likes), and never the wrapper.
-                guard path.contains("/Sources/") || path.contains("/MacApp/") else { continue }
-                guard !path.contains(".build/"), !path.hasSuffix("DesignAnimation.swift") else { continue }
-                files.append(url)
-            }
-        }
-        return files
+        ((try? AccentFillScanTests.appSources()) ?? []).filter { !$0.path.hasSuffix("DesignAnimation.swift") }
     }
 
     /// `.animation(` occurrences that are real modifier applications, with the `value:` they key on.

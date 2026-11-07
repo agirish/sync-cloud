@@ -6,8 +6,8 @@ import Testing
 /// The reason `ActionBarButtonStyle` exists: its weights survive the window losing focus.
 ///
 /// The offscreen window these tests render into is never key, as in the live app after clicking
-/// away (and why `SNAPSHOTS.md` warns that system controls render in their gray inactive style
-/// here), so it is a ready rig for the question. `.borderedProminent` vs `.bordered` is exactly
+/// away (which is why system controls render in their gray inactive style here), so it is a
+/// ready rig for the question. `.borderedProminent` vs `.bordered` is exactly
 /// the difference a window's key state overrides, so a hierarchy built on them shows only while
 /// the app is frontmost.
 @MainActor
@@ -24,22 +24,10 @@ import Testing
         let subject = view
             .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .leading)
             .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+        guard let rep = offscreenBitmap(AnyView(subject), size: Self.canvas) else {
             Issue.record("no bitmap rep")
             return .clear
         }
-        host.cacheDisplay(in: host.bounds, to: rep)
         // colorAt takes PIXELS; the backing store is 2x on a Retina machine and 1x otherwise.
         let scale = CGFloat(rep.pixelsWide) / Self.canvas.width
         let sample = rep.colorAt(x: Int(Self.sampleAt.x * scale),

@@ -3,12 +3,10 @@ import ObjectiveC
 import SnapshotTesting
 import SwiftUI
 
-// NOTE: This helper is duplicated verbatim in the other three test targets: SPM can't share
+// NOTE: This helper is duplicated verbatim in the other snapshot test target: SPM can't share
 // test-support code across packages without a production library product, and the harness must
-// stay test-only. If you change this file, change the copies too:
-//   Modules/Design/Tests/DesignTests/SnapshotRendering.swift
+// stay test-only. If you change this file, change the copy too:
 //   Modules/Dashboard/Tests/Dashboard/SnapshotRendering.swift
-//   Modules/Settings/Tests/Settings/SnapshotRendering.swift
 
 /// Renders a SwiftUI view offscreen at a fixed size, in light and dark, and asserts each against
 /// a committed reference under `__Snapshots__/`.
@@ -21,7 +19,7 @@ import SwiftUI
 /// - fixed frame sizes only; never let the content dictate an unstable size
 /// - no live dates: freeze `Date` inputs, or pick values whose display bucket is far wider than
 ///   the render latency, and inject the time zone too: a frozen instant still renders a
-///   different string in another zone (see SNAPSHOTS.md)
+///   different string in another zone (see "Image snapshots" in docs/ci.md)
 /// - nothing async (QuickLook thumbnails, network images) inside the snapshotted tree
 ///
 /// `precision` and `perceptualPrecision` default to the suite-wide tolerance, under which 1% of
@@ -69,8 +67,7 @@ func assertViewSnapshot<V: View>(
 ///
 /// The shim adds the missing selector to `NSValue`, answering with its `rectValue`. Additive
 /// only: `class_addMethod` never replaces an implementation, and the guard makes it a no-op where
-/// the selector already resolves. `SnapshotPerceptualCompareTests` in Modules/Design checks the
-/// compare then reports the right numbers. Delete this once SnapshotTesting passes a `CIVector`.
+/// the selector already resolves. Delete this once SnapshotTesting passes a `CIVector`.
 func installPerceptualCompareShim() {
     _ = perceptualCompareShim
 }

@@ -28,7 +28,7 @@ import Testing
     /// dropped and a trailing `//` is cut where it stands outside a string literal.
     private static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
-        var code = [codeOnly(lines[start])]
+        var code = [AccentFillScanTests.codeOnly(lines[start])]
         var end = start + 1
         while end < lines.count {
             let raw = lines[end]
@@ -41,28 +41,10 @@ import Testing
             let continues = trimmed.hasPrefix(".") || trimmed.hasPrefix("}")
                 || trimmed.hasPrefix(")") || trimmed.hasPrefix("]")
             if ind <= base && !continues { break }
-            code.append(codeOnly(raw))
+            code.append(AccentFillScanTests.codeOnly(raw))
             end += 1
         }
         return code.joined(separator: "\n")
-    }
-
-    /// `line` without a trailing `//` comment. A `//` inside a string literal (a URL) is kept: the
-    /// cut is taken at the first `//` with an even number of quotes before it.
-    private static func codeOnly(_ line: String) -> String {
-        var quotes = 0
-        var previous: Character? = nil
-        var index = line.startIndex
-        while index < line.endIndex {
-            let character = line[index]
-            if character == "\"" && previous != "\\" { quotes += 1 }
-            if character == "/", previous == "/", quotes % 2 == 0 {
-                return String(line[..<line.index(before: index)])
-            }
-            previous = character
-            index = line.index(after: index)
-        }
-        return line
     }
 
     /// Glyph-only components that deliberately name themselves nowhere, so each call site can say
@@ -97,7 +79,7 @@ import Testing
     }
 
     @Test func noButtonIsAGlyphWithNoName() throws {
-        let files = try Self.appSwiftSources()
+        let files = try AccentFillScanTests.appSources()
         let unnamed = try Self.unnamedControls(in: files)
         let report = unnamed.prefix(12).map { "\($0.file):\($0.line)" }.joined(separator: "\n")
         #expect(unnamed.isEmpty,
@@ -153,7 +135,7 @@ import Testing
         #expect(!block.contains("accessibilityLabel"),
                 "a comment's mention of accessibilityLabel counted as the control's name")
         // A `//` inside a string survives the cut.
-        #expect(Self.codeOnly(#".help("See https://example.com") // note"#) == #".help("See https://example.com") "#)
+        #expect(AccentFillScanTests.codeOnly(#".help("See https://example.com") // note"#) == #".help("See https://example.com") "#)
     }
 
     /// A switch with an empty title must be named some other way. `Toggle("")` with its label
@@ -162,7 +144,7 @@ import Testing
     @Test func noUntitledSwitchIsUnnamed() throws {
         var untitled = 0
         var unnamed: [String] = []
-        for file in try Self.appSwiftSources() {
+        for file in try AccentFillScanTests.appSources() {
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
             for (i, line) in lines.enumerated()
             where line.trimmingCharacters(in: .whitespaces).hasPrefix("Toggle(\"\",") {
@@ -216,7 +198,7 @@ import Testing
         // "button", through the one door the scan above can't watch. Every source and both
         // spellings (`CloseButton(` and a trailing closure), since a list of call sites goes stale.
         var seen = 0
-        for file in try Self.appSwiftSources() {
+        for file in try AccentFillScanTests.appSources() {
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
             for (i, line) in lines.enumerated() {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -239,35 +221,5 @@ import Testing
             "Modules/Design/Sources/Design/CloseButton.swift"), encoding: .utf8)
         #expect(!component.contains(".accessibilityLabel("),
                 "CloseButton names itself again — that puts a generic label under four specific ones")
-    }
-
-    /// Same roots and vacuity guards as `GeometryScaleTests`: `MacApp/` is in no SPM package, so it
-    /// is added by hand or the scan would skip the app's own views.
-    private static func appSwiftSources() throws -> [URL] {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        let modules = repo.appendingPathComponent("Modules")
-        var roots = [repo.appendingPathComponent("MacApp")]
-        roots += try FileManager.default
-            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
-            .map { $0.appendingPathComponent("Sources") }
-
-        var files: [URL] = []
-        for root in roots {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            files += FileManager.default
-                .enumerator(at: root, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" } ?? []
-        }
-        #expect(files.count > 100, "found only \(files.count) app sources — the roots did not resolve")
-        #expect(files.contains { $0.path.hasSuffix("MacApp/SyncCloudApp.swift") }, "MacApp is not being scanned")
-        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
-        return files
     }
 }

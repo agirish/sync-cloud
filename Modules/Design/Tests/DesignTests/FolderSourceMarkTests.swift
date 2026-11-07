@@ -104,15 +104,8 @@ import Testing
     /// `NSHostingView` with no window draws nothing at all.
     @MainActor
     private func paintedFraction(_ view: some View, side: CGFloat = 40) throws -> Double {
-        let host = NSHostingView(rootView: AnyView(view.frame(width: side, height: side)))
-        host.frame = CGRect(x: 0, y: 0, width: side, height: side)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try #require(offscreenBitmap(AnyView(view.frame(width: side, height: side)),
+                                               size: CGSize(width: side, height: side), appearance: nil, sRGB: false))
 
         var painted = 0
         var total = 0

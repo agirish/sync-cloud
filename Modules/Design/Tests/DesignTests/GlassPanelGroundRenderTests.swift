@@ -15,19 +15,10 @@ import SwiftUI
     private static let size = CGSize(width: 240, height: 300)
 
     private func render(_ view: some View, dark: Bool) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: view
+        try #require(offscreenBitmap(view
             .frame(width: Self.size.width, height: Self.size.height)
-            .background(Color.black))
-        host.frame = CGRect(origin: .zero, size: Self.size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+            .background(Color.black),
+            size: Self.size, appearance: dark ? .darkAqua : .aqua))
     }
 
     private func ground(_ level: GlassLevel, hue: LiquidGlassHue = .purple, tint: Double = 0.12,

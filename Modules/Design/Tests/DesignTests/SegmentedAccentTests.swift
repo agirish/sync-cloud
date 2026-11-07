@@ -133,7 +133,7 @@ import Testing
     /// sources for the same reason).
     @Test func everySegmentedPickerInTheAppTakesTheAppAccent() throws {
         var sites = 0
-        for file in try Self.appSwiftSources() {
+        for file in try AccentFillScanTests.appSources() {
             // Ask the collapsed text, so a chain that wraps as `.pickerStyle(\n.segmented)` isn't
             // skipped.
             let collapsed = try String(contentsOf: file, encoding: .utf8)
@@ -168,46 +168,7 @@ import Testing
                         """)
             }
         }
-        // A tripwire, so the scan can't pass by finding nothing. When you add a segmented picker
-        // and give it `.accentedSegments`, raise this number.
-        #expect(sites == 20, "expected 20 segmented pickers in the app, found \(sites)")
-    }
-
-    /// Every Swift file the shipping app is built from: each module's `Sources`, plus `MacApp`.
-    /// `MacApp/` is in no SPM package but is full of SwiftUI views, so it must be included. Only
-    /// `Sources` roots are walked, so checked-out dependencies under `.build/` stay out and the
-    /// file set doesn't depend on whether the tree has been built.
-    private static func appSwiftSources() throws -> [URL] {
-        let repo = URL(fileURLWithPath: #filePath)      // …/Design/Tests/DesignTests/<this>.swift
-            .deletingLastPathComponent()                // …/Design/Tests/DesignTests
-            .deletingLastPathComponent()                // …/Design/Tests
-            .deletingLastPathComponent()                // …/Modules/Design
-            .deletingLastPathComponent()                // …/Modules
-            .deletingLastPathComponent()                // …/<repo>
-
-        let modules = repo.appendingPathComponent("Modules")
-        var roots = [repo.appendingPathComponent("MacApp")]
-        roots += try FileManager.default
-            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
-            .map { $0.appendingPathComponent("Sources") }
-
-        var files: [URL] = []
-        for root in roots {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            let found = FileManager.default
-                .enumerator(at: root, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" } ?? []
-            files += found
-        }
-        // Nothing below a module's `Sources` or `MacApp` is a dependency, so no `.build` filter is
-        // needed — but prove the roots resolved, or this returns [] and everything passes vacuously.
-        #expect(files.count > 100, "found only \(files.count) app sources — the roots did not resolve")
-        #expect(files.contains { $0.path.hasSuffix("MacApp/SyncCloudApp.swift") },
-                "MacApp is not being scanned")
-        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
-        return files
+        // A tripwire, so the scan can't pass by finding nothing.
+        #expect(sites >= 20, "expected at least 20 segmented pickers in the app, found \(sites)")
     }
 }

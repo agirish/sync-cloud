@@ -40,7 +40,7 @@ it carries the measurements and the fix for each.
 - Machine-pinned suites are marked at the declaration with
   `.machinePinned(_:)` and a reason, and the workflow sets
   `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages` to exclude only the image
-  snapshots (see `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`), whose
+  snapshots (see [Image snapshots](#image-snapshots)), whose
   reference PNGs only match the machine that recorded them. Excluded suites
   still compile, so breakage in their code is caught, and they report as
   *skipped with a reason* rather than silently vanishing. See
@@ -65,8 +65,9 @@ it carries the measurements and the fix for each.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
 - **External dependency versions are pinned — `Package.resolved` is committed.**
-  Five of them: `SyncCloudCLI` and `Modules/{Design,Dashboard,FileExplorer,Settings}`.
-  Sync and Events declare no external dependency and so have none. A run's verdict
+  Three of them: `SyncCloudCLI` and `Modules/{Dashboard,FileExplorer}`. Sync, Events,
+  Design and Settings declare no external dependency and so have none (Design and Settings
+  dropped theirs with their snapshot suites on 2026-11-06). A run's verdict
   now names the versions it covered, and a build cut from a release tag links what
   CI tested.
 
@@ -114,7 +115,7 @@ reason:
 
 | Reason | What it means | Where it appears | On CI |
 |---|---|---|---|
-| `referenceImages` | compares against PNGs recorded on one Mac | Design, FileExplorer, Settings | **excluded** |
+| `referenceImages` | compares against PNGs recorded on one Mac | FileExplorer | **excluded** |
 | `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | Design, Dashboard, FileExplorer, Settings | runs |
 | `calibratedTiming` | latency thresholds tuned on this hardware | FileExplorer | runs |
 | `layoutMetrics` | laid-out text, window and control geometry that tracks fonts, screen size and scale | Dashboard, Design, FileExplorer, app | runs |
@@ -174,7 +175,30 @@ disagree with. It stops being sound the moment the runner moves to different
 hardware or a different macOS version: expect the pixel-sampling suites and
 the benchmark to fail there for machine reasons, not code reasons, and plan
 to re-validate (and re-record/re-calibrate) on the new machine — see the
-re-record workflow in `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`.
+re-record workflow in [Image snapshots](#image-snapshots).
+
+#### Image snapshots
+
+`FileExplorerSnapshotTests` (swift-snapshot-testing, test-only), the last image snapshot suite, renders
+each scenario offscreen through `NSHostingView` in a borderless `NSWindow` at a fixed size, light and
+dark, and compare it with `precision: 0.99, perceptualPrecision: 0.98` against PNGs under
+`__Snapshots__/`, through its helper `SnapshotRendering.swift`. Dashboard, Design and Settings retired
+theirs on 2026-11-06. After an intentional visual change, re-record and commit the
+new PNGs:
+
+```sh
+cd Modules/<Package>     # build-slot: CLAUDE.md §7
+SNAPSHOT_TESTING_RECORD=all ../../scripts/build-slot swift test --filter <Suite>SnapshotTests   # exits "failed": recording always reports
+../../scripts/build-slot swift test --filter <Suite>SnapshotTests                               # must pass against the fresh references
+```
+
+Open the regenerated PNGs before committing: a recording run blesses a broken layout. Unset
+`SYNCCLOUD_SKIP_MACHINE_PINNED` first, or the suite is skipped and records nothing. References are
+valid on the recording Mac and OS release only: they bake in font rasterization, SF Symbols, the
+backing scale, the system accent and the time zone. A view that formats a date needs its zone
+injected and pinned in the test, not only a frozen `Date`. Keep `installPerceptualCompareShim()`: without it a mismatch aborts the process instead
+of failing ("A snapshot mismatch that aborts the process instead of failing" in
+`docs/flaky-tests.md`).
 
 ## Docs-only pushes start no run
 

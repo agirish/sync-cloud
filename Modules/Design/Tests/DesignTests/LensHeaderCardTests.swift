@@ -68,18 +68,15 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     // MARK: The line
 
-    /// The whole spec in one number: at rest the card occupies 86pt in its parent (2.5 inset + 81
-    /// visible + 2.5 inset), so its visible bottom edge lands at 83.5, exactly where the file pane's
-    /// header meets its list (`cardInset` + `headerHeight`).
-    @Test(.machinePinned(.layoutMetrics)) func restsAt86Total() {
-        #expect(laidOutHeight(Self.card(), width: 700) == 86.0)
-    }
-
     /// The visible height, against the constant both headers read. If `PaneHeader` and this card
     /// ever disagree, this test or `paneHeaderRestsAtHeaderHeight` (in the Dashboard suite) fails:
-    /// they pin the same number from opposite sides.
+    /// they pin the same number from opposite sides. At rest the card occupies 86pt in its parent
+    /// (2.5 inset + 81 visible + 2.5 inset), so its visible bottom edge lands at 83.5, exactly where
+    /// the file pane's header meets its list (`cardInset` + `headerHeight`).
     @Test(.machinePinned(.layoutMetrics)) func restsAt81Visible() {
-        let visible = laidOutHeight(Self.card(), width: 700) - 2 * LiquidGlass.cardInset
+        let total = laidOutHeight(Self.card(), width: 700)
+        #expect(total == 86.0)
+        let visible = total - 2 * LiquidGlass.cardInset
         #expect(visible == LiquidGlass.headerHeight)
         #expect(visible == 81.0)
     }
@@ -221,18 +218,10 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// fixed colour, so a surface restyle does not read as ink.
     private static func trailingCornerInk(_ view: some View, width: CGFloat) throws -> Int {
         let height = LensHeaderMetrics.restingTotalHeight
-        let host = NSHostingView(rootView: AnyView(
+        let rep = try #require(offscreenBitmap(AnyView(
             view.frame(width: width, height: height)
-                .background(Color(nsColor: .windowBackgroundColor))))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+                .background(Color(nsColor: .windowBackgroundColor))),
+            size: CGSize(width: width, height: height), appearance: nil, sRGB: false, close: true))
 
         let scale = Int(rep.pixelsWide) / Int(width)
         // The toggle is last on row 1, inside the card's 12pt padding plus its 2.5pt inset.

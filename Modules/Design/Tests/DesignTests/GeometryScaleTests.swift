@@ -75,7 +75,7 @@ import Testing
     /// progress bar's cap is half its height, not a corner) and 12 is a deliberate one-off; `Radius`
     /// documents both as out of scope.
     @Test func noSourceHandWritesARadiusInsideTheScalesBand() throws {
-        let sources = try Self.appSwiftSources()
+        let sources = try AccentFillScanTests.appSources()
         // `cornerRadius: <digits>`, the literal form. A named constant is what this wants.
         let literal = try Regex(#"cornerRadius: (\d+)(?![\d.])"#)
 
@@ -125,7 +125,7 @@ import Testing
     @Test func theSetupSheetHasNoChromelessButtonWithoutAHoverAffordance() throws {
         // The sheet is a directory. Scanning only `SetupSheet.swift` would read the host, which
         // draws no button of its own, and report a clean sweep of nothing.
-        let files = try Self.appSwiftSources().filter {
+        let files = try AccentFillScanTests.appSources().filter {
             $0.path.contains("/MacApp/Setup/") || $0.path.hasSuffix("MacApp/SetupSheet.swift")
         }
         #expect(files.count >= 10,
@@ -146,39 +146,5 @@ import Testing
         let plain = text.components(separatedBy: ".buttonStyle(.plain)").count - 1
         #expect(plain == 0,
                 "\(plain) chrome-less button(s) in the setup sheet give no hover feedback")
-    }
-
-    /// Every app source, with the vacuity guards; same shape as `SegmentedAccentTests`. `MacApp/` is
-    /// in no SPM package, so it is added by hand. Each module's own `Sources` is walked, because
-    /// searching `Modules/` for `/Sources/` would sweep in dependencies checked out in `.build/`.
-    private static func appSwiftSources() throws -> [URL] {
-        let repo = URL(fileURLWithPath: #filePath)      // …/Design/Tests/DesignTests/<this>.swift
-            .deletingLastPathComponent()                // …/Design/Tests/DesignTests
-            .deletingLastPathComponent()                // …/Design/Tests
-            .deletingLastPathComponent()                // …/Modules/Design
-            .deletingLastPathComponent()                // …/Modules
-            .deletingLastPathComponent()                // …/<repo>
-
-        let modules = repo.appendingPathComponent("Modules")
-        var roots = [repo.appendingPathComponent("MacApp")]
-        roots += try FileManager.default
-            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
-            .map { $0.appendingPathComponent("Sources") }
-
-        var files: [URL] = []
-        for root in roots {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            files += FileManager.default
-                .enumerator(at: root, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" } ?? []
-        }
-        #expect(files.count > 100, "found only \(files.count) app sources — the roots did not resolve")
-        #expect(files.contains { $0.path.hasSuffix("MacApp/SyncCloudApp.swift") },
-                "MacApp is not being scanned")
-        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
-        return files
     }
 }

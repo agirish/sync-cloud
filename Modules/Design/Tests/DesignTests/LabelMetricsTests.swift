@@ -103,37 +103,28 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 /// expectation reads `NSHostingView.fittingSize` off a real hosted view.
 ///
 /// The hosting view needs a window: detached, it reports 19.0pt for a `checklist` symbol that is
-/// 17.5pt in a window, and errs both ways across the symbol set. Pinned to `.pixelSampling`: every
-/// case reads a live renderer, and two pin this Mac's exact figures (17.5pt for `checklist`, 77.0pt
-/// for "Review 1234").
+/// 17.5pt in a window, and errs both ways across the symbol set. Pinned to `.pixelSampling` per
+/// test: every case that hosts a view reads a live renderer, and two pin this Mac's exact figures
+/// (17.5pt for `checklist`, 77.0pt for "Review 1234").
 @MainActor
-@Suite(.machinePinned(.pixelSampling)) struct LabelMetricsTests {
+@Suite struct LabelMetricsTests {
 
-    private func hostedWidth<V: View>(_ view: V) -> CGFloat {
+    private func hostedSize<V: View>(_ view: V) -> CGSize {
         let host = NSHostingView(rootView: AnyView(view))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 4000, height: 200),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        return host.fittingSize.width
+        return host.fittingSize
     }
 
-    /// The same hosted view, read the other way. Separate from `hostedWidth` so the width cases
-    /// read a plain width.
-    private func hostedHeight<V: View>(_ view: V) -> CGFloat {
-        let host = NSHostingView(rootView: AnyView(view))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 4000, height: 200),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
-    }
+    private func hostedWidth<V: View>(_ view: V) -> CGFloat { hostedSize(view).width }
+    private func hostedHeight<V: View>(_ view: V) -> CGFloat { hostedSize(view).height }
 
     // MARK: - Text
 
-    @Test(arguments: headerTexts) func textWidthMatchesTheDrawnRun(text: String) {
+    @Test(.machinePinned(.pixelSampling), arguments: headerTexts) func textWidthMatchesTheDrawnRun(text: String) {
         for scale in appFontScales {
             for font in [ScaledFont.system(size: 13), .system(size: 11), .caption] {
                 let computed = LabelMetrics.width(of: text, font: font, scale: scale)
@@ -146,7 +137,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     /// The digits path is measured in the monospaced-digit face, a materially different width: "1"
     /// is 5.93pt proportional against 7.87pt monospaced.
-    @Test(arguments: ["1", "17", "576", "1,284", "88,888"])
+    @Test(.machinePinned(.pixelSampling), arguments: ["1", "17", "576", "1,284", "88,888"])
     func monospacedDigitWidthMatchesTheDrawnRun(text: String) {
         for scale in appFontScales {
             let font = ScaledFont.system(size: 12, weight: .semibold).monospacedDigit()
@@ -160,7 +151,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// The rounding rule itself, as a fact about SwiftUI: a run is rounded up to the next half
     /// point, not to the nearest. The two rules agree on most strings, so this needs a string where
     /// they part company.
-    @Test func textRoundsUpToTheNextHalfPointNotToTheNearest() {
+    @Test(.machinePinned(.pixelSampling)) func textRoundsUpToTheNextHalfPointNotToTheNearest() {
         let font = ScaledFont.system(size: 13)
         let raw = NSAttributedString(string: "Review 1234",
                                      attributes: [.font: font.nsFont(scale: 1)]).size().width
@@ -172,7 +163,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     // MARK: - Symbols
 
-    @Test(arguments: headerSymbols) func symbolWidthMatchesTheDrawnGlyph(name: String) {
+    @Test(.machinePinned(.pixelSampling), arguments: headerSymbols) func symbolWidthMatchesTheDrawnGlyph(name: String) {
         for scale in appFontScales {
             for font in [ScaledFont.system(size: 13),
                          .system(size: 12, weight: .semibold),
@@ -190,7 +181,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// The measurement source: an image's `size` is the ceiling of what SwiftUI lays out, and its
     /// `alignmentRect` is the thing itself. `size` is the obvious property and is right often enough
     /// to look correct.
-    @Test func imageSizeIsNotTheLaidOutWidthButTheAlignmentRectIs() {
+    @Test(.machinePinned(.pixelSampling)) func imageSizeIsNotTheLaidOutWidthButTheAlignmentRectIs() {
         let image = try! #require(NSImage(systemSymbolName: "checklist", accessibilityDescription: nil)
             .flatMap { $0.withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) })
         let drawn = hostedWidth(Image(systemName: "checklist").font(.system(size: 13)))
@@ -204,7 +195,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// `lineHeight` against a real hosted `Text`, at every scale the slider reaches, in the faces
     /// the app draws. The fixture varies the font, not the string, because a line box is the same
     /// height whatever is in it; `aLineBoxDoesNotDependOnWhatIsInIt` asserts that.
-    @Test(arguments: lineHeightFonts) func lineHeightMatchesTheDrawnLineBox(font: ScaledFont) {
+    @Test(.machinePinned(.pixelSampling), arguments: lineHeightFonts) func lineHeightMatchesTheDrawnLineBox(font: ScaledFont) {
         for scale in everySelectableScale {
             let computed = LabelMetrics.lineHeight(font: font, scale: scale)
             let drawn = hostedHeight(Text("Hg").font(font.resolved(scale: scale)))
@@ -222,7 +213,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     ///
     /// Two checks per size: that the two APIs really part company here (a size where they agree
     /// can't fail), and that the one `LabelMetrics` calls matches the drawn view.
-    @Test func defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs() {
+    @Test(.machinePinned(.pixelSampling)) func defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs() {
         let layoutManager = NSLayoutManager()
         for pointSize in [CGFloat(9.5), 10, 10.5, 11, 11.5] {
             let font = NSFont.systemFont(ofSize: pointSize)
@@ -247,7 +238,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// Stated as "the empty string ignores the font", not "it differs from the box", because the
     /// default measures 14.0: 1pt out at 10pt and 13pt but exactly right at 11pt, where the obvious
     /// assertion would pass on a number that means nothing.
-    @Test func aLineBoxDoesNotDependOnWhatIsInIt() {
+    @Test(.machinePinned(.pixelSampling)) func aLineBoxDoesNotDependOnWhatIsInIt() {
         let pointSizes: [CGFloat] = [10, 11, 13]
         func height(_ text: String, _ pointSize: CGFloat) -> CGFloat {
             NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: pointSize)])
@@ -271,7 +262,8 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     // MARK: - Composites
 
-    @Test(arguments: [("Verify 12", "checkmark.shield"), ("Review 1,284", "checklist"),
+    @Test(.machinePinned(.pixelSampling),
+          arguments: [("Verify 12", "checkmark.shield"), ("Review 1,284", "checklist"),
                       ("Copy 17 to Dropbox", "arrow.right"), ("Exit Review", "xmark.circle.fill")])
     func labelWidthMatchesTheDrawnLabel(title: String, symbol: String) {
         for scale in appFontScales {
@@ -285,7 +277,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     /// The 8pt gap is a gap, not an icon slot: it stays 8pt across icons 14pt and 17.5pt wide, so
     /// `labelWidth` is a sum rather than a table.
-    @Test func theLabelGapIsConstantAcrossIconWidths() {
+    @Test(.machinePinned(.pixelSampling)) func theLabelGapIsConstantAcrossIconWidths() {
         let font = ScaledFont.system(size: 13)
         for symbol in ["checkmark.shield", "checklist", "arrow.right"] {
             let label = hostedWidth(Label("Verify 12", systemImage: symbol).font(font.resolved(scale: 1)))
@@ -298,7 +290,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     /// `.actionBar`'s own footprint: `ActionBarMetrics.horizontalPadding` either side of the label,
     /// and a circle for the icon-only form.
-    @Test func actionBarFootprintMatchesTheDrawnButton() {
+    @Test(.machinePinned(.pixelSampling)) func actionBarFootprintMatchesTheDrawnButton() {
         let font = ScaledFont.system(size: 13)
         let labelW = LabelMetrics.labelWidth("Verify 12", systemImage: "checkmark.shield",
                                              font: font, scale: 1)
@@ -350,7 +342,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// The width half of the same check, stated as a number so it can't pass by the two fonts
     /// merely being unequal objects. "Birth Certificate" is 95.729pt in SF Pro against 92.917pt in
     /// SF Rounded.
-    @Test func aRoundedFontMeasuresNarrowerThanTheDefaultFace() {
+    @Test(.machinePinned(.pixelSampling)) func aRoundedFontMeasuresNarrowerThanTheDefaultFace() {
         let rounded = ScaledFont.system(.body, design: .rounded).nsFont(scale: 1)
         let plain = ScaledFont.system(.body).nsFont(scale: 1)
         #expect(rounded.pointSize == plain.pointSize, "premise: same size, so only the face differs")
@@ -374,7 +366,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// totals must too: if `nsFont`'s digits path dropped the design, "1234" at 16pt semibold would
     /// measure 40.745pt against a drawn 42.042pt. Parameterised over the sites, so a new rounded
     /// call site is added here.
-    @Test(arguments: roundedCallSites)
+    @Test(.machinePinned(.pixelSampling), arguments: roundedCallSites)
     func everyRoundedCallSiteMeasuresTheFaceItDraws(site: FaceCallSite) {
         for scale in appFontScales {
             // The premise, asserted: a string that measures the same in both faces would pass with
@@ -395,7 +387,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// drop one: the digits font alone drops the face (40.745pt), and the rounded font alone drops
     /// the equal-width digits (38.487pt; "1" is 7.873pt against "0" at 10.609pt). Composing them
     /// carries the descriptor's number-spacing feature across, which is what this pins.
-    @Test func aRoundedDigitsFontKeepsBothTheFaceAndTheEqualWidthDigits() {
+    @Test(.machinePinned(.pixelSampling)) func aRoundedDigitsFontKeepsBothTheFaceAndTheEqualWidthDigits() {
         let font = ScaledFont.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit()
         let measured = font.nsFont(scale: 1)
         #expect(measured.pointSize == 16, "premise: unscaled, so only the face is in question")
@@ -432,7 +424,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// 16pt semibold where the monospaced face lays out 89.016pt.
     ///
     /// No shipping call site combines the two; this pins the answer before one does.
-    @Test func theMonospacedFaceAnswersADigitRequestOnItsOwn() {
+    @Test(.machinePinned(.pixelSampling)) func theMonospacedFaceAnswersADigitRequestOnItsOwn() {
         let font = ScaledFont.system(size: 16, weight: .semibold).monospaced().monospacedDigit()
         let measured = font.nsFont(scale: 1)
         let digitsOnly = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
@@ -464,7 +456,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     ///
     /// Pinned as a width, so it is a claim about the face rather than about a branch existing:
     /// "Birth Certificate" is 98.872pt in New York against 95.729pt in SF Pro at 13pt.
-    @Test func aSerifFontMeasuresTheSerifFace() {
+    @Test(.machinePinned(.pixelSampling)) func aSerifFontMeasuresTheSerifFace() {
         for (font, plain, text) in [
             (ScaledFont.system(.body, design: .serif), ScaledFont.system(.body), "Birth Certificate"),
             (.system(size: 16, weight: .semibold, design: .serif).monospacedDigit(),
@@ -487,7 +479,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// An `HStack` charges no spacing for a child that resolves to nothing. The header's rows are
     /// full of `@ViewBuilder` `if`s (the verify button, the selection chip, the overflow), so a gap
     /// per absent control would make a row wider than this arithmetic says.
-    @Test func anAbsentChildCostsNoSpacing() {
+    @Test(.machinePinned(.pixelSampling)) func anAbsentChildCostsNoSpacing() {
         @ViewBuilder func maybe(_ show: Bool) -> some View {
             if show { Color.clear.frame(width: 50, height: 10) }
         }
@@ -507,7 +499,7 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     /// A `Spacer(minLength:)` contributes exactly its minimum to a row's ideal width, and takes a
     /// gap on each side. `ActionBarLadderTests` pins that a row containing one still sheds; this
     /// pins the arithmetic the ladder does with it.
-    @Test func aSpacerContributesItsMinimumToTheIdealWidth() {
+    @Test(.machinePinned(.pixelSampling)) func aSpacerContributesItsMinimumToTheIdealWidth() {
         let measured = hostedWidth(HStack(spacing: 10) {
             Color.clear.frame(width: 50, height: 10)
             Spacer(minLength: 16)

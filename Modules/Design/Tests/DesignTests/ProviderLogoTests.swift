@@ -25,15 +25,6 @@ import Testing
         }
     }
 
-    /// And the two appearances agree, which is what the capsule depends on: the ladder is only
-    /// appearance-blind if dark and light measure identically.
-    @Test func appearancesAgree() {
-        for size in [CGFloat(16), 26, 28] {
-            #expect(laidOutSize(size: size, appearance: .darkAqua)
-                    == laidOutSize(size: size, appearance: .aqua))
-        }
-    }
-
     private func laidOutSize(size: CGFloat, appearance: NSAppearance.Name) -> CGSize {
         let host = NSHostingView(rootView: AnyView(ProviderLogo("icloud", size: size)))
         host.appearance = NSAppearance(named: appearance)

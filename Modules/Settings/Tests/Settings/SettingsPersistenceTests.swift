@@ -14,7 +14,7 @@ import Foundation
         // once at migration and never writes; the maintenance lines still read it as theirs.
         let key = "root_override_Dropbox"
 
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
+        let settings = test.manager()
 
         settings.setPath("/tmp/custom-root", for: "Dropbox")
         #expect(test.defaults.string(forKey: key) == "/tmp/custom-root")

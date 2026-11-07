@@ -20,6 +20,17 @@ struct TestDefaults {
     init(_ function: String = #function) {
         self.defaults = ScratchDefaults("SettingsTests-\(function)")
     }
+
+    /// A manager over this suite that never discovers on its own. `lister` stands in for
+    /// `~/Library/CloudStorage`, `validator` for the disk (nil stats it), and `domain` is
+    /// `overridesDomainName`, nil unless the test passes one: `OverrideDomainScopingTests` reads
+    /// the nil case.
+    @MainActor
+    func manager(lister: @escaping SettingsManager.CloudStorageLister = { .read([]) },
+                 validator: SettingsManager.PathValidator? = nil, domain: String? = nil) -> SettingsManager {
+        SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: domain,
+                        cloudStorageLister: lister, pathValidator: validator)
+    }
 }
 
 /// Thread-safe call counter usable from the @Sendable CloudStorageLister.
@@ -302,10 +313,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let test = TestDefaults()
         test.defaults.set("/Volumes/External/OneDrive", forKey: "root_override_OneDrive-Personal")
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([folder("OneDrive-Personal"), folder("Dropbox")]) })
+        let settings = test.manager(lister: { .read([folder("OneDrive-Personal"), folder("Dropbox")]) })
         await settings.discoverProviders()
 
         #expect(settings.availableProviders.map(\.id) == ["iCloud", "OneDrive-Personal", "Dropbox"])
@@ -317,10 +325,7 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testSetPathResetPathRoundTripWithoutGlobalState() async {
         let test = TestDefaults()
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([folder("Dropbox")]) })
+        let settings = test.manager(lister: { .read([folder("Dropbox")]) })
         await settings.discoverProviders()
 
         let defaultPath = settings.rootPath(for: "Dropbox")
@@ -339,10 +344,7 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testSetCustomNameRoundTripAndClearRestoresDefaultName() async {
         let test = TestDefaults()
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([folder("GoogleDrive-someone@gmail.com")]) })
+        let settings = test.manager(lister: { .read([folder("GoogleDrive-someone@gmail.com")]) })
         await settings.discoverProviders()
 
         settings.setCustomName("Google Drive (Personal)", for: "GoogleDrive-someone@gmail.com")
@@ -361,13 +363,13 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testIgnoreGoogleDriveFlagRoundTripsThroughInjectedDefaults() {
         let test = TestDefaults()
 
-        let a = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
+        let a = test.manager()
         a.ignoreGoogleDriveNewerDateOnly = true // didSet persists
         // A fresh instance on the same suite reads the persisted value in init.
-        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) }).ignoreGoogleDriveNewerDateOnly == true)
+        #expect(test.manager().ignoreGoogleDriveNewerDateOnly == true)
 
         a.ignoreGoogleDriveNewerDateOnly = false
-        #expect(SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) }).ignoreGoogleDriveNewerDateOnly == false)
+        #expect(test.manager().ignoreGoogleDriveNewerDateOnly == false)
     }
 
     @MainActor
@@ -375,10 +377,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         let test = TestDefaults()
         let counter = CallCounter()
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { counter.increment(); return .read([]) })
+        let settings = test.manager(lister: { counter.increment(); return .read([]) })
         #expect(counter.count == 0)
 
         await settings.discoverProviders()
@@ -395,10 +394,7 @@ private func noOverrides(_ id: String) -> String? { nil }
             firstResult: [folder("Dropbox")],
             laterResults: [folder("OneDrive-Personal")])
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read(lister.list()) })
+        let settings = test.manager(lister: { .read(lister.list()) })
 
         // Older pass: claims its generation, then blocks off-main inside the lister.
         let older = Task { await settings.discoverProviders() }
@@ -428,10 +424,7 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testSetCustomNameStripsInteriorControlCharacters() async {
         let test = TestDefaults()
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([folder("Dropbox")]) })
+        let settings = test.manager(lister: { .read([folder("Dropbox")]) })
         await settings.discoverProviders()
 
         // An embedded newline would forge an extra line in the single-line log records;
@@ -454,11 +447,9 @@ private func noOverrides(_ id: String) -> String? { nil }
         let test = TestDefaults()
         let counter = CallCounter()
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([folder("Dropbox")]) },
-            pathValidator: { _ in counter.increment(); return true })
+        let settings = test.manager(
+            lister: { .read([folder("Dropbox")]) },
+            validator: { _ in counter.increment(); return true })
 
         await settings.discoverProviders()
         let providersAfterFirst = settings.availableProviders.map(\.id)

@@ -9,16 +9,9 @@ import Testing
 
     // MARK: filterSettings behavior
 
-    @Test func emptyQueryReturnsNothing() {
-        #expect(filterSettings(SettingsSearchIndex.all, query: "").isEmpty)
-    }
-
-    @Test func whitespaceOnlyQueryReturnsNothing() {
-        #expect(filterSettings(SettingsSearchIndex.all, query: "   \n\t").isEmpty)
-    }
-
-    @Test func noMatchReturnsNothing() {
-        #expect(filterSettings(SettingsSearchIndex.all, query: "zzzznotasetting").isEmpty)
+    /// An empty query, a whitespace-only one and one that matches nothing all find nothing.
+    @Test(arguments: ["", "   \n\t", "zzzznotasetting"]) func aQueryWithNoWordsOrNoMatchFindsNothing(query: String) {
+        #expect(filterSettings(SettingsSearchIndex.all, query: query).isEmpty)
     }
 
     /// Ask Claude's show_in_app opens Settings at the page holding a named setting.

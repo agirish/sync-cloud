@@ -12,11 +12,6 @@ import Sync
 /// the default is asserted too.
 @Suite struct SettingsManagerUnreadableValueTests {
 
-    @MainActor
-    private func makeManager(_ test: TestDefaults) -> SettingsManager {
-        SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-    }
-
     /// disabledProviderIds is the sharpest case: a foreign-typed value silently re-enables every
     /// provider the user turned off, and the next toggle persists that.
     @MainActor
@@ -24,7 +19,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set(Data([0x00, 0x01]), forKey: "disabledProviderIds")
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.disabledProviderIds.isEmpty, "the tolerant fallback itself is right")
         #expect(test.defaults.object(forKey: "disabledProviderIds.unreadable") != nil,
                 "an unreadable disabled-provider list must be preserved under the sibling key before the next toggle overwrites it")
@@ -35,7 +30,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("*.tmp,*.bak", forKey: "ignorePatterns")   // a String where [String] belongs
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.ignorePatterns.isEmpty)
         #expect(test.defaults.object(forKey: "ignorePatterns.unreadable") != nil,
                 "an unreadable ignore-pattern list must be preserved before the next edit destroys it")
@@ -49,7 +44,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("fromTheFuture", forKey: "defaultSortOption")
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.defaultSortOption == .name, "the tolerant fallback itself is right")
         #expect(test.defaults.object(forKey: "defaultSortOption.unreadable") != nil,
                 "a newer build's sort choice must survive a downgrade edit")
@@ -60,7 +55,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("fromTheFuture", forKey: ConflictPolicy.defaultsKey)
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.conflictPolicy == .ask)
         #expect(test.defaults.object(forKey: ConflictPolicy.defaultsKey + ".unreadable") != nil)
     }
@@ -70,7 +65,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("fromTheFuture", forKey: "folderNameRuleProvider")
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.folderNameRule == .oneDrive)
         #expect(test.defaults.object(forKey: "folderNameRuleProvider.unreadable") != nil)
     }
@@ -111,7 +106,7 @@ import Sync
         let test = TestDefaults()
         test.defaults.set("fromTheFuture", forKey: "defaultSortOption")
 
-        let settings = makeManager(test)
+        let settings = test.manager()
         settings.defaultSortOption = .kind   // the first post-downgrade edit — fires the didSet
 
         #expect(test.defaults.string(forKey: "defaultSortOption") == SortOption.kind.rawValue)

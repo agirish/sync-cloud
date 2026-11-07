@@ -30,17 +30,8 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
 
     @MainActor
     private func renderView(_ view: AnyView, dark: Bool) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: view.frame(width: 80, height: 80))
-        host.frame = CGRect(x: 0, y: 0, width: 80, height: 80)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        try XCTUnwrap(offscreenBitmap(view.frame(width: 80, height: 80), size: CGSize(width: 80, height: 80),
+                                      appearance: dark ? .darkAqua : .aqua, sRGB: false))
     }
 
     /// Mean sRGB brightness over the rendered background, 0...1.
@@ -69,7 +60,6 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
     func testNoneIsWhiterThanGraphiteInLightAtMinTint() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: false))
         let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false))
-        print("[none-whiteness] light tint0 — none \(none), graphite \(graphite)")
         XCTAssertGreaterThan(none, graphite + 0.02,
                              "None does not separate from Graphite — none \(none), graphite \(graphite)")
     }
@@ -83,7 +73,6 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
         let none = try brightness(render(hue: .none, tint: 0, dark: false))
         let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false))
         let white = try brightness(renderView(AnyView(Color.white), dark: false))
-        print("[none-whiteness] light — none \(none), graphite \(graphite), white reference \(white)")
         XCTAssertGreaterThan(white, graphite + 0.02, "Graphite renders as white — the gap this measures is gone")
         XCTAssertLessThan(white - none, (white - graphite) * 0.4,
                           "None reads gray, not white — none \(none), graphite \(graphite), white \(white)")
@@ -106,7 +95,6 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
                 Color.white.opacity(LiquidGlass.clearLightVeil)
             }
         }), dark: false))
-        print("[none-whiteness] clear light tint0 — none \(none), its backdrop alone \(backdrop)")
         XCTAssertGreaterThan(none, backdrop + 0.02,
                              "Clear None's white film isn't drawn — none \(none), backdrop \(backdrop)")
     }
@@ -116,7 +104,6 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
     @MainActor
     func testDarkNoneKeepsItsDeepGround() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: true))
-        print("[none-whiteness] dark tint0 — none \(none)")
         XCTAssertLessThan(none, 0.35,
                           "the white veil is leaking into dark — brightness \(none)")
     }

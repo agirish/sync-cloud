@@ -101,7 +101,7 @@ import Testing
 }
 
 /// Rendered and read back: the words paint black in light and white in dark, the wash keeps the
-/// tint, and the PNGs are written out to be looked at.
+/// tint.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PillLabelInkRenderTests {
 
@@ -135,21 +135,8 @@ import Testing
     }
 
     static func render(dark: Bool) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: specimen(dark: dark))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.close()
-        let out = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("SyncCloud-DS1-pills-\(dark ? "dark" : "light").png")
-        try rep.representation(using: .png, properties: [:])?.write(to: out)
-        print("[DS1] wrote \(out.path)")
-        return rep
+        try #require(offscreenBitmap(specimen(dark: dark), size: size,
+                                     appearance: dark ? .darkAqua : .aqua, close: true))
     }
 
     /// The pixel at (x, y) in points, as raw sRGB bytes scaled to 0…1.
@@ -179,7 +166,6 @@ import Testing
             washChroma = max(washChroma, max(c.0, c.1, c.2) - min(c.0, c.1, c.2))
         } }
         let chroma = max(extreme.c.0, extreme.c.1, extreme.c.2) - min(extreme.c.0, extreme.c.1, extreme.c.2)
-        print("[DS1] \(dark ? "dark" : "light") caution words: L \(extreme.l) chroma \(chroma) · wash chroma \(washChroma)")
         if dark {
             #expect(extreme.l > 0.6, "the brightest ink in the caution pill is L \(extreme.l), not white")
         } else {
@@ -199,21 +185,11 @@ import Testing
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ComponentWordInkRenderTests {
 
     static func render(_ view: some View, size: CGSize, dark: Bool) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: view
+        try #require(offscreenBitmap(view
             .frame(width: size.width, height: size.height)
             .background(dark ? Color(red: 0.13, green: 0.13, blue: 0.13) : Color(red: 0.96, green: 0.96, blue: 0.96))
-            .environment(\.colorScheme, dark ? .dark : .light))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.close()
-        return rep
+            .environment(\.colorScheme, dark ? .dark : .light),
+            size: size, appearance: dark ? .darkAqua : .aqua, close: true))
     }
 
     /// The words' pixel in the columns `xs` (a fraction of the width): its luminance and chroma.

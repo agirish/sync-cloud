@@ -122,58 +122,29 @@ import Testing
     /// the confirm (Return confirms there, and Escape stays on Cancel). Comments count for neither
     /// side, so a call named in a comment can't stand in for one.
     @Test func everyCancelDefaultAlertAnswersEscape() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let roots = ["Modules", "MacApp"].map { repo.appendingPathComponent($0) }
         var scanned = 0
         var cancelTakesReturn = 0
-        for root in roots {
-            let walker = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
-            for case let url as URL in walker where url.pathExtension == "swift" {
-                let path = url.path
-                guard !path.contains("/.build/"), !path.contains("/Tests/") else { continue }
-                let code = try String(contentsOf: url, encoding: .utf8)
-                    .split(separator: "\n", omittingEmptySubsequences: false)
-                    .map(Self.withoutComment)
-                scanned += 1
-                let returns = code.filter { line in
-                    let compact = line.replacingOccurrences(of: " ", with: "")
-                    let givesReturn = ["keyEquivalent=\"\\r\"", "keyEquivalent=\"\\u{d}\"",
-                                       "keyEquivalent=\"\\u{D}\"", "keyEquivalent=\"\\u{0d}\"",
-                                       "keyEquivalent=\"\\u{0D}\""].contains { compact.contains($0) }
-                    return givesReturn && !compact.lowercased().hasPrefix("confirm")
-                }.count
-                guard returns > 0 else { continue }
-                cancelTakesReturn += returns
-                let calls = code.filter {
-                    $0.contains("runModalCancellingOnEscape(") && !$0.contains("func runModalCancellingOnEscape(")
-                }.count
-                #expect(calls >= returns,
-                        "\(url.lastPathComponent): \(returns) alert(s) give Cancel Return but \(calls) run with the Escape monitor")
-            }
+        for url in try AccentFillScanTests.appSources() {
+            let code = try String(contentsOf: url, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map { AccentFillScanTests.codeOnly($0) }
+            scanned += 1
+            let returns = code.filter { line in
+                let compact = line.replacingOccurrences(of: " ", with: "")
+                let givesReturn = ["keyEquivalent=\"\\r\"", "keyEquivalent=\"\\u{d}\"",
+                                   "keyEquivalent=\"\\u{D}\"", "keyEquivalent=\"\\u{0d}\"",
+                                   "keyEquivalent=\"\\u{0D}\""].contains { compact.contains($0) }
+                return givesReturn && !compact.lowercased().hasPrefix("confirm")
+            }.count
+            guard returns > 0 else { continue }
+            cancelTakesReturn += returns
+            let calls = code.filter {
+                $0.contains("runModalCancellingOnEscape(") && !$0.contains("func runModalCancellingOnEscape(")
+            }.count
+            #expect(calls >= returns,
+                    "\(url.lastPathComponent): \(returns) alert(s) give Cancel Return but \(calls) run with the Escape monitor")
         }
         try #require(scanned > 100, "scanned \(scanned) files — the walk is not reading the app")
         #expect(cancelTakesReturn >= 5, "found \(cancelTakesReturn) Cancel-takes-Return alerts — the pattern moved")
-    }
-
-    /// A line with its `//` comment removed, whole or trailing, respecting string literals, so a
-    /// call named in a comment can't stand in for the call.
-    static func withoutComment(_ line: Substring) -> Substring {
-        var inString = false
-        var previous: Character = " "
-        for index in line.indices {
-            let character = line[index]
-            if character == "\"" && previous != "\\" { inString.toggle() }
-            if !inString, character == "/", previous == "/" { return line[..<line.index(before: index)] }
-            previous = character
-        }
-        return line
-    }
-
-    @Test func aTrailingCommentCannotStandInForTheCall() {
-        #expect(!Self.withoutComment("alert.runModal() // runModalCancellingOnEscape(alert)")
-                    .contains("runModalCancellingOnEscape("))
-        #expect(Self.withoutComment("let u = \"http://x\"") == "let u = \"http://x\"")
     }
 }

@@ -76,16 +76,14 @@ import Sync
     @Test func anUnreadableRootDoesNotDeleteTheAccountsAlreadyFound() async {
         let test = TestDefaults()
         let readable = Mutable(true)
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: {
+        let settings = test.manager(
+            lister: {
                 readable.value
                     ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox"),
                              URL(fileURLWithPath: "/CloudStorage/OneDrive-Personal")])
                     : .unreadableRoot
             },
-            pathValidator: { _ in true })
+            validator: { _ in true })
 
         await settings.discoverProviders()
         let found = settings.availableProviders.map(\.id)
@@ -105,13 +103,11 @@ import Sync
         // unreadable root is refused; a root that lost its accounts is readable and empty.
         let test = TestDefaults()
         let mounted = Mutable(true)
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: {
+        let settings = test.manager(
+            lister: {
                 mounted.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .read([])
             },
-            pathValidator: { _ in true })
+            validator: { _ in true })
 
         await settings.discoverProviders()
         #expect(settings.availableProviders.map(\.id).contains("Dropbox"))
@@ -132,13 +128,11 @@ import Sync
         let test = TestDefaults()
         let readable = Mutable(true)
         let dropboxIsValid = Mutable(true)
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: {
+        let settings = test.manager(
+            lister: {
                 readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
             },
-            pathValidator: { path in path.contains("Dropbox") ? dropboxIsValid.value : true })
+            validator: { path in path.contains("Dropbox") ? dropboxIsValid.value : true })
 
         await settings.discoverProviders()
         #expect(settings.pathValidity["Dropbox"] == true)
@@ -162,13 +156,11 @@ import Sync
         // `addFolderSource` calls `discoverProviders()` itself, so this is the ordinary sequence.
         let test = TestDefaults()
         let readable = Mutable(true)
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: {
+        let settings = test.manager(
+            lister: {
                 readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
             },
-            pathValidator: { _ in true })
+            validator: { _ in true })
 
         await settings.discoverProviders()
         #expect(settings.availableProviders.map(\.id) == ["iCloud", "Dropbox"])
@@ -188,13 +180,11 @@ import Sync
         // The other direction: a count rule would refuse this legitimate shrink.
         let test = TestDefaults()
         let readable = Mutable(true)
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: {
+        let settings = test.manager(
+            lister: {
                 readable.value ? .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) : .unreadableRoot
             },
-            pathValidator: { _ in true })
+            validator: { _ in true })
         let id = settings.addFolderSource(path: "/Users/u/Projects")
         await settings.discoverProviders()
         #expect(settings.availableProviders.map(\.id).contains(id))

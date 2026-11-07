@@ -8,7 +8,7 @@ import Sync
 /// Visual snapshot net over FileExplorer's composite surfaces: StatPill, the Storage treemap's
 /// tile-label pairing, DuplicateGroupCard, and ConditionChip wrapping inside FlowLayout. Fixed
 /// sizes, frozen dates, light + dark; workflow and caveats in
-/// Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
+/// "Image snapshots" in docs/ci.md.
 @MainActor
 @Suite(.serialized, .machinePinned(.referenceImages)) struct FileExplorerSnapshotTests {
 

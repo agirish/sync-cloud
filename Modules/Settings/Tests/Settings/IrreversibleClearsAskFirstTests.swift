@@ -42,27 +42,15 @@ import Testing
     /// Each button goes through its gate. Scanned, not driven, because a SwiftUI `Button`'s action
     /// can't be reached from a test; this connects the shipping button to the decisions above.
     @Test func everyIrreversibleClearGoesThroughItsGate() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-        func source(_ path: String) throws -> String {
-            let text = try #require(
-                try? String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8),
-                "cannot read \(path) — the checks below would be vacuous")
-            try #require(text.count > 1_000, "\(path) is implausibly short")
-            return text
-        }
-
-        let keyRow = try source("Modules/Settings/Sources/Settings/CloudKeyRow.swift")
+        let keyRow = try repoSource("Modules/Settings/Sources/Settings/CloudKeyRow.swift")
         #expect(keyRow.contains("Self.removeIfConfirmed(confirm: confirmRemoveKey, remove: removeKey)"),
                 "Remove no longer asks through `removeIfConfirmed`")
         #expect(!keyRow.contains("Button(\"Remove\", action: removeKey)"),
                 "Remove deletes the key on one click again")
 
         // Both spend Clears, and no unasked clear anywhere else in the app.
-        let settings = try source("Modules/Settings/Sources/Settings/SettingsView.swift")
-        let lensSheet = try source("Modules/FileExplorer/Sources/FileExplorer/FilingSpendHistoryView.swift")
+        let settings = try repoSource("Modules/Settings/Sources/Settings/SettingsView.swift")
+        let lensSheet = try repoSource("Modules/FileExplorer/Sources/FileExplorer/FilingSpendHistoryView.swift")
         #expect(settings.contains("FilingSpendStore.clearIfConfirmed("),
                 "Ask Claude ▸ Key & Spending's Clear no longer asks")
         #expect(lensSheet.contains("FilingSpendStore.clearIfConfirmed"),

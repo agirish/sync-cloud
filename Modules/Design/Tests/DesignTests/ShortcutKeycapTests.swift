@@ -9,7 +9,7 @@ import Testing
 /// and presence from counting changed pixels, since a view can report a correct size and draw
 /// nothing at all.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct ShortcutKeycapTests {
+@Suite(.serialized) struct ShortcutKeycapTests {
 
     private static let canvas = CGSize(width: 240, height: 44)
     private static let tint = Color(red: 0, green: 0.44, blue: 0.91)
@@ -42,20 +42,7 @@ import Testing
             // an accent fill would report "the keycap did not paint".
             .background(background)
             .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return offscreenBitmap(AnyView(subject), size: Self.canvas)
     }
 
     /// Pixels differing by more than a hair between two renders of the same canvas. Every pixel,
@@ -79,7 +66,7 @@ import Testing
     /// A badged control is the same size whether the reveal is on or off, so nothing moves under a
     /// settled pointer. Measured by `fittingSize`, so it fails if the overlay becomes, say, an
     /// `HStack`.
-    @Test func aBadgedControlIsTheSameSizeInBothStates() {
+    @Test(.machinePinned(.pixelSampling)) func aBadgedControlIsTheSameSizeInBothStates() {
         for subject in Self.subjects() {
             let off = hosted(subject.view.shortcutKeycap("⇧⌘→"),
                              revealed: false).fittingSize
@@ -91,7 +78,7 @@ import Testing
 
     /// ...and the modifier costs the control nothing even to adopt: an unbadged control and a
     /// badged one at rest measure the same, so wiring a keycap onto a bar cannot reflow it.
-    @Test func adoptingTheBadgeDoesNotChangeARestingControl() {
+    @Test(.machinePinned(.pixelSampling)) func adoptingTheBadgeDoesNotChangeARestingControl() {
         for subject in Self.subjects() {
             let bare = hosted(subject.view, revealed: false).fittingSize
             let badged = hosted(subject.view.shortcutKeycap("⇧⌘→"),
@@ -101,7 +88,7 @@ import Testing
     }
 
     /// A long shortcut must not be the exception. `⇧⌘→` is the widest string any adopter passes.
-    @Test func aWideKeycapStillCostsTheControlNothing() {
+    @Test(.machinePinned(.pixelSampling)) func aWideKeycapStillCostsTheControlNothing() {
         let view = Button("Review 12") {}.buttonStyle(.actionBar(.outline, tint: Self.tint, onTint: .white))
         let narrow = hosted(view.shortcutKeycap("↩"), revealed: true).fittingSize
         let wide = hosted(view.shortcutKeycap("⇧⌘→"), revealed: true).fittingSize
@@ -113,7 +100,7 @@ import Testing
     /// Renders both states and counts the pixels that moved: only pixels prove paint. Not asserted
     /// through the accessibility tree, which under `swift test` has no assistive client, so caption
     /// assertions would pass whether or not anything was drawn.
-    @Test func theKeycapPaintsWhenTheRevealIsActive() {
+    @Test(.machinePinned(.pixelSampling)) func theKeycapPaintsWhenTheRevealIsActive() {
         for subject in Self.subjects() {
             let badged = subject.view.shortcutKeycap("⌘F")
             guard let off = render(badged, revealed: false),
@@ -131,7 +118,7 @@ import Testing
 
     /// The other half of the same question: at rest the modifier must paint *nothing*, so a
     /// control that has adopted a keycap looks exactly like one that hasn't.
-    @Test func theKeycapPaintsNothingAtRest() {
+    @Test(.machinePinned(.pixelSampling)) func theKeycapPaintsNothingAtRest() {
         for subject in Self.subjects() {
             guard let bare = render(subject.view, revealed: false),
                   let badged = render(subject.view.shortcutKeycap("⌘F"),
@@ -149,7 +136,7 @@ import Testing
     /// A disabled control's shortcut does not fire, so it must not advertise one. Needs both that
     /// the modifier reads `isEnabled` and that it is applied above `.disabled(…)`, so there is an
     /// `isEnabled` to read.
-    @Test func aDisabledControlWearsNoBadge() {
+    @Test(.machinePinned(.pixelSampling)) func aDisabledControlWearsNoBadge() {
         for subject in Self.subjects() {
             let badged = subject.view
                 .shortcutKeycap("⌘F")
@@ -167,7 +154,7 @@ import Testing
     /// ...and applied below `.disabled(…)` the modifier can't see the state, which is why the
     /// ordering is documented on `shortcutKeycap(_:)`. This pins that assumption: a control
     /// disabled outside the badge still reads as enabled, so the badge shows.
-    @Test func theDisabledGuardDependsOnTheDocumentedOrdering() {
+    @Test(.machinePinned(.pixelSampling)) func theDisabledGuardDependsOnTheDocumentedOrdering() {
         let wrongOrder = Button("Review 12") {}
             .buttonStyle(.actionBar(.outline, tint: Self.tint, onTint: .white))
             .disabled(true)
@@ -183,7 +170,9 @@ import Testing
     /// A `nil` symbol paints nothing, reveal or no reveal: the state of a control that only
     /// sometimes has a chord, like the pane bar's scan rung once it has become Stop. Measured by
     /// pixels, since the modifier is still applied and has to decide to draw nothing.
-    @Test func aControlWithNoChordWearsNoBadge() {
+    /// `theKeycapPaintsWhenTheRevealIsActive` is the positive control: the same subjects with a
+    /// symbol do paint, so "nothing changed" can't pass on a harness that renders nothing.
+    @Test(.machinePinned(.pixelSampling)) func aControlWithNoChordWearsNoBadge() {
         for subject in Self.subjects() {
             let unbadged = subject.view.shortcutKeycap(nil)
             guard let off = render(unbadged, revealed: false),
@@ -193,21 +182,6 @@ import Testing
             }
             #expect(pixelsDiffering(off, on) == 0,
                     "\(subject.name): a control with no chord painted a keycap during the reveal")
-        }
-    }
-
-    /// ...and the positive control: the same subjects with a symbol do paint, so "nothing changed"
-    /// can't pass for "nil was honoured" on a harness that renders nothing.
-    @Test func theSameControlsDoPaintWhenGivenAChord() {
-        for subject in Self.subjects() {
-            let badged = subject.view.shortcutKeycap("⌘F")
-            guard let off = render(badged, revealed: false),
-                  let on = render(badged, revealed: true) else {
-                Issue.record("\(subject.name): no bitmap rep")
-                continue
-            }
-            #expect(pixelsDiffering(off, on) > 200,
-                    "\(subject.name): the fixture painted no keycap even WITH a symbol — the harness is broken, not the nil case")
         }
     }
 
@@ -222,7 +196,7 @@ import Testing
     /// The key is opaque: nothing behind it shows through. Rendered over white and over black, its
     /// pixels must be identical; if the ground bled through, the key would be legible on one
     /// background and not the other.
-    @Test func theKeyIsOpaqueWhateverIsBehindIt() {
+    @Test(.machinePinned(.pixelSampling)) func theKeyIsOpaqueWhateverIsBehindIt() {
         for subject in Self.subjects() {
             let badged = subject.view.shortcutKeycap("⌘F")
             let controlWidth = hosted(subject.view, revealed: false).fittingSize.width
@@ -258,7 +232,7 @@ import Testing
     /// that covers only part of it. Sampled at the leading edge, clear of the centred key, so this
     /// measures the fade and not the badge; without it the label reads straight through beside the
     /// key and looks like a rendering fault.
-    @Test func theControlFadesBehindTheKey() {
+    @Test(.machinePinned(.pixelSampling)) func theControlFadesBehindTheKey() {
         let button = Button("Copy 560 to Dropbox") {}
             .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white))
         let size = hosted(button, revealed: false).fittingSize
@@ -285,7 +259,7 @@ import Testing
     /// `isEnabled`, must not change the control. Not obviously free: `ActionBarButtonStyle` reads
     /// `isEnabled` itself and dims by `ActionBarMetrics.disabledOpacity`, so this checks the
     /// rendered result rather than trusting SwiftUI's environment propagation.
-    @Test(arguments: ActionBarWeight.allCases)
+    @Test(.machinePinned(.pixelSampling), arguments: ActionBarWeight.allCases)
     func disablingOutsideTheStyleLooksTheSameAsDisablingInside(weight: ActionBarWeight) {
         let style = ActionBarButtonStyle(weight: weight, tint: Self.tint, onTint: .white, isIconOnly: false)
         let inside = Button("New folder") {}.disabled(true).buttonStyle(style)
@@ -339,7 +313,7 @@ import Testing
     /// darkest glyph pixel. The test above never touches `ShortcutKeycap`, so a switch to
     /// `.secondary` would pass it; a hierarchical style resolves against the enclosing foreground
     /// and draws a white glyph on the light key over the primary transfer button.
-    @Test func theRenderedKeyIsLegibleAgainstItsOwnFill() {
+    @Test(.machinePinned(.pixelSampling)) func theRenderedKeyIsLegibleAgainstItsOwnFill() {
         let key = ShortcutKeycap("W")
         let size = hosted(key, revealed: true).fittingSize
         guard let rep = render(key, revealed: true) else {

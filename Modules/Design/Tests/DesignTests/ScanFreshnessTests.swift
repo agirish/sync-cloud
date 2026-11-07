@@ -54,63 +54,29 @@ import Foundation
         }
     }
 
-    @Test func relativeBuckets() {
-        #expect(ScanFreshness.relative(0) == "just now")
-        #expect(ScanFreshness.relative(30) == "30s ago")
-        #expect(ScanFreshness.relative(60) == "1m ago")
-        #expect(ScanFreshness.relative(4 * 60) == "4m ago")
-        #expect(ScanFreshness.relative(60 * 60) == "1h ago")
-        #expect(ScanFreshness.relative(3 * 3600) == "3h ago")
-        #expect(ScanFreshness.relative(26 * 3600) == "1d ago")
-        #expect(ScanFreshness.relative(3 * 86_400) == "3d ago")
-    }
-
-    /// Pins the unit seams: labels floor, so they can never contradict the next coarser unit.
-    @Test func unitBoundariesNeverContradictTheCoarserUnit() {
-        // The sub-minute steps: 30s covers 30–59 and 1m starts at a full 60, so no label claims a
-        // minute that hasn't elapsed.
-        #expect(ScanFreshness.relative(29) == "just now")
-        #expect(ScanFreshness.relative(30) == "30s ago")
-        #expect(ScanFreshness.relative(45) == "30s ago")
-        #expect(ScanFreshness.relative(59) == "30s ago")
-        #expect(ScanFreshness.relative(60) == "1m ago")
-
-        // No "1m → 2m" jump at 90s (only 1.5 minutes elapsed); 2m starts when 2 minutes have.
-        #expect(ScanFreshness.relative(89) == "1m ago")
-        #expect(ScanFreshness.relative(90) == "1m ago")
-        #expect(ScanFreshness.relative(119) == "1m ago")
-        #expect(ScanFreshness.relative(120) == "2m ago")
-
-        // Minutes cap at 59: 3570–3599s must not read "60m ago".
-        #expect(ScanFreshness.relative(3570) == "59m ago")
-        #expect(ScanFreshness.relative(3599) == "59m ago")
-        #expect(ScanFreshness.relative(3600) == "1h ago")
-        #expect(ScanFreshness.relative(7199) == "1h ago")
-        #expect(ScanFreshness.relative(7200) == "2h ago")
-
-        // Hours cap at 23: just shy of a day must not read "24h ago". Days stay compact.
-        #expect(ScanFreshness.relative(86_399) == "23h ago")
-        #expect(ScanFreshness.relative(86_400) == "1d ago")
-        #expect(ScanFreshness.relative(2 * 86_400 - 1) == "1d ago")
-        #expect(ScanFreshness.relative(2 * 86_400) == "2d ago")
-    }
-
     /// Every bucket edge in one table, so a seam change (a new bucket, rounding, an off-by-one)
-    /// fails one test with the whole table in view. Includes the mid-bucket cells the seam test
-    /// skips: 5400s (1.5h) must read "1h ago", which rounding would make "2h".
+    /// fails one test with the whole table in view, mid-bucket cells included: 5400s (1.5h) must read
+    /// "1h ago", which rounding would make "2h". Labels floor, so they never contradict the next
+    /// coarser unit.
     @Test func fullBoundaryTable() {
         let table: [(seconds: TimeInterval, label: String)] = [
             (0, "just now"),
             (29, "just now"), (30, "30s ago"),                   // just now → 30s
+            (45, "30s ago"),
             (59, "30s ago"), (60, "1m ago"),                     // 30s → 1m at a full minute
             (89, "1m ago"), (90, "1m ago"),                      // no rounding jump at 1.5m
             (119, "1m ago"), (120, "2m ago"),                    // 1m → 2m only at 2 full minutes
+            (240, "4m ago"),
+            (3570, "59m ago"),
             (3599, "59m ago"), (3600, "1h ago"),                 // minutes cap at 59
             (5399, "1h ago"), (5400, "1h ago"),                  // no rounding jump at 1.5h
             (7199, "1h ago"), (7200, "2h ago"),                  // 1h → 2h only at 2 full hours
+            (10_800, "3h ago"),
             (86_399, "23h ago"), (86_400, "1d ago"),             // hours cap at 23
+            (93_600, "1d ago"),
             (129_599, "1d ago"), (129_600, "1d ago"),            // no rounding jump at 1.5 days
             (172_799, "1d ago"), (172_800, "2d ago"),            // 1d → 2d at 2 full days
+            (259_200, "3d ago"),
         ]
         for row in table {
             #expect(ScanFreshness.relative(row.seconds) == row.label,

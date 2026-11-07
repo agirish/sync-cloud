@@ -23,16 +23,8 @@ final class HoverTintRenderTests: XCTestCase {
     /// Renders a specimen at a fixed size and returns its pixels.
     @MainActor
     private func render<V: View>(_ view: V) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 40, height: 40)))
-        host.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        try XCTUnwrap(offscreenBitmap(AnyView(view.frame(width: 40, height: 40)),
+                                      size: CGSize(width: 40, height: 40), appearance: nil, sRGB: false))
     }
 
     /// How blue the specimen is overall. The tint is pure blue, so this rises only if it landed.

@@ -40,11 +40,7 @@ private let dropboxDocs = "/Users/test/Library/CloudStorage/Dropbox"
 
 @MainActor
 private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> SettingsManager {
-    SettingsManager(
-        autoDiscover: false,
-        userDefaults: test.defaults,
-        cloudStorageLister: { .read([folder("Dropbox")]) },
-        pathValidator: { validPaths.contains($0) })
+    test.manager(lister: { .read([folder("Dropbox")]) }, validator: { validPaths.contains($0) })
 }
 
 // MARK: - pathValidity: what the badge shows and when it is re-checked
@@ -128,11 +124,7 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @Test func testInitialProvidersAreValidatedBeforeFirstDiscovery() {
         let test = TestDefaults()
         let iCloudDefaultPath = SettingsManager.iCloudDefaultPath
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([]) },
-            pathValidator: { $0 == iCloudDefaultPath })
+        let settings = test.manager(validator: { $0 == iCloudDefaultPath })
 
         #expect(settings.isPathValid(for: "iCloud") == true)
         #expect(settings.isPathValid(for: "NonExistent") == false)

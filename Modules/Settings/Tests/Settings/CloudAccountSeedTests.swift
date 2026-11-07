@@ -21,11 +21,7 @@ import Foundation
                            "/CloudStorage/Dropbox"], forKey: key)
 
         // No discovery has run — the lister would answer, but nothing has called it.
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([]) },
-            pathValidator: { _ in true })
+        let settings = test.manager(validator: { _ in true })
 
         let seeded = settings.availableProviders.map(\.id)
         #expect(seeded.contains("GoogleDrive-someone@example.com"),
@@ -38,11 +34,7 @@ import Foundation
     @Test func withNoRecordTheSeedIsUnchanged() {
         let test = TestDefaults()
         // A first launch after install: nothing recorded, so nothing invented.
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([]) },
-            pathValidator: { _ in true })
+        let settings = test.manager(validator: { _ in true })
 
         let seeded = settings.availableProviders.map(\.id)
         #expect(seeded.contains("iCloud"), "iCloud is always available and must still be seeded")
@@ -55,11 +47,9 @@ import Foundation
     @MainActor
     @Test func aReadableDiscoveryRecordsWhatItSaw() async {
         let test = TestDefaults()
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
-            pathValidator: { _ in true })
+        let settings = test.manager(
+            lister: { .read([URL(fileURLWithPath: "/CloudStorage/Dropbox")]) },
+            validator: { _ in true })
 
         await settings.discoverProviders()
         #expect(test.defaults.stringArray(forKey: key) == ["/CloudStorage/Dropbox"],
@@ -78,11 +68,7 @@ import Foundation
         let test = TestDefaults()
         test.defaults.set(["/CloudStorage/Dropbox"], forKey: key)
 
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            cloudStorageLister: { .unreadableRoot },
-            pathValidator: { _ in true })
+        let settings = test.manager(lister: { .unreadableRoot }, validator: { _ in true })
 
         await settings.discoverProviders()
         #expect(test.defaults.stringArray(forKey: key) == ["/CloudStorage/Dropbox"],

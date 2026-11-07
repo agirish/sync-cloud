@@ -16,15 +16,8 @@ import Testing
         #expect(SemanticColor.error == .red)
         // Deliberately its own hue: distinct from warning-orange AND from the app accent.
         #expect(SemanticColor.move == .purple)
-    }
-
-    @Test func meaningsNeverShareAColor() {
-        let table = [SemanticColor.success, SemanticColor.info, SemanticColor.warning,
-                     SemanticColor.caution, SemanticColor.error, SemanticColor.move]
-        for (i, a) in table.enumerated() {
-            for b in table.dropFirst(i + 1) {
-                #expect(a != b)
-            }
-        }
+        // No two meanings share a colour.
+        #expect(Set([SemanticColor.success, SemanticColor.info, SemanticColor.warning,
+                     SemanticColor.caution, SemanticColor.error, SemanticColor.move]).count == 6)
     }
 }

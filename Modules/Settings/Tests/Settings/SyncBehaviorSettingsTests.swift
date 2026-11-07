@@ -9,14 +9,9 @@ import Sync
 @Suite struct SyncBehaviorSettingsTests {
 
     @MainActor
-    private func makeManager(_ test: TestDefaults) -> SettingsManager {
-        SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-    }
-
-    @MainActor
     @Test func testDefaultsMatchHistoricalBehavior() {
         let test = TestDefaults()
-        let settings = makeManager(test)
+        let settings = test.manager()
         #expect(settings.dateToleranceSeconds == 1)
         #expect(settings.autoVerifySameSizeDuringScan == false)
         #expect(settings.rememberIgnoredItems == true)
@@ -29,7 +24,7 @@ import Sync
     @Test func testNewSettingsPersistAcrossInstances() {
         let test = TestDefaults()
 
-        let a = makeManager(test)
+        let a = test.manager()
         a.dateToleranceSeconds = 5
         a.autoVerifySameSizeDuringScan = true
         a.rememberIgnoredItems = false
@@ -37,7 +32,7 @@ import Sync
         a.conflictPolicy = .keepBoth
         a.defaultSortOption = .dateModified
 
-        let b = makeManager(test)
+        let b = test.manager()
         #expect(b.dateToleranceSeconds == 5)
         #expect(b.autoVerifySameSizeDuringScan == true)
         #expect(b.rememberIgnoredItems == false)
@@ -56,7 +51,7 @@ import Sync
     @MainActor
     @Test func testAddIgnorePatternNormalizesAndDeduplicates() {
         let test = TestDefaults()
-        let settings = makeManager(test)
+        let settings = test.manager()
 
         #expect(settings.addIgnorePattern("  *.tmp \n"))
         #expect(settings.ignorePatterns == ["*.tmp"])
@@ -69,34 +64,32 @@ import Sync
         #expect(settings.ignorePatterns.isEmpty)
     }
 
-    @Test func testShouldConfirmBeforeDeleteDefaultsToTrue() {
-        let test = TestDefaults()
-        #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
-        test.defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
-        #expect(!GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
-        test.defaults.set(true, forKey: GeneralSettings.confirmBeforeDeleteKey)
-        #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
+    /// The two confirm flags, each read through its own reader.
+    enum ConfirmFlag: String, CaseIterable {
+        case delete, transfer
+        var key: String {
+            self == .delete ? GeneralSettings.confirmBeforeDeleteKey : GeneralSettings.confirmBeforeTransferKey
+        }
+        func read(_ defaults: UserDefaults) -> Bool {
+            self == .delete ? GeneralSettings.shouldConfirmBeforeDelete(defaults)
+                : GeneralSettings.shouldConfirmBeforeTransfer(defaults)
+        }
     }
 
-    @Test func testShouldConfirmBeforeTransferDefaultsToTrue() {
-        // Default-true semantics like the delete flag: an unset key must confirm, not skip.
+    /// Default-true semantics: an unset key must confirm, not skip.
+    @Test(arguments: ConfirmFlag.allCases) func testShouldConfirmDefaultsToTrue(_ flag: ConfirmFlag) {
         let test = TestDefaults()
-        #expect(GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
-        test.defaults.set(false, forKey: GeneralSettings.confirmBeforeTransferKey)
-        #expect(!GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
-        test.defaults.set(true, forKey: GeneralSettings.confirmBeforeTransferKey)
-        #expect(GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
+        #expect(flag.read(test.defaults))
+        test.defaults.set(false, forKey: flag.key)
+        #expect(!flag.read(test.defaults))
+        test.defaults.set(true, forKey: flag.key)
+        #expect(flag.read(test.defaults))
     }
 
     @MainActor
     @Test func testResetAllSettingsClearsTheDomainAndRepublishesDefaults() {
         let test = TestDefaults()
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            overridesDomainName: test.suiteName,
-            cloudStorageLister: { .read([]) }
-        )
+        let settings = test.manager(domain: test.suiteName)
 
         settings.setPath("/tmp/custom-root", for: "iCloud")
         settings.dateToleranceSeconds = 60
@@ -125,12 +118,7 @@ import Sync
     @MainActor
     @Test func testResetAllSettingsKeepsTheHiddenListLimitsAndSpend() {
         let test = TestDefaults()
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: test.defaults,
-            overridesDomainName: test.suiteName,
-            cloudStorageLister: { .read([]) }
-        )
+        let settings = test.manager(domain: test.suiteName)
         let defaults = test.defaults
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
         AskClaudePrivacy.shareWithoutAsking("/Users/u/Documents/Recipes", in: defaults)
@@ -215,8 +203,7 @@ import Sync
     @MainActor
     @Test func testResetAllSettingsWithNoDomainNameClearsTheStoreItWasGiven() {
         let test = TestDefaults()
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
+        let settings = test.manager()
         let defaults = test.defaults
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
         defaults.set("cursive", forKey: "resetAllTest.onlyInThisStore")
@@ -259,10 +246,7 @@ import Sync
         let question = AdvancedSettingsTab.resetAllQuestion(raising: ["Model back to Sonnet"])
         #expect(question == AdvancedSettingsTab.resetAllExplanation + "\n\nThis also raises what Claude may do: Model back to Sonnet.")
         #expect(AdvancedSettingsTab.resetAllQuestion(raising: []) == AdvancedSettingsTab.resetAllExplanation)
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/Settings/SettingsView.swift")
-        let text = SettingsAsksBeforeRemovingTests.withoutComments(try String(contentsOf: url, encoding: .utf8))
-        try #require(text.count > 1_000, "SettingsView.swift is implausibly short")
+        let text = SettingsAsksBeforeRemovingTests.withoutComments(try settingsSource("SettingsView.swift"))
         #expect(text.contains("alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())"),
                 "Settings' Reset All alert doesn't name what it raises")
         #expect(text.contains(".resetAllRaises()\n"), "Settings never hands Advanced what Reset All raises")

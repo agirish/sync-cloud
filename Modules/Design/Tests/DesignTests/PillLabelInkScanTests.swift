@@ -107,33 +107,10 @@ import Testing
     /// The inks a view is given.
     static let inkModifiers: Set<String> = ["foregroundStyle", "foregroundColor"]
 
-    /// `AccentFillScanTests.chain`, but a trailing closure is read as part of its modifier's
-    /// argument: a wash is as often `.background { Capsule().fill(tint.opacity(…)) }` as
-    /// `.background(…)`.
+    /// `AccentFillScanTests.chain`, with a trailing closure read as part of its modifier's argument:
+    /// a wash is as often `.background { Capsule().fill(tint.opacity(…)) }` as `.background(…)`.
     static func chain(_ text: [Character], after index: Int) -> [(name: String, argument: [Character])] {
-        var modifiers: [(String, [Character])] = []
-        var i = index
-        func skipSpace() { while i < text.count, text[i].isWhitespace { i += 1 } }
-        while true {
-            skipSpace()
-            guard i < text.count, text[i] == "." else { break }
-            i += 1
-            var name = ""
-            while i < text.count, text[i].isLetter || text[i].isNumber || text[i] == "_" { name.append(text[i]); i += 1 }
-            guard !name.isEmpty else { break }
-            var argument: [Character] = []
-            if i < text.count, text[i] == "(", let close = Scan.matching(text, i) {
-                argument = Array(text[(i + 1)..<close])
-                i = close + 1
-            }
-            skipSpace()
-            if i < text.count, text[i] == "{", let close = Scan.matching(text, i) {
-                argument += Array(text[(i + 1)..<close])
-                i = close + 1
-            }
-            modifiers.append((name, argument))
-        }
-        return modifiers
+        Scan.chain(text, after: index, trailingClosureIsArgument: true)
     }
 
     /// An ink argument with the readable inks taken out: `PillVariant.labelInk(for: tint)` names

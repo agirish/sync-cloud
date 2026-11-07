@@ -29,11 +29,7 @@ struct PeopleLookRootTests {
     /// `@State` has no storage off-screen), so this scans the one declaration, failing loudly if it
     /// moves.
     @Test func lookForNamesNoLongerWaitsOnAFilingScan() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Settings/SettingsView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SettingsView.swift — this scan would be vacuous")
+        let source = try settingsSource("SettingsView.swift")
         let start = try #require(source.range(of: "struct PeopleList: View {"), "PeopleList is gone")
         let rest = source[start.upperBound...]
         let end = try #require(rest.range(of: "\nprivate struct PersonRow: View {"),

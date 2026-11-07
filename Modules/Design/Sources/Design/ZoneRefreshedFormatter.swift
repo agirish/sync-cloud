@@ -68,9 +68,8 @@ public final class ZoneRefreshedFormatter: @unchecked Sendable {
         return ZoneRefreshedFormatter(made)
     }
 
-    /// Renders `date`, in `zone`: the system zone unless a caller names one. `zone` exists for
-    /// snapshot references, which would otherwise bake in the recording machine's zone and go red
-    /// on a frozen fixture when that machine moves (see `DashboardSnapshotTests.pinnedZone`).
+    /// Renders `date`, in `zone`: the system zone unless a caller names one. `zone` lets a test pin
+    /// the zone, so a frozen fixture doesn't change when the machine moves.
     ///
     /// `locale` renders one string in another region and puts the formatter back, under the lock,
     /// so a test can pin a 12-hour against a 24-hour reading of a ``localized(date:time:)``

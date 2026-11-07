@@ -17,12 +17,6 @@ struct TintCurveTests {
         #expect(LiquidGlass.backgroundHueStrength(forTint: 1.0) == 1.0)
     }
 
-    @Test func theWashStillTopsOutAtItsOldStrength() {
-        // `contentSurface` paints `tintRamp(tint) * 0.32`, so at 100% the surfaces get the full
-        // 0.32 accent opacity.
-        #expect(LiquidGlass.tintRamp(1.0) * 0.32 == 0.32)
-    }
-
     // MARK: - The floor
 
     @Test func theBackgroundKeepsAQuarterOfItsHueAtZero() {

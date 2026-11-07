@@ -1033,7 +1033,7 @@ struct AppearanceSettingsTab: View {
 
 /// A selectable hue option for the liquid glass accent color.
 /// Internal rather than file-private: `AccentColorSection` (the accent picker's own file) builds
-/// the row of these, and the snapshot tests render it.
+/// the row of these, and the tests render it.
 struct HueOptionView: View {
     let hue: LiquidGlassHue
     let isSelected: Bool

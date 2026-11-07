@@ -47,7 +47,7 @@ import Testing
 
     @Test func noGlyphButtonLacksATooltip() throws {
         var found: [String] = []
-        for file in try Self.appSwiftSources() {
+        for file in try AccentFillScanTests.appSources() {
             // `CloseButton` leaves its tooltip to each caller, checked below.
             guard file.lastPathComponent != "CloseButton.swift" else { continue }
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
@@ -70,7 +70,7 @@ import Testing
     /// see it at any call site. Every caller must give it a tooltip.
     @Test func everyCloseButtonHasATooltip() throws {
         var seen = 0
-        for file in try Self.appSwiftSources() where file.lastPathComponent != "CloseButton.swift" {
+        for file in try AccentFillScanTests.appSources() where file.lastPathComponent != "CloseButton.swift" {
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
             for (i, line) in lines.enumerated() where Self.closeButtonCall.firstMatch(
                 in: line, range: NSRange(line.startIndex..., in: line)) != nil {
@@ -136,32 +136,5 @@ import Testing
                 }
         """.components(separatedBy: "\n")
         #expect(!Self.isUntippedGlyph(Self.chain(in: worded, from: 0)))
-    }
-
-    /// `MacApp/` plus every module's `Sources/`, with the same vacuity guards as
-    /// `UnnamedControlScanTests`.
-    private static func appSwiftSources() throws -> [URL] {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let modules = repo.appendingPathComponent("Modules")
-        var roots = [repo.appendingPathComponent("MacApp")]
-        roots += try FileManager.default
-            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
-            .map { $0.appendingPathComponent("Sources") }
-        var files: [URL] = []
-        for root in roots {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            files += FileManager.default
-                .enumerator(at: root, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" } ?? []
-        }
-        #expect(files.count > 100, "found only \(files.count) app sources — the roots did not resolve")
-        #expect(files.contains { $0.path.hasSuffix("MacApp/SyncCloudApp.swift") }, "MacApp is not being scanned")
-        return files
     }
 }

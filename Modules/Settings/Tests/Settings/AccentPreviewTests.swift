@@ -13,7 +13,7 @@ import Testing
 /// The fill is measured in painted pixels, not read back, so an `.opacity()`, a dimming or a fill
 /// drawn on top is caught too. `AccentFill.deepened` is dynamic, so two calls aren't `==` anyway.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentPreviewTests {
+@Suite(.serialized) struct AccentPreviewTests {
 
     /// Every hue but `.none`, which resolves the machine's system accent, so its value isn't this
     /// code's. Its own case below checks what holds for any input.
@@ -111,7 +111,7 @@ import Testing
     /// tolerance absorbs 8-bit quantisation. Looped, not `@Test(arguments:)`, because
     /// `LiquidGlassHue` isn't `Sendable`; each expectation names its hue.
     @MainActor
-    @Test func previewPaintsTheDeepenedAccent() async throws {
+    @Test(.machinePinned(.pixelSampling)) func previewPaintsTheDeepenedAccent() async throws {
         for hue in Self.fixedHues {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                 let expected = resolve(hue.accentFillColor, appearance)
@@ -134,7 +134,7 @@ import Testing
     /// `SemanticCapsuleStyle.onAccent` paints what it is handed. Feeding the strip `accentColor`
     /// must fail on the pill.
     @MainActor
-    @Test func previewRejectsTheRawAccent() async throws {
+    @Test(.machinePinned(.pixelSampling)) func previewRejectsTheRawAccent() async throws {
         for hue in Self.deepenedHues {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
                 let raw = resolve(hue.accentColor, appearance)
@@ -158,7 +158,7 @@ import Testing
     /// What the deepening exists for, measured on painted pixels: the white label clears WCAG AA
     /// on both chips, every hue, both appearances.
     @MainActor
-    @Test func whiteLabelClearsAAOnWhatIsPainted() async throws {
+    @Test(.machinePinned(.pixelSampling)) func whiteLabelClearsAAOnWhatIsPainted() async throws {
         for hue in Self.fixedHues {
             let white = NSColor(hue.onAccentLabelColor).usingColorSpace(.sRGB)!
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {
@@ -188,7 +188,7 @@ import Testing
     /// colour is the machine's, so this pins what holds for any input: opaque, distinct from the
     /// ground, and carrying white at AA.
     @MainActor
-    @Test func noneStillPaintsALegibleButton() async throws {
+    @Test(.machinePinned(.pixelSampling)) func noneStillPaintsALegibleButton() async throws {
         let white = NSColor.white.usingColorSpace(.sRGB)!
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             let (rep, size) = renderStrip(.none, appearance)
@@ -248,9 +248,6 @@ import Testing
                 == "Preview: Cyan accent on a filled button and a count pill.")
     }
 
-    // The accent section's image snapshot is in `SettingsSnapshotTests`, marked
-    // `.machinePinned(.referenceImages)` so CI excludes it.
-    //
     // The pixel checks above read a live renderer, so another renderer can fail them for machine
     // reasons. They are `.machinePinned(.pixelSampling)` and still run on CI, which is sound only
     // while the runner is the recording machine; they are coarse enough to survive small

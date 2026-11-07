@@ -36,16 +36,6 @@ import Testing
 
     // MARK: - An unrecognized stored value gets a row
 
-    /// One picker at a time: whatever is persisted, some row carries it, which SwiftUI needs to
-    /// render a selection at all.
-    @Test func everyPickerCarriesAnUnrecognizedStoredValue() {
-        #expect(SettingsPickerOptions.dateTolerance(including: 3).contains { $0.value == 3 })
-        #expect(SettingsPickerOptions.minFileSize(including: 51_200).contains { $0.value == 51_200 })
-        #expect(SettingsPickerOptions.overlapThreshold(including: 0.65).contains { $0.value == 0.65 })
-        #expect(SettingsPickerOptions.monthlyBudget(including: 3).contains { $0.value == 3 })
-        #expect(SettingsPickerOptions.totalBudget(including: 7.5).contains { $0.value == 7.5 })
-    }
-
     /// The extra row is added, never substituted: the count grows by one and every original option
     /// survives. Coercing the stored value onto a neighbour would lose it just the same.
     @Test func theStoredValueIsAddedRatherThanReplacingAnOfferedOption() {
@@ -65,8 +55,10 @@ import Testing
     }
 
     /// The extra row is labeled by the same formatter as its neighbours: "3.0" next to "2 seconds"
-    /// would read as a glitch rather than a setting.
+    /// would read as a glitch rather than a setting. Finding each by value also shows every picker
+    /// carries an unrecognized stored value, which SwiftUI needs to render a selection at all.
     @Test func theExtraRowUsesTheSameVocabularyAsItsNeighbours() {
+        #expect(SettingsPickerOptions.totalBudget(including: 7.5).contains { $0.value == 7.5 })
         #expect(SettingsPickerOptions.dateTolerance(including: 3).first { $0.value == 3 }?.label == "3 seconds")
         #expect(SettingsPickerOptions.dateTolerance(including: 120).first { $0.value == 120 }?.label == "2 minutes")
         #expect(SettingsPickerOptions.minFileSize(including: 51_200).first { $0.value == 51_200 }?.label == "50 KB")

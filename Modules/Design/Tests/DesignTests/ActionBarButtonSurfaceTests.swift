@@ -23,20 +23,7 @@ import Testing
         let subject = view
             .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .leading)
             .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return offscreenBitmap(AnyView(subject), size: Self.canvas)
     }
 
     /// Fraction of sampled pixels where the two bitmaps differ by more than a hair. A 2pt grid

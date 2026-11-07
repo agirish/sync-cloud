@@ -14,18 +14,6 @@ import Testing
         NSHostingView(rootView: view).fittingSize
     }
 
-    /// The recipe and the component must reserve exactly the same room. Checked against the
-    /// recipe, not a literal `16`, so it stays right if AppKit resizes its controls.
-    ///
-    /// `scaleEffect` takes no part in layout, so the recipe reserves `.small`'s full box while
-    /// drawing smaller; a plain `.controlSize(.mini)` swap shrinks the footprint and moves rows.
-    @Test @MainActor func theFootprintMatchesTheRecipeItReplaces() {
-        let old = fitting(ProgressView().controlSize(.small).scaleEffect(0.7))
-        let new = fitting(InlineSpinner())
-        #expect(old == new,
-                "footprint moved \(old) → \(new); every row carrying this spinner shifts")
-    }
-
     /// The drawn control is smaller than `.small`, which is the difference between drawing it small
     /// and resampling one drawn bigger. Measured without the frame, which only holds the row's space
     /// open.

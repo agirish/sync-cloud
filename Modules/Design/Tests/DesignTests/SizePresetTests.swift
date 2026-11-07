@@ -136,17 +136,6 @@ import SwiftUI
                 < SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .extraLarge, density: .comfortable)))
     }
 
-    /// What the tiles and the preview claim about row spacing has to be what row spacing does. The
-    /// tile says the word and `SizeSpacingPreview` draws the result; both mean nothing if these
-    /// metrics converge.
-    @Test func densityReallyChangesWhatARowShows() {
-        #expect(ListDensity.comfortable.metrics.showsSecondaryDetail)
-        #expect(!ListDensity.compact.metrics.showsSecondaryDetail)
-        #expect(ListDensity.compact.metrics.treeIconSize < ListDensity.comfortable.metrics.treeIconSize)
-        #expect(ListDensity.compact.metrics.flatRowVerticalPadding
-                < ListDensity.comfortable.metrics.flatRowVerticalPadding)
-    }
-
     /// Compact's caption has to say the size-and-date line disappears, because nobody choosing
     /// from the word "Compact" alone would guess it.
     @Test func theCompactCaptionAdmitsWhatItHides() {

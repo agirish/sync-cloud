@@ -5,15 +5,6 @@ import Sync
 
 @Suite struct SettingsManagerTests {
 
-    @Test @MainActor func testDefaultICloudProvider() {
-        let test = TestDefaults()
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-
-        // SettingsManager starts with 1 default iCloud provider, before any discovery
-        #expect(settings.availableProviders.count >= 1)
-        #expect(settings.availableProviders.first?.id == "iCloud")
-    }
-
     // Path overrides are covered by
     // SettingsDiscoveryTests.testSetPathResetPathRoundTripWithoutGlobalState, and the iCloud case,
     // including the override surviving discovery, by the seed test below.
@@ -49,7 +40,7 @@ import Sync
 
     @Test @MainActor func testPathForMissingProvider() {
         let test = TestDefaults()
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
+        let settings = test.manager()
         #expect(settings.rootPath(for: "NonExistent") == "")
     }
 }

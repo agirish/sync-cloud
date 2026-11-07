@@ -85,9 +85,7 @@ import Security
         #expect(landed.failure == nil)
 
         // The half that connects the shipping Save to the rule: a Button's action is unreachable.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Settings/CloudKeyRow.swift"), encoding: .utf8)
+        let source = try settingsSource("CloudKeyRow.swift")
         #expect(source.contains("let after = Self.afterSave(typed: apiKeyField"),
                 "Save no longer decides what to show through `afterSave`")
         #expect(source.contains("apiKeyField = after.field"), "Save no longer keeps the field by `afterSave`")

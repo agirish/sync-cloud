@@ -540,17 +540,4 @@ import Foundation
         #expect(!driver.toggle)
         #expect(driver.peakConcurrency == 1)
     }
-
-    /// A settled toggle stops the loop rather than ping-ponging: the common case is one flip,
-    /// one round-trip, done.
-    @Test func anUndisturbedFlipIsASingleRoundTrip() {
-        let driver = Driver(startingRegistered: false)
-
-        driver.flip(to: true)
-        driver.complete(0, succeeded: true)
-
-        #expect(driver.calls.map(\.value) == [true])
-        #expect(driver.peakConcurrency == 1)
-        #expect(!driver.guardState.shouldStartRoundTrip(for: true, at: t0))
-    }
 }

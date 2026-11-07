@@ -23,24 +23,12 @@ import Testing
     }
 
     static func render(_ view: some View, dark: Bool) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: view
+        try #require(offscreenBitmap(view
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.controlActiveState, .key)
-            .environment(\.colorScheme, dark ? .dark : .light))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.close()
-        return rep
+            .environment(\.colorScheme, dark ? .dark : .light),
+            size: size, appearance: dark ? .darkAqua : .aqua, settle: 0.05, close: true))
     }
 
     static func pixel(_ rep: NSBitmapImageRep, _ x: Int, _ y: Int) -> NSColor {

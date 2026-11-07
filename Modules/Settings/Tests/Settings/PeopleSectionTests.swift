@@ -9,11 +9,10 @@ import Testing
 /// tests matter most: a roster is persisted state, and "it worked in the window" says nothing about
 /// what a relaunch reads back.
 ///
-/// `.machinePinned(.pixelSampling)` because `ink` reads painted pixels back with `colorAt`. Only
-/// `theUnreadableRosterNotePaintsItsMessage` samples, but the trait covers the whole suite, as every
-/// pinned suite does, so the rest stand down with it.
+/// `theUnreadableRosterNotePaintsItsMessage` is `.machinePinned(.pixelSampling)` because `ink`
+/// reads painted pixels back with `colorAt`; nothing else here samples, so the rest run unpinned.
 @MainActor
-@Suite(.machinePinned(.pixelSampling)) struct PeopleSectionTests {
+@Suite struct PeopleSectionTests {
 
     /// A household whose names overlap: Father's given name is Daughter's surname, and his surname
     /// is Granny's.
@@ -234,8 +233,7 @@ import Testing
 
     /// Ink drawn by `view` at `width`, counted as pixels differing from the window background.
     /// Pixels, because a height comparison would pass against a note that reserved space and drew
-    /// nothing. Light appearance on an opaque fill, as in `PeopleRenderProbe`, or the render reads
-    /// as white on transparency.
+    /// nothing. Light appearance on an opaque fill, or the render reads as white on transparency.
     private func ink(_ view: some View, width: CGFloat) -> Int {
         let subject = view.frame(width: width)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -262,7 +260,7 @@ import Testing
     /// always seeded, so `sourceNote` swaps in a longer sentence and that alone clears a threshold.
     /// The control is the same Label with no message, because the warning triangle alone paints
     /// hundreds of pixels.
-    @Test func theUnreadableRosterNotePaintsItsMessage() {
+    @Test(.machinePinned(.pixelSampling)) func theUnreadableRosterNotePaintsItsMessage() {
         let width = SettingsSheetMetrics.contentWidth(textScale: 1)
         let note = ink(PeopleList.unreadableRosterNote, width: width)
         let iconOnly = ink(
@@ -278,11 +276,7 @@ import Testing
     /// source scan, because the render above can't isolate this branch. Bounded to `body` and
     /// failing loudly if the declaration moves, so a rename can't empty the haystack.
     @Test func theUnreadableRosterNoteIsWiredIntoTheList() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Settings/SettingsView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SettingsView.swift — this scan would be vacuous")
+        let source = try settingsSource("SettingsView.swift")
         let marker = "struct PeopleList: View {"
         #expect(source.components(separatedBy: marker).count - 1 == 1,
                 "PeopleList is declared more than once — this scan would read the wrong one")

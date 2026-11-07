@@ -14,11 +14,7 @@ import Sync
     private func manager(_ defaults: TestDefaults,
                          cloudStorage: [URL] = [],
                          valid: @escaping @Sendable (String) -> Bool = { _ in true }) -> SettingsManager {
-        SettingsManager(autoDiscover: false,
-                        userDefaults: defaults.defaults,
-                        overridesDomainName: defaults.suiteName,
-                        cloudStorageLister: { .read(cloudStorage) },
-                        pathValidator: valid)
+        defaults.manager(lister: { .read(cloudStorage) }, validator: valid, domain: defaults.suiteName)
     }
 
     private let dropboxAccount = URL(fileURLWithPath: "/Users/u/Library/CloudStorage/Dropbox")
@@ -473,15 +469,5 @@ import Sync
         #expect(collapsed > 0, "the collapsed row must still draw its identity line")
         #expect(expanded > collapsed,
                 "expanding added \(expanded - collapsed)pt — the Location controls are not appearing")
-    }
-
-    /// Text scale pinned, as in `SettingsLayoutTests`: `scaledFont` reads it from the environment,
-    /// so unpinned it measures this machine's text size.
-    @MainActor
-    private func laidOutHeight(_ view: some View,
-                               width: CGFloat = SettingsSheetMetrics.contentWidth(textScale: 1)) -> CGFloat {
-        let host = NSHostingView(rootView: view.environment(\.appFontScale, 1).frame(width: width))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
     }
 }

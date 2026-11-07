@@ -3,22 +3,17 @@ import SwiftUI
 import AppKit
 @testable import Design
 
-/// The preset row rendered, with the assertions an ink count can honestly make, and a PNG per
-/// state when `SIZE_PRESET_PROBE_DIR` is set so a person can look. Geometry can't see a selected
-/// tile that looks like the rest, or two tiles that render identically.
+/// The preset row rendered, with the assertions an ink count can honestly make. Geometry can't see
+/// a selected tile that looks like the rest, or two tiles that render identically.
 @Suite struct SizePresetRenderProbe {
 
     @MainActor
-    private func render(_ view: some View, width: CGFloat, height: CGFloat, to name: String) -> NSBitmapImageRep? {
+    private func render(_ view: some View, width: CGFloat, height: CGFloat) -> NSBitmapImageRep? {
         let host = NSHostingView(rootView: view.frame(width: width).padding(8))
         host.frame = NSRect(x: 0, y: 0, width: width + 16, height: height)
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
-        if let dir = ProcessInfo.processInfo.environment["SIZE_PRESET_PROBE_DIR"],
-           let png = rep.representation(using: .png, properties: [:]) {
-            try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
-        }
         return rep
     }
 
@@ -35,9 +30,9 @@ import AppKit
     @MainActor
     @Test func theSelectionIsVisibleAndFollowsTheSettings() {
         let first = render(Row(fontSize: .small, density: .compact).appFontSize(.medium),
-                           width: 420, height: 60, to: "row-selected-first")
+                           width: 420, height: 60)
         let last = render(Row(fontSize: .extraLarge, density: .comfortable).appFontSize(.medium),
-                          width: 420, height: 60, to: "row-selected-last")
+                          width: 420, height: 60)
 
         let differing = Self.differingPixels(first, last)
         #expect(differing >= 0, "the two rows could not be compared — the probe is broken")
@@ -57,7 +52,7 @@ import AppKit
                 Row(fontSize: size, density: .comfortable).appFontSize(size))
             host.layoutSubtreeIfNeeded()
             let rep = render(Row(fontSize: size, density: .comfortable).appFontSize(size),
-                             width: 420, height: 70, to: "row-\(size.percent)")
+                             width: 420, height: 70)
             #expect(Self.inkCount(rep) > 0, "the row drew nothing at \(size.percent)%")
             widths.append(host.fittingSize.width)
         }

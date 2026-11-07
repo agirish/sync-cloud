@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Appearance ▸ Look's accent picker: eleven swatches and a live sample of what the accent paints.
 /// No caption (TE332): the swatch and the sample show the choice, and None's tooltip says why its
-/// sample is still coloured. Takes its hue as a plain value, so snapshot
-/// tests can render a hue without a defaults suite; the storage stays in the tab.
+/// sample is still coloured. Takes its hue as a plain value, so tests can
+/// render a hue without a defaults suite; the storage stays in the tab.
 struct AccentColorSection: View {
     let selectedHue: LiquidGlassHue
     let onSelect: (LiquidGlassHue) -> Void

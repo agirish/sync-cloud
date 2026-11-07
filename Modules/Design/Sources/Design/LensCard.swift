@@ -9,9 +9,9 @@ import SwiftUI
 // - `glassCardStyle`    — floating overlay chrome (dialogs, popover-like panels).
 //
 // Testing: one-liner recipes (searchFieldSurface, CloseButton) aren't pinned by tests; they are
-// easiest to check by eye. `lensCard` is, in DesignSnapshotTests, because its hairline depends on
-// the appearance (`CardHairline`). Token types (PillVariant, ListDensityMetrics, SemanticColor)
-// are pinned too.
+// easiest to check by eye. Neither is `lensCard`'s appearance-dependent hairline (`CardHairline`)
+// since Design's snapshot suite retired. Token types (PillVariant, ListDensityMetrics,
+// SemanticColor) are pinned.
 public extension View {
     /// The one lens-card recipe: every card in the bottom-workspace lenses (duplicate groups,
     /// filing suggestions, risky names, automation rules, dry-run rows, the filing review card)

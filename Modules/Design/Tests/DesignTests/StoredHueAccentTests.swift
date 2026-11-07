@@ -36,21 +36,12 @@ import SwiftUI
     /// `view` drawn in an sRGB window of `scheme`, with `hue` stored.
     private func render(_ view: some View, size: CGSize, hue: LiquidGlassHue,
                         scheme: ColorScheme) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(view
+        try #require(offscreenBitmap(AnyView(view
             .frame(width: size.width, height: size.height)
             .background(scheme == .dark ? Color.black : Color.white)
             .environment(\.colorScheme, scheme)
-            .defaultAppStorage(Self.store(hue))))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+            .defaultAppStorage(Self.store(hue))),
+            size: size, appearance: scheme == .dark ? .darkAqua : .aqua))
     }
 
     /// Pixels within 0.02 of `hue`'s raw accent on every channel, read from `colorAt` as-is.

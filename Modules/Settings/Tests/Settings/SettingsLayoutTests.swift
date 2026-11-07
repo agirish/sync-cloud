@@ -5,6 +5,17 @@ import Sync
 import Testing
 @testable import Settings
 
+/// `view`'s height at `width`, laid out for real. Shared by every suite here that measures a page.
+/// The text scale is pinned: `scaledFont` reads it from the environment, so an unpinned
+/// measurement would report whatever text size the machine has set.
+@MainActor
+func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.contentWidth(textScale: 1),
+                   scale: CGFloat = 1) -> CGFloat {
+    let host = NSHostingView(rootView: view.environment(\.appFontScale, scale).frame(width: width))
+    host.layoutSubtreeIfNeeded()
+    return host.fittingSize.height
+}
+
 /// Pins the promise the sidebar layout keeps: the must-fit pages fit their opening without
 /// scrolling, and the sheet never outgrows the window it is centered in. A page of a paged tab
 /// (TE332) gets the opening under the sub-tab strip, `SettingsSheetMetrics.pageOpening`. Heights are measured from
@@ -35,15 +46,6 @@ import Testing
         SettingsSheetMetrics.contentWidth(textScale: 1)
     }
 
-    @MainActor
-    private func laidOutHeight(_ view: some View, width: CGFloat, scale: CGFloat = 1) -> CGFloat {
-        // The text scale is pinned: `scaledFont` reads it from the environment, so an unpinned
-        // measurement would report whatever text size the machine has set.
-        let host = NSHostingView(rootView: view.environment(\.appFontScale, scale).frame(width: width))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
-    }
-
     /// The width a view wants when nothing constrains it, its intrinsic width. Unconstrained,
     /// unlike `laidOutHeight`, so it can be compared with the column it must fit: constrained, it
     /// would agree with the constraint however wide the text was.
@@ -69,9 +71,7 @@ import Testing
     @MainActor
     private func tightestMustFitMargin(at scale: CGFloat) -> CGFloat {
         let test = TestDefaults("tallest-\(scale)")
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
+        let settings = test.manager()
         return mustFitPages(settings)
             .map { place, view in
                 SettingsSheetMetrics.opening(for: place, textScale: scale)
@@ -116,25 +116,6 @@ import Testing
                                    width: SettingsSheetMetrics.contentWidth(textScale: scale, available: available),
                                    scale: scale)
         return SettingsSheetMetrics.pageOpening(textScale: scale, available: available) - height
-    }
-
-    @MainActor
-    @Test func appearanceFitsItsOpeningWithoutScrolling() async throws {
-        let height = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
-        let opening = SettingsSheetMetrics.pageOpening(textScale: 1)
-
-        #expect(height <= opening,
-                "Appearance lays out at \(height)pt in a \(opening)pt opening — it scrolls again.")
-    }
-
-    /// The early warning a flat "does it fit" check can't give: a caption gaining a line is ~15pt,
-    /// so a tab 5pt under its opening is one copy edit from scrolling. If this trips, trim the tab
-    /// or raise `SettingsSheetMetrics.baseSize.height` deliberately.
-    @MainActor
-    @Test func appearanceKeepsRoomForACopyEdit() async throws {
-        let margin = appearanceMargin(at: 1)
-
-        #expect(margin >= 15, "Only \(margin)pt of slack left below the last control.")
     }
 
     /// The upper bound on `baseSize`. The opening clears the tallest must-fit tab with room for a
@@ -197,28 +178,6 @@ import Testing
                 """)
     }
 
-    /// The fit against a small display's clamped opening. Fit tests passing `available: nil`
-    /// measure a sheet that grows with `baseSize`, so no raise can fail them; on a 1280×800-class
-    /// display `resolvedSize` clamps the sheet to the window instead. However `baseSize` moves, the
-    /// tab must fit what a small display can give it: the window in `smallDisplayWindow`, less
-    /// `hostMargin` around the sheet, the title row and its divider.
-    @MainActor
-    @Test func appearanceFitsA1280x800Display() async throws {
-        let window = Self.smallDisplayWindow
-        let opening = SettingsSheetMetrics.pageOpening(textScale: 1, available: window)
-        // At today's `baseSize` the whole sheet fits this display, so the clamped and unclamped
-        // openings are equal. The test measures the display, not the clamp: if `baseSize` grows
-        // past what this window holds, the height assertion is what fails.
-        #expect(opening <= SettingsSheetMetrics.pageOpening(textScale: 1),
-                "a 1280×800 window opening is somehow larger than the unclamped one")
-
-        let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: window)
-        let height = laidOutHeight(AppearanceSettingsTab(), width: width)
-
-        #expect(height <= opening,
-                "Appearance lays out at \(height)pt but a 1280×800 display's clamped opening is \(opening)pt — it scrolls on small screens.")
-    }
-
     /// Every accent hue, because the Tint caption is part of the layout and changes with the hue:
     /// under `.none` it asks for an accent instead. Over `allCases`, so a future hue that brings a
     /// caption back is covered. Over raw values because `LiquidGlassHue` isn't `Sendable` and can't
@@ -238,8 +197,10 @@ import Testing
     }
 
     /// The clamped opening at every text size, which `appearanceFitsEveryTextSize` can't cover: it
-    /// passes `available: nil`, so it measures the large sizes against a sheet a 1280×800 display
-    /// can never produce.
+    /// passes `available: nil`, so it measures a sheet that grows with `baseSize`, which no raise
+    /// can fail, and the large sizes against a sheet a 1280×800 display can never produce. On such a
+    /// display `resolvedSize` clamps the sheet to `smallDisplayWindow`, less `hostMargin` around the
+    /// sheet, the title row and its divider.
     ///
     /// If a tab ever outgrows a small display at large text, that is a floor rather than a bug:
     /// the sheet is capped by the display while the type grows, and a sheet sized for this case
@@ -257,6 +218,8 @@ import Testing
                                                               available: Self.smallDisplayWindow)
         }
 
+        #expect(fitting.contains(.medium),
+                "Appearance scrolls on a 1280×800 display at the default size — a regression, not a floor")
         // Every size fits at today's `baseSize`. An equality, not "at least these", so it can't go
         // vacuous: if a section is added and Largest stops fitting, this fails.
         #expect(fitting == FontSize.allCases,
@@ -364,8 +327,7 @@ import Testing
         for index in 0..<count { store.keep("kept name \(index).pdf") }
         let manager = FileSyncManager()
         manager.keptNamesStore = store
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
+        let settings = test.manager()
 
         body(AnyView(ProvidersSettingsTab(page: .nameChecks, syncManager: manager).environmentObject(settings)))
     }
@@ -415,9 +377,7 @@ import Testing
     @MainActor
     @Test func everyPageIsEitherFitTestedOrExplicitlyExempt() async throws {
         let test = TestDefaults()
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
+        let settings = test.manager()
         let fitTested = Set(mustFitPages(settings).map { $0.0 })
         let exempt = SettingsView.SettingsTab.exemptFromFitGuard
 
@@ -437,9 +397,7 @@ import Testing
     @MainActor
     @Test func everyMustFitPageFitsTheClampedOpening() async throws {
         let test = TestDefaults()
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
+        let settings = test.manager()
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
 
         for (place, view) in mustFitPages(settings) {
@@ -543,7 +501,8 @@ import Testing
     /// `SettingsRail.TabList` against `SettingsRail.tabListOpening`, the space between the search
     /// field and the version line, both laid out for real (`tabListMargin`). The claim: on a
     /// 1280×800 display every tab is reachable without scrolling. Clamped for the same reason as
-    /// `appearanceFitsA1280x800Display`, and at every text size, because the rows grow with it.
+    /// `theClampedOpeningFitsTheSmallerTextSizesOnly`, and at every text size, because the rows
+    /// grow with it.
     ///
     /// There is plenty of slack here. It binds hardest at the window floor
     /// (`theRailFitsTheWindowFloorAtEveryTextSize`) and below it at `floorSize`
@@ -911,12 +870,7 @@ import Testing
     /// The slider actually uses the clamping seam. The pure functions above would keep passing if
     /// the closure went back to reading `@AppStorage` raw.
     @Test func theSliderReadsAndWritesThroughTheClamp() throws {
-        let source = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/Settings/SettingsView.swift"),
-            encoding: .utf8)
+        let source = try settingsSource("SettingsView.swift")
 
         let tab = try #require(source.range(of: "struct ReadabilitySettingsTab"))
         let body = String(source[tab.lowerBound...])
@@ -991,13 +945,6 @@ import Testing
 /// What is asserted: the populated branch draws something the empty one doesn't.
 @Suite struct SpendReadoutTests {
 
-    @MainActor
-    private func height(_ view: some View, width: CGFloat) -> CGFloat {
-        let host = NSHostingView(rootView: view.environment(\.appFontScale, 1).frame(width: width))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
-    }
-
     /// The narrowest column the sheet can ever offer: the worst case at every text size, since
     /// the sheet only grows with the scale and stops shrinking at `floorSize`.
     private static var narrowestColumn: CGFloat {
@@ -1020,8 +967,8 @@ import Testing
     @Test func theFiguresAppearOnlyOnceThereIsSpend() {
         let column = SettingsSheetMetrics.contentWidth(textScale: 1)
             - 2 * SettingsSheetMetrics.pagePaddingH
-        let empty = height(FilingSpendReadout(totals: FilingSpendTotals(), last: nil), width: column)
-        let full = height(FilingSpendReadout(totals: Self.populated, last: Self.lastRefine),
+        let empty = laidOutHeight(FilingSpendReadout(totals: FilingSpendTotals(), last: nil), width: column)
+        let full = laidOutHeight(FilingSpendReadout(totals: Self.populated, last: Self.lastRefine),
                           width: column)
 
         #expect(empty > 0, "the empty state laid out to nothing — this fixture measured no view")

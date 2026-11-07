@@ -150,7 +150,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable, Sendable {
     /// Always white. White on the raw accent is illegible on the light hues (2.68:1 on Green,
     /// 2.20:1 on Amber), and flipping the label to near-black there would split the filled controls
     /// into two button families. So the label stays white and the fill deepens instead
-    /// (`accentFillColor`), at 4.5:1 or better on every hue; `AccentFillTests` measures that over
+    /// (`accentFillColor`), at 4.5:1 or better on every hue; `AccentLabelColorTests` measures that over
     /// every hue, so it holds when a hue is added. Not `@MainActor`: it doesn't resolve the system
     /// accent.
     public var onAccentLabelColor: Color { .white }

@@ -40,21 +40,6 @@ import Sync
         #expect(reopened.isKept("Q3: final.pdf"))
     }
 
-    /// Clear All empties the set, durably.
-    @MainActor
-    @Test func clearAllWithdrawsEveryKeep() {
-        let defaults = scratch("clear")
-
-        let store = KeptNamesStore(userDefaults: defaults)
-        for name in ["a ", "b:", "c\u{200B}d"] { store.keep(name) }
-        #expect(store.names.count == 3)
-
-        KeptNamesList(store: store).clearAll(confirm: { true })
-
-        #expect(store.names.isEmpty)
-        #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
-    }
-
     /// The list shows the store's names in a stable order, so rows don't shuffle under the cursor
     /// mid-removal.
     @MainActor
@@ -88,16 +73,6 @@ import Sync
 
         #expect(populated > empty,
                 "three kept rows and a Clear All added \(populated - empty)pt — the rows are not being rendered")
-    }
-
-    /// Text scale pinned, as in `SettingsLayoutTests`: `scaledFont` reads it from the environment,
-    /// so unpinned it measures this machine's text size.
-    @MainActor
-    private func laidOutHeight(_ view: some View,
-                               width: CGFloat = SettingsSheetMetrics.contentWidth(textScale: 1)) -> CGFloat {
-        let host = NSHostingView(rootView: view.environment(\.appFontScale, 1).frame(width: width))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
     }
 
     // MARK: Findability

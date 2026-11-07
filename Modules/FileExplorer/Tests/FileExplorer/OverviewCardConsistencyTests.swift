@@ -444,7 +444,6 @@ import Design
         /// would read wrapped headings as controls on a narrow pane.
         ///
         /// Light mode only, which `render` pins: the band is stated against a light ground.
-        /// `lensCard()`'s own light/dark behaviour is pinned in `DesignSnapshotTests`.
         func isButtonFill(_ x: Int, _ y: Int) -> Bool {
             let key = data.loadUnaligned(fromByteOffset: y * bytesPerRow + x * 4, as: UInt32.self)
             if let last, last.key == key { return last.verdict }

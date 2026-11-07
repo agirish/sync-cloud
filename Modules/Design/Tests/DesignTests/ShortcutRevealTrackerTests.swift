@@ -68,37 +68,25 @@ import Testing
         await waitUntil("the tracker publishes the reveal") { tracker.isActive }
     }
 
+    /// What cancels a hold before its deadline.
+    enum Interruption: String, CaseIterable { case release, keyDown, mouseDown }
+
     /// The timer must not fire on a hold that was already cancelled. A machine-only test can't
     /// reach this, because it is the scheduling that has to be torn down.
-    @Test func releasingOptionBeforeTheDeadlineNeverPublishes() async {
+    @Test(arguments: Interruption.allCases)
+    func anInterruptedHoldNeverPublishes(_ interruption: Interruption) async {
         let (tracker, clock) = makeTracker()
         tracker.noteModifiersChanged(to: .option)
-        tracker.noteModifiersChanged(to: [])
+        switch interruption {
+        case .release: tracker.noteModifiersChanged(to: [])
+        case .keyDown: tracker.noteKeyDown()
+        case .mouseDown: tracker.noteMouseDown()
+        }
 
         clock.advance(by: ShortcutRevealMachine.holdDuration * 3)
         // Long enough that an unscheduled-but-still-pending timer would have fired by now.
         try? await Task.sleep(nanoseconds: 250_000_000)
-        #expect(!tracker.isActive, "a cancelled hold still published a reveal")
-    }
-
-    @Test func aKeyDownDuringTheHoldNeverPublishes() async {
-        let (tracker, clock) = makeTracker()
-        tracker.noteModifiersChanged(to: .option)
-        tracker.noteKeyDown()
-
-        clock.advance(by: ShortcutRevealMachine.holdDuration * 3)
-        try? await Task.sleep(nanoseconds: 250_000_000)
-        #expect(!tracker.isActive, "⌥-typing published a reveal")
-    }
-
-    @Test func aMouseDownDuringTheHoldNeverPublishes() async {
-        let (tracker, clock) = makeTracker()
-        tracker.noteModifiersChanged(to: .option)
-        tracker.noteMouseDown()
-
-        clock.advance(by: ShortcutRevealMachine.holdDuration * 3)
-        try? await Task.sleep(nanoseconds: 250_000_000)
-        #expect(!tracker.isActive, "⌥-click published a reveal")
+        #expect(!tracker.isActive, "a hold cancelled by \(interruption) still published a reveal")
     }
 
     /// Releasing ⌥ takes the badges down again: the other half of the published flag, and the one

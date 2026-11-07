@@ -36,22 +36,10 @@ import Testing
             .frame(width: size.width, height: size.height, alignment: .leading)
             .background(dark ? Color(white: 0.13) : Color(white: 0.96))
         let root: AnyView = hue.map { AnyView(base.nativeControlAccent($0)) } ?? AnyView(base)
-        let host = NSHostingView(rootView: root
+        return try #require(offscreenBitmap(root
             .environment(\.controlActiveState, .key)
-            .environment(\.colorScheme, dark ? .dark : .light))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.close()
-        return rep
+            .environment(\.colorScheme, dark ? .dark : .light),
+            size: size, appearance: dark ? .darkAqua : .aqua, settle: 0.05, close: true))
     }
 
     /// Pixels within 12/255 of `color` on every channel, read as raw bytes.

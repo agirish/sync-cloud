@@ -14,11 +14,10 @@ import Testing
 /// `allFacts` still keys with `uniquingKeysWith:`, as a backstop: `uniqueKeysWithValues:` would
 /// trap on the main actor if the dedup ever regressed, and a trap can't be caught in-process.
 ///
-/// `.machinePinned(.pixelSampling)` because `renderedInk` reads painted pixels back with
-/// `colorAt`. The trait covers the whole suite, as every pinned suite does, so the two tests that
-/// sample nothing stand down with it.
+/// The two render tests are `.machinePinned(.pixelSampling)` because `renderedInk` reads painted
+/// pixels back with `colorAt`; the two that sample nothing run unpinned.
 @MainActor
-@Suite(.machinePinned(.pixelSampling)) struct PeopleDuplicateIdTests {
+@Suite struct PeopleDuplicateIdTests {
 
     /// Two people, one id, as a copy-pasted block leaves behind. The entries differ in every other
     /// field, so "last wins" is visible.
@@ -84,7 +83,7 @@ import Testing
     /// repeated key, so reverting to `uniqueKeysWithValues:` would leave every other test green
     /// until the dedup broke too. A source scan, because a duplicate can no longer be driven there.
     @Test func theFactsMapStaysTolerantOfARepeatedKey() throws {
-        let source = try Self.settingsSource()
+        let source = try settingsSource("SettingsView.swift")
         let facts = try #require(source.range(of: "private var allFacts:"),
                                  "`allFacts` is gone or renamed — this scan now proves nothing")
         let body = String(source[facts.lowerBound...].prefix(400))
@@ -95,16 +94,6 @@ import Testing
                 """)
         #expect(!body.contains("uniqueKeysWithValues:"),
                 "`allFacts` traps on a repeated key again")
-    }
-
-    /// Reads `SettingsView.swift` off disk, found from `#filePath` so it works in any worktree.
-    private static func settingsSource() throws -> String {
-        let root = URL(fileURLWithPath: #filePath)          // …/Tests/Settings/PeopleDuplicateIdTests.swift
-            .deletingLastPathComponent()                     // …/Tests/Settings
-            .deletingLastPathComponent()                     // …/Tests
-            .deletingLastPathComponent()                     // …/Settings (module)
-            .appendingPathComponent("Sources/Settings/SettingsView.swift")
-        return try String(contentsOf: root, encoding: .utf8)
     }
 
     /// The premise, before anything renders: the duplicate reaches the store, is collapsed there,
@@ -127,7 +116,7 @@ import Testing
 
     /// The pane renders a roster with a repeated id. `PeopleList`'s body computes `allFacts` (it
     /// feeds `PeopleTester`), so laying it out exercises the keying.
-    @Test func thePeoplePaneRendersARosterWithARepeatedId() throws {
+    @Test(.machinePinned(.pixelSampling)) func thePeoplePaneRendersARosterWithARepeatedId() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = try storeOverFile(Self.duplicated, in: dir)
@@ -150,7 +139,7 @@ import Testing
     /// against the one-person roster it collapses to: the duplicated pane must be taller by about a
     /// line, not a row, and draw more ink. A comparison against a two-person roster can't separate
     /// "one row plus a note" from "two rows".
-    @Test func aRepeatedIdDrawsTheSurvivingRecordAndSaysEditsAreHeld() throws {
+    @Test(.machinePinned(.pixelSampling)) func aRepeatedIdDrawsTheSurvivingRecordAndSaysEditsAreHeld() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         // The roster the duplicated one collapses to: the file's last `elder` block, alone, so any

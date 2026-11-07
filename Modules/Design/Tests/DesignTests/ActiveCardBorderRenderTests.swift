@@ -20,19 +20,7 @@ import Testing
     }
 
     private func bitmap(_ view: some View) -> NSBitmapImageRep? {
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(origin: .zero, size: Self.box)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        offscreenBitmap(AnyView(view), size: Self.box, layoutPasses: 2)
     }
 
     /// Pixels that differ between two renders by more than sampling noise.

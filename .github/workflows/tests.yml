@@ -5,8 +5,8 @@
 # verdict on the machine that recorded them are marked at the declaration with
 # `.machinePinned(_:)` and a reason, and SYNCCLOUD_SKIP_MACHINE_PINNED below
 # selects which reasons to exclude. Four reasons exist: `referenceImages`
-# (compares against PNGs recorded on one Mac; see
-# Modules/Design/Tests/DesignTests/SNAPSHOTS.md), `pixelSampling` (reads
+# (compares against PNGs recorded on one Mac; see "Image snapshots" in
+# docs/ci.md), `pixelSampling` (reads
 # painted pixels out of a live renderer), `calibratedTiming` (the
 # click-cost benchmark's thresholds) and `liveProfile` (reads the developer's
 # live filing profile and real document tree).

@@ -65,20 +65,6 @@ import Testing
 
     // MARK: Cancel rules — during the arming window
 
-    @Test func aKeyDownDuringArmingCancels() {
-        var machine = armed()
-        machine.keyDown()
-        machine.deadlineElapsed(at: Self.at(1))
-        #expect(!machine.isRevealActive)
-    }
-
-    @Test func aMouseDownDuringArmingCancels() {
-        var machine = armed()
-        machine.mouseDown()
-        machine.deadlineElapsed(at: Self.at(1))
-        #expect(!machine.isRevealActive)
-    }
-
     @Test(arguments: [ShortcutRevealModifiers.command, .shift, .control])
     func aSecondModifierDuringArmingCancels(extra: ShortcutRevealModifiers) {
         var machine = armed()

@@ -22,13 +22,6 @@ import Testing
 
     private func whiteContrast(_ fill: NSColor) -> CGFloat { 1.05 / (luminance(fill) + 0.05) }
 
-    @Test func everyDeepenedHueCarriesWhiteAtBodyTextContrast() {
-        for hue in LiquidGlassHue.allCases where hue != .none {
-            let ratio = whiteContrast(srgb(hue.accentFillColor))
-            #expect(ratio >= 4.5, "white on deepened \(hue) is only \(ratio):1")
-        }
-    }
-
     /// The transform only ever darkens. A hue that already carries white is returned untouched, so
     /// this is a no-op on roughly half the palette rather than a flattening of all twelve toward one
     /// luminance — Indigo (L ≈ 0.157) must come back byte-identical.

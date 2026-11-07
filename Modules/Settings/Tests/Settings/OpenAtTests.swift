@@ -37,10 +37,7 @@ struct OpenAtTests {
     static func manager(_ test: TestDefaults, _ tree: Tree,
                         validator: @escaping @Sendable (String) -> Bool = { _ in true })
     -> SettingsManager {
-        let manager = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
-                                      overridesDomainName: test.suiteName,
-                                      cloudStorageLister: { .read([]) },
-                                      pathValidator: validator)
+        let manager = test.manager(validator: validator, domain: test.suiteName)
         manager.availableProviders = [
             CloudProvider(id: "Acct", displayName: "Acct", imageName: "cloud",
                           rootPath: tree.root.path,
@@ -120,10 +117,7 @@ struct OpenAtTests {
     static func discoveredManager(_ test: TestDefaults, _ account: URL,
                                   validator: @escaping @Sendable (String) -> Bool) async
     -> SettingsManager {
-        let manager = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
-                                      overridesDomainName: test.suiteName,
-                                      cloudStorageLister: { .read([account]) },
-                                      pathValidator: validator)
+        let manager = test.manager(lister: { .read([account]) }, validator: validator, domain: test.suiteName)
         await manager.discoverProviders()
         return manager
     }
@@ -216,23 +210,14 @@ struct OpenAtTests {
     /// first pick is refused by the containment rule. `SetupSheet.seedWalkRoot` has the same rule.
     @Test("The landing-folder picker is seeded through the manager, not through the value type")
     func theOpenAtPanelIsSeededFromTheReachableLanding() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Settings
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // Modules/Settings
-            .appendingPathComponent("Sources/Settings/SettingsView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SettingsView.swift — the check below would be vacuous")
+        let source = try settingsSource("SettingsView.swift")
         let start = try #require(source.range(of: "private func selectOpenAtDirectory() {"),
                                  "cannot find selectOpenAtDirectory — this test is checking a name that no longer exists")
         let tail = source[start.upperBound...]
         let end = try #require(tail.range(of: "\n    }"), "cannot find the end of selectOpenAtDirectory")
         // Comments stripped first: the function names `provider.landingPath` in prose to say what
         // it doesn't do, and a raw scan would fail on that mention.
-        let body = String(tail[..<end.lowerBound])
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.contains("//") ? $0[..<$0.range(of: "//")!.lowerBound] : $0 }
-            .joined(separator: "\n")
+        let body = SettingsAsksBeforeRemovingTests.withoutComments(String(tail[..<end.lowerBound]))
 
         #expect(body.contains("settings.landingPath(for: provider.id)"),
                 "the panel is seeded from somewhere other than the manager's reachable landing folder")

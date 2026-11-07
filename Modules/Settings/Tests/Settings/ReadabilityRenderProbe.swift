@@ -4,9 +4,9 @@ import AppKit
 @testable import Settings
 @testable import Design
 
-/// Appearance ▸ Text & Spacing (Readability until TE332) rendered in the states that matter, with the assertions geometry can make,
-/// and a PNG per state when `READ_PROBE_DIR` is set, so a person can look. A preview that ignored
-/// its settings would pass every fit test; what it wouldn't do is change when the settings do.
+/// Appearance ▸ Text & Spacing (Readability until TE332) rendered in the states that matter, with the assertions geometry can make.
+/// A preview that ignored its settings would pass every fit test; what it wouldn't do is change
+/// when the settings do.
 @Suite struct ReadabilityRenderProbe {
 
     @MainActor
@@ -27,14 +27,6 @@ import AppKit
         let height = host.fittingSize.height
         host.frame = NSRect(x: 0, y: 0, width: 579, height: height + 32)
         host.layoutSubtreeIfNeeded()
-
-        if let dir = ProcessInfo.processInfo.environment["READ_PROBE_DIR"],
-           let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-            host.cacheDisplay(in: host.bounds, to: rep)
-            if let png = rep.representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("readability-\(name).png"))
-            }
-        }
         return height
     }
 
@@ -55,15 +47,14 @@ import AppKit
 
     /// Both appearances lay out, at the same height. The tab's accent, `.secondary` and window
     /// colours all resolve per appearance, and a border lost in a dark ground is invisible to any
-    /// measurement here, so both renders are written out to be looked at.
+    /// measurement here.
     @MainActor
     @Test func theTabDrawsInBothAppearances() {
         let light = laidOut(.medium, .comfortable, name: "light", appearance: .aqua)
         let dark = laidOut(.medium, .comfortable, name: "dark", appearance: .darkAqua)
 
         #expect(light > 0 && dark > 0, "an appearance laid out to nothing")
-        // Height doesn't depend on appearance, so this asserts neither collapses. The colours are
-        // judged from the PNGs written above.
+        // Height doesn't depend on appearance, so this asserts neither collapses.
         #expect(abs(light - dark) < 1,
                 """
                 The tab lays out at \(light)pt light and \(dark)pt dark — appearance is moving \

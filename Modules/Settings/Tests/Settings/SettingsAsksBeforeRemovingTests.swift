@@ -20,11 +20,7 @@ import Testing
     // MARK: Sources ▸ a folder source ▸ Remove
 
     private func folderManager(_ defaults: TestDefaults) -> SettingsManager {
-        SettingsManager(autoDiscover: false,
-                        userDefaults: defaults.defaults,
-                        overridesDomainName: defaults.suiteName,
-                        cloudStorageLister: { .read([]) },
-                        pathValidator: { _ in true })
+        defaults.manager(validator: { _ in true }, domain: defaults.suiteName)
     }
 
     @Test func decliningRemoveKeepsTheFolderSourceItsNameAndItsSwitch() async {
@@ -136,9 +132,11 @@ import Testing
         #expect(KeptNamesStore(userDefaults: defaults).names.count == 2)
     }
 
+    /// Clear All empties the set, durably, and only after asking.
     @Test func confirmingClearAllWithdrawsTheKeepsAfterAsking() {
-        let store = KeptNamesStore(userDefaults: ScratchDefaults("AskFirst-kept-confirm"))
-        for name in ["a ", "b:", "c"] { store.keep(name) }
+        let defaults = ScratchDefaults("AskFirst-kept-confirm")
+        let store = KeptNamesStore(userDefaults: defaults)
+        for name in ["a ", "b:", "c\u{200B}d"] { store.keep(name) }
         var keptWhenAsked = -1
 
         let done = KeptNamesList(store: store).clearAll(confirm: { keptWhenAsked = store.names.count; return true })
@@ -146,6 +144,7 @@ import Testing
         #expect(done)
         #expect(keptWhenAsked == 3, "the keeps went before the question")
         #expect(store.names.isEmpty)
+        #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
     }
 
     // MARK: Intelligence ▸ Saved suggestions ▸ Clear
@@ -334,16 +333,7 @@ import Testing
     /// driven, since a SwiftUI control's action can't be reached from a test; this connects the
     /// shipping control to the decisions tested above.
     @Test func everyControlGoesThroughItsGate() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Settings")
-        func source(_ name: String) throws -> String {
-            let text = try #require(
-                try? String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8),
-                "cannot read \(name) — the checks below would be vacuous")
-            try #require(text.count > 1_000, "\(name) is implausibly short")
-            return Self.withoutComments(text)
-        }
+        func source(_ name: String) throws -> String { Self.withoutComments(try settingsSource(name)) }
         func count(_ needle: String, in text: String) -> Int { text.components(separatedBy: needle).count - 1 }
         let settings = try source("SettingsView.swift")
         let prompt = try source("RemovalPrompt.swift")
@@ -393,7 +383,7 @@ import Testing
 
     /// The source with every `//` comment removed, whole-line and trailing, so a call named in a
     /// comment can't stand in for the call. String literals are respected.
-    static func withoutComments(_ text: String) -> String {
+    nonisolated static func withoutComments(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
             var inString = false
             var previous: Character = " "
@@ -418,4 +408,23 @@ import Testing
         #expect(stripped.contains("a()") && stripped.contains("\"http://x\""))
         #expect(!stripped.contains("b()") && !stripped.contains("c()") && !stripped.contains("d()"))
     }
+}
+
+/// A file of the repo, read off disk from `#filePath` so it works in any worktree. Fails the test,
+/// rather than returning a haystack every `contains` quietly answers false on, when the file is
+/// missing or shorter than `minLength`.
+func repoSource(_ path: String, minLength: Int = 1_000) throws -> String {
+    let url = URL(fileURLWithPath: #filePath)   // …/Modules/Settings/Tests/Settings/<this>.swift
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent(path)
+    let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                            "cannot read \(path) — the checks would be vacuous")
+    try #require(text.count > minLength, "\(path) is implausibly short")
+    return text
+}
+
+/// `file` in `Modules/Settings/Sources/Settings`, through `repoSource`.
+func settingsSource(_ file: String, minLength: Int = 1_000) throws -> String {
+    try repoSource("Modules/Settings/Sources/Settings/" + file, minLength: minLength)
 }

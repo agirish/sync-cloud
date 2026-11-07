@@ -40,20 +40,9 @@ let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
             .background(Color.white)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+        guard let rep = offscreenBitmap(AnyView(subject), size: size, layoutPasses: 2) else {
             fatalError("no bitmap rep")
         }
-        host.cacheDisplay(in: host.bounds, to: rep)
         return rep
     }
 
