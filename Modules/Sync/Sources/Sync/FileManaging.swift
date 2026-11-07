@@ -1,3 +1,4 @@
+import Events
 //
 //  FileManaging.swift
 //  SyncCloud
@@ -133,7 +134,13 @@ extension FileManager: FileManaging {
             do {
                 try moveItem(at: stagedURL, to: destinationURL)
             } catch {
-                try? moveItem(at: backupURL, to: destinationURL)
+                do {
+                    try moveItem(at: backupURL, to: destinationURL)
+                } catch let restoreError {
+                    // Was silent: the link would sit under its backup name with nothing saying where.
+                    Logger.shared.error("Replace: couldn't put the link \(destinationURL.path) back after a failed "
+                                        + "replace (\(restoreError.localizedDescription)) — it is now at \(backupURL.path)")
+                }
                 throw error
             }
             return backupURL

@@ -39,9 +39,15 @@ public enum AnthropicKeychain {
         // login keychain.
         defer { NotificationCenter.default.post(name: didChange, object: nil) }
         let updated = store.update(baseQuery(), attributes: secret)
-        guard updated == errSecItemNotFound else { return updated }
-        return store.add(baseQuery().merging(secret) { _, new in new }
-            .merging([kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { _, new in new })
+        let status = updated != errSecItemNotFound ? updated
+            : store.add(baseQuery().merging(secret) { _, new in new }
+                .merging([kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { _, new in new })
+        // A refusal was only on screen. The status and which write it was; never the key.
+        if status != errSecSuccess {
+            log("Anthropic API key: the Keychain refused to save it (\(updated == errSecItemNotFound ? "add" : "update"), "
+                + "status \(status)); the key in use is unchanged")
+        }
+        return status
     }
 
     /// What a read of the stored key found, which `read(from:)`'s `nil` can't express: "no key

@@ -375,9 +375,16 @@ public final class RestructureStore: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let url = directory.appendingPathComponent("\(profileId)/\(name)")
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(),
-                                        withIntermediateDirectories: true)
-        try encoder.encode(manifest).write(to: url, options: .atomic)
+        do {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+            try encoder.encode(manifest).write(to: url, options: .atomic)
+        } catch {
+            // The failure was only in the caller's banner; the success line had no failing twin.
+            Logger.shared.warning("Restructure plan export failed — \(name) for \(manifest.family): "
+                                  + error.localizedDescription)
+            throw error
+        }
         // One greppable line: the export is an act a later reader may need to date and locate
         // without the app open.
         Logger.shared.info("Restructure plan exported — \(name): "

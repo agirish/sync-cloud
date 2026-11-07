@@ -59,3 +59,18 @@ public enum VerifyAllLog {
             + " of \(total) pair(s)"
     }
 }
+
+/// A list of names for one log line, split so no line is long: every name kept, sorted, at most
+/// ``perLine`` a line, each continuation saying which slice it is. One physical line each.
+public enum LogNames {
+    public static let perLine = 200
+
+    public static func lines(_ prefix: String, _ names: [String]) -> [String] {
+        let sorted = names.sorted()
+        guard sorted.count > perLine else { return sorted.isEmpty ? [] : ["\(prefix): " + sorted.joined(separator: ", ")] }
+        return stride(from: 0, to: sorted.count, by: perLine).map { start in
+            let end = min(start + perLine, sorted.count)
+            return "\(prefix) \(start + 1)–\(end) of \(sorted.count): " + sorted[start..<end].joined(separator: ", ")
+        }
+    }
+}

@@ -230,6 +230,25 @@ import Foundation
 
         #expect(reports.messages.isEmpty)
     }
+
+    /// A History file that can't be written says so once, at ERROR: before, the store looked
+    /// complete while the file stopped growing.
+    @Test func aHistoryFileThatCantBeWrittenSaysSoOnce() throws {
+        // A path under a regular file: no directory there, so nothing can be created or written.
+        let blocker = makeTempURL()
+        try Data("not a folder".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let url = blocker.appendingPathComponent("history.jsonl")
+        // A spy, not the shared log: this package's other suites count `Logger.shared`'s entries.
+        let failures = FailureSpy()
+        let store = SyncHistoryStore(fileURL: url, reportWriteFailure: { failures.append($0) })
+        store.append(record(runId: UUID()))
+        store.append(record(runId: UUID()))
+        store.flushToDisk()
+        let lines = failures.lines
+        #expect(lines.count == 1, "\(lines) — one line per failure run, not per record")
+        #expect(lines.first?.hasPrefix("Sync History: couldn’t write history.jsonl") == true, "\(lines)")
+    }
 }
 
 /// Captures the drop reports. A reference type so the closure handed to the store writes into the
@@ -237,4 +256,13 @@ import Foundation
 @MainActor
 private final class ReportSpy {
     var messages: [String] = []
+
+}
+
+/// Collects the store's write-failure reports, from the writer's queue.
+private final class FailureSpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var collected: [String] = []
+    func append(_ line: String) { lock.lock(); collected.append(line); lock.unlock() }
+    var lines: [String] { lock.lock(); defer { lock.unlock() }; return collected }
 }

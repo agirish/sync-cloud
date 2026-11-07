@@ -197,7 +197,13 @@ public enum FilingSpendStore {
             if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
             // Only write when encoding succeeds: `set(nil, forKey:)` removes the key, so a failed
             // encode would erase the whole history.
-            if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: historyKey) }
+            if let data = try? JSONEncoder().encode(list) {
+                defaults.set(data, forKey: historyKey)
+            } else {
+                // Was silent: the scan was missing from the history with nothing to say why.
+                Logger.shared.error("Filing spend: this scan could not be encoded (cost "
+                                    + "\(entry.estimatedCostUSD)), so it was NOT added to the spend history")
+            }
         }
 
         switch totalsState {
@@ -212,7 +218,14 @@ public enum FilingSpendStore {
             t.tokens += entry.totalTokens
             t.scans += 1
             if entry.costUnpriced { t.unpricedScans += 1 }
-            if let data = try? JSONEncoder().encode(t) { defaults.set(data, forKey: totalsKey) }
+            if let data = try? JSONEncoder().encode(t) {
+                defaults.set(data, forKey: totalsKey)
+            } else {
+                // Was silent, and the lifetime cap then never counted this scan.
+                Logger.shared.error("Filing spend: the lifetime totals could not be encoded after this scan "
+                                    + "(cost \(entry.estimatedCostUSD)), so it was NOT added to them — the "
+                                    + "lifetime cap does not count it")
+            }
         }
     }
 

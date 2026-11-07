@@ -1535,6 +1535,7 @@ extension FileSyncManager {
                         let items = await itemsResolver.get()
                         var trashedItems: [RestoreItemState] = []
                         var refused = 0
+                        var notTrashed = 0
                         for item in items {
                             let url = item.url
                             // `entryExists`: a dangling link the undo restored is still there.
@@ -1549,14 +1550,23 @@ extension FileSyncManager {
                                 continue
                             }
                             var t: NSURL?
-                            if (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
-                                trashedItems.append((original: url, trashedBackup: trashed,
-                                                     backupIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fmLocal)))
+                            do {
+                                try fmLocal.trashItem(at: url, resultingItemURL: &t)
+                                if let trashed = t as? URL {
+                                    trashedItems.append((original: url, trashedBackup: trashed,
+                                                         backupIdentity: FileSyncManager.backupIdentity(trashed, fileManager: fmLocal)))
+                                }
+                            } catch {
+                                // Was silent: the summary said "trashed 3 of 4" with no path or reason.
+                                notTrashed += 1
+                                logger.error("Redo (\(actionName)): FAILED to move \(url.path) to the Trash — "
+                                             + "\(FileSyncManager.trashFailureDiagnosis(error))")
                             }
                         }
                         await nextResolver.resolve(trashedItems)
                         logger.info("Redo (\(actionName)): trashed \(trashedItems.count) of \(items.count) item(s)"
-                                    + (refused > 0 ? ", refused \(refused) that changed since the undo" : ""))
+                                    + (refused > 0 ? ", refused \(refused) that changed since the undo" : "")
+                                    + (notTrashed > 0 ? ", \(notTrashed) couldn't be trashed" : ""))
                 }
             }
         }

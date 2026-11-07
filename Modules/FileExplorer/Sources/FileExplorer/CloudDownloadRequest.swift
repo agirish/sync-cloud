@@ -154,6 +154,8 @@ public struct CloudDownloadRequest: Equatable, Sendable {
             ? "in “\((folders[0] as NSString).lastPathComponent)”"
             : "over \(files.count + folders.count) items"
         Logger.shared.info("Download All \(asked): requested \(result.requested.count), refused \(result.refused.count), unreadable folders \(result.unreadable)")
+        // Which files the provider refused: the count alone can't say which one never came.
+        for line in LogNames.lines("Download All \(asked): refused", result.refused) { Logger.shared.info(line) }
         if result.requested.isEmpty, !result.refused.isEmpty {
             whenUnavailable((folders + files).map { URL(fileURLWithPath: $0) })
         }

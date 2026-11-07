@@ -305,4 +305,19 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(await log.holds(.warning, containing: "refused to delete the stored item"),
                 "a refused delete left no warning in the log")
     }
+
+    /// A refused save was only on screen; now the log has the status and which write it was, and
+    /// never the key.
+    @MainActor
+    @Test func aRefusedSaveIsLoggedWithItsStatusAndNotTheKey() async {
+        let store = FakeKeychainStore()
+        store.forcedWriteStatus = errSecInteractionNotAllowed
+        let secret = "sk-ant-REFUSED-\(UUID().uuidString)"
+        let log = LogCapture()
+        #expect(AnthropicKeychain.store(secret, in: store) == errSecInteractionNotAllowed)
+        let entries = await log.entries.filter { $0.message.contains("refused to save it") }
+        #expect(entries.contains { $0.level == .warning && $0.message.contains("status \(errSecInteractionNotAllowed)") },
+                "\(entries.map(\.message))")
+        #expect(!(await log.entries).contains { $0.message.contains(secret) }, "the key reached the log")
+    }
 }

@@ -42,10 +42,24 @@ public final class SyncHistoryStore: ObservableObject {
     public init(
         fileURL: URL = SyncHistoryStore.defaultFileURL(),
         maxFileSize: Int = 5 * 1024 * 1024,
-        reportDroppedRecords: @escaping @MainActor (String) -> Void = { _ = Logger.shared.error($0) }
+        reportDroppedRecords: @escaping @MainActor (String) -> Void = { _ = Logger.shared.error($0) },
+        reportWriteFailure: @escaping @Sendable (String) -> Void = { _ = Logger.shared.error($0) },
+        reportWriteRecovered: @escaping @Sendable (String) -> Void = { _ = Logger.shared.info($0) }
     ) {
         self.fileURL = fileURL
-        self.writer = LogFileWriter(url: fileURL, maxFileSize: maxFileSize)
+        // A failed write is otherwise silent: History looks complete while the file stops growing.
+        // Once per failure run (the writer's latch), and once more when writes land again.
+        let name = fileURL.lastPathComponent
+        self.writer = LogFileWriter(
+            url: fileURL, maxFileSize: maxFileSize,
+            onWriteFailure: { reason in
+                reportWriteFailure("Sync History: couldn’t write \(name) (\(reason)) — runs from now on "
+                                   + "are missing from the file until a write lands")
+            },
+            onWriteRecovered: {
+                reportWriteRecovered("Sync History: \(name) is being written again; runs recorded while it "
+                                     + "couldn’t be are in this session’s History only")
+            })
         self.reportDroppedRecords = reportDroppedRecords
         self.records = Self.loadRecords(from: fileURL)
     }

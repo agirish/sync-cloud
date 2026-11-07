@@ -117,7 +117,11 @@ public final class PersonVetoLog: ObservableObject {
         // value, and after a failed load this array is only what this session saw, not the
         // history. See ``storedValueIsUnreadable``.
         guard !storedValueIsUnreadable else { return }
-        guard let data = try? JSONEncoder().encode(events) else { return }
+        guard let data = try? JSONEncoder().encode(events) else {
+            // Was silent: a "not this person" answer would be lost at the next launch.
+            Logger.shared.error("People: the veto record could not be encoded, so the latest answer was NOT saved")
+            return
+        }
         userDefaults.set(data, forKey: Self.defaultsKey)
     }
 }

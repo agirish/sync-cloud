@@ -94,7 +94,11 @@ enum CloudFilingClassifier {
         do {
             let (data, response) = try await env.transport(request)
             let elapsed = Date().timeIntervalSince(start)
-            guard let http = response as? HTTPURLResponse else { return nil }
+            guard let http = response as? HTTPURLResponse else {
+                // Was silent on a paid call: the scan just stopped with nothing in the log.
+                Logger.shared.warning("Cloud Filing: the API's reply was not an HTTP response, so the call was dropped")
+                return nil
+            }
             let requestID = http.value(forHTTPHeaderField: "request-id") ?? "—"
 
             guard http.statusCode == 200 else {

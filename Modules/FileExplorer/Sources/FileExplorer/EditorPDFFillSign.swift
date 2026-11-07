@@ -604,7 +604,12 @@ public final class EditorPDFSignatureStore: ObservableObject {
 
     private func write(_ signatures: [EditorPDFSignature]) {
         saved = signatures
-        if let data = try? JSONEncoder().encode(signatures) { defaults.set(data, forKey: Self.key) }
+        if let data = try? JSONEncoder().encode(signatures) {
+            defaults.set(data, forKey: Self.key)
+        } else {
+            // Was silent: the saved signatures would revert at the next launch.
+            Logger.shared.error("Fill & Sign: the saved signatures could not be encoded, so the change was NOT saved")
+        }
     }
 }
 

@@ -579,7 +579,7 @@ final class AskClaudeChat: ObservableObject {
         }
         guard now().timeIntervalSince(stored.lastActivity) <= Self.idleReset else {
             Logger.shared.info("Ask Claude: the saved chat is over an hour old, so a new one starts")
-            try? FileManager.default.removeItem(at: storeURL)
+            Self.removeIfPresent(storeURL, what: "the old saved chat")
             return
         }
         engine.restore(stored.engine)
@@ -646,10 +646,23 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// Removes a store file, saying so only when the removal failed for a reason other than the
+    /// file already being gone, which is the usual case: `save()` runs this on every empty save.
+    /// A file that stays would bring an old chat or old questions back at the next launch.
+    static func removeIfPresent(_ url: URL, what: String) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        } catch {
+            Logger.shared.warning("Ask Claude: couldn't remove \(what) at \(url.path) — \(error.localizedDescription)")
+        }
+    }
+
     private func save() {
         guard let storeURL else { return }
         guard let lastActivity, !items.isEmpty else {
-            try? FileManager.default.removeItem(at: storeURL)
+            Self.removeIfPresent(storeURL, what: "the emptied saved chat")
             return
         }
         let stored = Stored(items: items, lastActivity: lastActivity, engine: engine.snapshot,
@@ -690,7 +703,7 @@ final class AskClaudeChat: ObservableObject {
     func newChat() {
         startOver()
         promptHistory = AskClaudePromptHistory()
-        if let historyURL { try? FileManager.default.removeItem(at: historyURL) }
+        if let historyURL { Self.removeIfPresent(historyURL, what: "the typed questions") }
     }
 
     private func restoreHistory() {

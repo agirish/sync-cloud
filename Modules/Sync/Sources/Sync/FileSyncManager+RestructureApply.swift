@@ -1755,6 +1755,9 @@ extension FileSyncManager {
 final class RestructureLandingJournal: @unchecked Sendable {
     private let url: URL
     private let handle: FileHandle
+    /// Whether a failed write has been reported: once per landing, since every later line fails
+    /// the same way. Touched only from the landing's own sequence of `record` calls.
+    private var reportedWriteFailure = false
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -1780,7 +1783,17 @@ final class RestructureLandingJournal: @unchecked Sendable {
     func record(_ action: RestructureManifest.Action) {
         guard var line = try? encoder.encode(action) else { return }
         line.append(0x0A)
-        try? handle.write(contentsOf: line)
+        do {
+            try handle.write(contentsOf: line)
+        } catch {
+            // Was silent: a landing interrupted after this point couldn't be recovered from the
+            // journal, and nothing said the journal had stopped.
+            guard !reportedWriteFailure else { return }
+            reportedWriteFailure = true
+            Logger.shared.warning("Restructure: the landing journal \(url.lastPathComponent) stopped accepting "
+                                  + "lines (\(error.localizedDescription)) — an interruption from here on can't be "
+                                  + "recovered from it")
+        }
     }
 
     func finish() {

@@ -77,6 +77,10 @@ extension FileSyncManager {
             + "\(read) read, \(homed) with a home from the page"
             + (pending.isEmpty ? "" : ", \(pending.count) still downloading")
             + (refused == 0 ? "" : ", \(refused) refused"))
+        // Which ones, since "a cloud provider never downloaded a file" is asked about a file.
+        for line in LogNames.lines("Filing: Download and Read — still downloading", Array(pending)) {
+            Logger.shared.info(line)
+        }
         banner = Self.downloadAndReadBanner(asked: targets.count, landed: landed.count, homed: homed,
                                             stillDownloading: pending.count, refused: refused)
         return homed

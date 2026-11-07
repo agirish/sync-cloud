@@ -646,6 +646,9 @@ struct AskClaudePDFCards {
                 toldTrashed.append(told)
                 rereadPanesAfterEditorWrite(file.path, writer: "Ask Claude moved to the Trash")
             } catch {
+                // The card says "couldn't go to the Trash"; the log keeps which file and why.
+                Logger.shared.warning("Ask Claude card: Undo “\(card.title)” couldn't move \(file.path) to the Trash — "
+                                      + error.localizedDescription)
                 leave("it couldn’t go to the Trash")
             }
         }

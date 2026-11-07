@@ -1039,7 +1039,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     /// The wait behind a card: the system's download first, where the provider takes it, then the
     /// one-byte read every provider answers (`ExternalOpen.fetch`).
     nonisolated static func fetch(_ download: AskClaudeDownload, timeout: Duration = downloadWait) async -> AskClaudeChat.Fetched {
-        try? MaterializationStatus.download(atPath: download.path)
+        do {
+            try MaterializationStatus.download(atPath: download.path)
+        } catch {
+            // Not fatal: the read below still asks the provider. But if the file never comes, this
+            // is the reason, and the "didn't deliver it" line later has none of its own.
+            Logger.shared.info("Ask Claude: the system wouldn't start a download of \(download.path) "
+                               + "(\(error.localizedDescription)) — asking the provider by reading it instead")
+        }
         let started = ContinuousClock.now
         if await ExternalOpen.fetch(download.path, timeout: timeout) { return .landed }
         // The fetch answers false both when it gave up waiting and when the read came back with

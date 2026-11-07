@@ -35,4 +35,14 @@ import Testing
         #expect(VerifyAllLog.finish(identical: 3, differed: 0, skipped: 1, of: 4, canceled: false, elapsed: "1.0 ms")
                 == "Verify All finished (1.0 ms): 3 identical, 0 differed, 1 couldn’t be verified of 4 pair(s)")
     }
+
+    @Test func aNameListKeepsEveryNameSortedAtMostTwoHundredALine() {
+        #expect(LogNames.lines("X", []) == [])
+        #expect(LogNames.lines("X", ["b", "a"]) == ["X: a, b"])
+        let many = (1...401).map { String(format: "n%03d", $0) }
+        let lines = LogNames.lines("X", many.reversed())
+        #expect(lines.count == 3)
+        #expect(lines[0].hasPrefix("X 1–200 of 401: n001, n002"))
+        #expect(lines[2] == "X 401–401 of 401: n401")
+    }
 }
