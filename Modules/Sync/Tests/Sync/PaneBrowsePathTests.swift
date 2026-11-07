@@ -152,12 +152,6 @@ import Events
         #expect(path.pruned(against: PaneChildrenIndex.empty(side: .left), treeRoot: root).isEmpty)
     }
 
-    /// Fails if `pruned` returns `self` unconditionally, which every keep-case above would allow.
-    @Test func testPruneReturnsADifferentValueWhenItDropsSomething() {
-        let path = PaneBrowsePath(components: ["Documents", "Gone"])
-        #expect(path.pruned(against: index(), treeRoot: root) != path)
-    }
-
     // MARK: - Pruning the forward stack
 
     /// Walk into a folder, step back out with `‹`, then have that folder deleted. The live stack

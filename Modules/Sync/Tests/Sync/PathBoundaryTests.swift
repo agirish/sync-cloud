@@ -53,8 +53,11 @@ struct PathBoundaryTests {
 
     // MARK: Root "/"
 
+    /// Untouched by the empty-root guard below, which tests the argument, not the normalized base,
+    /// since "/" also reduces to an empty base. Fails if the guard is simplified to `base.isEmpty`.
     @Test func filesystemRootContainsEveryAbsolutePath() {
         #expect(PathBoundary.relativize("/x/y", under: "/") == "x/y")
+        #expect(PathBoundary.contains("/x/y", under: "/"))
         #expect(PathBoundary.relativize("/x", under: "/") == "x")
         #expect(PathBoundary.relativize("/", under: "/") == "")
     }
@@ -70,13 +73,6 @@ struct PathBoundaryTests {
         #expect(PathBoundary.relativize("/", under: "") == nil)
         #expect(PathBoundary.relativize("", under: "") == nil)
         #expect(!PathBoundary.contains("/Users/me/file.txt", under: ""))
-    }
-
-    /// The guard tests the argument, not the normalized base, since "/" also reduces to an empty
-    /// base. Fails if the guard is simplified to `base.isEmpty`.
-    @Test func filesystemRootIsUnaffectedByTheEmptyRootGuard() {
-        #expect(PathBoundary.relativize("/x/y", under: "/") == "x/y")
-        #expect(PathBoundary.contains("/x/y", under: "/"))
     }
 
     // MARK: Unicode

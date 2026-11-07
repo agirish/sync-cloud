@@ -23,6 +23,54 @@ import Testing
     /// chmod 000 is a no-op for root (it can read anything), so these fixtures prove nothing there.
     private var runningAsRoot: Bool { geteuid() == 0 }
 
+    /// The cold diff, case-insensitive, of two temp roots: `left` and `right` are files to write,
+    /// `rightDirs` empty folders on the right, and `locked` the folder chmodded to 000 on one side
+    /// (`""` for that side's root). Permissions are restored and both roots removed before it
+    /// returns.
+    private func lockedDiff(left leftFiles: [String] = [], right rightFiles: [String] = [],
+                            rightDirs: [String] = [], locked: (onLeft: Bool, path: String)) throws -> [FileDifference] {
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+        for path in leftFiles { try write(leftBase.appendingPathComponent(path), text: "content") }
+        for path in rightFiles { try write(rightBase.appendingPathComponent(path), text: "content") }
+        for path in rightDirs {
+            try FileManager.default.createDirectory(at: rightBase.appendingPathComponent(path),
+                                                    withIntermediateDirectories: true)
+        }
+        let side = locked.onLeft ? leftBase : rightBase
+        let lockedURL = locked.path.isEmpty ? side : side.appendingPathComponent(locked.path)
+        if !locked.path.isEmpty {
+            try FileManager.default.createDirectory(at: lockedURL, withIntermediateDirectories: true)
+        }
+        try chmod(lockedURL, 0o000)
+        defer { try? chmod(lockedURL, 0o755) }   // before the removal above: defers run last-first
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
+        return FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+    }
+
+    /// The warm diff of two pane trees at `/L` and `/R`, with the right side's map.
+    private func warmDiff(left leftNodes: [FileNode], right rightNodes: [FileNode])
+    -> (rightInfo: [String: FileDiffEngine.FileInfo], diffs: [FileDifference]) {
+        let leftInfo = FileDiffEngine.filesInfo(fromTree: leftNodes, basePath: "/L")
+        let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
+        return (rightInfo, FileDiffEngine.computeDifferences(
+            left: left, leftURL: URL(fileURLWithPath: "/L"),
+            right: right, rightURL: URL(fileURLWithPath: "/R"),
+            leftFilesInfo: leftInfo, rightFilesInfo: rightInfo))
+    }
+
     // MARK: Tree walk (warm branch)
 
     @Test func buildTreeMarksAPermissionDeniedDirectoryUnexplored() async throws {
@@ -142,29 +190,8 @@ import Testing
 
     @Test func unreadableDirectoryOnOneSideProducesNoMissingRowsForItsContents() throws {
         guard !runningAsRoot else { return }
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
         // Same directory on both sides; the RIGHT one is unreadable, the LEFT one has content.
-        try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
-        try write(leftBase.appendingPathComponent("shared/sub/deep.txt"), text: "content")
-        try write(leftBase.appendingPathComponent("really-missing.txt"), text: "content")
-        let rightLocked = rightBase.appendingPathComponent("shared")
-        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
-        try chmod(rightLocked, 0o000)
-        defer {
-            try? chmod(rightLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["shared/doc.txt", "shared/sub/deep.txt", "really-missing.txt"], locked: (onLeft: false, path: "shared"))
 
         // Nothing under the unreadable directory may surface as an actionable Missing row:
         // the right side's view of "shared" is unknown, not empty.
@@ -180,28 +207,7 @@ import Testing
         // The pairing matches ancestors across case variants, so the suppression must too: left
         // readable "Shared" with content, right unreadable "shared". The unexplored set holds the
         // right-side spelling, which an exact-string ancestor lookup would miss.
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(leftBase.appendingPathComponent("Shared/doc.txt"), text: "content")
-        try write(leftBase.appendingPathComponent("Shared/sub/deep.txt"), text: "content")
-        try write(leftBase.appendingPathComponent("really-missing.txt"), text: "content")
-        let rightLocked = rightBase.appendingPathComponent("shared")
-        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
-        try chmod(rightLocked, 0o000)
-        defer {
-            try? chmod(rightLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["Shared/doc.txt", "Shared/sub/deep.txt", "really-missing.txt"], locked: (onLeft: false, path: "shared"))
 
         #expect(!diffs.contains { $0.relativePath.hasPrefix("Shared/") },
                 "phantom rows under a case-variant unreadable folder: \(diffs.map(\.relativePath))")
@@ -213,26 +219,7 @@ import Testing
         // The near-name shape: right's unreadable folder is "shared " (trailing space). Near-name
         // pairing matches the two dirs, and must not remap phantom child rows into the unreadable
         // variant.
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
-        let rightLocked = rightBase.appendingPathComponent("shared ")
-        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
-        try chmod(rightLocked, 0o000)
-        defer {
-            try? chmod(rightLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["shared/doc.txt"], locked: (onLeft: false, path: "shared "))
 
         #expect(!diffs.contains { $0.relativePath.hasPrefix("shared/") },
                 "phantom rows under a near-name unreadable folder: \(diffs.map(\.relativePath))")
@@ -244,28 +231,7 @@ import Testing
         // empty "shared" and an unreadable "shared ". The missing row for left's shared/doc.txt
         // targets the readable folder and must survive: folding may only suppress when no
         // exact-spelling entry owns the ancestor.
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
-        try FileManager.default.createDirectory(
-            at: rightBase.appendingPathComponent("shared"), withIntermediateDirectories: true)
-        let rightLocked = rightBase.appendingPathComponent("shared ")
-        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
-        try chmod(rightLocked, 0o000)
-        defer {
-            try? chmod(rightLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["shared/doc.txt"], rightDirs: ["shared"], locked: (onLeft: false, path: "shared "))
 
         #expect(diffs.contains { $0.relativePath == "shared/doc.txt" && $0.type == .missingOnRight },
                 "the legit row into the readable exact folder was over-suppressed: \(diffs.map(\.relativePath))")
@@ -277,28 +243,7 @@ import Testing
         // readable, empty "docs" and unreadable "Docs ". The pairing matches "Docs" with "docs",
         // so the child row is actionable and must survive. An exact-spelling-only gate would miss
         // the owner (rightFilesInfo["Docs"] is nil) and suppress it on the folded key.
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(leftBase.appendingPathComponent("Docs/x.txt"), text: "content")
-        try FileManager.default.createDirectory(
-            at: rightBase.appendingPathComponent("docs"), withIntermediateDirectories: true)
-        let rightLocked = rightBase.appendingPathComponent("Docs ")
-        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
-        try chmod(rightLocked, 0o000)
-        defer {
-            try? chmod(rightLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["Docs/x.txt"], rightDirs: ["docs"], locked: (onLeft: false, path: "Docs "))
 
         #expect(diffs.contains { $0.relativePath == "Docs/x.txt" && $0.type == .missingOnRight },
                 "over-suppressed the row into the readable case-variant owner: \(diffs.map(\.relativePath))")
@@ -306,26 +251,7 @@ import Testing
 
     @Test func unreadableDirectoryOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
         guard !runningAsRoot else { return }
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(rightBase.appendingPathComponent("shared/doc.txt"), text: "content")
-        let leftLocked = leftBase.appendingPathComponent("shared")
-        try FileManager.default.createDirectory(at: leftLocked, withIntermediateDirectories: true)
-        try chmod(leftLocked, 0o000)
-        defer {
-            try? chmod(leftLocked, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(right: ["shared/doc.txt"], locked: (onLeft: true, path: "shared"))
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
@@ -376,25 +302,7 @@ import Testing
 
     @Test func unreadableRootOnOneSideProducesNoMissingRowsAtAll() throws {
         guard !runningAsRoot else { return }
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(leftBase.appendingPathComponent("doc.txt"), text: "content")
-        try write(leftBase.appendingPathComponent("sub/deep.txt"), text: "content")
-        try chmod(rightBase, 0o000)
-        defer {
-            try? chmod(rightBase, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(left: ["doc.txt", "sub/deep.txt"], locked: (onLeft: false, path: ""))
 
         // The right side's entire view is unknown: nothing may surface as actionable Missing.
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
@@ -402,24 +310,7 @@ import Testing
 
     @Test func unreadableRootOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
         guard !runningAsRoot else { return }
-        let leftBase = try makeTempDir()
-        let rightBase = try makeTempDir()
-        try write(rightBase.appendingPathComponent("doc.txt"), text: "content")
-        try chmod(leftBase, 0o000)
-        defer {
-            try? chmod(leftBase, 0o755)
-            try? FileManager.default.removeItem(at: leftBase)
-            try? FileManager.default.removeItem(at: rightBase)
-        }
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: leftBase,
-            right: right, rightURL: rightBase,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
-            caseInsensitive: true)
+        let diffs = try lockedDiff(right: ["doc.txt"], locked: (onLeft: true, path: ""))
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
@@ -435,16 +326,8 @@ import Testing
         let rightNodes = [
             FileNode(id: "/R", name: "R", isDirectory: true, children: [], isUnexplored: true),
         ]
-        let leftInfo = FileDiffEngine.filesInfo(fromTree: leftNodes, basePath: "/L")
-        let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
+        let (rightInfo, diffs) = warmDiff(left: leftNodes, right: rightNodes)
         #expect(rightInfo[""]?.isUnexplored == true)
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: URL(fileURLWithPath: "/L"),
-            right: right, rightURL: URL(fileURLWithPath: "/R"),
-            leftFilesInfo: leftInfo, rightFilesInfo: rightInfo)
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
@@ -464,16 +347,8 @@ import Testing
             FileNode(id: "/R/shared", name: "shared", isDirectory: true, children: [],
                      isUnexplored: true),
         ]
-        let leftInfo = FileDiffEngine.filesInfo(fromTree: leftNodes, basePath: "/L")
-        let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
+        let (rightInfo, diffs) = warmDiff(left: leftNodes, right: rightNodes)
         #expect(rightInfo["shared"]?.isUnexplored == true)
-
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
-        let diffs = FileDiffEngine.computeDifferences(
-            left: left, leftURL: URL(fileURLWithPath: "/L"),
-            right: right, rightURL: URL(fileURLWithPath: "/R"),
-            leftFilesInfo: leftInfo, rightFilesInfo: rightInfo)
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }

@@ -6415,7 +6415,7 @@ graft find a folder by the names down from the folder the tree was walked at (`T
 with the id prefix kept as the fallback the outline asks through; the Tree/Columns carry translates
 by names; ⌘↓ asks whether the deepest column lists the folder.
 
-Cost, Release, `TreeWalkBenchmark.columnIndexBuild` (run it on system folders — a test helper walking
+Cost, Release, measured by a since-removed benchmark on system folders (a test helper walking
 `~` stalls in a FileProvider listing): the index build is 18 ms against 16 over
 `/System/Library/Frameworks` re-spelled so no id parts (55,136 directories), and 24 against 11 as
 walked, where 30,803 lie below a link.

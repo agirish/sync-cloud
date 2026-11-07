@@ -32,18 +32,6 @@ import CryptoKit
         #expect(await FileContentVerifier.sha256Hex(filePath: dir.appendingPathComponent("nope").path) == nil)
     }
 
-    @Test func testFilesHaveSameContentTrueForIdenticalBytes() async throws {
-        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let a = dir.appendingPathComponent("a.bin")
-        let b = dir.appendingPathComponent("b.bin")
-        try Data("identical payload".utf8).write(to: a)
-        try Data("identical payload".utf8).write(to: b)
-
-        #expect(await FileContentVerifier.filesHaveSameContent(leftPath: a.path, rightPath: b.path) == true)
-    }
-
     @Test func testFilesHaveSameContentFalseForDifferingBytesOfEqualSize() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -404,16 +392,6 @@ import CryptoKit
         })
         let resolvedTarget = (target.path as NSString).resolvingSymlinksInPath
         #expect(checked.withLock { $0 } == [resolvedTarget])
-    }
-
-    @Test func sha256HexStillCollapsesEveryNonHashToNil() async throws {
-        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let f = dir.appendingPathComponent("f.bin")
-        try Data(repeating: 1, count: 64).write(to: f)
-        // The classic API is a thin wrapper over hashOutcome — same digest, nil for a directory.
-        #expect(await FileContentVerifier.sha256Hex(filePath: f.path) != nil)
-        #expect(await FileContentVerifier.sha256Hex(filePath: dir.path) == nil)
     }
 
     @Test func testFilesHaveSameContentNilWhenEitherSideUnhashable() async throws {

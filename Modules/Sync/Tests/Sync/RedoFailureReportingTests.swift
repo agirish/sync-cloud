@@ -42,6 +42,15 @@ import EventsTestSupport
         }
     }
 
+    /// A mock disk with `/src/f.txt` (100 bytes) and an empty `/dst`.
+    private func disk() throws -> MockFileManager {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        return mockFM
+    }
+
     private func file(_ size: Int) -> MockFileManager.FileStub {
         MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
     }
@@ -55,10 +64,7 @@ import EventsTestSupport
     @Test func testCopyRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
         let log = LogCapture()
         let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        let mockFM = try disk()
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -100,10 +106,7 @@ import EventsTestSupport
     @Test func testMoveRedoFailureIsSurfacedAndNextUndoIsNoOp() async throws {
         let log = LogCapture()
         let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        let mockFM = try disk()
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -141,10 +144,7 @@ import EventsTestSupport
     @MainActor
     @Test func testRedoAfterARefusedMoveUndoDoesNotClobberTheDestination() async throws {
         let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)   // the real file S
+        let mockFM = try disk()   // /src/f.txt is the real file S
 
         let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
         await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
@@ -221,10 +221,7 @@ import EventsTestSupport
     @Test func testCopyUndoConfirmedRemoveFailureIsSurfacedAndLeavesBackupInPlace() async throws {
         let log = LogCapture()
         let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        let mockFM = try disk()
         mockFM.virtualDisk["/dst/f.txt"] = file(5)
         mockFM.shouldFailTrash = true // trash-less volume: the overwritten original stays as .rollback_
         manager.permanentDeleteConfirmer = { _ in true }

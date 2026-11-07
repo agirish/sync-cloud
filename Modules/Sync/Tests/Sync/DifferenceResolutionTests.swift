@@ -12,6 +12,21 @@ import Foundation
 
     static let leftDate = Date(timeIntervalSince1970: 1_600_000_000)
 
+    /// A mock disk holding empty `/src` and `/dst`.
+    private func disk() throws -> MockFileManager {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        return mockFM
+    }
+
+    /// A row copying `/src/<name>` to `/dst/<name>`.
+    private func row(_ name: String, _ type: FileDifference.DifferenceType = .missingOnRight) -> FileDifference {
+        FileDifference(relativePath: name, leftItemPath: "/src/\(name)", rightItemPath: "/dst/\(name)",
+                       type: type, action: .copyToRight,
+                       description: type == .missingOnRight ? "Missing" : "Different dates")
+    }
+
     private func rightDate(_ mockFM: MockFileManager) -> Date? {
         (try? mockFM.attributesOfItem(atPath: "/dst/test.txt"))?[.modificationDate] as? Date
     }
@@ -20,9 +35,7 @@ import Foundation
     /// and a manager whose collision seams are mocked so no NSAlert can ever appear.
     @MainActor
     private func makeVerifiedCopyFixture() throws -> (FileSyncManager, MockFileManager, FileDifference) {
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        let mockFM = try disk()
         // Same size, dates a day apart: the run matches the right file's date to the left's and
         // copies nothing, so "it ran" reads as the right file taking `leftDate`.
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(
@@ -51,19 +64,23 @@ import Foundation
 
     /// The order SwiftUI really uses: the dialog's `isPresented` setter fires before the confirm
     /// button action. If the setter cleared `verifiedIdenticalForCopy` synchronously, the confirm
-    /// action's guard would bail and nothing would be copied.
+    /// action's guard would bail and nothing would be copied. The opposite order (confirm first,
+    /// then the setter) must behave identically.
     @MainActor
-    @Test func testConfirmVerifiedCopyCopiesEvenWhenDismissBindingFiresFirst() async throws {
+    @Test(arguments: [true, false])
+    func testConfirmVerifiedCopyCopiesWhicheverFiresFirst(dismissFirst: Bool) async throws {
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
         manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch,
                                                              fileManager: mockFM)
 
-        let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter (dismiss)
-        let copyTask = manager.confirmVerifiedCopy()   // confirm button, same main-actor turn
+        // The binding setter (dismiss) and the confirm button, in one main-actor turn.
+        let dismissCleanup = dismissFirst ? manager.verifiedCopyDialogDismissed() : nil
+        let copyTask = manager.confirmVerifiedCopy()
+        let laterCleanup = dismissFirst ? nil : manager.verifiedCopyDialogDismissed()
 
         #expect(copyTask != nil)
         await copyTask?.value
-        await dismissCleanup.value                     // the deferred dismiss cleanup really ran
+        await (dismissCleanup ?? laterCleanup)?.value   // the deferred dismiss cleanup really ran
 
         // The run really ran: the right file took the left's date.
         #expect(rightDate(mockFM) == Self.leftDate)
@@ -71,24 +88,6 @@ import Foundation
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
         #expect(manager.verifiedIdenticalForCopy == nil)
-    }
-
-    /// The opposite order (confirm action first, then the binding setter) must behave identically.
-    @MainActor
-    @Test func testConfirmVerifiedCopyCopiesWhenConfirmRunsFirst() async throws {
-        let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch,
-                                                             fileManager: mockFM)
-
-        let copyTask = manager.confirmVerifiedCopy()
-        let dismissCleanup = manager.verifiedCopyDialogDismissed()
-
-        await copyTask?.value
-        await dismissCleanup.value
-
-        #expect(rightDate(mockFM) == Self.leftDate)
-        #expect(manager.differences.isEmpty)
-        #expect(manager.rawDifferences.isEmpty)
     }
 
     /// Cancel keeps its meaning: nothing is copied, the items are hidden until the next scan.
@@ -118,22 +117,13 @@ import Foundation
     /// (hidden-files toggle, sort change, or the post-sync refresh itself).
     @MainActor
     @Test func testSyncedDifferenceDoesNotResurrectOnApplyFilters() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, true) }
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let diff = FileDifference(
-            relativePath: "test.txt",
-            leftItemPath: "/src/test.txt",
-            rightItemPath: "/dst/test.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing"
-        )
+        let diff = row("test.txt")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
@@ -149,24 +139,15 @@ import Foundation
     /// Same guarantee for the bulk `syncAll` path.
     @MainActor
     @Test func testSyncAllRemovesSuccessesFromRawDifferences() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
         manager.collisionResolver = { _ in .replace }
         manager.bulkCollisionResolver = { _ in (.replace, true) }
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         var diffs: [FileDifference] = []
         for i in 1...3 {
             mockFM.virtualDisk["/src/file\(i).txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-            diffs.append(FileDifference(
-                relativePath: "file\(i).txt",
-                leftItemPath: "/src/file\(i).txt",
-                rightItemPath: "/dst/file\(i).txt",
-                type: .missingOnRight,
-                action: .copyToRight,
-                description: "Missing"
-            ))
+            diffs.append(row("file\(i).txt"))
         }
         manager.rawDifferences = diffs
         manager.differences = diffs
@@ -184,22 +165,13 @@ import Foundation
     /// file must get its own resolution when the user doesn't pick "Apply to all".
     @MainActor
     @Test func testSyncAllPromptsCollisionsInOrderWithMixedResolutions() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         var diffs: [FileDifference] = []
         for name in ["a.txt", "b.txt", "c.txt"] {
             mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-            diffs.append(FileDifference(
-                relativePath: name,
-                leftItemPath: "/src/\(name)",
-                rightItemPath: "/dst/\(name)",
-                type: .missingOnRight,
-                action: .copyToRight,
-                description: "Missing"
-            ))
+            diffs.append(row(name))
         }
         // a and c collide on the destination; b does not.
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -234,10 +206,8 @@ import Foundation
     /// destination, so folders always re-prompt (they're never auto-resolved from the file cache).
     @MainActor
     @Test func testApplyToAllFromAFileNeverAutoReplacesALaterFolder() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         // A file collision first, then a directory collision. The dst folder holds a file that
         // exists ONLY there — a wholesale replace would trash it.
@@ -248,8 +218,7 @@ import Foundation
         mockFM.virtualDisk["/dst/folder/keep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let diffs = ["a.txt", "folder"].map { name in
-            FileDifference(relativePath: name, leftItemPath: "/src/\(name)", rightItemPath: "/dst/\(name)",
-                           type: .missingOnRight, action: .copyToRight, description: "Missing")
+            row(name)
         }
         manager.rawDifferences = diffs
         manager.differences = diffs
@@ -275,10 +244,8 @@ import Foundation
     /// the single-file TOCTOU window (cloud placeholder hydration, another sync client).
     @MainActor
     private func makeAppearedDestinationFixture() throws -> (FileSyncManager, MockFileManager, FileDifference) {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
 
         // Absent when syncFile's initial stat runs; planted immediately after that check.
@@ -288,14 +255,7 @@ import Foundation
             mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
         }
 
-        let diff = FileDifference(
-            relativePath: "test.txt",
-            leftItemPath: "/src/test.txt",
-            rightItemPath: "/dst/test.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing"
-        )
+        let diff = row("test.txt")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
         return (manager, mockFM, diff)
@@ -352,21 +312,12 @@ import Foundation
     /// pre-enqueue re-stat must not re-prompt for a replacement the user just approved.
     @MainActor
     @Test func testSyncFileDoesNotDoublePromptWhenReplaceWasApproved() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let diff = FileDifference(
-            relativePath: "test.txt",
-            leftItemPath: "/src/test.txt",
-            rightItemPath: "/dst/test.txt",
-            type: .differentDates,
-            action: .copyToRight,
-            description: "Different dates"
-        )
+        let diff = row("test.txt", .differentDates)
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
@@ -445,22 +396,13 @@ import Foundation
     /// its own overwrite prompt; trusting the stale pre-prompt stat would replace it silently.
     @MainActor
     @Test func testSyncAllPromptsForDestinationCreatedDuringEarlierPrompt() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         var diffs: [FileDifference] = []
         for name in ["a.txt", "b.txt"] {
             mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-            diffs.append(FileDifference(
-                relativePath: name,
-                leftItemPath: "/src/\(name)",
-                rightItemPath: "/dst/\(name)",
-                type: .missingOnRight,
-                action: .copyToRight,
-                description: "Missing"
-            ))
+            diffs.append(row(name))
         }
         // Only a.txt collides when the batch stat runs.
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -493,21 +435,12 @@ import Foundation
     /// would reset the first run's "Apply to all" cache and tear down its progress on exit.
     @MainActor
     @Test(.parksAThread) func testSyncAllDropsReentrantRunWhileFirstIsInFlight() async throws {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let diff = FileDifference(
-            relativePath: "a.txt",
-            leftItemPath: "/src/a.txt",
-            rightItemPath: "/dst/a.txt",
-            type: .differentDates,
-            action: .copyToRight,
-            description: "Different dates"
-        )
+        let diff = row("a.txt", .differentDates)
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
@@ -558,23 +491,14 @@ import Foundation
     /// bulk path must never consult it (a .skip there would surface as an unresolved item).
     @MainActor
     private func makeBulkCollisionFixture(names: [String]) throws -> (FileSyncManager, MockFileManager, [FileDifference]) {
-        let mockFM = MockFileManager()
+        let mockFM = try disk()
         let manager = FileSyncManager(fileManager: mockFM)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
         var diffs: [FileDifference] = []
         for name in names {
             mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
             mockFM.virtualDisk["/dst/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-            diffs.append(FileDifference(
-                relativePath: name,
-                leftItemPath: "/src/\(name)",
-                rightItemPath: "/dst/\(name)",
-                type: .differentDates,
-                action: .copyToRight,
-                description: "Different dates"
-            ))
+            diffs.append(row(name, .differentDates))
         }
         manager.rawDifferences = diffs
         manager.differences = diffs

@@ -113,23 +113,16 @@ import Events
     private func makeGroup(_ base: URL, redundantNames: [String]) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
         let keeper = base.appendingPathComponent("Keeper")
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        var copies: [DuplicateCopy] = [
-            DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
-                          modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        ]
+        var copies: [DuplicateCopy] = [.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)]
         var redundant: [URL] = []
         for (i, name) in redundantNames.enumerated() {
             let r = base.appendingPathComponent(name)
             try write(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
             try write(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
             redundant.append(r)
-            copies.append(DuplicateCopy(id: r.path, name: name, isDirectory: true, size: 8000, itemCount: 2,
-                                        modificationDate: nil, uniqueItemCount: 1, depth: 0,
-                                        isRecommendedKeeper: false))
+            copies.append(.stub(r.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1))
         }
-        return (keeper, redundant,
-                DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                               isDirectory: true, copies: copies, reclaimableBytes: 4000))
+        return (keeper, redundant, .stub(copies, matchType: .overlapping(sharedFraction: 0.5), reclaimable: 4000))
     }
 
     // MARK: FINDING 1 — no undo group across a suspension
@@ -347,6 +340,15 @@ import Events
 
     // MARK: The merge gate's own verdicts
 
+    /// The fold record for the copy "Red" at `redundant`, planned from what is on disk now.
+    private func plannedFold(_ redundant: URL, keeperDestinations: [String] = []) async -> FileSyncManager.MergeFoldRecord {
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        return FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned,
+                                               keeperDestinations: keeperDestinations)
+    }
+
     @MainActor
     @Test func theMergeGateRefusesACopyThatChangedSinceItWasPlanned() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeGateUnit")
@@ -354,11 +356,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
+        let fold = await plannedFold(redundant)
 
         // The control first, so a gate that refuses everything can't pass this.
         let clean = await manager.refuseDriftedMergeSources(
@@ -386,10 +384,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
+        let fold = await plannedFold(redundant)
 
         try FileManager.default.removeItem(at: fixture.keeper)
         let refused = await manager.refuseDriftedMergeSources(
@@ -409,10 +404,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
+        let fold = await plannedFold(redundant)
 
         let stray = base.appendingPathComponent("stray.txt").path
         let refused = await manager.refuseDriftedMergeSources(
@@ -432,10 +424,7 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
+        let fold = await plannedFold(redundant)
         try Data(repeating: 0x01, count: 32).write(to: redundant.appendingPathComponent("new.txt"))
 
         let spelled = redundant.path + "/"
@@ -543,15 +532,11 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
         // As if the fold had run: the unique file now also lives in the keeper.
         let landed = fixture.keeper.appendingPathComponent("unique0.txt")
         try Data(repeating: 0x60, count: 4000).write(to: landed)
-        let fold = FileSyncManager.MergeFoldRecord(
-            name: "Red", url: redundant, plannedSnapshot: planned,
-            keeperDestinations: [landed.path, fixture.keeper.appendingPathComponent("shared.txt").path])
+        let fold = await plannedFold(redundant, keeperDestinations: [
+            landed.path, fixture.keeper.appendingPathComponent("shared.txt").path])
 
         // Control first, so a gate that refuses everything can't pass the pin below.
         let clean = await manager.refuseDriftedMergeSources(
@@ -579,12 +564,8 @@ import Events
         let fixture = try makeGroup(base, redundantNames: ["Red"])
         let redundant = fixture.redundant[0]
         let manager = FileSyncManager(fileManager: FileManager.default)
-        let planned = FileSyncManager.fileSnapshotsByRelativePath(
-            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
-                                            fileManager: FileManager.default, maxDepth: nil))
         let shared = fixture.keeper.appendingPathComponent("shared.txt")
-        let fold = FileSyncManager.MergeFoldRecord(
-            name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [shared.path])
+        let fold = await plannedFold(redundant, keeperDestinations: [shared.path])
 
         try FileManager.default.removeItem(at: shared)
         let refused = await manager.refuseDriftedMergeSources(

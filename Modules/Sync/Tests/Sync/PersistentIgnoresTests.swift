@@ -8,21 +8,29 @@ import Foundation
 /// keep both layers consistent.
 @Suite struct PersistentIgnoresTests {
 
+    /// A manager with a durable ignore store on a scratch suite, which the store keeps alive and
+    /// which wipes itself once the test lets go. Given `mixed`, the pair's two sources open at
+    /// different depths, wired the way the app wires them: the ids are what `paneSourceId` answers
+    /// and the pair key is built from, the `openAt` values what `paneOpenAt` answers. The durable
+    /// store needs all four to agree.
     @MainActor
-    private func makeManagerWithStore() -> (FileSyncManager, IgnoredItemsStore, UserDefaults, String) {
-        let suite = "PersistentIgnoresTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        let store = IgnoredItemsStore(userDefaults: defaults)
-        store.activate(pairKey: IgnoredItemsStore.pairKey("left", "right"))
+    private func makeManagerWithStore(
+        mixed: (leftId: String, leftOpenAt: String, rightId: String, rightOpenAt: String)? = nil
+    ) -> (FileSyncManager, IgnoredItemsStore) {
+        let store = IgnoredItemsStore(userDefaults: ScratchDefaults("PersistentIgnoresTests"))
+        store.activate(pairKey: IgnoredItemsStore.pairKey(mixed?.leftId ?? "left", mixed?.rightId ?? "right"))
         let manager = FileSyncManager()
         manager.ignoredItemsStore = store
-        return (manager, store, defaults, suite)
+        if let mixed {
+            manager.paneSourceId = { $0 ? mixed.leftId : mixed.rightId }
+            manager.paneOpenAt = { $0 ? mixed.leftOpenAt : mixed.rightOpenAt }
+        }
+        return (manager, store)
     }
 
     @MainActor
     @Test func testIgnoreAtRootMirrorsIntoStore() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["junk", "node_modules"]
         #expect(store.rootRelativePaths == ["junk", "node_modules"])
@@ -34,8 +42,7 @@ import Foundation
 
     @MainActor
     @Test func testIgnoreInSubfolderIsStoredRootRelative() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.focusBoth(relativePath: "Docs/Work")
         manager.ignoredPaths = ["draft.txt"]
@@ -47,8 +54,7 @@ import Foundation
         // With the panes on different folders a focus-relative path names different items on
         // the two sides, so there is no root-relative identity to store: the durable mirror stays
         // out of it in both directions, leaving session behavior.
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         store.add(["x.txt"])
         manager.focusOn(relativePath: "Docs", isLeft: false) // right pane only; left stays at root
@@ -62,8 +68,7 @@ import Foundation
 
     @MainActor
     @Test func testNavigationClearsSessionButNotStore() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["junk"]
         manager.focusOn(relativePath: "Docs", isLeft: true)
@@ -77,8 +82,7 @@ import Foundation
 
     @MainActor
     @Test func testEffectiveSetTranslatesStoreIntoFocus() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         store.add(["Docs/draft.txt", "Docs/Sub/old", "Other/x", "Docs"])
         manager.focusOn(relativePath: "Docs", isLeft: true)
@@ -89,8 +93,7 @@ import Foundation
 
     @MainActor
     @Test func testRememberOffKeepsSessionOnlyBehavior() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         store.add(["stored-entry"])
         manager.rememberIgnoredItems = false
@@ -102,8 +105,7 @@ import Foundation
 
     @MainActor
     @Test func testToggleUnignoresDurableEntryTheSessionNeverHeld() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         // Ignored in a previous session: store holds it, session layer is empty.
         store.add(["junk"])
@@ -119,8 +121,7 @@ import Foundation
         // "docs/report.txt" is ignored via "docs", so the menu reads "Include in comparison".
         // The toggle must agree: remove the covering entry from both layers, not insert the
         // child's own path, which would keep the row excluded after "docs" is un-ignored.
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["docs", "other"]
         manager.toggleIgnored(focusRelativePaths: ["docs/report.txt"])
@@ -133,8 +134,7 @@ import Foundation
     @Test func testToggleUnignoringAncestorCoveredTargetCountsAsIgnored() {
         // "docs/report.txt" is covered by "docs" and "a" is ignored exactly -> every target
         // is effectively ignored, so the action is un-ignore for all (not re-ignore).
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["docs", "a"]
         manager.toggleIgnored(focusRelativePaths: ["docs/report.txt", "a"])
@@ -144,8 +144,7 @@ import Foundation
 
     @MainActor
     @Test func testToggleRoundTripIsIdentity() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.toggleIgnored(focusRelativePaths: ["a", "b"])
         #expect(manager.effectiveIgnoredPaths == ["a", "b"])
@@ -156,8 +155,7 @@ import Foundation
 
     @MainActor
     @Test func testToggleIgnoresWhenAnyTargetIsVisible() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["a"]
         manager.toggleIgnored(focusRelativePaths: ["a", "b"])
@@ -167,8 +165,7 @@ import Foundation
 
     @MainActor
     @Test func testUnignoreRootRelativeClearsBothLayers() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.focusBoth(relativePath: "Docs")
         manager.ignoredPaths = ["draft.txt"]
@@ -182,8 +179,7 @@ import Foundation
 
     @MainActor
     @Test func testClearAllEmptiesBothLayers() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         manager.ignoredPaths = ["a", "b"]
         store.add(["c"])
@@ -215,8 +211,7 @@ import Foundation
 
     @MainActor
     @Test func testIsNodeIgnoredSeesStoreEntriesButNotPatterns() {
-        let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore()
 
         store.add(["docs/report.txt"])
         manager.ignorePatterns = ["*.tmp"]
@@ -233,34 +228,14 @@ import Foundation
 
     // MARK: - Which pane's root the entries are measured from
 
-    /// A pair whose two sources open at different depths, wired the way the app wires it. The ids
-    /// are what `paneSourceId` answers and the pair key is built from; the `openAt` values are what
-    /// `paneOpenAt` answers. The durable store needs all four to agree.
-    @MainActor
-    private func makeMixedPair(
-        leftId: String, leftOpenAt: String,
-        rightId: String, rightOpenAt: String
-    ) -> (FileSyncManager, IgnoredItemsStore, String) {
-        let suite = "PersistentIgnoresTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        let store = IgnoredItemsStore(userDefaults: defaults)
-        store.activate(pairKey: IgnoredItemsStore.pairKey(leftId, rightId))
-        let manager = FileSyncManager()
-        manager.ignoredItemsStore = store
-        manager.paneSourceId = { $0 ? leftId : rightId }
-        manager.paneOpenAt = { $0 ? leftOpenAt : rightOpenAt }
-        return (manager, store, suite)
-    }
-
     /// Two panes showing one folder through sources that land at different depths still mirror
     /// into the store, which is why `panesShareAPosition` doesn't compare raw focus paths. The same
     /// folder is `Family` in iCloud and `Documents/Family` in OneDrive; compared raw, Ignore would
     /// write nothing durable and the row would return after a relaunch.
     @MainActor
     @Test func aMixedPairShowingOneFolderStillWritesDurably() {
-        let (manager, store, suite) = makeMixedPair(
-            leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents")
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore(
+            mixed: (leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents"))
 
         manager.focusBoth(left: "Family", right: "Documents/Family")
         manager.ignoredPaths = ["draft.txt"]
@@ -275,9 +250,8 @@ import Foundation
     /// row stays hidden, not a particular spelling on disk.
     @MainActor
     @Test func theDurableSetSurvivesAPaneSwap() {
-        let (manager, store, suite) = makeMixedPair(
-            leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents")
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore(
+            mixed: (leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents"))
 
         manager.focusBoth(left: "Family", right: "Documents/Family")
         manager.ignoredPaths = ["draft.txt"]
@@ -306,9 +280,8 @@ import Foundation
     /// visible row wouldn't remove it.
     @MainActor
     @Test func ignoringTheSameItemFromEitherOrientationWritesOneEntry() {
-        let (manager, store, suite) = makeMixedPair(
-            leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents")
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, store) = makeManagerWithStore(
+            mixed: (leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents"))
 
         manager.focusBoth(left: "Family", right: "Documents/Family")
         manager.ignoredPaths = ["draft.txt"]
@@ -329,9 +302,8 @@ import Foundation
     /// swap can't change. Ties and unknown ids fall back to the left pane.
     @MainActor
     @Test func theIgnoreAnchorFollowsTheSortedPairKey() {
-        let (manager, _, suite) = makeMixedPair(
-            leftId: "OneDrive-X", leftOpenAt: "Documents", rightId: "iCloud", rightOpenAt: "")
-        defer { wipeDefaultsSuite(suite) }
+        let (manager, _) = makeManagerWithStore(
+            mixed: (leftId: "OneDrive-X", leftOpenAt: "Documents", rightId: "iCloud", rightOpenAt: ""))
         // "OneDrive-X" < "iCloud": uppercase sorts ahead of lowercase, and the key is built the
         // same way, so the left pane is the anchor here.
         #expect(manager.ignoreAnchorIsLeft)

@@ -7,9 +7,10 @@ import Testing
 /// read off the keys they really write, so a new spend key the list does not name goes red here.
 @Suite struct SettingsResetKeepsTests {
 
-    private func suite() -> (UserDefaults, String) {
-        let name = "SettingsResetKeeps-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: name)!, name)
+    /// A throwaway suite and its name; it wipes itself when the test lets go of it.
+    private func suite() -> (ScratchDefaults, String) {
+        let defaults = ScratchDefaults("SettingsResetKeeps")
+        return (defaults, defaults.scratchSuiteName)
     }
 
     private func storedKeys(_ name: String, _ defaults: UserDefaults) -> Set<String> {
@@ -18,7 +19,6 @@ import Testing
 
     @Test func everyKeyTheSpendRecordsWriteIsKept() throws {
         let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
         AskClaudeSpend.record(0.40, in: defaults, now: Date(timeIntervalSince1970: 1_790_000_000))
         AskClaudeSpend.record(0.10, in: defaults, now: Date(timeIntervalSince1970: 1_800_000_000))
         FilingSpendStore.record(
@@ -36,7 +36,6 @@ import Testing
     /// The copies an unreadable record is set aside under are the only copy of what was spent.
     @Test func theCopiesOfAnUnreadableRecordAreKept() {
         let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
         let corrupt = Data("{ \"costUSD\": 4.87, \"tok".utf8)
         defaults.set(corrupt, forKey: FilingSpendStore.totalsKey)
         defaults.set(corrupt, forKey: FilingSpendStore.historyKey)
@@ -54,7 +53,6 @@ import Testing
 
     @Test func theHiddenListIsKeptAndTheSharedListIsNot() {
         let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
         AskClaudePrivacy.shareWithoutAsking("/Users/u/Documents/Recipes", in: defaults)
 
@@ -68,7 +66,6 @@ import Testing
     @MainActor
     @Test func theChoicesHeMadeByHandAreKept() {
         let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
         KeptNamesStore(userDefaults: defaults).keep("CON.txt")
         defaults.set(["group-key"], forKey: FileSyncManager.ignoreDefaultsKey)
         defaults.set(Data("[]".utf8), forKey: PersonVetoLog.defaultsKey)
@@ -98,7 +95,6 @@ import Testing
     @MainActor
     @Test func everyKeyTheRuleStoresWriteIsKept() {
         let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
         let corrupt = Data("[{\"id\": \"x".utf8)
         for key in [FileSyncManager.automationRulesDefaultsKey, FileSyncManager.rulesDefaultsKey,
                     FileSyncManager.rejectionsDefaultsKey, FileSyncManager.wordRejectionsDefaultsKey] {

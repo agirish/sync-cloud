@@ -110,11 +110,16 @@ import Foundation
         manager.banner = nil
         let trashCountBeforeRedo = mockFM.trashedPaths.count
 
-        manager.undoManager?.redo()
-        await waitUntil("redo re-trashes the untouched item") {
-            mockFM.virtualDisk["/docs/notes.txt"] == nil
+        // Bounded by this test's own markers and matched on a path only this fixture uses:
+        // `Logger.shared` is process-wide, and a window bounds time, not authorship.
+        let tag = "redo-refusal-\(UUID().uuidString)"
+        let lines = try await logLines(tag: tag) {
+            manager.undoManager?.redo()
+            await waitUntil("redo re-trashes the untouched item") {
+                mockFM.virtualDisk["/docs/notes.txt"] == nil
+            }
+            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
         #expect(mockFM.virtualDisk["/docs/report.pdf"]?.attributes?[FileAttributeKey.size] as? Int == 555,
                 "the redo trashed a file that merely shares the restored item's path")
@@ -122,32 +127,7 @@ import Foundation
                 "exactly one item — notes.txt — was the redo's to trash")
         #expect(manager.banner?.severity == .warning,
                 "a refused redo that leaves a file on disk has to say so")
-    }
-
-    /// The refusal is logged, not just performed: a silent one leaves a file on disk with no reason.
-    @MainActor
-    @Test func aRefusedRedoTrashSaysSoInTheLog() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/docs/report.pdf"] = file(100)
-        mockFM.virtualDisk["/docs/notes.txt"] = file(50)
-        _ = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM)
-
-        manager.undoManager?.undo()
-        await waitUntil("undo restores both") {
-            mockFM.virtualDisk["/docs/report.pdf"] != nil && mockFM.virtualDisk["/docs/notes.txt"] != nil
-        }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-        mockFM.virtualDisk["/docs/report.pdf"] = file(555)
-
-        // Bounded by this test's own markers and matched on a path only this fixture uses:
-        // `Logger.shared` is process-wide, and a window bounds time, not authorship.
-        let tag = "redo-refusal-\(UUID().uuidString)"
-        let lines = try await logLines(tag: tag) {
-            manager.undoManager?.redo()
-            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
-        }
+        // The refusal is logged, not just performed: a silent one leaves a file on disk with no reason.
         #expect(lines.contains { $0.contains("REFUSED to trash") && $0.contains("/docs/report.pdf") },
                 "the redo left a file on disk and the log did not say why")
     }

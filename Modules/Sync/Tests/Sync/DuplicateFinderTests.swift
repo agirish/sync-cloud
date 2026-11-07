@@ -1286,9 +1286,7 @@ import Testing
     // MARK: - `keeper` and `redundantCopies` must never name the same copy
 
     private static func copy(_ path: String, keeper: Bool, depth: Int = 2) -> DuplicateCopy {
-        DuplicateCopy(id: path, name: "x", isDirectory: false, size: 100, itemCount: 1,
-                      modificationDate: nil, uniqueItemCount: 0, depth: depth,
-                      isRecommendedKeeper: keeper)
+        .stub(path, keeper: keeper, name: "x", size: 100, depth: depth)
     }
 
     /// A group with nothing flagged must not list its own keeper as redundant. `keeper` falls back
@@ -1339,11 +1337,7 @@ import Testing
     }
 
     @Test func choosingKeeperRecomputesRemovalForIdentical() {
-        let a = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true)
-        let b = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: false)
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false, copies: [a, b], reclaimableBytes: 100)
+        let g = DuplicateGroup.stub([Self.copy("/a/x", keeper: true), Self.copy("/b/x", keeper: false)])
 
         let g2 = g.choosingKeeper("/b/x")
         #expect(g2.keeper.id == "/b/x")
@@ -1353,23 +1347,18 @@ import Testing
     }
 
     @Test func choosingKeeperIsNoOpForOverlapping() {
-        let a = DuplicateCopy(id: "/a", name: "Inv", isDirectory: true, size: 100, itemCount: 5,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let b = DuplicateCopy(id: "/b", name: "Inv", isDirectory: true, size: 90, itemCount: 4,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let g = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.9), name: "Inv", isDirectory: true,
-                               copies: [a, b], reclaimableBytes: 80)
+        let g = DuplicateGroup.stub(
+            [.stub("/a", keeper: true, name: "Inv", isDirectory: true, size: 100, itemCount: 5),
+             .stub("/b", keeper: false, name: "Inv", isDirectory: true, size: 90, itemCount: 4, unique: 1, depth: 1)],
+            matchType: .overlapping(sharedFraction: 0.9), reclaimable: 80)
         #expect(g.allowsKeeperChoice == false)
         #expect(g.choosingKeeper("/b").keeper.id == "/a")   // unchanged — overlap needs hashes
     }
 
     @Test func batchEligibilityByMatchType() {
         func g(_ t: DuplicateMatchType) -> DuplicateGroup {
-            let k = DuplicateCopy(id: "/a", name: "a", isDirectory: false, size: 1, itemCount: 1,
-                                  modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-            let r = DuplicateCopy(id: "/b", name: "a", isDirectory: false, size: 1, itemCount: 1,
-                                  modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: false)
-            return DuplicateGroup(matchType: t, name: "a", isDirectory: false, copies: [k, r], reclaimableBytes: 1)
+            .stub([.stub("/a", keeper: true, name: "a", size: 1), .stub("/b", keeper: false, name: "a", size: 1)],
+                  matchType: t)
         }
         // Per-group removable: identical + versions. Blind batch: identical ONLY.
         #expect(g(.identical).isFullyResolvableByRemoval && g(.identical).isRecommendedForBatch)
@@ -1380,9 +1369,7 @@ import Testing
 
     private func copy(_ id: String, size: Int, depth: Int, keeper: Bool, unique: Int = 0,
                       protected: Bool = false) -> DuplicateCopy {
-        DuplicateCopy(id: id, name: (id as NSString).lastPathComponent, isDirectory: true, size: size,
-                      itemCount: 1, modificationDate: nil, uniqueItemCount: unique, depth: depth,
-                      isRecommendedKeeper: keeper, isProtectedFromRemoval: protected)
+        .stub(id, keeper: keeper, isDirectory: true, size: size, unique: unique, depth: depth, protected: protected)
     }
 
     // MARK: Reclaimable bytes must match what removal will actually take

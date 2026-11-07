@@ -16,14 +16,8 @@ import Events
 
     private func group(keeper: String, redundant: String, reclaim: Int = 1000,
                        modified: Date = Date(timeIntervalSince1970: 1_000)) -> DuplicateGroup {
-        let k = DuplicateCopy(id: keeper, name: (keeper as NSString).lastPathComponent, isDirectory: false,
-                              size: reclaim, itemCount: 1, modificationDate: modified,
-                              uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant, name: (redundant as NSString).lastPathComponent, isDirectory: false,
-                              size: reclaim, itemCount: 1, modificationDate: modified,
-                              uniqueItemCount: 0, depth: 0, isRecommendedKeeper: false)
-        return DuplicateGroup(matchType: .identical, name: (keeper as NSString).lastPathComponent,
-                              isDirectory: false, copies: [k, r], reclaimableBytes: reclaim)
+        .stub([.stub(keeper, keeper: true, size: reclaim, modified: modified),
+               .stub(redundant, keeper: false, size: reclaim, modified: modified)], reclaimable: reclaim)
     }
 
     @MainActor
@@ -36,44 +30,36 @@ import Events
 
     // MARK: A gate whose manager is gone refuses EVERYTHING
 
-    /// With no manager, the gate refuses every path (`Set(about)`), never `[]`: "nothing has
+    /// The three removal gates: a group's, a merge's and a single pair's (Compare Copies).
+    enum Gate: String, CaseIterable { case duplicates, merge, pair }
+
+    /// With no manager, a gate refuses every path (`Set(about)`), never `[]`: "nothing has
     /// re-verified this" and "this may be destroyed" must never be the same outcome. The call
     /// sites hold `self` on the awaiting frame, so the closure is reached here directly.
     @MainActor
-    @Test func theDuplicatesGateRefusesEverythingWhenItsManagerIsGone() async throws {
-        var gate: (@Sendable ([String]) async -> Set<String>)?
-        weak var weakManager: FileSyncManager?
-        do {
-            let manager = FileSyncManager(fileManager: MockFileManager())
-            weakManager = manager
-            gate = manager.duplicateRemovalGate(groups: [group(keeper: "/a/x", redundant: "/b/x")],
-                                                refusals: FileSyncManager.DuplicateRemovalRefusals())
-        }
-        try #require(weakManager == nil,
-                     "the manager outlived its scope — the nil-self branch was never reached, so this pins nothing")
-        let closure = try #require(gate)
-        let refused = await closure(["/b/x", "/c/y"])
-        #expect(refused == ["/b/x", "/c/y"],
-                "a gate with no manager waved paths through unverified: \(refused)")
-    }
-
-    @MainActor
-    @Test func theMergeGateRefusesEverythingWhenItsManagerIsGone() async throws {
+    @Test(arguments: Gate.allCases)
+    func aGateRefusesEverythingWhenItsManagerIsGone(_ kind: Gate) async throws {
         var gate: (@Sendable ([String]) async -> Set<String>)?
         weak var weakManager: FileSyncManager?
         let g = group(keeper: "/a/x", redundant: "/b/x")
         do {
             let manager = FileSyncManager(fileManager: MockFileManager())
             weakManager = manager
-            gate = manager.mergeRemovalGate(group: g, folds: [],
-                                            refusals: FileSyncManager.MergeRemovalRefusals())
+            switch kind {
+            case .duplicates:
+                gate = manager.duplicateRemovalGate(groups: [g], refusals: FileSyncManager.DuplicateRemovalRefusals())
+            case .merge:
+                gate = manager.mergeRemovalGate(group: g, folds: [], refusals: FileSyncManager.MergeRemovalRefusals())
+            case .pair:
+                gate = manager.duplicatePairRemovalGate(copy: g.copies[1], keeper: g.copies[0])
+            }
         }
         try #require(weakManager == nil,
                      "the manager outlived its scope — the nil-self branch was never reached, so this pins nothing")
         let closure = try #require(gate)
-        let refused = await closure(["/b/x"])
-        #expect(refused == ["/b/x"],
-                "a merge gate with no manager waved a fold through unverified: \(refused)")
+        let about = kind == .duplicates ? ["/b/x", "/c/y"] : ["/b/x"]
+        let refused = await closure(about)
+        #expect(refused == Set(about), "a \(kind) gate with no manager waved paths through unverified: \(refused)")
     }
 
     // MARK: A path pruned in favour of an ancestor is still verified — and condemns the ancestor
@@ -172,17 +158,10 @@ import Events
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
         mockFM.virtualDisk["/b/x"] = stub(size: 1000)
         mockFM.virtualDisk["/ccc/x"] = stub(size: 1000)
-        let k = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                              modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
-                              depth: 0, isRecommendedKeeper: true)
-        let r1 = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                               modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
-                               depth: 0, isRecommendedKeeper: false)
-        let r2 = DuplicateCopy(id: "/ccc/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                               modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
-                               depth: 0, isRecommendedKeeper: false)
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [k, r1, r2], reclaimableBytes: 2000)
+        let when = Date(timeIntervalSince1970: 1_000)
+        let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, modified: when),
+                                     .stub("/b/x", keeper: false, modified: when),
+                                     .stub("/ccc/x", keeper: false, modified: when)])
         manager.duplicateGroups = [g]
         // Non-transient, so it escalates to the permanent-delete prompt rather than being retried.
         mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)

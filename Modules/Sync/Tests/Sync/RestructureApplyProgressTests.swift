@@ -63,17 +63,15 @@ import Testing
             actions.append(.init(action: .moveDir, src: "s\(i)", dst: "d\(i)",
                                  movesWholeFolder: true))
         }
-        let reports = Reports()
+        let reports = Reports([])
         _ = FileSyncManager.executeRestructureActions(
             actions, root: root.path, fm: FileManager.default,
-            onProgress: { reports.append($0) })
+            onProgress: { done in reports.withLock { $0.append(done) } })
 
-        let seen = reports.values
+        let seen = reports.withLock { $0 }
         #expect(seen.last == 300, "the run still lands on its true total")
         #expect(seen.count <= 101,
-                "a percent gate caps any run at ~101 publishes; got \(seen.count)")
-        #expect(seen.count < 150,
-                "one publish per operation is the storm the gate exists to stop")
+                "a percent gate caps any run at ~101 publishes, not the one per operation it exists to stop; got \(seen.count)")
         #expect(seen == seen.sorted())
     }
 
@@ -95,24 +93,19 @@ import Testing
         // `operationCount`, so the reports must not count it either.
         actions.append(.init(action: .keep, src: "src0"))
 
-        let reports = Reports()
+        let reports = Reports([])
         let execution = FileSyncManager.executeRestructureActions(
             actions, root: root.path, fm: FileManager.default,
-            onProgress: { done in reports.append(done) })
+            onProgress: { done in reports.withLock { $0.append(done) } })
 
         #expect(execution.foldersMovedWhole == 12)
-        let seen = reports.values
+        let seen = reports.withLock { $0 }
         #expect(seen.last == 12, "the final count is forced even if its window had not elapsed")
         #expect(seen == seen.sorted(), "a counter that went backwards would be unreadable")
         #expect(seen.allSatisfy { $0 <= 12 }, "a keep must not be counted as an operation")
     }
 
-    /// A tiny thread-safe sink — the hook is `@Sendable` and called from the executor's own
-    /// context, which is exactly why it may not close over a plain `var`.
-    private final class Reports: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: [Int] = []
-        func append(_ value: Int) { lock.lock(); storage.append(value); lock.unlock() }
-        var values: [Int] { lock.lock(); defer { lock.unlock() }; return storage }
-    }
+    /// A thread-safe sink — the hook is `@Sendable` and called from the executor's own context,
+    /// which is exactly why it may not close over a plain `var`.
+    private typealias Reports = LockedBox<[Int]>
 }

@@ -272,14 +272,29 @@ import Testing
     /// Step 6 and 7: the derived profile is active under a fresh id with the chain recorded, the
     /// judgements carried — for a surviving refused folder AND for the renamed one — Singapore
     /// survives via the entries, the corpus key moved without its stamp, and the fingerprint moved.
+    ///
+    /// The same clean landing also pins the call sites around it: step 4's verdict reaches the
+    /// ledger; the stages are published in the checklist's order and cleared; the trend is stamped
+    /// and marked as a landing; the journal goes; the replayed memory becomes the live one; and the
+    /// re-derive records the lineage the undo follows.
     @Test func theProfileFollowsTheTreeAndTheJudgementsFollowTheProfile() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
         let fingerprintBefore = FilingProfileStore.fingerprint(id: "t", in: world.profiles)
+        let profileId = try #require(world.manager.filingProfileDirectoryId)
+        #expect(world.manager.filingMemory == nil, "nothing is published before the landing")
+        // Subscribes to the real landing: the enum's declaration order (the suite next door) would
+        // still pass with `applyPlan` publishing `verify` before `inverse`, or never publishing.
+        var seen: [RestructureApplyProgress.Stage] = []
+        let sink = world.manager.$restructureApplyProgress.sink { progress in
+            if let stage = progress?.stage, seen.last != stage { seen.append(stage) }
+        }
+        defer { sink.cancel() }
 
         let outcome = await world.manager.applyPlan(world.manifest)
         #expect(outcome.refusal == nil)
         #expect(outcome.surveyRefreshFailure == nil)
+        #expect(outcome.verifierMismatches.isEmpty, "this fixture lands cleanly")
         let newId = try #require(outcome.producedProfileId)
         #expect(newId.hasPrefix("reorg-"))
 
@@ -321,6 +336,45 @@ import Testing
         // The old directory kept everything, byte-untouched profile included — it is what Undo
         // re-points to.
         #expect(FilingProfileStore.profile(id: "t", in: world.profiles) != nil)
+
+        // Step 4's verdict reaches the ledger. A clean landing must say so positively, since `nil`
+        // is also what a record older than the field carries; deleting `$0.verifiedOK = ...` from
+        // the finalize must fail this.
+        let record = try #require(world.manager.restructureStore?.applied.first)
+        #expect(record.verifiedOK == true, "a clean landing records agreement, not silence")
+        #expect(record.verifierNote == nil, "and has nothing to point at")
+
+        #expect(seen == seen.sorted(), "a checklist that went backwards would be unreadable")
+        let inverse = try #require(seen.firstIndex(of: .inverse))
+        let operations = try #require(seen.firstIndex(of: .operations))
+        #expect(inverse < operations,
+                "the inverse is announced before the first file moves — the trust §5.5 paid for")
+        #expect(world.manager.restructureApplyProgress == nil,
+                "and nothing is left showing a checklist over a finished landing")
+
+        // The trend stamp, read from the store the re-derive produced. Its dedupe and the chart's
+        // rules have their own tests; without the call every landing would be invisible on a line
+        // whose point is showing what caused the drops. Not `total == structureFindings.count`:
+        // both are zero here, so that would be vacuous (`RestructureTrendStampTests` owns counts).
+        let stamped = try #require(world.manager.restructureStore?.trend.last)
+        #expect(stamped.landing, "the point a landing produced carries its cause")
+        #expect(stamped.profileId == world.manager.filingProfileDirectoryId)
+        #expect(stamped.countsByKind.values.allSatisfy { $0 > 0 }, "a kind with none is absent, never a zero")
+
+        let journal = RestructureLandingJournal.url(manifestId: world.manifest.manifestId,
+                                                    profileId: profileId, in: world.profiles)
+        #expect(!FileManager.default.fileExists(atPath: journal.path), "a finished landing kept its journal")
+
+        let memory = try #require(world.manager.filingMemory, "the replayed memory never reached the manager")
+        #expect(memory.profileId == newId, "and it is the NEW profile's, not the old one's")
+        #expect(world.manager.filingSurveyedAt != nil)
+
+        // The lineage the undo follows, through the landing's own rename: a rule nothing calls is
+        // one revert away from unused.
+        let hop = try #require(world.manager.restructureStore?.lineage.last,
+                               "the re-derive swapped stores without recording which one it carried on from")
+        #expect(hop.profileId == "t")
+        #expect(hop.renames.contains { $0.from == "Tax/2013/Federal Tax" && $0.to == "Tax/2013/Forms" })
     }
 
     /// The guard: an apply started while a filing scan runs is refused with a sentence, not
@@ -337,23 +391,6 @@ import Testing
             atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
     }
 
-    /// Step 4's verdict reaches the ledger. The card's sentence has its own tests; this pins the
-    /// write. A clean landing must say so positively, since `nil` is also what a record older than
-    /// the field carries; deleting `$0.verifiedOK = ...` from the finalize must fail this.
-    @Test func theLedgerRecordsStepFoursVerdict() async throws {
-        let world = try await Self.makeWorld()
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-
-        let outcome = await world.manager.applyPlan(world.manifest)
-        #expect(outcome.refusal == nil)
-        #expect(outcome.verifierMismatches.isEmpty, "this fixture lands cleanly")
-
-        let record = try #require(world.manager.restructureStore?.applied.first)
-        #expect(record.verifiedOK == true,
-                "a clean landing records agreement, not silence")
-        #expect(record.verifierNote == nil, "and has nothing to point at")
-    }
-
     /// The other side of it: a disagreement is recorded WITH its note, so the card can point at
     /// something. Forced by verifying a landing that claims an action nothing performed — the
     /// verifier's own input, which is the only seam that does not require breaking the disk.
@@ -368,65 +405,8 @@ import Testing
             [.init(action: .moveFile, src: "A/x.pdf", dst: "B/x.pdf")], root: root.path,
             fm: FileManager.default)
         #expect(!mismatches.isEmpty, "the verifier disagrees with a claim nothing performed")
-
-        // The note the record would carry — the card's own rendering of it is the lens's test.
-        // One mismatch is stated bare; several add the count and point at the log, so both
-        // shapes are checked here rather than only whichever this fixture happens to produce.
-        let note = try #require(FileSyncManager.verifierNote(mismatches))
-        #expect(note == mismatches[0], "a single disagreement is stated as itself")
-        let many = try #require(FileSyncManager.verifierNote(mismatches + ["B/y.pdf is missing"]))
-        #expect(many.contains("1 more"), "and several name the count")
-        #expect(many.contains("log"), "pointing the reader where the rest is")
-    }
-
-    /// The engine visits the stages in the order the checklist draws them, and clears the value
-    /// when it is done. The suite next door pins the enum's declaration order, a different claim:
-    /// it would still pass with `applyPlan` publishing `verify` before `inverse`, or never
-    /// publishing at all. This subscribes to the real landing.
-    @Test func theLandingPublishesItsStagesInOrderAndThenClearsThem() async throws {
-        let world = try await Self.makeWorld()
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-
-        var seen: [RestructureApplyProgress.Stage] = []
-        let sink = world.manager.$restructureApplyProgress.sink { progress in
-            if let stage = progress?.stage, seen.last != stage { seen.append(stage) }
-        }
-        defer { sink.cancel() }
-
-        let outcome = await world.manager.applyPlan(world.manifest)
-        #expect(outcome.refusal == nil)
-
-        #expect(seen == seen.sorted(), "a checklist that went backwards would be unreadable")
-        #expect(seen.contains(.inverse))
-        #expect(seen.contains(.operations))
-        let inverse = try #require(seen.firstIndex(of: .inverse))
-        let operations = try #require(seen.firstIndex(of: .operations))
-        #expect(inverse < operations,
-                "the inverse is announced before the first file moves — the trust §5.5 paid for")
-        #expect(world.manager.restructureApplyProgress == nil,
-                "and nothing is left showing a checklist over a finished landing")
-    }
-
-    /// A landing stamps the trend line, marked as one. The store's dedupe and the chart's rules
-    /// have their own tests; this pins that `applyPlan` calls the stamp at all, or every landing
-    /// would be invisible on a line whose point is showing what caused the drops.
-    @Test func aLandingStampsTheTrendAndMarksItself() async throws {
-        let world = try await Self.makeWorld()
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-        let outcome = await world.manager.applyPlan(world.manifest)
-        #expect(outcome.refusal == nil)
-
-        // The store the landing produced — the re-derive replaced it, so read it from the
-        // manager rather than the one the world handed over.
-        let stamped = try #require(world.manager.restructureStore?.trend.last)
-        #expect(stamped.landing, "the point a landing produced carries its cause")
-        #expect(stamped.profileId == world.manager.filingProfileDirectoryId)
-        // Not `stamped.total == structureFindings.count`: both are zero here, since the landing
-        // resolves the only finding, so it would be vacuous. What the counts contain is
-        // `RestructureTrendStampTests`' job; this test says the landing produced a point at all,
-        // under the profile it produced, marked as a landing.
-        #expect(stamped.countsByKind.values.allSatisfy { $0 > 0 },
-                "a kind with none is absent, never a zero")
+        // The note the record carries is `RestructureRemovalTests.theVerifierNoteNamesTheFirstAndCountsTheRest`'s.
+        #expect(FileSyncManager.verifierNote(mismatches) != nil)
     }
 
     // MARK: - The two undos
@@ -780,6 +760,22 @@ import Testing
         return manager
     }
 
+    /// A `prepare` that turns the folder left into a first survey stopped part-way: progress, and
+    /// no corpus or memory yet.
+    @MainActor
+    private func stopTheSurvey(_ world: World) throws -> (String) throws -> Void {
+        let folder = try #require(world.manager.documentSurveyFolder)
+        return { left in
+            try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: left, in: world.profiles))
+            try FileManager.default.removeItem(at: FilingSurveyStore.memoryURL(id: left, in: world.profiles))
+            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
+                profileId: left, rootPath: folder.path, salt: "s",
+                plan: ["Tax/Outbound/o.pdf"], nextIndex: 0, read: [:], documentsUnavailable: 0,
+                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
+                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: left, in: world.profiles)
+        }
+    }
+
     /// The sweep the next refresh or landing runs on that disk, protecting exactly what
     /// `rederiveProfile` protects: every id a record in the active ledger names.
     private func sweepAsTheNextReDeriveWould(_ disk: URL, sparing left: String) throws {
@@ -819,17 +815,7 @@ import Testing
     @Test func aQuitDuringASurveyRefreshsReplayKeepsAStoppedSurveysProgress() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-        let folder = try #require(world.manager.documentSurveyFolder)
-        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world) { left in
-            // A first survey stopped part-way: progress, and no corpus or memory yet.
-            try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: left, in: world.profiles))
-            try FileManager.default.removeItem(at: FilingSurveyStore.memoryURL(id: left, in: world.profiles))
-            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
-                profileId: left, rootPath: folder.path, salt: "s",
-                plan: ["Tax/Outbound/o.pdf"], nextIndex: 0, read: [:], documentsUnavailable: 0,
-                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
-                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: left, in: world.profiles)
-        }
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world, prepare: try stopTheSurvey(world))
         let active = try #require(FilingProfileStore.activeProfileId(in: disk))
         try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint == nil,
                      "the cut must be before the progress was carried")
@@ -906,15 +892,7 @@ import Testing
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
         let folder = try #require(world.manager.documentSurveyFolder)
-        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world) { left in
-            try FileManager.default.removeItem(at: FilingSurveyStore.corpusURL(id: left, in: world.profiles))
-            try FileManager.default.removeItem(at: FilingSurveyStore.memoryURL(id: left, in: world.profiles))
-            try DocumentSurveyCheckpointStore.write(DocumentSurveyCheckpoint(
-                profileId: left, rootPath: folder.path, salt: "s",
-                plan: ["Tax/Outbound/o.pdf"], nextIndex: 0, read: [:], documentsUnavailable: 0,
-                startedAt: Date(timeIntervalSince1970: 1_760_000_000),
-                updatedAt: Date(timeIntervalSince1970: 1_760_000_100)), id: left, in: world.profiles)
-        }
+        let (disk, left) = try await cutASurveyRefreshBeforeItsReplay(world, prepare: try stopTheSurvey(world))
         let active = try #require(FilingProfileStore.activeProfileId(in: disk))
         try #require(DocumentSurveyCheckpointStore.read(id: active, in: disk).checkpoint == nil)
 
@@ -1152,18 +1130,6 @@ import Testing
         try Data().write(to: journal)
         let with = await world.manager.undoReorganisation(manifestId: "m-crashed")
         #expect(with.refusal?.contains(journal.path) == true, "\(with.refusal ?? "no refusal")")
-    }
-
-    /// A finished landing leaves no running list behind: the ledger record says what ran.
-    @Test func aFinishedLandingRemovesItsJournal() async throws {
-        let world = try await Self.makeWorld()
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-        let profileId = try #require(world.manager.filingProfileDirectoryId)
-        let outcome = await world.manager.applyPlan(world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
-        #expect(outcome.refusal == nil)
-        let journal = RestructureLandingJournal.url(manifestId: world.manifest.manifestId,
-                                                    profileId: profileId, in: world.profiles)
-        #expect(!FileManager.default.fileExists(atPath: journal.path))
     }
 
     /// The journal goes only once the finalised record is on disk. When the finalising
@@ -1783,33 +1749,9 @@ import Testing
     }
 
     /// The sweep's side: a folder holding an export the active folder lacks (a carry that failed)
-    /// is kept, the way it keeps one holding the only roster.
-    @Test func aFolderHoldingTheOnlyCopyOfAnExportIsNeverRetired() async throws {
-        final class ExportCopyRefusing: FileManager, @unchecked Sendable {
-            override func copyItem(at srcURL: URL, to dstURL: URL) throws {
-                if srcURL.lastPathComponent.hasPrefix("restructure-") {
-                    throw CocoaError(.fileWriteNoPermission)
-                }
-                try super.copyItem(at: srcURL, to: dstURL)
-            }
-        }
-        let world = try await Self.makeWorld(fileManager: { _ in ExportCopyRefusing() })
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-        #expect(await world.manager.refreshDerivedProfile(
-            now: Date(timeIntervalSince1970: 1_756_500_000)).refusal == nil)
-        let exportedIn = try #require(world.manager.filingProfileDirectoryId)
-        let name = try #require(try world.manager.restructureStore?.exportPlan(world.manifest))
-
-        #expect(await world.manager.refreshDerivedProfile(
-            now: Date(timeIntervalSince1970: 1_756_500_100)).refusal == nil)
-        #expect(world.manager.filingProfileDirectoryId != exportedIn)
-        #expect(FileManager.default.fileExists(
-            atPath: world.profiles.appendingPathComponent("\(exportedIn)/\(name)").path),
-                "the only copy of the exported plan was deleted with its folder")
-    }
-
-    /// The sweep keeps an export by its contents, not its name: the active folder holding a
-    /// different plan under the same name does not make this one disposable.
+    /// is kept, the way it keeps one holding the only roster. It keeps an export by its contents,
+    /// not its name: the active folder holding a different plan under the same name does not make
+    /// this one disposable.
     @Test func aSameNamedExportElsewhereDoesNotRetireThisOne() async throws {
         final class SwitchableExportCopy: FileManager, @unchecked Sendable {
             nonisolated(unsafe) var refusing = true
@@ -1830,6 +1772,10 @@ import Testing
         // The carry fails, so the first folder holds the only copy and is kept.
         #expect(await world.manager.refreshDerivedProfile(
             now: Date(timeIntervalSince1970: 1_756_500_100)).refusal == nil)
+        #expect(world.manager.filingProfileDirectoryId != first)
+        #expect(FileManager.default.fileExists(
+            atPath: world.profiles.appendingPathComponent("\(first)/\(name)").path),
+                "the only copy of the exported plan was deleted with its folder")
         // Another plan exported under the same name in the folder now active.
         var other = world.manifest
         other.note = "another plan"
@@ -1935,24 +1881,5 @@ import Testing
         // is a test of the reporting path rather than of a broken landing.
         #expect(FileManager.default.fileExists(
             atPath: world.root.appendingPathComponent("Tax/2013/Forms/Refund").path))
-    }
-
-    /// The replayed memory is published, not merely written. Step 7 (the corpus decode, the key
-    /// replay, `flatten`, `buildMemory` and the write) runs in one detached task, off the main
-    /// actor. The publish is the half that has to come back: `filingMemory` is what filing routes
-    /// on, and a manager left on the old memory would route against paths that no longer exist.
-    @Test func theReplayedMemoryBecomesTheLiveOne() async throws {
-        let world = try await Self.makeWorld()
-        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
-        #expect(world.manager.filingMemory == nil, "nothing is published before the landing")
-
-        let outcome = await world.manager.applyPlan(
-            world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
-        let newId = try #require(outcome.producedProfileId)
-
-        let memory = try #require(world.manager.filingMemory,
-                                  "the replayed memory never reached the manager")
-        #expect(memory.profileId == newId, "and it is the NEW profile's, not the old one's")
-        #expect(world.manager.filingSurveyedAt != nil)
     }
 }

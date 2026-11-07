@@ -8,28 +8,34 @@ import Testing
 /// rules were derived from it and a synthetic name proves only that the code does what it does. The
 /// two that matter most must produce nothing: a `descriptive` folder, and a raw original sitting
 /// beside its already-renamed copy.
+/// `names` as the files of `folder`.
+private func files(_ names: [String], in folder: String = "/T") -> [FolderFile] {
+    names.map { FolderFile(path: folder + "/" + $0, name: $0) }
+}
+
+/// A year-bucket profile entry for `path`.
+private func entry(_ path: String = "T", naming: String?, axes: [String: String] = [:]) -> FolderProfileEntry {
+    FolderProfileEntry(path: path, role: .yearBucket, naming: naming, anchors: [],
+                       acceptsNewFiles: true, fileCount: 0, subfolderCount: 0, axes: axes)
+}
+
+/// The plan for `/T` holding `names`, filed at `relativePath` under `naming` and, when given, a
+/// year axis.
+private func renamePlan(_ names: [String], naming: String?, year: String?, incoming: String?,
+                        relativePath: String = "T") -> RenamePlan {
+    RenamePlanner.plan(folderPath: "/T", relativePath: relativePath, files: files(names),
+                       entry: entry(relativePath, naming: naming, axes: year.map { ["year": $0] } ?? [:]),
+                       incoming: incoming.map { FolderFile(path: "/In/" + $0, name: $0) })
+}
+
 @Suite struct RenamePlannerTests {
 
     // MARK: Helpers
 
-    private func files(_ names: [String], in folder: String = "/T") -> [FolderFile] {
-        names.map { FolderFile(path: folder + "/" + $0, name: $0) }
-    }
-
-    private func entry(_ path: String, naming: String?, axes: [String: String] = [:]) -> FolderProfileEntry {
-        FolderProfileEntry(path: path, role: .yearBucket, naming: naming, anchors: [],
-                           acceptsNewFiles: true, fileCount: 0, subfolderCount: 0, axes: axes)
-    }
-
     private func plan(_ names: [String], naming: String? = "ordinal-month",
                       year: String? = nil, incoming: String? = nil,
                       relativePath: String = "T") -> RenamePlan {
-        var axes: [String: String] = [:]
-        if let year { axes["year"] = year }
-        return RenamePlanner.plan(
-            folderPath: "/T", relativePath: relativePath, files: files(names),
-            entry: entry(relativePath, naming: naming, axes: axes),
-            incoming: incoming.map { FolderFile(path: "/In/" + $0, name: $0) })
+        renamePlan(names, naming: naming, year: year, incoming: incoming, relativePath: relativePath)
     }
 
     private func targets(_ p: RenamePlan) -> [String: String] {
@@ -252,6 +258,11 @@ import Testing
                                "2. Apr 2021.pdf": "02. Apr 2021.pdf"])
         // `10.` was already two digits and is left completely alone — the pass proposes the minimum.
         #expect(p.steps.allSatisfy { $0.kind == .tidied })
+        // A folder nobody is adding to is never renumbered. `10. Dec` beside `1. Mar` and `2. Apr`
+        // is not a clean 1…N, and a renumbering pass that normalised it would rewrite a number
+        // somebody chose by hand for no reason at all. The cascade exists to make ROOM; with
+        // nothing arriving there is none to make.
+        #expect(p.renumbered == 0)
     }
 
     @Test("Padding preserves everything the body says beyond the date")
@@ -416,17 +427,6 @@ import Testing
         #expect(targets(p) == ["DetailedBillApr2025.pdf": "04. Apr 2025.pdf"])
         #expect(p.renumbered == 0)
         #expect(p.steps.allSatisfy { $0.cohort == 0 })
-    }
-
-    @Test("A folder nobody is adding to is never renumbered")
-    func noPlacementMeansNoCascade() {
-        // `10. Dec 2021.pdf` beside `1. Mar` and `2. Apr` is not a clean 1…N, and a renumbering
-        // pass that normalised it would rewrite a number somebody chose by hand for no reason at
-        // all. The cascade exists to make ROOM; with nothing arriving there is none to make.
-        let p = plan(["1. Mar 2021.pdf", "2. Apr 2021.pdf", "10. Dec 2021.pdf"], year: "2021")
-        #expect(targets(p) == ["1. Mar 2021.pdf": "01. Mar 2021.pdf",
-                               "2. Apr 2021.pdf": "02. Apr 2021.pdf"])
-        #expect(p.renumbered == 0)
     }
 
     @Test("A month-numbered folder never cascades — its slots do not move")
@@ -612,21 +612,9 @@ import Testing
 /// is paid on the 15th and the last day of each month.
 @Suite struct OrdinalDayTests {
 
-    private func files(_ names: [String]) -> [FolderFile] {
-        names.map { FolderFile(path: "/T/" + $0, name: $0) }
-    }
-
-    private func entry(naming: String?, year: String? = nil) -> FolderProfileEntry {
-        FolderProfileEntry(path: "T", role: .yearBucket, naming: naming, anchors: [],
-                           acceptsNewFiles: true, fileCount: 0, subfolderCount: 0,
-                           axes: year.map { ["year": $0] } ?? [:])
-    }
-
     private func plan(_ names: [String], naming: String? = "ordinal-day",
                       year: String? = "2026", incoming: String? = nil) -> RenamePlan {
-        RenamePlanner.plan(folderPath: "/T", relativePath: "T", files: files(names),
-                           entry: entry(naming: naming, year: year),
-                           incoming: incoming.map { FolderFile(path: "/In/" + $0, name: $0) })
+        renamePlan(names, naming: naming, year: year, incoming: incoming)
     }
 
     /// The 2026 folder's first ten payslips.

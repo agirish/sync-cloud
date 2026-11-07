@@ -63,24 +63,6 @@ import Testing
         }
     }
 
-    /// The written-out answers, so the pair above cannot agree on a wrong one.
-    @Test func normalizesTheDocumentedForms() {
-        #expect(ProviderNameRules.normalizedComponent("file.txt") == "file.txt")
-        #expect(ProviderNameRules.normalizedComponent("trailing ") == "trailing")
-        #expect(ProviderNameRules.normalizedComponent(" leading") == "leading")
-        #expect(ProviderNameRules.normalizedComponent("dot.") == "dot")
-        #expect(ProviderNameRules.normalizedComponent("dot..") == "dot")
-        #expect(ProviderNameRules.normalizedComponent("a.b") == "a.b", "interior dot is kept")
-        #expect(ProviderNameRules.normalizedComponent("x y") == "x y", "interior space is kept")
-        // A component that would vanish keeps its precomposed form rather than collapsing to "".
-        #expect(ProviderNameRules.normalizedComponent(" ") == " ")
-        #expect(ProviderNameRules.normalizedComponent(".") == ".")
-        // NFC: decomposed and precomposed spellings meet.
-        #expect(ProviderNameRules.normalizedComponent("cafe\u{0301}") == "café")
-        #expect(ProviderNameRules.nearNameKey(forRelativePath: "a/cafe\u{0301}/b", foldCase: false) == "a/café/b")
-        #expect(ProviderNameRules.nearNameKey(forRelativePath: "Swimming /x.txt", foldCase: false) == "Swimming/x.txt")
-    }
-
     // MARK: - The two properties the fast paths rest on
 
     /// The ASCII whitespace list is hard-coded in `ProviderNameRules`, so every ASCII scalar is

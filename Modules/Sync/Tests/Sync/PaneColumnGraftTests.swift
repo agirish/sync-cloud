@@ -35,15 +35,12 @@ import Testing
         #expect(b.children?.map(\.id) == ["/r/b/one.txt"])
         #expect(b.isUnexplored == nil,
                 "the grafted node still reads as unexplored, so the column would ask for it again forever")
-    }
 
-    /// `nil`, not `false`: nil means "walked" and is what a walked node carries. `false` would be a
-    /// second spelling of one fact that `isUnexplored == true` checks can't tell apart, so the drift
-    /// would go unnoticed.
-    @Test func theClearedMarkMatchesWhatAWalkedNodeCarries() throws {
-        let filled = try #require(FileSyncManager.grafting(children: [], atPath: "/r/b", under: "/r", into: tree))
-        let b = try #require(filled.first { $0.id == "/r/b" })
-        #expect(b.isUnexplored == nil)
+        // An empty listing clears the mark too, to `nil`, not `false`: nil means "walked" and is
+        // what a walked node carries. `false` would be a second spelling of one fact that
+        // `isUnexplored == true` checks can't tell apart, so the drift would go unnoticed.
+        let emptied = try #require(FileSyncManager.grafting(children: [], atPath: "/r/b", under: "/r", into: tree))
+        #expect(try #require(emptied.first { $0.id == "/r/b" }).isUnexplored == nil)
     }
 
     @Test func aNestedTargetIsFound() throws {
@@ -157,24 +154,28 @@ import Testing
     }
 }
 
+/// A root holding `deep/f.txt`, for the suites below that list `deep` as a column.
+///
+/// Must use `makeCanonicalTempRoot`. `buildTree` canonicalises to `/private/var/folders/…`, the
+/// temporary directory answers `/var/folders/…`, and `resolvingSymlinksInPath()` strips `/private`
+/// (see `FileDiffEngine`). Otherwise node ids never match the paths the test asks about.
+/// Production is unaffected: a column asks with paths from the tree itself.
+private func graftFixture(prefix: String) throws -> URL {
+    let root = try makeCanonicalTempRoot(prefix: prefix)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
+                                            withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: root.appendingPathComponent("deep/f.txt"))
+    return root
+}
+
 /// A deferred listing is keyed by the pane that asked, not by the folder alone. Keyed by path, two
 /// panes on the same source (an ordinary comparison here) would suppress each other: the right
 /// pane's request would look like a duplicate of the left's, and since its `onAppear` has already
 /// fired and nothing re-asks, its column would never fill.
 @Suite struct ColumnGraftKeyTests {
 
-    /// Must use `makeCanonicalTempRoot`. `buildTree` canonicalises to `/private/var/folders/…`,
-    /// the temporary directory answers `/var/folders/…`, and `resolvingSymlinksInPath()` strips
-    /// `/private` (see `FileDiffEngine`). Otherwise node ids never match the paths the test asks
-    /// about. Production is unaffected: a column asks with paths from the tree itself.
     @MainActor
-    private func fixture() throws -> URL {
-        let root = try makeCanonicalTempRoot(prefix: "graftkey")
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
-                                                withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: root.appendingPathComponent("deep/f.txt"))
-        return root
-    }
+    private func fixture() throws -> URL { try graftFixture(prefix: "graftkey") }
 
     /// The same folder, asked for by both panes, is two requests — and both are honoured.
     @MainActor
@@ -236,13 +237,7 @@ import Testing
 @Suite struct ColumnGraftLandingTests {
 
     @MainActor
-    private func fixture() throws -> URL {
-        let root = try makeCanonicalTempRoot(prefix: "graftland")
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
-                                                withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: root.appendingPathComponent("deep/f.txt"))
-        return root
-    }
+    private func fixture() throws -> URL { try graftFixture(prefix: "graftland") }
 
     private func node(_ path: String, in tree: [FileNode]) -> FileNode? {
         for node in tree {
@@ -457,23 +452,9 @@ import Testing
     /// readable unexplored folder beside it still asks, so the guard isn't refusing everything.
     @MainActor
     @Test func anUnreadableFolderIsNotAskedForAgainUntilTheTreeIsWalkedAfresh() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "graftunreadable")
-        let locked = root.appendingPathComponent("locked")
+        let (manager, root, locked, shallow) = try await unreadableFixture("graftunreadable", alsoOpen: true)
+        defer { unlock(root, locked) }
         let open = root.appendingPathComponent("open")
-        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: open, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: open.appendingPathComponent("f.txt"))
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
-            try? FileManager.default.removeItem(at: root)
-        }
-
-        let manager = FileSyncManager()
-        let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        manager.adoptRawTree(shallow, isLeft: true, focusPath: root.path)
-        try #require(FileSyncManager.isUnexplored(atPath: locked.path, under: root.path, in: manager.rawLeftTree),
-                     "the fixture arrived already walked — this measures nothing")
 
         manager.loadColumnChildren(atPath: locked.path, isLeft: true)
         try #require(manager.columnGraftsInFlightPaths(isLeft: true) == [locked.path], "the first ask was never made")
@@ -505,14 +486,19 @@ import Testing
         }
     }
 
-    /// The locked-folder fixture both tests below share: a root holding one unreadable folder,
-    /// adopted shallow so the folder is unexplored.
+    /// The locked-folder fixture: a root holding one unreadable folder (and, with `alsoOpen`, a
+    /// readable `open/f.txt` beside it), adopted shallow so the folders are unexplored.
     @MainActor
-    private func unreadableFixture(_ prefix: String) async throws
+    private func unreadableFixture(_ prefix: String, alsoOpen: Bool = false) async throws
     -> (manager: FileSyncManager, root: URL, locked: URL, shallow: [FileNode]) {
         let root = try makeCanonicalTempRoot(prefix: prefix)
         let locked = root.appendingPathComponent("locked")
         try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        if alsoOpen {
+            let open = root.appendingPathComponent("open")
+            try FileManager.default.createDirectory(at: open, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: open.appendingPathComponent("f.txt"))
+        }
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
         let manager = FileSyncManager()
         let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)

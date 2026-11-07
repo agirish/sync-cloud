@@ -27,14 +27,9 @@ import Events
     }
 
     private func group(keeper: String, redundant: String, reclaim: Int) -> DuplicateGroup {
-        let k = DuplicateCopy(id: keeper, name: (keeper as NSString).lastPathComponent, isDirectory: false,
-                              size: 1000, itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
-                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant, name: (redundant as NSString).lastPathComponent, isDirectory: false,
-                              size: 1000, itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
-                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false)
-        return DuplicateGroup(matchType: .identical, name: k.name, isDirectory: false,
-                              copies: [k, r], reclaimableBytes: reclaim)
+        let when = Date(timeIntervalSince1970: 1_000)
+        return .stub([.stub(keeper, keeper: true, modified: when, depth: 1),
+                      .stub(redundant, keeper: false, modified: when, depth: 1)], reclaimable: reclaim)
     }
 
     // MARK: The undo promise
@@ -62,7 +57,8 @@ import Events
         #expect(manager.banner?.isUndoable != true)
     }
 
-    /// The other direction: a normal Trash removal still offers the undo it really has.
+    /// The other direction: a normal Trash removal still offers the undo it really has. And the
+    /// drift guard does not over-refuse an untouched pair, or Tidy stops working entirely.
     @MainActor
     @Test func aTrashedRemovalStillPromisesUndo() async throws {
         let mockFM = MockFileManager()
@@ -153,21 +149,6 @@ import Events
         #expect(manager.banner?.message.contains("changed since it was scanned") == true)
     }
 
-    /// And the guard must not over-refuse an untouched pair, or Tidy stops working entirely.
-    @MainActor
-    @Test func anUntouchedPairStillResolves() async throws {
-        let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        let when = Date(timeIntervalSince1970: 1_000)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: when)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: when)
-        let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
-        manager.duplicateGroups = [g]
-
-        #expect(await manager.resolveDuplicateGroup(g) == true)
-        #expect(mockFM.virtualDisk["/b/x"] == nil)
-    }
-
     /// A scan that recorded no date still resolves on size alone, rather than refusing the group
     /// for lack of a baseline.
     @MainActor
@@ -176,12 +157,7 @@ import Events
         let manager = makeManager(mockFM)
         mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: nil)
         mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: nil)
-        let k = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false)
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [k, r], reclaimableBytes: 1000)
+        let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, depth: 1), .stub("/b/x", keeper: false, depth: 1)])
         manager.duplicateGroups = [g]
 
         #expect(await manager.resolveDuplicateGroup(g) == true)
@@ -200,15 +176,9 @@ import Events
         mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
         mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
 
-        let keeper = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                                   modificationDate: Date(timeIntervalSince1970: 1_000),
-                                   uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let protectedCopy = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000,
-                                          itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1_000),
-                                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
-                                          isProtectedFromRemoval: true)
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [keeper, protectedCopy], reclaimableBytes: 1000)
+        let when = Date(timeIntervalSince1970: 1_000)
+        let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, modified: when, depth: 1),
+                                     .stub("/b/x", keeper: false, modified: when, depth: 1, protected: true)])
         try #require(g.recommendedRemovalPaths.isEmpty, "the fixture no longer produces an empty removal list")
         try #require(g.isRecommendedForBatch, "the fixture is not eligible, so it never reaches the banner under test")
         manager.duplicateGroups = [g]
@@ -233,11 +203,7 @@ import Events
         let manager = makeManager(mockFM)
         mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
         // One copy, and it is the keeper: no redundant copies, so nothing is protected.
-        let only = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
-                                 modificationDate: Date(timeIntervalSince1970: 1_000),
-                                 uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [only], reclaimableBytes: 0)
+        let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, modified: Date(timeIntervalSince1970: 1_000), depth: 1)])
         try #require(g.redundantCopies.isEmpty, "the fixture gained a redundant copy — it no longer reproduces the case")
         try #require(g.recommendedRemovalPaths.isEmpty)
         try #require(g.isRecommendedForBatch, "the fixture is ineligible, so it never reaches the banner")

@@ -10,36 +10,17 @@ import Foundation
 
     // MARK: - Validator
 
-    @Test func testAcceptsOrdinaryNames() {
-        #expect(FileSyncManager.validateItemName("Foo") == nil)
-        #expect(FileSyncManager.validateItemName("name with spaces") == nil)
-        #expect(FileSyncManager.validateItemName("report (final) v2.txt") == nil)
+    /// Ordinary names, and dot-prefixed ones: only the literal "." / ".." traversal names are
+    /// blocked.
+    @Test(arguments: ["Foo", "name with spaces", "report (final) v2.txt", ".hidden", "..twodots"])
+    func testAcceptsName(_ name: String) {
+        #expect(FileSyncManager.validateItemName(name) == nil)
     }
 
-    @Test func testAcceptsHiddenFileNames() {
-        // Only the literal "." / ".." traversal names are blocked, not dot-prefixed names.
-        #expect(FileSyncManager.validateItemName(".hidden") == nil)
-        #expect(FileSyncManager.validateItemName("..twodots") == nil)
-    }
-
-    @Test func testRejectsEmptyAndWhitespaceNames() {
-        #expect(FileSyncManager.validateItemName("") != nil)
-        #expect(FileSyncManager.validateItemName("   ") != nil)
-        #expect(FileSyncManager.validateItemName("\n") != nil)
-    }
-
-    @Test func testRejectsTraversalNames() {
-        #expect(FileSyncManager.validateItemName(".") != nil)
-        #expect(FileSyncManager.validateItemName("..") != nil)
-        #expect(FileSyncManager.validateItemName("../x") != nil)
-        #expect(FileSyncManager.validateItemName(" .. ") != nil)
-    }
-
-    @Test func testRejectsSeparatorAndColonAndNul() {
-        #expect(FileSyncManager.validateItemName("a/b") != nil)
-        #expect(FileSyncManager.validateItemName("/leading") != nil)
-        #expect(FileSyncManager.validateItemName("a:b") != nil)
-        #expect(FileSyncManager.validateItemName("a\0b") != nil)
+    /// Empty and whitespace names, traversal names, and a separator, colon or NUL.
+    @Test(arguments: ["", "   ", "\n", ".", "..", "../x", " .. ", "a/b", "/leading", "a:b", "a\0b"])
+    func testRejectsName(_ name: String) {
+        #expect(FileSyncManager.validateItemName(name) != nil)
     }
 
     @Test func testFailureReasonsAreHumanReadable() {
@@ -63,19 +44,6 @@ import Foundation
         #expect(manager.currentError?.message == "Names can’t contain “/”.")
         // Nothing moved anywhere — same entries, original still in place.
         #expect(Set(mockFM.virtualDisk.keys) == diskBefore)
-    }
-
-    @MainActor
-    @Test func testRenameRejectsSlashName() async throws {
-        let manager = FileSyncManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/report.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-
-        await manager.renameItem(at: "/src/report.txt", to: "a/b", fileManager: mockFM)
-
-        #expect(manager.currentError != nil)
-        #expect(mockFM.virtualDisk["/src/report.txt"] != nil)
     }
 
     @MainActor

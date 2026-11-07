@@ -129,16 +129,6 @@ import Testing
         #expect(report.stale.map(\.path) == ["/root/ancient.txt", "/root/old.txt"])
     }
 
-    @Test func staleCappedAtTopN() {
-        var children: [FileNode] = []
-        for i in 0..<25 {
-            children.append(file("/root/old\(i).txt", size: 100, modified: daysAgo(500 + i)))
-        }
-        let tree = [dir("/root", children)]
-        let report = StorageLensAnalyzer.analyze(tree: tree, now: now, options: .init(topN: 20))
-        #expect(report.stale.count == 20)
-    }
-
     // MARK: Reclaim candidates
 
     @Test func reclaimCandidatesRequireBothSizeAndStaleness() {

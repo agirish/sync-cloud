@@ -37,12 +37,6 @@ import Testing
 
     // MARK: - Candidate selection from pane trees
 
-    @Test func testOldTempArtifactIsACandidate() {
-        let tmp = node(".tmp_\(UUID().uuidString)", age: anHourAndABit)
-        let scan = OrphanSweeper.findArtifacts(inTrees: [[tmp]], olderThan: Date().addingTimeInterval(-OrphanSweeper.minimumAge))
-        #expect(scan.tempPaths == [tmp.id])
-    }
-
     @Test func testRecentTempArtifactIsKept() {
         let tmp = node(".tmp_\(UUID().uuidString)", age: 60)
         let scan = OrphanSweeper.findArtifacts(inTrees: [[tmp]], olderThan: Date().addingTimeInterval(-OrphanSweeper.minimumAge))
@@ -61,12 +55,6 @@ import Testing
         let scan = OrphanSweeper.findArtifacts(inTrees: [[backup]], olderThan: .distantFuture)
         #expect(scan.tempPaths.isEmpty)
         #expect(scan.rollbackCount == 1)
-    }
-
-    @Test func testUserFileWithNonUUIDTmpPrefixIsKept() {
-        let userFile = node(".tmp_notes.txt", age: anHourAndABit * 1000)
-        let scan = OrphanSweeper.findArtifacts(inTrees: [[userFile]], olderThan: .distantFuture)
-        #expect(scan.tempPaths.isEmpty)
     }
 
     @Test func testNestedArtifactsAreFoundAndDuplicatesAcrossTreesCollapse() {

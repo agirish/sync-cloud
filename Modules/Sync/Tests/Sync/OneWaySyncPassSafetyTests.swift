@@ -161,12 +161,12 @@ import Testing
 
         // The app quits while Dropbox uploads: what was saved by then is all the next launch has.
         let store = sync.store
-        let seen = Locked<OneWaySyncRecord?>(nil)
+        let seen = LockedBox<OneWaySyncRecord?>(nil)
         sync.duringUploadWait = {
-            if case .ready(let record, _, _) = store.loadRecord(on: OneWayWorld.binding) { seen.set(record) }
+            if case .ready(let record, _, _) = store.loadRecord(on: OneWayWorld.binding) { seen.withLock { $0 = record } }
         }
         try await sync.run()
-        let saved = try #require(seen.value)
+        let saved = try #require(seen.withLock { $0 })
         #expect(Set(saved.files.map(\.dropboxPath)) == ["Finance/2025 Taxes/a.pdf", "Finance/2025 Taxes/b.pdf"])
         sync.record = saved
         let next = sync.look()
@@ -218,9 +218,7 @@ import Testing
         let writer = try world.writer()
         _ = writer.removed.empty(writer.removed.items())
         try world.write(.dropbox, "Finance/a.pdf", "someone else's, just made")
-        let result = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: writer, marker: nil,
-            hardwareID: "HW-1", macName: "Test Mac", confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(look, writer: writer)
         #expect(world.read(.dropbox, "Finance/a.pdf") == "someone else's, just made")
         #expect(result.notDone.count == 2)
     }
@@ -323,9 +321,7 @@ import Testing
         changed.settings.whenEdited = .askMe
         changed.pausedSince = 1_793_000_000
         try sync.store.saveState(changed)
-        _ = try await OneWaySyncRun.apply(
-            look, state: atStart, firstRun: sync.firstRun, store: sync.store, writer: world.writer(), marker: nil,
-            hardwareID: "HW-1", macName: "Test Mac", confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        _ = try await sync.apply(look, state: atStart, writer: world.writer())
         let saved = try #require(sync.store.loadState().value)
         #expect(saved.settings.whenEdited == .askMe)
         #expect(saved.pausedSince == 1_793_000_000)
@@ -410,10 +406,7 @@ import Testing
         let sync = try Sync(world: world, folders: ["Finance"])
         try await sync.run()
         try run.write(world, .iCloud, "Finance/a.pdf", "two, longer", modified: OneWaySyncRunTests.earlier)
-        let result = try await OneWaySyncRun.apply(
-            sync.look(), state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: world.writer(), marker: nil,
-            hardwareID: "HW-1", macName: "Test Mac", holdingBack: ["finance/A.PDF"],
-            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(writer: world.writer(), holdingBack: ["finance/A.PDF"])
         #expect(world.read(.dropbox, "Finance/a.pdf") == "one")
         #expect(result.notDone.map(\.why) == ["it is still changing in Dropbox"])
         #expect(result.record.files.first?.size == 3)
@@ -433,10 +426,7 @@ import Testing
         let look = sync.look()
         #expect(look.plan.actions.first.map { if case .replace = $0 { true } else { false } } == true,
                 "\(look.plan.actions) \(look.plan.waits)")
-        let result = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: world.writer(), marker: nil,
-            hardwareID: "HW-1", macName: "Test Mac", holdingBack: ["finance/Brief.rtfd/TXT.rtf"],
-            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(look, writer: world.writer(), holdingBack: ["finance/Brief.rtfd/TXT.rtf"])
         #expect(world.read(.dropbox, "Finance/Brief.rtfd/TXT.rtf") == "one")
         #expect(result.notDone.map(\.why) == ["it is still changing in Dropbox"])
     }
@@ -454,9 +444,7 @@ import Testing
         #expect(look.plan.actions.first == .moveFolderInDropbox(from: "Finance/2025", to: "Finance/2025 Taxes"))
         // The name is taken between the look and the move.
         try world.write(.dropbox, "Finance/2025 Taxes/someone's.txt", "someone's")
-        let result = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: world.writer(), marker: nil,
-            hardwareID: "HW-1", macName: "Test Mac", confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(look, writer: world.writer())
         #expect(result.record.files.map(\.dropboxPath) == ["Finance/2025/a.pdf"])
         #expect(result.record.files.map(\.iCloudPath) == ["Finance/2025/a.pdf"])
         #expect(world.read(.dropbox, "Finance/2025/a.pdf") == "a")
@@ -649,13 +637,4 @@ import Testing
         #expect(ids.count == 1)
         #expect(!ids.contains(old.id))
     }
-}
-
-/// A value a `@Sendable` closure sets and a test reads.
-final class Locked<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Value
-    init(_ value: Value) { stored = value }
-    var value: Value { lock.lock(); defer { lock.unlock() }; return stored }
-    func set(_ value: Value) { lock.lock(); stored = value; lock.unlock() }
 }

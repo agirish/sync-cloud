@@ -2072,8 +2072,9 @@ needed by `LogCapture` too, for the visibility reason it gives.
    only for `activeRefreshKey` to move.
 4. **`.serialized` when a sibling in the same suite writes the same line.** The bounded slice keeps
    out lines from *before* and *after*, not lines a concurrent sibling drops *inside* it.
-   `PaneTabsStoreTests` needs it because `aCorruptValueReadsAsNothingStored` emits the very sentence
-   `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` asserts. (The cross-*suite* half is
+   `PaneTabsStoreTests` needed it while a sibling, `aCorruptValueReadsAsNothingStored`, emitted the very
+   sentence `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` asserts; merging the two into
+   one test, with the sibling's load outside the window, retired it. (The cross-*suite* half is
    mechanism 3's known residual. Closing it by picking a fragment no other suite writes — grep the
    package before trusting one — works only when the wording is yours to choose; when production
    code writes the same sentence from several call sites, filter by authorship instead, per the

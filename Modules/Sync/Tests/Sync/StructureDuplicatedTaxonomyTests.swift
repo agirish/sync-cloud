@@ -142,7 +142,7 @@ import Testing
     // MARK: The shapes the reference tree actually holds (proposal O18)
 
     /// Three shapes the reference tree holds, two of which the rule gets wrong. The rule's yield is
-    /// unmeasured (`DuplicatedTaxonomyMeasurementTests` needs Full Disk Access), but these shapes
+    /// unmeasured (a scan of the live tree needs Full Disk Access), but these shapes
     /// can be read from the persisted content-fingerprint index, and they are what the rule's next
     /// design has to handle. None is a count claim: each is a real structure in its smallest form,
     /// with the rule's current verdict recorded, right or wrong.

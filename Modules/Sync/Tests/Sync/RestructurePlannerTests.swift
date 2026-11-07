@@ -43,13 +43,8 @@ private struct FakeTree {
     /// and no `move-file`. Three families, each mapped its own way, because the direction that fix
     /// went existed nowhere in the tree.
     @Test func theOracleDerivesToExactlyTheLogsFourRenames() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let data = try Data(contentsOf: url)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let profileData = try JSONSerialization.data(
-            withJSONObject: try #require(object["profile"]))
-        let profile = try JSONDecoder().decode(FolderProfile.self, from: profileData)
+        let (object, profile) = try RestructureFixturesTests.oracle()
+        #expect(profile.folders.count == 157)
         let view = RestructureTreeView.fromProfile(profile)
 
         struct ExpectedOp: Decodable, Equatable {
@@ -62,6 +57,15 @@ private struct FakeTree {
             withJSONObject: try #require(object["expected"]))
         let expected = try JSONDecoder().decode([ExpectedOp].self, from: expectedData)
         #expect(expected.count == 4)
+        #expect(expected.allSatisfy { $0.action == "rename-dir" })
+        // Every expected rename's source exists pre-rename, is gone post-rename, and carries the
+        // logged file count: the invariant the reconstruction (and its two patched counts) exists
+        // to hold.
+        for op in expected {
+            let entry = try #require(profile.folders[op.src], "missing pre-rename source \(op.src)")
+            #expect(entry.fileCount == op.filesCarried)
+            #expect(profile.folders[op.dst] == nil, "post-rename name \(op.dst) must not pre-exist")
+        }
 
         // Per family, the mapping as decided: Application → Petition under H-1B;
         // Petition → Application under H-4 (H-4 EAD carries no Petition in this range); and the
@@ -96,13 +100,7 @@ private struct FakeTree {
     /// The involution law, on the oracle's own manifest — plan-time, collision-free, which is the
     /// law's stated scope.
     @Test func theOracleManifestIsInvolutive() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let object = try #require(try JSONSerialization.jsonObject(
-            with: Data(contentsOf: url)) as? [String: Any])
-        let profile = try JSONDecoder().decode(FolderProfile.self, from:
-            JSONSerialization.data(withJSONObject: try #require(object["profile"])))
-        let view = RestructureTreeView.fromProfile(profile)
+        let view = RestructureTreeView.fromProfile(try RestructureFixturesTests.oracle().profile)
         let family = "Immigration/Authorization/H-4"
         let manifest = try Self.derive(
             family: family, members: try #require(view.childFolders(family)).sorted(),
@@ -574,13 +572,7 @@ private struct FakeTree {
     /// sit below it on purpose: two generic role names recur all over a filed tree, and a pointer
     /// that fires everywhere is one nobody reads. The bar is a parameter, to revisit with real use.
     @Test func parallelFamiliesNamesTheSiblingSharingTheVocabulary() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let object = try #require(try JSONSerialization.jsonObject(
-            with: Data(contentsOf: url)) as? [String: Any])
-        let profile = try JSONDecoder().decode(FolderProfile.self, from:
-            JSONSerialization.data(withJSONObject: try #require(object["profile"])))
-        let view = RestructureTreeView.fromProfile(profile)
+        let view = RestructureTreeView.fromProfile(try RestructureFixturesTests.oracle().profile)
 
         let parallels = RestructurePlanner.parallelFamilies(
             of: "Immigration/Authorization/H-4", in: view)
@@ -598,10 +590,14 @@ private struct FakeTree {
     /// members, the number the editor is sized by, pinned against the in-repo fixture.
     @Test func theFlagshipFamilyHasTwentyFourDistinctChildNames() throws {
         let profile = try RestructureFixturesTests.flagshipProfile()
+        #expect(profile.folders.count == 235, "the flagship family is cut from the reference tree at every depth")
         let view = RestructureTreeView.fromProfile(profile)
         let family = "Finance/US/Income Tax"
         let members = try #require(view.childFolders(family))
         #expect(members.count == 17)
+        // The fixture holds 24 distinct names one level below the members.
+        #expect(Set(profile.folders.keys.filter { $0.filter { $0 == "/" }.count == 4 }
+            .map { ($0 as NSString).lastPathComponent }).count == 24)
         let sources = RestructurePlanner.distinctSources(family: family, members: members,
                                                          in: view)
         #expect(sources.count == 24)

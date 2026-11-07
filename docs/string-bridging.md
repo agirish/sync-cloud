@@ -5,11 +5,10 @@ back lazily bridged from `NSString`, and a bridged string is not a Swift string 
 have come from Objective-C — it is a string with **no contiguous native UTF-8 buffer**, so every
 operation Swift implements as "run over the bytes" has to go the long way round instead.
 
-`NameCheckBenchmark` found this by accident while pricing the risky-name row badge: the same
-dictionary lookup cost 77–135 ns on native strings and 1.2–2.1 µs on bridged ones. This file
-records what happened when that was chased through the rest of the app —
-`Modules/Sync/Tests/Sync/BridgedStringBenchmark.swift`, which is the measurement, and can be
-re-run.
+Pricing the risky-name row badge found this by accident: the same dictionary lookup cost
+77–135 ns on native strings and 1.2–2.1 µs on bridged ones. This file records what happened when
+that was chased through the rest of the app. The benchmark that measured it has since been
+removed; the numbers below are its record.
 
 **The conclusion is a split verdict, and the split is the point.** `id` should be nativized and
 `name` should not: the two fields are spent on opposite kinds of work, and a change that treats
@@ -18,11 +17,6 @@ them alike pays for its own win.
 ---
 
 ## How this was measured
-
-```sh
-SYNCCLOUD_BRIDGE_BENCHMARK="~/Documents:~/Library/CloudStorage/OneDrive-Personal" \
-  arch -arm64 swift test -c release --filter BridgedStringBenchmark
-```
 
 Release only, on this Mac's two largest provider roots — `~/Documents` (38,461 nodes) and
 `~/Library/CloudStorage/OneDrive-Personal` (41,095). Two roots because one root is an anecdote;
@@ -180,7 +174,7 @@ spread, so a whole-walk timing can neither confirm nor refute it; the isolated t
 measurement is the number to quote, and the point stands that it is bought back roughly twelve
 times over.
 
-The benchmark doubles as the check that the change took effect: its `native id` arm nativizes an
+The benchmark also checked that the change took effect: its `native id` arm nativizes an
 already-native `id`, so every ratio that was 6.5–9.1× collapsed to 1.00–1.04×.
 
 Behaviour-preservation was verified against the pre-change Release binary on a controlled fixture

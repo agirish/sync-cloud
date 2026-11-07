@@ -263,21 +263,16 @@ import Testing
         #expect(p.rootName == "Photos")
     }
 
+    /// Every whole-tree pass Organize and Storage can start is guarded, and names itself in the
+    /// user's vocabulary. The count of `allCases` makes a pass added later be checked rather than
+    /// silently left unbounded.
     @Test func eachPassNamesItselfInTheUsersVocabulary() {
         #expect(LargeWalkPreflight.Pass.storageLens.title == "Storage")
         #expect(LargeWalkPreflight.Pass.duplicates.title == "Find Duplicates")
         #expect(LargeWalkPreflight.Pass.rename.title == "Rename")
         #expect(LargeWalkPreflight.Pass.filing.title == "Filing")
-    }
-
-    /// Every whole-tree pass Organize and Storage can start is guarded. Asserted as a count of
-    /// `allCases`, so a pass added later must be checked rather than silently left unbounded.
-    @Test func everyPassThatWalksAWholeTreeHasACase() {
         #expect(LargeWalkPreflight.Pass.allCases.count == 4,
                 "a pass was added or removed — check that every whole-tree walk still asks before it runs")
-        for pass in LargeWalkPreflight.Pass.allCases {
-            #expect(!pass.title.isEmpty, "\(pass) has no name for the prompt")
-        }
     }
 
     /// Which passes read file contents is a property, not a special case, so a new pass that reads

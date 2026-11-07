@@ -38,6 +38,8 @@ import Foundation
         let result = diffs(secondsApart: 3, tolerance: 1)
         #expect(result.count == 1)
         #expect(result.first?.action == .copyToRight) // left is newer
+        #expect(result.first?.relativePath == "a.txt")
+        #expect(result.first?.type == .differentDates)
 
         #expect(diffs(secondsApart: 90, tolerance: 60).count == 1)
     }
@@ -74,5 +76,8 @@ import Foundation
             dateToleranceSeconds: 3600
         )
         #expect(result.count == 1)
+        #expect(result.first?.relativePath == "a.txt")
+        // The engine files a size difference under the generic "differentDates" type.
+        #expect(result.first?.type == .differentDates)
     }
 }

@@ -79,13 +79,20 @@ import Testing
         #expect(scanned >= 25)
     }
 
-    @Test func aDropboxCopyChangedSinceTheDiffWaitsAndNothingMoves() throws {
+    /// A Dropbox copy whose size, or whose document ID, differs from the diff's waits, and nothing
+    /// moves.
+    @Test(arguments: ["size", "documentID"])
+    func aDropboxCopyChangedSinceTheDiffWaitsAndNothingMoves(perturbed: String) throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
         try world.write(.iCloud, Self.path, "new")
         try world.write(.dropbox, Self.path, "old")
         var expected = try world.expected(Self.path)
-        expected.size += 1
+        if perturbed == "size" {
+            expected.size += 1
+        } else {
+            expected.documentID = (expected.documentID ?? 0) + 1
+        }
         #expect(throws: OneWaySyncWriteError.changedSinceDiff(world.dropbox.appendingPathComponent(Self.path).path)) {
             try world.writer().replace(dropboxPath: Self.path, with: Self.path, needsDownload: false,
                                        previousIsDropboxEdit: false, expected: expected)
@@ -273,20 +280,6 @@ import Testing
         }
         #expect(world.read(.dropbox, "Finance/Plan.pages/Index.xml") == nil)
         #expect(world.stagingContents == [])
-    }
-
-    @Test func aDropboxCopyWithAnotherDocumentIDWaits() throws {
-        let world = try OneWayDiskWorld()
-        defer { world.remove() }
-        try world.write(.iCloud, Self.path, "new")
-        try world.write(.dropbox, Self.path, "old")
-        var expected = try world.expected(Self.path)
-        expected.documentID = (expected.documentID ?? 0) + 1
-        #expect(throws: OneWaySyncWriteError.changedSinceDiff(world.dropbox.appendingPathComponent(Self.path).path)) {
-            try world.writer().replace(dropboxPath: Self.path, with: Self.path, needsDownload: false,
-                                       previousIsDropboxEdit: false, expected: expected)
-        }
-        #expect(world.read(.dropbox, Self.path) == "old")
     }
 
     @Test func aSymlinkOnEitherSideIsRefused() throws {

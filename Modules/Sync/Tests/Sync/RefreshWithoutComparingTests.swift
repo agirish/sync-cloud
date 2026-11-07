@@ -52,27 +52,13 @@ import Foundation
         #expect(m.differences.isEmpty)
         #expect(m.lastScanDate == nil, "a scan completed and stamped itself")
 
-        // The control: the same call, comparing, finds the two files that differ, so the fixture
-        // can be compared at all.
+        // The control: the same call with the default, comparing, finds the two files that differ,
+        // so the fixture can be compared at all, and every other caller (a file operation, a forced
+        // rescan, a provider switch, ordinary navigation) keeps its scan.
         await m.refreshTreesAndScan(left: left, right: right)
         #expect(m.hasScanned, "the comparing refresh did not scan either — this fixture proves nothing")
         #expect(m.differences.count == 2,
                 "the comparing refresh found \(m.differences.count) differences in a fixture with two")
-    }
-
-    /// The default still compares, so every other caller (a file operation, a forced rescan, a
-    /// provider switch, ordinary navigation) keeps its scan.
-    @MainActor
-    @Test func theDefaultStillCompares() async throws {
-        let fixture = try Self.makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let (left, right) = Self.providers(fixture)
-        let m = FileSyncManager()
-
-        await m.refreshTreesAndScan(left: left, right: right)
-
-        #expect(m.hasScanned, "the default no longer compares, so every caller silently lost its scan")
-        #expect(m.differences.count == 2)
     }
 
     /// A skipped comparison is owed, and `scanDirectories`, the app's Compare-entry path, settles it

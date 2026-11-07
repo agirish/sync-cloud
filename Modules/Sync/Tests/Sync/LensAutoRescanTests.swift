@@ -2,22 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Records what the classifier was asked. Same shape as the verdict-cache tests' log, private to
-/// each file because test targets share one namespace.
-private final class CallLog: @unchecked Sendable {
-    private let lock = NSLock()
-    private var calls: [[String]] = []
-    func record(_ names: [String]) { lock.lock(); defer { lock.unlock() }; calls.append(names) }
-    var count: Int { lock.lock(); defer { lock.unlock() }; return calls.count }
-}
-
-/// Counts spend-confirmer calls: the line an auto-scan must never cross.
-private final class PromptProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    func record() { lock.lock(); defer { lock.unlock() }; count += 1 }
-    var prompts: Int { lock.lock(); defer { lock.unlock() }; return count }
-}
+/// What the classifier was asked, and how often the spend confirmer was: the line an auto-scan
+/// must never cross.
+private typealias CallLog = LockedBox<[[String]]>
+private typealias PromptProbe = LockedBox<Int>
 
 /// Auto-rescan on lens open: Duplicates and Organize re-run a scan the user has run before,
 /// provided it can't cost money. Two contracts: consent (only the exact target of a completed
@@ -194,7 +182,7 @@ private final class PromptProbe: @unchecked Sendable {
         let filingRoot = try filingFixture("vanished")
         defer { try? FileManager.default.removeItem(at: filingRoot) }
         let downloads = filingRoot.appendingPathComponent("Downloads")
-        let filing = filingManager(cacheAt: nil, log: CallLog(), identity: "on-device", store: defaults)
+        let filing = filingManager(cacheAt: nil, log: CallLog([]), identity: "on-device", store: defaults)
         defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
         try FileManager.default.removeItem(at: downloads)
         #expect(!filing.autoRescanFilingIfEligible(folder: downloads, providerRoot: filingRoot))
@@ -219,7 +207,7 @@ private final class PromptProbe: @unchecked Sendable {
         let filingRoot = try filingFixture("manual")
         defer { try? FileManager.default.removeItem(at: filingRoot) }
         let downloads = filingRoot.appendingPathComponent("Downloads")
-        let filing = filingManager(cacheAt: nil, log: CallLog(), identity: "on-device", store: defaults)
+        let filing = filingManager(cacheAt: nil, log: CallLog([]), identity: "on-device", store: defaults)
         defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
 
         await filing.findFilingSuggestions(folder: downloads, providerRoot: filingRoot)
@@ -239,12 +227,7 @@ private final class PromptProbe: @unchecked Sendable {
 
     /// Records the tier every classification came in at, so a test can assert what a scan is
     /// allowed to reach and not merely that it reached something.
-    private final class TierLog: @unchecked Sendable {
-        private let lock = NSLock()
-        private var seen: [FilingClassifierTier] = []
-        func record(_ tier: FilingClassifierTier) { lock.lock(); seen.append(tier); lock.unlock() }
-        var tiers: [FilingClassifierTier] { lock.lock(); defer { lock.unlock() }; return seen }
-    }
+    private typealias TierLog = LockedBox<[FilingClassifierTier]>
 
     /// A manager wired the way the app wires one: the identity resolver answers per tier, with
     /// `.free` pinned to on-device as `SyncCloudApp` pins it, so `identity` is the refine identity.
@@ -259,8 +242,8 @@ private final class PromptProbe: @unchecked Sendable {
         m.persistedUIStateDefaults = store
         m.filingBackendIdentity = { tier in tier == .refine ? identity : freeIdentity }
         m.filingClassifier = { _, files, tier in
-            log.record(files.map(\.fileName))
-            tiers?.record(tier)
+            log.withLock { $0.append(files.map(\.fileName)) }
+            tiers?.withLock { $0.append(tier) }
             var out: [String: FilingVerdict] = [:]
             for f in files {
                 out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
@@ -277,7 +260,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
         let defaults = ScratchDefaults("autoFilingRecords")
-        let manager = filingManager(cacheAt: nil, log: CallLog(), identity: "on-device", store: defaults)
+        let manager = filingManager(cacheAt: nil, log: CallLog([]), identity: "on-device", store: defaults)
 
         #expect(defaults.array(forKey: FileSyncManager.lastFilingScanFolderKey) == nil)
         await manager.findFilingSuggestions(folder: downloads, providerRoot: root)
@@ -297,7 +280,7 @@ private final class PromptProbe: @unchecked Sendable {
             let downloads = root.appendingPathComponent("Downloads")
             let defaults = ScratchDefaults("autoFilingNoSpend-\(cloudOn)")
             defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
-            let log = CallLog(), tiers = TierLog(), probe = PromptProbe()
+            let log = CallLog([]), tiers = TierLog([]), probe = PromptProbe(0)
             let settings = ScratchDefaults("autoFilingNoSpendSettings-\(cloudOn)")
             settings.set(cloudOn, forKey: FileSyncManager.usesCloudDefaultsKey)
 
@@ -305,7 +288,7 @@ private final class PromptProbe: @unchecked Sendable {
             let auto = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
                                      store: defaults, tiers: tiers)
             auto.filingContentDefaults = settings
-            auto.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+            auto.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
             #expect(auto.autoRescanFilingIfEligible(folder: downloads, providerRoot: root,
                                                     nameProvider: .dropBox))
             await auto.filingScanTask?.value
@@ -314,15 +297,15 @@ private final class PromptProbe: @unchecked Sendable {
             let manual = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
                                        store: nil, tiers: tiers)
             manual.filingContentDefaults = settings
-            manual.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+            manual.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
             await manual.findFilingSuggestions(folder: downloads, providerRoot: root,
                                                nameProvider: .dropBox)
 
-            #expect(probe.prompts == 0, "a scan raised a payment dialog (cloud on: \(cloudOn))")
-            #expect(tiers.tiers == [.free, .free], "a scan classified off the free tier")
+            #expect(probe.withLock { $0 } == 0, "a scan raised a payment dialog (cloud on: \(cloudOn))")
+            #expect(tiers.withLock { $0 } == [.free, .free], "a scan classified off the free tier")
             // The positive control: without it "no prompt" is equally consistent with a scan that
             // did nothing. Both scans classified, published, and reported the fixture's bad name.
-            #expect(log.count == 2)
+            #expect(log.withLock { $0.count } == 2)
             #expect(auto.hasSuggestedFiling && manual.hasSuggestedFiling)
             #expect(!auto.riskyNames.isEmpty && !manual.riskyNames.isEmpty)
         }
@@ -336,15 +319,15 @@ private final class PromptProbe: @unchecked Sendable {
         let root = try filingFixture("misroute")
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
-        let log = CallLog(), probe = PromptProbe()
+        let log = CallLog([]), probe = PromptProbe(0)
         let manager = filingManager(cacheAt: nil, log: log, identity: "cloud:claude-opus-5",
                                     store: nil, freeIdentity: "cloud:claude-opus-5")
-        manager.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+        manager.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
 
         await manager.findFilingSuggestions(folder: downloads, providerRoot: root)
 
-        #expect(log.count == 0)     // the classifier was never called
-        #expect(probe.prompts == 0)
+        #expect(log.withLock { $0.count } == 0)     // the classifier was never called
+        #expect(probe.withLock { $0 } == 0)
         // Skipped, not failed: phases 1–2 still ran and published. The user loses the AI pass, not
         // the scan.
         #expect(manager.hasSuggestedFiling)
@@ -360,7 +343,7 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let downloads = root.appendingPathComponent("Downloads")
         let defaults = ScratchDefaults("autoFilingFree")
-        let log = CallLog()
+        let log = CallLog([])
         let manager = filingManager(cacheAt: nil, log: log, identity: "on-device", store: defaults)
 
         // Until the store names exactly this folder, even a free backend is not consent.
@@ -370,7 +353,7 @@ private final class PromptProbe: @unchecked Sendable {
         defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
         #expect(manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
         await manager.filingScanTask?.value
-        #expect(log.count == 1)
+        #expect(log.withLock { $0.count } == 1)
         #expect(manager.hasSuggestedFiling)
         #expect(manager.filingSuggestions.first?.best?.fromAI == true)
     }
@@ -386,19 +369,19 @@ private final class PromptProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let downloads = root.appendingPathComponent("Downloads")
         let defaults = ScratchDefaults("autoFilingCached")
-        let log = CallLog()
+        let log = CallLog([])
 
         let first = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         await first.findFilingSuggestions(folder: downloads, providerRoot: root)
         FilingVerdictStore.waitForPendingWrites()
-        #expect(log.count == 1)
+        #expect(log.withLock { $0.count } == 1)
         let firstResults = first.filingSuggestions
 
         // A fresh manager, standing in for the next launch.
         let next = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         #expect(next.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
         await next.filingScanTask?.value
-        #expect(log.count == 1)                          // the model was never asked again
+        #expect(log.withLock { $0.count } == 1)                          // the model was never asked again
         #expect(next.filingSuggestions == firstResults)  // and the answer is the same one
         #expect(next.hasSuggestedFiling)
         #expect(next.filingLastCacheReuse == FileSyncManager.FilingCacheReuse(reused: 1, classified: 0))
@@ -409,7 +392,7 @@ private final class PromptProbe: @unchecked Sendable {
         let third = filingManager(cacheAt: url, log: log, identity: "on-device", store: defaults)
         #expect(third.autoRescanFilingIfEligible(folder: downloads, providerRoot: root))
         await third.filingScanTask?.value
-        #expect(log.count == 2)
+        #expect(log.withLock { $0.count } == 2)
         #expect(third.hasSuggestedFiling)
         #expect(third.filingSuggestions.count == 2)
     }
@@ -426,19 +409,19 @@ private final class PromptProbe: @unchecked Sendable {
         let downloads = root.appendingPathComponent("Downloads")
         let defaults = ScratchDefaults("autoFilingDowngrade")
         defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
-        let log = CallLog()
-        let probe = PromptProbe()
+        let log = CallLog([])
+        let probe = PromptProbe(0)
 
         // Cloud ON, but the identity the app vouches for is the on-device downgrade.
         let manager = filingManager(cacheAt: nil, log: log, identity: "on-device", store: defaults)
         let scratch = ScratchDefaults("autoFilingDowngradeSettings")
         scratch.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
         manager.filingContentDefaults = scratch
-        manager.filingCloudSpendConfirmer = { _ in probe.record(); return true }
+        manager.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
 
         _ = manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root)
         await manager.filingScanTask?.value
-        #expect(probe.prompts == 0)   // no payment dialog, whatever the eligibility answer was
+        #expect(probe.withLock { $0 } == 0)   // no payment dialog, whatever the eligibility answer was
         #expect(manager.hasSuggestedFiling)   // and the scan ran, rather than declining to
     }
 }

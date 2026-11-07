@@ -30,14 +30,8 @@ import EventsTestSupport
 
     private func group(keeper: String, redundant: String, reclaim: Int = 1000) -> DuplicateGroup {
         let when = Date(timeIntervalSince1970: 1_000)
-        let k = DuplicateCopy(id: keeper, name: (keeper as NSString).lastPathComponent, isDirectory: false,
-                              size: 1000, itemCount: 1, modificationDate: when,
-                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant, name: (redundant as NSString).lastPathComponent, isDirectory: false,
-                              size: 1000, itemCount: 1, modificationDate: when,
-                              uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false)
-        return DuplicateGroup(matchType: .identical, name: k.name, isDirectory: false,
-                              copies: [k, r], reclaimableBytes: reclaim)
+        return .stub([.stub(keeper, keeper: true, modified: when, depth: 1),
+                      .stub(redundant, keeper: false, modified: when, depth: 1)], reclaimable: reclaim)
     }
 
     /// The shared logger's most recent line containing `fragment`, awaiting a flush marker first
@@ -47,21 +41,13 @@ import EventsTestSupport
         await log.line(containing: fragment)
     }
 
-    /// A continuation-backed latch for parking an enqueued file operation WITHOUT blocking a
-    /// cooperative-pool thread (see docs/flaky-tests.md, "Every gate parks at once, on the pool
-    /// their releases need").
-    private actor Latch {
-        private var opened = false
-        private var continuations: [CheckedContinuation<Void, Never>] = []
-        func wait() async {
-            if opened { return }
-            await withCheckedContinuation { continuations.append($0) }
-        }
-        func open() {
-            opened = true
-            for c in continuations { c.resume() }
-            continuations.removeAll()
-        }
+    /// Two identical pairs on `fm`, listed on `manager`: `/a/x`–`/b/x` and `/a/y`–`/b/y`.
+    private func twoGroups(on fm: MockFileManager, listedBy manager: FileSyncManager) -> (DuplicateGroup, DuplicateGroup) {
+        for path in ["/a/x", "/b/x", "/a/y", "/b/y"] { fm.virtualDisk[path] = stub(size: 1000) }
+        let g1 = group(keeper: "/a/x", redundant: "/b/x")
+        let g2 = group(keeper: "/a/y", redundant: "/b/y")
+        manager.duplicateGroups = [g1, g2]
+        return (g1, g2)
     }
 
     // MARK: One undo step for the whole batch — and only the batch
@@ -80,13 +66,7 @@ import EventsTestSupport
         // Close the unrelated delete's undo event group before the batch registers.
         await closeTheUndoEventGroup(manager.undoManager)
 
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/a/y"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/y"] = stub(size: 1000)
-        let g1 = group(keeper: "/a/x", redundant: "/b/x")
-        let g2 = group(keeper: "/a/y", redundant: "/b/y")
-        manager.duplicateGroups = [g1, g2]
+        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
 
         await manager.applyRecommendedDuplicates([g1, g2])
         try #require(mockFM.virtualDisk["/b/x"] == nil)
@@ -127,13 +107,7 @@ import EventsTestSupport
             asked.withLock { $0.append(paths) }
             return true
         }
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/a/y"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/y"] = stub(size: 1000)
-        let g1 = group(keeper: "/a/x", redundant: "/b/x")
-        let g2 = group(keeper: "/a/y", redundant: "/b/y")
-        manager.duplicateGroups = [g1, g2]
+        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
 
         await manager.applyRecommendedDuplicates([g1, g2])
 
@@ -164,13 +138,7 @@ import EventsTestSupport
             asked.withLock { $0 += 1 }
             return false
         }
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/a/y"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/y"] = stub(size: 1000)
-        let g1 = group(keeper: "/a/x", redundant: "/b/x")
-        let g2 = group(keeper: "/a/y", redundant: "/b/y")
-        manager.duplicateGroups = [g1, g2]
+        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
 
         await manager.applyRecommendedDuplicates([g1, g2])
 
@@ -194,16 +162,10 @@ import EventsTestSupport
     @Test func aGroupThatDriftsDuringTheQueueWaitIsRefusedAtTheLastCheck() async throws {
         let mockFM = MockFileManager()
         let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/a/y"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/y"] = stub(size: 1000)
-        let g1 = group(keeper: "/a/x", redundant: "/b/x")
-        let g2 = group(keeper: "/a/y", redundant: "/b/y")
-        manager.duplicateGroups = [g1, g2]
+        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
 
         // A long operation is already on the queue when the batch starts.
-        let latch = Latch()
+        let latch = AsyncLatch()
         let blockerRunning = LockedBox<Bool>(false)
         let blocker = Task { await manager.enqueueFileOperation { @Sendable in
             blockerRunning.withLock { $0 = true }
@@ -386,33 +348,15 @@ import EventsTestSupport
         // And nothing was trashed on the way to those lines.
         #expect(mockFM.virtualDisk["/\(token)/b/x"] != nil)
         #expect(mockFM.virtualDisk["/\(token)/b/Photos"] != nil)
-    }
 
-    /// The mixed arm of the all-refused banner (`refused != refusedForMissingBaseline`): with one
-    /// drifted group and one baseline-less group, the banner says "changed since they were
-    /// scanned" (a change was measured), not "couldn't be fully checked".
-    @MainActor
-    @Test func aMixedRefusalBatchSaysChangedNotUnchecked() async throws {
-        let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
-        mockFM.virtualDisk["/b/x"] = stub(size: 2000)   // rewritten since the scan
-        let drifted = group(keeper: "/a/x", redundant: "/b/x")
-        FileSyncManagerDuplicatesTests.plantFolder(mockFM, at: "/a/Photos", files: 2, bytesEach: 100)
-        FileSyncManagerDuplicatesTests.plantFolder(mockFM, at: "/b/Photos", files: 2, bytesEach: 100)
-        let baselineless = FileSyncManagerDuplicatesTests.folderGroup(
-            keeper: "/a/Photos", redundant: "/b/Photos", size: 200, itemCount: 2, snapshot: nil)
-        manager.duplicateGroups = [drifted, baselineless]
-
-        await manager.applyRecommendedDuplicates([drifted, baselineless])
-
+        // The mixed arm of the all-refused banner (`refused != refusedForMissingBaseline`): one
+        // drifted group and one baseline-less group say "changed since they were scanned" (a
+        // change was measured), not "couldn't be fully checked".
         let message = try #require(manager.banner?.message)
         #expect(message.contains("changed since they were scanned"),
                 "a batch where a change WAS measured must say so: “\(message)”")
         #expect(!message.contains("couldn’t be fully checked"),
                 "the all-baseline-less wording leaked into the mixed case: “\(message)”")
-        #expect(mockFM.virtualDisk["/b/x"] != nil)
-        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
     /// A partial batch's banner names the refused groups instead of burying them in "the rest

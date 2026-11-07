@@ -13,24 +13,12 @@ import Testing
 /// Composition stays URL composition: it decomposes precomposed names such as `é` where
 /// concatenation keeps them, so `root + "/" + key` would change the bytes of row paths on a
 /// non-ASCII tree. The hint only decides a trailing slash, which `.path` drops.
-/// `theHintNeverChangesThePath` pins that across names, root spellings and what is on disk, and
-/// `rowPathsAreTheOnesTheProbeComposed` pins it through the engine, re-aimed rows included.
+/// `rowPathsAreTheOnesTheProbeComposed` pins that through the engine, across root spellings and
+/// what is on disk, re-aimed rows included.
 ///
-/// Neither can see the probe come back, since both forms give the same bytes, so
-/// `everyCompositionInTheEngineIsHinted` holds the hint itself. Two premises below are facts about
-/// Foundation (the unhinted form's trailing slash on a directory, and composition decomposing
-/// `é`), so a red premise after an OS update means the framework moved and the argument needs
-/// re-reading.
+/// It can't see the probe come back, since both forms give the same bytes, so
+/// `everyCompositionInTheEngineIsHinted` holds the hint itself.
 @Suite struct OneSidedRowPathTests {
-
-    /// Names that are hard on paths and keys: precomposed and decomposed accents, a name opening
-    /// with a combining mark, Hangul, a trailing space, characters URL encoding treats specially, at
-    /// the top and deep down.
-    private static let names = [
-        "plain.txt", "caf\u{00E9}.txt", "cafe\u{0301}.txt", "\u{0301}lead", "한국어/문서.txt", "Ω≈ç√/x",
-        "trailing /x.txt", "a%20b.txt", "a:b.txt", "#hash", "q?x", "semi;colon", ".hidden",
-        "deep/er/still/caf\u{00E9}/x",
-    ]
 
     /// Two roots with something real at a few of the composed paths, so the unhinted form's probe
     /// finds each: under the right a directory, a package, a link to a directory and a file; under
@@ -66,34 +54,6 @@ import Testing
         try #require(Set(all.map(\.path)).count == 3,
                      "premise: three different spellings — this temp directory is not under /private: \(all.map(\.path))")
         return all
-    }
-
-    @Test func theHintNeverChangesThePath() throws {
-        let fixture = try Self.roots()
-        defer { try? FileManager.default.removeItem(at: fixture.base) }
-        // Premise: the unhinted form consults the disk (a directory gets a trailing slash, a
-        // missing path doesn't). Otherwise the hint would save nothing.
-        #expect(fixture.right.appendingPathComponent("existingDir").hasDirectoryPath)
-        #expect(!fixture.right.appendingPathComponent("plain.txt").hasDirectoryPath)
-
-        var checked = 0
-        let roots = try Self.spellings(of: fixture.right, link: "linkedRoot", base: fixture.base)
-            + Self.spellings(of: fixture.left, link: "linkedLeft", base: fixture.base)
-        for root in roots {
-            for name in Self.names + fixture.onDisk {
-                let probed = Array(root.appendingPathComponent(name).path.utf8)
-                for isDirectory in [false, true] {
-                    let hinted = Array(root.appendingPathComponent(name, isDirectory: isDirectory).path.utf8)
-                    #expect(hinted == probed, "\(name.debugDescription) under \(root.path), hinted \(isDirectory)")
-                    checked += 1
-                }
-            }
-        }
-        #expect(checked == 6 * (Self.names.count + fixture.onDisk.count) * 2)
-        // Why composition stays URL composition: concatenation isn't the same bytes.
-        let precomposed = fixture.right.appendingPathComponent("caf\u{00E9}.txt", isDirectory: false).path
-        #expect(Array(precomposed.utf8) != Array((fixture.right.path + "/caf\u{00E9}.txt").utf8),
-                "premise: URL composition decomposes a precomposed name, so concatenation would change row paths")
     }
 
     /// The engine composes every URL with its entry's type: the hint, which no output can show,

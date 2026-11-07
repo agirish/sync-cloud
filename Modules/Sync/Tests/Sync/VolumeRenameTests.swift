@@ -21,54 +21,33 @@ import Testing
 
     // MARK: The path rule
 
-    @Test func aSourceAtTheMountPointItselfMoves() {
-        #expect(FolderSource.repathed(Self.old, whenVolumeMovedFrom: Self.old, to: Self.new)
-                == Self.new)
-    }
+    /// (path, the mount point it moved from and to, where the path goes, or nil for nowhere).
+    static let repathings: [(path: String, from: String, to: String, expected: String?)] = [
+        (old, old, new, new),
+        // The interesting half: the mount point is replaced and everything below it is carried over.
+        ("\(old)/DCIM/100MSDCF", old, new, "\(new)/DCIM/100MSDCF"),
+        // The suffix keeps its own spelling. `/Volumes` is on the case-insensitive boot volume, so
+        // the mount point is matched case-folded, but the folders below may be on a case-sensitive
+        // filesystem, where `DCIM` and `dcim` are two directories.
+        ("/volumes/old card/DCIM", old, new, "\(new)/DCIM"),
+        // Prefix matching on a component boundary, not `hasPrefix`: `/Volumes/OLD CARD 2` is a
+        // different volume that starts with the same letters, and moving it would repoint a source
+        // at a card nobody renamed.
+        ("/Volumes/OLD CARD 2/DCIM", old, new, nil),
+        ("~/Downloads", old, new, nil),
+        // The startup disk keeps its mount point through a rename, so a rewrite rooted at `/` would
+        // repoint every source on the machine at a `/Volumes/…` path.
+        ("~/Downloads", "/", new, nil),
+        ("/", "/", new, nil),
+        // AppKit posts this notification for a name change and/or a mount-path change, so a rename
+        // that left the path alone arrives here with both sides equal and must move nothing.
+        ("\(old)/DCIM", old, old, nil),
+        ("\(old)/DCIM", old, "\(old)/", nil),
+    ]
 
-    /// The interesting half: the mount point is replaced and everything below it is carried over.
-    @Test func aSourceInsideTheVolumeKeepsItsSuffix() {
-        #expect(FolderSource.repathed("\(Self.old)/DCIM/100MSDCF",
-                                      whenVolumeMovedFrom: Self.old, to: Self.new)
-                == "\(Self.new)/DCIM/100MSDCF")
-    }
-
-    /// The suffix keeps its own spelling. `/Volumes` is on the case-insensitive boot volume, so the
-    /// mount point is matched case-folded, but the folders below may be on a case-sensitive
-    /// filesystem, where `DCIM` and `dcim` are two directories.
-    @Test func theMountPointIsCaseFoldedAndTheSuffixIsNot() {
-        #expect(FolderSource.repathed("/volumes/old card/DCIM",
-                                      whenVolumeMovedFrom: Self.old, to: Self.new)
-                == "\(Self.new)/DCIM")
-    }
-
-    /// Prefix matching on a component boundary, not `hasPrefix`: `/Volumes/OLD CARD 2` is a
-    /// different volume that starts with the same letters, and moving it would repoint a source at
-    /// a card nobody renamed.
-    @Test func aVolumeWhoseNameMerelyStartsTheSameIsNotMoved() {
-        #expect(FolderSource.repathed("/Volumes/OLD CARD 2/DCIM",
-                                      whenVolumeMovedFrom: Self.old, to: Self.new) == nil)
-    }
-
-    @Test func aSourceSomewhereElseEntirelyIsNotMoved() {
-        #expect(FolderSource.repathed("~/Downloads",
-                                      whenVolumeMovedFrom: Self.old, to: Self.new) == nil)
-    }
-
-    /// The startup disk keeps its mount point through a rename, so a rewrite rooted at `/` would
-    /// repoint every source on the machine at a `/Volumes/…` path.
-    @Test func theStartupDiskIsNeverTreatedAsARenamedVolume() {
-        #expect(FolderSource.repathed("~/Downloads", whenVolumeMovedFrom: "/", to: Self.new) == nil)
-        #expect(FolderSource.repathed("/", whenVolumeMovedFrom: "/", to: Self.new) == nil)
-    }
-
-    /// AppKit posts this notification for a name change and/or a mount-path change, so a rename
-    /// that left the path alone arrives here with both sides equal and must move nothing.
-    @Test func aRenameThatDidNotMoveThePathMovesNothing() {
-        #expect(FolderSource.repathed("\(Self.old)/DCIM",
-                                      whenVolumeMovedFrom: Self.old, to: Self.old) == nil)
-        #expect(FolderSource.repathed("\(Self.old)/DCIM",
-                                      whenVolumeMovedFrom: Self.old, to: "\(Self.old)/") == nil)
+    @Test(arguments: repathings)
+    func repathed(_ c: (path: String, from: String, to: String, expected: String?)) {
+        #expect(FolderSource.repathed(c.path, whenVolumeMovedFrom: c.from, to: c.to) == c.expected)
     }
 
     // MARK: The list

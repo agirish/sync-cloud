@@ -8,16 +8,6 @@ import Foundation
 
     // MARK: - Fixtures
 
-    /// A tree view over a dictionary of folder → (folders, files). A path absent from the
-    /// dictionary does not exist, which is the distinction the whole-move branch turns on.
-    private static func view(_ tree: [String: (folders: [String], files: [String])])
-        -> RestructureTreeView {
-        RestructureTreeView(
-            childFolders: { tree[$0]?.folders },
-            files: { tree[$0]?.files },
-            fileCount: { tree[$0]?.files.count })
-    }
-
     private static func finding(kind: FindingKind, family: String, subject: String,
                                 detail: StructureFinding.Detail?) -> StructureFinding {
         StructureFinding(kind: kind, family: family, subject: subject, detail: detail)
@@ -126,7 +116,7 @@ import Foundation
     /// that name at the destination that is literally one `move-dir`, and the count it carries is
     /// what makes the ledger able to say how many files travelled.
     @Test func anAbsentDestinationIsOneWholeMove() throws {
-        let tree = Self.view([
+        let tree = treeView([
             "Work": (["Badge", "Acme"], []),
             "Work/Badge": ([], ["badge.pdf", "photo.jpg"]),
             "Work/Acme": (["Offer Letter"], []),
@@ -149,7 +139,7 @@ import Foundation
     /// shape: the inbox copy and the real folder both exist, and the inbox's contents move across
     /// file by file.
     @Test func aStandingDestinationIsMergedIntoNotNested() throws {
-        let tree = Self.view([
+        let tree = treeView([
             "Health/TODO/Dental": (["Claims"], ["invoice.pdf", "shared.pdf"]),
             "Health/TODO/Dental/Claims": ([], ["claim-1.pdf"]),
             "Health/Dental": ([], ["shared.pdf"]),
@@ -173,7 +163,7 @@ import Foundation
     /// A child echoing its parent moves UP one level. The source's own directory is left standing
     /// for the removal step — this planner never emits `remove-empty-dir`, mapped or paired.
     @Test func aChildEchoingItsParentDrainsUpwardAndLeavesItsShell() throws {
-        let tree = Self.view([
+        let tree = treeView([
             "Home/PG&E": (["PGE"], ["2024-bill.pdf"]),
             "Home/PG&E/PGE": ([], ["2023-bill.pdf"]),
         ])
@@ -199,7 +189,7 @@ import Foundation
     // MARK: - Refusals
 
     @Test func aDestinationInsideItsOwnSourceIsRefused() {
-        let tree = Self.view(["A": (["B"], []), "A/B": ([], [])])
+        let tree = treeView(["A": (["B"], []), "A/B": ([], [])])
         let result = RestructurePlanner.pairMergeManifest(
             source: "A", destination: "A/B", kind: .echoName, in: tree,
             profileId: "p", manifestId: "m", createdAt: "t")
@@ -207,7 +197,7 @@ import Foundation
     }
 
     @Test func aPairPointingAtItselfIsNothingToDo() {
-        let tree = Self.view(["A": ([], ["f.pdf"])])
+        let tree = treeView(["A": ([], ["f.pdf"])])
         #expect(RestructurePlanner.pairMergeManifest(
             source: "A", destination: "A", kind: .echoName, in: tree,
             profileId: "p", manifestId: "m", createdAt: "t") == .failure(.nothingMapped))
@@ -216,7 +206,7 @@ import Foundation
     /// An empty source produces no operation, and an empty manifest must be a refusal rather than
     /// a landing that would write a junk ledger record.
     @Test func anEmptySourceRefusesRatherThanLandingNothing() {
-        let tree = Self.view(["A/Inbox": ([], []), "A/Real": ([], ["f.pdf"])])
+        let tree = treeView(["A/Inbox": ([], []), "A/Real": ([], ["f.pdf"])])
         #expect(RestructurePlanner.pairMergeManifest(
             source: "A/Inbox", destination: "A/Real", kind: .mirroredInbox, in: tree,
             profileId: "p", manifestId: "m", createdAt: "t") == .failure(.nothingMapped))
@@ -238,7 +228,7 @@ import Foundation
     /// The whole-move branch refuses a source it cannot read, as the merge branch does: two sides
     /// of one function must not disagree about whether a missing source is a plan.
     @Test func aVanishedSourceIsRefusedOnBothBranches() {
-        let tree = Self.view(["Work": (["Acme"], []), "Work/Acme": ([], [])])
+        let tree = treeView(["Work": (["Acme"], []), "Work/Acme": ([], [])])
         #expect(RestructurePlanner.pairMergeManifest(
             source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer, in: tree,
@@ -252,7 +242,7 @@ import Foundation
         let relocation = try #require(try RestructurePlanner.pairMergeManifest(
             source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer,
-            in: Self.view(["Work": (["Badge", "Acme"], []),
+            in: treeView(["Work": (["Badge", "Acme"], []),
                            "Work/Badge": ([], ["badge.pdf"]),
                            "Work/Acme": ([], [])]),
             profileId: "p", manifestId: "m", createdAt: "t").get())
@@ -260,25 +250,12 @@ import Foundation
 
         let merge = try #require(try RestructurePlanner.pairMergeManifest(
             source: "Health/TODO/Dental", destination: "Health/Dental", kind: .mirroredInbox,
-            in: Self.view(["Health/TODO/Dental": (["Claims"], ["a.pdf"]),
+            in: treeView(["Health/TODO/Dental": (["Claims"], ["a.pdf"]),
                            "Health/TODO/Dental/Claims": ([], ["b.pdf"]),
                            "Health/Dental": ([], [])]),
             profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(merge.actions.allSatisfy { $0.movesWholeFolder != true },
                 "a merge drains its source — the veto still protects it")
-    }
-
-    /// The flag has to survive inversion, or the undo of a relocation is vetoed the way the
-    /// landing was.
-    @Test func theRelocationFlagRidesOnTheInverse() throws {
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/Acme/Badge",
-            kind: .looseBesideContainer,
-            in: Self.view(["Work": (["Badge", "Acme"], []),
-                           "Work/Badge": ([], ["badge.pdf"]),
-                           "Work/Acme": ([], [])]),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
-        #expect(manifest.inverse.actions.allSatisfy { $0.movesWholeFolder == true })
     }
 
     /// A kind with no detail and no schemes is not a shape, and must not fall through to the
@@ -296,7 +273,7 @@ import Foundation
     /// is planned with the grandparent as its family, and recording that would head its ledger
     /// card "Across the tree" for two folders inside one named parent.
     @Test func aPlanCanBeRecordedUnderADifferentFamilyThanItWalks() throws {
-        let tree = Self.view(["": (["Travel"], []),
+        let tree = treeView(["": (["Travel"], []),
                               "Travel": (["Reciepts", "Receipts"], []),
                               "Travel/Reciepts": ([], ["a.pdf"]),
                               "Travel/Receipts": ([], ["b.pdf"])])
@@ -320,9 +297,11 @@ import Foundation
     // MARK: - The manifest is a manifest
 
     /// Whatever route derived it, a landing is undone by the mechanical inverse — so the pair
-    /// merge has to satisfy the same involution law the mapped planner's manifests do.
+    /// merge has to satisfy the same involution law the mapped planner's manifests do. The
+    /// relocation flag survives inversion, or the undo of a relocation is vetoed the way the
+    /// landing was.
     @Test func aPairMergeInvertsLikeAnyOtherManifest() throws {
-        let tree = Self.view([
+        let tree = treeView([
             "Work": (["Badge", "Acme"], []),
             "Work/Badge": ([], ["badge.pdf"]),
             "Work/Acme": ([], []),
@@ -331,6 +310,7 @@ import Foundation
             source: "Work/Badge", destination: "Work/Acme/Badge", kind: .looseBesideContainer,
             in: tree, profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(manifest.inverse.inverse == manifest)
+        #expect(manifest.inverse.actions.allSatisfy { $0.movesWholeFolder == true })
         #expect(manifest.inverse.actions.first?.src == "Work/Acme/Badge")
         #expect(manifest.inverse.actions.first?.dst == "Work/Badge")
     }

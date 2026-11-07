@@ -206,32 +206,13 @@ import Testing
         #expect(!labels.contains("com.synccloud.pdfkit"))
     }
 
-    @Test func parsesNeverRunConcurrently() async throws {
-        // Concurrent PDFKit parses extract different text run to run on real documents (the race
-        // needs the font substitution real bills trigger, so a synthetic fixture can't show it).
-        // What is asserted is the fix: however many callers ask at once, one parse runs.
-        let dir = try tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        var urls: [URL] = []
-        for i in 0..<24 {
-            let url = dir.appendingPathComponent("doc-\(i).pdf")
-            try writePDF(["\(sentence) number \(i)"], to: url)
-            urls.append(url)
-        }
-
-        await withTaskGroup(of: String?.self) { group in
-            for url in urls { group.addTask { await PDFTextExtractor.fingerprint(url.path) } }
-            var digests: [String?] = []
-            for await d in group { digests.append(d) }
-            #expect(digests.compactMap { $0 }.count == urls.count)
-        }
-        #expect(PDFKitSerialAccess.peakConcurrentParses == 1)
-    }
-
-    /// The lane is process-wide, not per-reader: two serial queues parsing PDFs at once race
-    /// exactly like one concurrent one. `ContentSignalExtractor` lives in `MacApp`, out of reach
-    /// here, so this asserts that reads through the lane's two entry points at once never overlap.
-    /// A second lane anywhere would fail invisibly.
+    /// Concurrent PDFKit parses extract different text run to run on real documents (the race
+    /// needs the font substitution real bills trigger, so a synthetic fixture can't show it). What
+    /// is asserted is the fix: however many callers ask at once, one parse runs. The lane is
+    /// process-wide, not per-reader: two serial queues parsing PDFs at once race exactly like one
+    /// concurrent one. `ContentSignalExtractor` lives in `MacApp`, out of reach here, so this
+    /// asserts that reads through the lane's two entry points at once never overlap. A second lane
+    /// anywhere would fail invisibly.
     @Test func theLaneSerializesItsTwoEntryPointsAgainstEachOther() async throws {
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -244,8 +225,8 @@ import Testing
 
         let read = await withTaskGroup(of: Bool.self) { group -> Int in
             for url in urls {
-                // The async door — what PDFTextExtractor.read uses.
-                group.addTask { await PDFTextExtractor.read(atPath: url.path) != nil }
+                // The async door — `fingerprint` reads through it, and a digest means it read.
+                group.addTask { await PDFTextExtractor.fingerprint(url.path) != nil }
                 // The synchronous door — what ContentSignalExtractor uses from its own queue.
                 group.addTask {
                     await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in

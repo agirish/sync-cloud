@@ -111,10 +111,7 @@ import Testing
         try run.move(world, .iCloud, "Work/Invoice.pdf", "Finance/Invoice.pdf")
         let look = sync.look()
         #expect(look.plan.steps.map(\.movedInFrom) == ["Work/Invoice.pdf"])
-        _ = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: try world.writer(at: sync.now),
-            marker: nil, hardwareID: "HW-1", macName: "Test Mac", isCancelled: { true },
-            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        _ = try await sync.apply(look, isCancelled: { true })
         #expect(world.read(.dropbox, "Finance/Invoice.pdf") == nil)
         #expect(sync.look().plan.steps.map(\.movedInFrom) == ["Work/Invoice.pdf"])
     }

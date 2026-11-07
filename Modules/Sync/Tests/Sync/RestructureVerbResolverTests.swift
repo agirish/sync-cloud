@@ -32,17 +32,10 @@ import Testing
         #expect(found.subject == "Finance/US/Income Tax")
     }
 
-    /// Failing that, the family it belongs to — a member of a shape family is inside the finding
-    /// about that family, and planning from a member is the ordinary case.
-    @Test func aMemberResolvesToItsFamily() throws {
-        let found = try #require(RestructureVerbResolver.finding(
-            forFolder: "\(Self.root)/Finance/US/Income Tax/2013", root: Self.root,
-            in: [Self.shape("Finance/US/Income Tax")], verb: .plan))
-        #expect(found.subject == "Finance/US/Income Tax")
-    }
-
-    /// The nearest ancestor, when a folder sits inside two nested families. The closer one is
-    /// the one the user can see themselves inside.
+    /// Failing that, the family it belongs to: a member of a shape family is inside the finding
+    /// about that family, and planning from a member is the ordinary case. The nearest ancestor,
+    /// when a folder sits inside two nested families: the closer one is the one the user can see
+    /// themselves inside.
     @Test func theNearestAncestorWins() throws {
         let findings = [Self.shape("Finance"), Self.shape("Finance/US/Income Tax")]
         let found = try #require(RestructureVerbResolver.finding(

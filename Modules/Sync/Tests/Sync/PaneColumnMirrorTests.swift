@@ -20,14 +20,6 @@ import Events
         return PaneChildrenIndex(tree: PaneTree(side: .right, version: 1, nodes: [documents]), treeRoot: root)
     }
 
-    @Test func testMirrorOffMovesOnlyTheClickedPane() {
-        let m = FileSyncManager()
-        m.applyColumnNavigation(PaneBrowsePath(components: ["Documents"]), isLeft: true,
-                                mirror: false, otherIndex: otherIndex(), otherTreeRoot: root)
-        #expect(m.leftBrowsePath.components == ["Documents"])
-        #expect(m.rightBrowsePath.isEmpty, "unlinked, the sibling must not move")
-    }
-
     /// An unmirrored click must not even ask for the other pane's index. Building it walks that
     /// pane's whole tree (tens of thousands of nodes) on the main thread inside the click handler,
     /// so an eager argument would pay for it on every column click.
@@ -39,6 +31,9 @@ import Events
                                 otherIndex: { built += 1; return otherIndex() }(),
                                 otherTreeRoot: root)
         #expect(built == 0, "an unlinked click still paid for the other pane's index")
+        // Unlinked, only the clicked pane moves.
+        #expect(m.leftBrowsePath.components == ["Documents"])
+        #expect(m.rightBrowsePath.isEmpty, "unlinked, the sibling must not move")
 
         // …and it is still built when the mirror genuinely needs it.
         m.applyColumnNavigation(PaneBrowsePath(components: ["Documents"]), isLeft: true,
@@ -46,14 +41,6 @@ import Events
                                 otherIndex: { built += 1; return otherIndex() }(),
                                 otherTreeRoot: root)
         #expect(built == 1)
-    }
-
-    @Test func testMirrorOnCarriesTheOtherPaneToTheSameFolder() {
-        let m = FileSyncManager()
-        m.applyColumnNavigation(PaneBrowsePath(components: ["Documents", "Invoices"]), isLeft: true,
-                                mirror: true, otherIndex: otherIndex(), otherTreeRoot: root)
-        #expect(m.leftBrowsePath.components == ["Documents", "Invoices"])
-        #expect(m.rightBrowsePath.components == ["Documents", "Invoices"])
     }
 
     /// The case a plain copy gets wrong: the clicked folder is missing on the other side, so the
@@ -88,11 +75,13 @@ import Events
         #expect(m.leftBrowsePath.components == ["Documents"])
     }
 
-    /// Stepping back out mirrors too — a linked pair must not drift apart on the way up.
+    /// Linked, a click carries the other pane to the same folder; stepping back out mirrors too,
+    /// so a linked pair doesn't drift apart on the way up.
     @Test func testMirroringAShallowerPathWalksTheSiblingBackOut() {
         let m = FileSyncManager()
         m.applyColumnNavigation(PaneBrowsePath(components: ["Documents", "Invoices"]), isLeft: true,
                                 mirror: true, otherIndex: otherIndex(), otherTreeRoot: root)
+        #expect(m.leftBrowsePath.components == ["Documents", "Invoices"])
         #expect(m.rightBrowsePath.components == ["Documents", "Invoices"])
 
         m.applyColumnNavigation(PaneBrowsePath(components: ["Documents"]), isLeft: true,

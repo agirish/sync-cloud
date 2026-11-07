@@ -6,17 +6,10 @@ import Testing
 /// member's children before and after, derived from the manifest alone.
 @Suite struct RestructurePreviewTests {
 
-    private static func view(_ tree: [String: (folders: [String], files: [String])])
-        -> RestructureTreeView {
-        RestructureTreeView(childFolders: { tree[$0]?.folders },
-                            files: { tree[$0]?.files },
-                            fileCount: { tree[$0]?.files.count })
-    }
-
     /// The flagship shape: two folders converge on one name, a third is kept because the target
     /// shape has no slot for it, and a fourth is created empty.
     @Test func aMergeShowsTheSourcesFoldingIntoOneRow() throws {
-        let tree = Self.view([
+        let tree = treeView([
             "F/2013": (["Federal Tax", "State Tax", "Transcripts"], []),
             "F/2013/Federal Tax": ([], ["a.pdf", "b.pdf"]),
             "F/2013/State Tax": ([], ["c.pdf"]),
@@ -53,7 +46,7 @@ import Testing
     /// A pure rename keeps its files and says where the name came from — a different claim from
     /// a merge, and the column is the only place the difference is visible.
     @Test func aRenameIsNotAMerge() throws {
-        let tree = Self.view(["F/2016": (["IRS Docs - 2016"], []),
+        let tree = treeView(["F/2016": (["IRS Docs - 2016"], []),
                               "F/2016/IRS Docs - 2016": ([], ["x.pdf", "y.pdf"])])
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shadowAxis,
@@ -69,7 +62,7 @@ import Testing
     /// A member the plan never touches shows the same two columns: that is the honest answer,
     /// and an empty after-column would read as "everything goes".
     @Test func anUntouchedMemberIsUnchangedOnBothSides() throws {
-        let tree = Self.view(["F/2020": (["Forms"], []), "F/2020/Forms": ([], ["a.pdf"])])
+        let tree = treeView(["F/2020": (["Forms"], []), "F/2020/Forms": ([], ["a.pdf"])])
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
             actions: [.init(action: .renameDir, src: "F/2013/Old", dst: "F/2013/New")])
@@ -81,7 +74,7 @@ import Testing
 
     /// Only direct children get rows: a file moving two levels down belongs to its folder's row.
     @Test func aDeeperMoveDoesNotInventARow() throws {
-        let tree = Self.view(["F/2013": (["Forms"], []),
+        let tree = treeView(["F/2013": (["Forms"], []),
                               "F/2013/Forms": (["Sub"], []),
                               "F/2013/Forms/Sub": ([], ["a.pdf"])])
         let manifest = RestructureManifest(
@@ -96,7 +89,7 @@ import Testing
     /// A collision lands the file under another name, and the count has to follow where it
     /// actually went rather than where the plan aimed it.
     @Test func aCollidedFileCountsWhereItLanded() throws {
-        let tree = Self.view(["F/2013": (["A", "B", "C"], []),
+        let tree = treeView(["F/2013": (["A", "B", "C"], []),
                               "F/2013/A": ([], ["dup.pdf"]),
                               "F/2013/B": ([], ["dup.pdf"]),
                               "F/2013/C": ([], ["dup.pdf"])])
@@ -120,14 +113,7 @@ import Testing
     /// `Petition` under H-1B, carrying its files; the preview of that member has to show exactly
     /// that and invent nothing else.
     @Test func theOraclesRenameShowsAsARenameInItsMember() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let object = try #require(try JSONSerialization.jsonObject(
-            with: try Data(contentsOf: url)) as? [String: Any])
-        let profile = try JSONDecoder().decode(
-            FolderProfile.self,
-            from: try JSONSerialization.data(withJSONObject: try #require(object["profile"])))
-        let view = RestructureTreeView.fromProfile(profile)
+        let view = RestructureTreeView.fromProfile(try RestructureFixturesTests.oracle().profile)
 
         let family = "Immigration/Authorization/H-1B"
         let members = try #require(view.childFolders(family)).sorted()
@@ -160,7 +146,7 @@ import Testing
     /// A two-way swap goes through a temporary name, and the after column must not show it: no
     /// surviving `B.restructure-swap` row, and the contents swap with the names.
     @Test func aSwapReportsTheOriginalNamesAndNoScratchFolder() throws {
-        let tree = Self.view(["M": (["A", "B"], []),
+        let tree = treeView(["M": (["A", "B"], []),
                               "M/A": ([], ["a1.pdf", "a2.pdf"]),
                               "M/B": ([], ["b1.pdf"])])
         let manifest = try #require(try RestructurePlanner.manifest(
@@ -184,7 +170,7 @@ import Testing
     /// A merge whose source holds no loose files moves only folders, so a preview that read merges
     /// off `move-file` alone would leave the drained source standing.
     @Test func aFolderOnlyMergeStillDrainsItsSource() throws {
-        let tree = Self.view(["M": (["Old", "Forms"], []),
+        let tree = treeView(["M": (["Old", "Forms"], []),
                               "M/Old": (["Sub"], []),
                               "M/Old/Sub": ([], ["x.pdf"]),
                               "M/Forms": ([], ["f.pdf"])])
@@ -200,7 +186,7 @@ import Testing
     /// The discriminating other direction: a folder that gives up one of its things still
     /// stands, and dropping it would be the after column lying.
     @Test func aPartiallyDrainedFolderSurvives() throws {
-        let tree = Self.view(["M": (["Old", "Forms"], []),
+        let tree = treeView(["M": (["Old", "Forms"], []),
                               "M/Old": ([], ["keep.pdf", "go.pdf"]),
                               "M/Forms": ([], [])])
         let manifest = RestructureManifest(
@@ -214,7 +200,7 @@ import Testing
 
     /// A folder the plan trashes leaves the after column.
     @Test func aRemovedFolderIsGone() throws {
-        let tree = Self.view(["M": (["Empty", "Keep"], []),
+        let tree = treeView(["M": (["Empty", "Keep"], []),
                               "M/Empty": ([], []), "M/Keep": ([], ["k.pdf"])])
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "M", kind: .deadWeight,
@@ -227,7 +213,7 @@ import Testing
     /// A folder carried in from outside the member arrives with the files it carried, not with
     /// zero.
     @Test func aFolderCarriedInArrivesWithItsFiles() throws {
-        let tree = Self.view(["M": (["Forms"], []), "M/Forms": ([], ["f.pdf"])])
+        let tree = treeView(["M": (["Forms"], []), "M/Forms": ([], ["f.pdf"])])
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "M",
             kind: .looseBesideContainer,
@@ -243,7 +229,7 @@ import Testing
     /// Depth is not decoration: a rename two levels down is not a top-level row, and a file two
     /// levels down does not change its grandparent's own count.
     @Test func onlyDirectChildrenGetRowsAndDirectItemsGetCounted() throws {
-        let tree = Self.view(["M": (["Forms"], []),
+        let tree = treeView(["M": (["Forms"], []),
                               "M/Forms": (["Sub"], ["top.pdf"]),
                               "M/Forms/Sub": ([], ["deep.pdf"])])
         let manifest = RestructureManifest(
@@ -262,6 +248,6 @@ import Testing
             member: "F/nope",
             in: RestructureManifest(profileId: "p", manifestId: "m", createdAt: "t",
                                     family: "F", kind: .shape, actions: []),
-            tree: Self.view([:])) == nil)
+            tree: treeView([:])) == nil)
     }
 }

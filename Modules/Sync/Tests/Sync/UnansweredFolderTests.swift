@@ -50,6 +50,19 @@ import Testing
             }
             return UnansweredFolderDisk(inner: mock, unanswered: unanswered, gate: gate, reads: reads)
         }
+
+        /// A manager over this fixture's disk, sharing its registry, with the gate the unanswered
+        /// folder parks on.
+        @MainActor
+        func manager(deadline: Duration = .milliseconds(250)) throws
+        -> (manager: FileSyncManager, gate: ParkGate, disk: UnansweredFolderDisk, reads: FileSyncManager.DatalessFolderReads) {
+            let gate = ParkGate()
+            let reads = FileSyncManager.DatalessFolderReads(deadline: deadline)
+            let disk = try disk(gate: gate, reads: reads)
+            let manager = FileSyncManager(fileManager: disk)
+            manager.datalessFolderReads = reads
+            return (manager, gate, disk, reads)
+        }
     }
 
     private static func node(_ path: String, in tree: [FileNode]) -> FileNode? {
@@ -67,10 +80,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func aFolderThatNeverAnswersStillLetsTheRefreshCompare() async throws {
         let f = Fixture(root: "/refresh")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
-        manager.datalessFolderReads = reads
+        let (manager, gate, _, reads) = try f.manager()
         let log = LogCapture()
 
         let refresh = Task { await manager.refreshTreesAndScan(left: f.home, right: f.other) }
@@ -101,11 +111,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func aRefreshSkipsAFolderStillUnansweredAndReadsItOnceItAnswers() async throws {
         let f = Fixture(root: "/skip")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
-        let disk = try f.disk(gate: gate, reads: reads)
-        let manager = FileSyncManager(fileManager: disk)
-        manager.datalessFolderReads = reads
+        let (manager, gate, disk, reads) = try f.manager()
 
         await manager.refreshTreesAndScan(left: f.home, right: f.other)
         await awaitSignal(gate.entered, "the walk never reached the folder that does not answer")
@@ -143,11 +149,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func aPaneRootThatNeverAnswersIsUnknownAndIsNotKept() async throws {
         let f = Fixture(root: "/rootpane")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
-        let disk = try f.disk(gate: gate, reads: reads)
-        let manager = FileSyncManager(fileManager: disk)
-        manager.datalessFolderReads = reads
+        let (manager, gate, disk, reads) = try f.manager()
         // Both panes on an `Archive`; the left one is the folder that does not answer.
         let left = f.provider("left", at: "/home/Cloud/Archive")
         let right = f.provider("right", at: "/other/Cloud/Archive")
@@ -180,10 +182,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func aSupersededWalkStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/supersede")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
-        manager.datalessFolderReads = reads
+        let (manager, gate, _, _) = try f.manager(deadline: .seconds(60))
 
         let first = Task { await manager.refreshTreesAndScan(left: f.home, right: f.other) }
         await awaitSignal(gate.entered, "the walk never reached the folder that does not answer")
@@ -213,10 +212,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func theComparisonsOwnWalkGivesUpOnTheFolderToo() async throws {
         let f = Fixture(root: "/coldscan")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .milliseconds(250))
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
-        manager.datalessFolderReads = reads
+        let (manager, gate, _, reads) = try f.manager()
         #expect(manager.prefetchedTrees.isEmpty, "a cached tree would take the other branch")
 
         let scan = Task {
@@ -239,10 +235,7 @@ import Testing
     @MainActor
     @Test(.parksAThread) func aCancelledComparisonStopsWaitingForTheFolder() async throws {
         let f = Fixture(root: "/cancel")
-        let gate = ParkGate()
-        let reads = FileSyncManager.DatalessFolderReads(deadline: .seconds(60))
-        let manager = FileSyncManager(fileManager: try f.disk(gate: gate, reads: reads))
-        manager.datalessFolderReads = reads
+        let (manager, gate, _, _) = try f.manager(deadline: .seconds(60))
 
         let scan = Task {
             await manager.scanDirectories(left: f.home, leftPath: f.home.rootPath,

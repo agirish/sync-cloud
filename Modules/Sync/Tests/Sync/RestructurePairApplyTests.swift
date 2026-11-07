@@ -26,6 +26,20 @@ import Testing
         .fromDisk(root: root)
     }
 
+    /// `Health/TODO/Dental` merged into `Health/Dental`: the mirrored inbox.
+    private static func dentalMerge(in root: URL) throws -> RestructureManifest {
+        try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental", kind: .mirroredInbox,
+            in: view(of: root), profileId: "p", manifestId: "m", createdAt: "t").get())
+    }
+
+    /// The loose `Work/Badge` moved whole into `Work/Acme/Badge`, beside its container.
+    private static func badgeRelocation(in root: URL) throws -> RestructureManifest {
+        try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Work/Badge", destination: "Work/Acme/Badge", kind: .looseBesideContainer,
+            in: view(of: root), profileId: "p", manifestId: "m", createdAt: "t").get())
+    }
+
     private static func run(_ manifest: RestructureManifest, in root: URL)
         -> FileSyncManager.RestructureExecution {
         FileSyncManager.executeRestructureActions(manifest.actions, root: root.path,
@@ -46,10 +60,7 @@ import Testing
                                       "Work/Acme/Offer Letter/offer.pdf",
                                       "Work/Payslips/2024.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/Acme/Badge",
-            kind: .looseBesideContainer, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.badgeRelocation(in: root)
 
         let execution = Self.run(manifest, in: root)
 
@@ -70,10 +81,7 @@ import Testing
                                       "Health/TODO/Dental/Claims/claim.pdf",
                                       "Health/Dental/summary.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
         #expect(manifest.actions.allSatisfy { $0.movesWholeFolder != true },
                 "a merge drains its source — none of its moves is a relocation")
 
@@ -95,10 +103,7 @@ import Testing
                                       "Health/Dental/claims/old.pdf",
                                       "Health/Dental/Sub/notes/a.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
         func move(_ src: String) -> RestructureManifest.Action? {
             manifest.actions.first { $0.action == .moveFile && $0.src == src }
         }
@@ -119,10 +124,7 @@ import Testing
         let root = try Self.makeTree(["Health/TODO/Dental/invoice.pdf", "Health/TODO/Dental/x-ray.pdf",
                                       "Health/Dental/invoice.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
         let url = root.appendingPathComponent("journal.jsonl")
         let journal = try #require(RestructureLandingJournal(at: url))
 
@@ -147,10 +149,7 @@ import Testing
                                       "Health/Dental/Return.pages/Index.zip",
                                       "Health/Dental/Return.pages/Data/q.jpg"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
 
         let execution = Self.run(manifest, in: root)
 
@@ -192,10 +191,7 @@ import Testing
         let fm = FileManager.default
         try fm.createSymbolicLink(at: root.appendingPathComponent("Health/TODO/Dental/Shared"),
                                   withDestinationURL: root.appendingPathComponent("Elsewhere/Shared"))
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
 
         _ = Self.run(manifest, in: root)
 
@@ -217,10 +213,7 @@ import Testing
     @Test func aWholeFolderMoveReportsNoEmptiedFolders() throws {
         let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/Acme/Offer Letter/offer.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/Acme/Badge",
-            kind: .looseBesideContainer, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.badgeRelocation(in: root)
 
         #expect(RestructureLedger.emptiedFolders(of: manifest) == [],
                 "the source travelled intact and its parent kept every other child")
@@ -233,10 +226,7 @@ import Testing
         let root = try Self.makeTree(["Health/TODO/Dental/invoice.pdf",
                                       "Health/Dental/summary.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
         #expect(RestructureLedger.emptiedFolders(of: manifest) == ["Health/TODO/Dental"])
     }
 
@@ -254,10 +244,7 @@ import Testing
             at: root.appendingPathComponent("Health/TODO/Dental/Claims"),
             withIntermediateDirectories: true)
 
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Health/TODO/Dental", destination: "Health/Dental",
-            kind: .mirroredInbox, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.dentalMerge(in: root)
 
         #expect(manifest.actions.contains {
             $0.action == .keep && $0.src == "Health/TODO/Dental/Claims"
@@ -278,10 +265,7 @@ import Testing
         let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/Acme/Offer Letter/offer.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
         let before = Self.treeList(root)
-        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/Acme/Badge",
-            kind: .looseBesideContainer, in: Self.view(of: root),
-            profileId: "p", manifestId: "m", createdAt: "t").get())
+        let manifest = try Self.badgeRelocation(in: root)
 
         var landed = manifest
         landed.actions = Self.run(manifest, in: root).performed

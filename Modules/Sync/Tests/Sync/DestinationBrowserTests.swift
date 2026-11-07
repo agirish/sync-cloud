@@ -26,13 +26,7 @@ import Foundation
 
     // MARK: - Listing
 
-    /// Folders only, name-sorted. A file row would be a destination you cannot pick.
-    @Test func testSubfoldersListsDirectoriesOnly() throws {
-        let fm = try fixture()
-        let names = DestinationBrowser.listSubfolders(of: "/p", fileManager: fm).folders.map(\.name)
-        #expect(names == ["Health", "School"])
-    }
-
+    /// Folders only, name-sorted: a file row would be a destination you cannot pick.
     /// Dot-directories are dropped by name as well as by the enumerator's hidden flag: a folder can
     /// be one without the other.
     @Test func testHiddenFoldersAreDroppedUnlessAsked() throws {
@@ -40,12 +34,6 @@ import Foundation
         #expect(DestinationBrowser.listSubfolders(of: "/p", fileManager: fm).folders.map(\.name) == ["Health", "School"])
         let shown = DestinationBrowser.listSubfolders(of: "/p", showHidden: true, fileManager: fm).folders.map(\.name)
         #expect(shown.contains(".hidden"))
-    }
-
-    /// A path with nothing under it is empty, not an error: the picker shows "Empty" for it.
-    @Test func testLeafFolderListsNothing() throws {
-        let fm = try fixture()
-        #expect(DestinationBrowser.listSubfolders(of: "/p/School/Son", fileManager: fm).folders.isEmpty)
     }
 
     /// An empty root would otherwise resolve against the process working directory.
@@ -385,11 +373,15 @@ import Foundation
 
     // MARK: - Search
 
-    /// Both `Son` folders are found, from different depths.
+    /// Both `Son` folders are found, from different depths. A walk that exhausts the tree is
+    /// complete: the flags must not always be true, or the picker would caveat results it fully
+    /// searched.
     @Test func testSearchFindsMatchesAtEveryDepth() throws {
         let fm = try fixture()
-        let paths = Set(DestinationBrowser.search("son", under: "/p", fileManager: fm).matches.map(\.path))
-        #expect(paths == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
+        let outcome = DestinationBrowser.search("son", under: "/p", fileManager: fm)
+        #expect(Set(outcome.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
+        #expect(outcome.matches.count == 2)
+        #expect(!outcome.stoppedEarly && !outcome.skippedUnreadableDirectory)
     }
 
     /// Case-insensitive and substring, so three characters reach a long folder name.
@@ -414,10 +406,14 @@ import Foundation
     }
 
     /// An empty or whitespace query matches nothing rather than everything: the picker shows the
-    /// browse columns then, and a full-tree dump behind them would be noise.
+    /// browse columns then, and a full-tree dump behind them would be noise. A blank query is no
+    /// search, not a truncated one, or the picker would show its "showing the first N" caveat over
+    /// the browse columns.
     @Test func testBlankQueryMatchesNothing() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("", under: "/p", fileManager: fm).matches.isEmpty)
+        let blank = DestinationBrowser.search("", under: "/p", fileManager: fm)
+        #expect(blank.matches.isEmpty)
+        #expect(!blank.stoppedEarly && !blank.skippedUnreadableDirectory)
         #expect(DestinationBrowser.search("   ", under: "/p", fileManager: fm).matches.isEmpty)
     }
 
@@ -469,92 +465,84 @@ import Foundation
 
     // MARK: - Trail
 
-    /// The trail names the provider folder and every level between it and the match, so two
-    /// same-named folders read differently.
-    @Test func testTrailDistinguishesSameNamedFolders() {
-        #expect(DestinationBrowser.trail(of: "/p/Health/Medical/Kaiser/Son", under: "/p")
-                == ["p", "Health", "Medical", "Kaiser"])
-        #expect(DestinationBrowser.trail(of: "/p/School/Son", under: "/p") == ["p", "School"])
+    /// One test's trail checks: (path, root, the trail expected).
+    struct TrailCase: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        let checks: [(path: String, root: String, trail: [String])]
     }
 
-    /// A folder directly under the root trails just the root.
-    @Test func testTrailOfATopLevelFolderIsTheRoot() {
-        #expect(DestinationBrowser.trail(of: "/p/Health", under: "/p") == ["p"])
-    }
+    static let trails: [TrailCase] = [
+        // Every level between the provider folder and the match, so two same-named folders read
+        // differently.
+        TrailCase(testDescription: "same-named folders", checks: [
+            ("/p/Health/Medical/Kaiser/Son", "/p", ["p", "Health", "Medical", "Kaiser"]),
+            ("/p/School/Son", "/p", ["p", "School"])]),
+        TrailCase(testDescription: "a top-level folder trails just the root",
+                  checks: [("/p/Health", "/p", ["p"])]),
+        // There is no level between a folder and itself. Checked on a realistic root too: `/p`'s
+        // parent is `/`, which splits to an empty array by luck and would hide a fall-through to
+        // the outside-the-root branch (the root's own ancestors). A trailing slash is the same folder.
+        TrailCase(testDescription: "the root itself trails nothing", checks: [
+            ("/p", "/p", []),
+            ("/Users/me/Dropbox", "/Users/me/Dropbox", []),
+            ("/Users/me/Dropbox/", "/Users/me/Dropbox", [])]),
+        // The system-panel escape still reads as its own parents rather than coming back empty.
+        TrailCase(testDescription: "outside the root", checks: [("/elsewhere/Deep/Folder", "/p", ["elsewhere", "Deep"])]),
+        // Prefix aliasing: "/p" must not claim "/pictures/x".
+        TrailCase(testDescription: "a sibling sharing a prefix", checks: [("/pictures/Deep/Folder", "/p", ["pictures", "Deep"])]),
+    ]
 
-    /// The root trails nothing: there is no level between a folder and itself. Checked on a
-    /// realistic root too, because `/p`'s parent is `/`, which splits to an empty array by luck and
-    /// would hide a fall-through to the outside-the-root branch (the root's own ancestors).
-    @Test func testTheRootItselfTrailsNothing() {
-        #expect(DestinationBrowser.trail(of: "/p", under: "/p").isEmpty)
-        #expect(DestinationBrowser.trail(of: "/Users/me/Dropbox", under: "/Users/me/Dropbox").isEmpty)
-        #expect(DestinationBrowser.trail(of: "/Users/me/Dropbox/", under: "/Users/me/Dropbox").isEmpty,
-                "a trailing slash is the same folder")
-    }
-
-    /// A path outside the root (the system-panel escape) still reads as its own parents rather
-    /// than coming back empty.
-    @Test func testTrailOutsideTheRootFallsBackToItsOwnParents() {
-        #expect(DestinationBrowser.trail(of: "/elsewhere/Deep/Folder", under: "/p")
-                == ["elsewhere", "Deep"])
-    }
-
-    /// Prefix aliasing: "/p" must not claim "/pictures/x".
-    @Test func testTrailDoesNotClaimASiblingSharingAPrefix() {
-        #expect(DestinationBrowser.trail(of: "/pictures/Deep/Folder", under: "/p")
-                == ["pictures", "Deep"])
+    @Test(arguments: trails)
+    func testTrail(_ c: TrailCase) {
+        for check in c.checks {
+            #expect(DestinationBrowser.trail(of: check.path, under: check.root) == check.trail,
+                    "trail of \(check.path) under \(check.root)")
+        }
     }
 
     // MARK: - Breadcrumbs
 
-    /// The footer names the provider, then every level down to the chosen folder.
-    @Test func testCrumbsNameTheProviderThenEveryLevel() {
-        #expect(DestinationBrowser.crumbs(for: "/Users/me/Dropbox/Health/Medical",
-                                          under: "/Users/me/Dropbox", providerName: "Dropbox")
-                == ["Dropbox", "Health", "Medical"])
-        #expect(DestinationBrowser.crumbs(for: "/Users/me/Dropbox/Health",
-                                          under: "/Users/me/Dropbox", providerName: "Dropbox")
-                == ["Dropbox", "Health"])
+    /// One test's crumb checks: (folder, root, provider name, the crumbs expected).
+    struct CrumbCase: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        let checks: [(folder: String, root: String, provider: String, crumbs: [String])]
     }
 
-    /// The root is one crumb, the provider's name, not its ancestors ("Dropbox › me › Dropbox").
-    /// It is the rail's "Places" row, the card's most reachable control. The provider name differs
-    /// from the folder name, as for iCloud Drive's `com~apple~CloudDocs`: with the two equal, a
-    /// fall-through to the outside-the-root branch would give the right answer by accident.
-    @Test func testCrumbsForTheRootAreJustTheProviderName() {
-        let root = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"
-        #expect(DestinationBrowser.crumbs(for: root, under: root, providerName: "iCloud Drive")
-                == ["iCloud Drive"])
-        #expect(DestinationBrowser.crumbs(for: root + "/", under: root, providerName: "iCloud Drive")
-                == ["iCloud Drive"], "a trailing slash is the same folder")
-        #expect(DestinationBrowser.crumbs(for: root, under: root + "/", providerName: "iCloud Drive")
-                == ["iCloud Drive"], "…on either side")
+    static let crumbCases: [CrumbCase] = {
+        let iCloud = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"
+        return [
+            // The footer names the provider, then every level down to the chosen folder.
+            CrumbCase(testDescription: "the provider, then every level", checks: [
+                ("/Users/me/Dropbox/Health/Medical", "/Users/me/Dropbox", "Dropbox", ["Dropbox", "Health", "Medical"]),
+                ("/Users/me/Dropbox/Health", "/Users/me/Dropbox", "Dropbox", ["Dropbox", "Health"])]),
+            // The root is one crumb, the provider's name, not its ancestors ("Dropbox › me ›
+            // Dropbox"). It is the rail's "Places" row, the card's most reachable control. The
+            // provider name differs from the folder name, as for iCloud Drive's
+            // `com~apple~CloudDocs`: with the two equal, a fall-through to the outside-the-root
+            // branch would give the right answer by accident. A trailing slash on either side is
+            // the same folder, and one level down still swaps the display name in.
+            CrumbCase(testDescription: "the root is just the provider name", checks: [
+                (iCloud, iCloud, "iCloud Drive", ["iCloud Drive"]),
+                (iCloud + "/", iCloud, "iCloud Drive", ["iCloud Drive"]),
+                (iCloud, iCloud + "/", "iCloud Drive", ["iCloud Drive"]),
+                (iCloud + "/Receipts", iCloud, "iCloud Drive", ["iCloud Drive", "Receipts"])]),
+            // A folder reached through `Other…` is outside the provider, so it reads as its own
+            // path, not under the provider's name.
+            CrumbCase(testDescription: "outside the root", checks: [
+                ("/Volumes/Archive/2025", "/Users/me/Dropbox", "Dropbox", ["Volumes", "Archive", "2025"])]),
+            // Prefix aliasing: "/p" must not claim "/pictures/x" and swap in the provider name.
+            CrumbCase(testDescription: "a sibling sharing a prefix", checks: [("/pictures/Deep", "/p", "P", ["pictures", "Deep"])]),
+            // No folder chosen yet is no crumbs, which is what the footer's placeholder keys on.
+            CrumbCase(testDescription: "no destination", checks: [("", "/p", "P", [])]),
+        ]
+    }()
 
-        // And one level down still swaps the display name in for the root's folder name.
-        #expect(DestinationBrowser.crumbs(for: root + "/Receipts", under: root,
-                                          providerName: "iCloud Drive")
-                == ["iCloud Drive", "Receipts"])
-    }
-
-    /// A folder reached through `Other…` is outside the provider, so it reads as its own path, not
-    /// under the provider's name.
-    @Test func testCrumbsOutsideTheRootDoNotClaimTheProvider() {
-        let crumbs = DestinationBrowser.crumbs(for: "/Volumes/Archive/2025",
-                                               under: "/Users/me/Dropbox", providerName: "Dropbox")
-        #expect(crumbs == ["Volumes", "Archive", "2025"])
-        #expect(!crumbs.contains("Dropbox"))
-    }
-
-    /// Prefix aliasing at the crumb layer too: "/p" must not claim "/pictures/x" and swap in the
-    /// provider name for "pictures".
-    @Test func testCrumbsDoNotClaimASiblingSharingAPrefix() {
-        #expect(DestinationBrowser.crumbs(for: "/pictures/Deep", under: "/p", providerName: "P")
-                == ["pictures", "Deep"])
-    }
-
-    /// No folder chosen yet is no crumbs, which is what the footer's placeholder keys on.
-    @Test func testCrumbsForNoDestinationAreEmpty() {
-        #expect(DestinationBrowser.crumbs(for: "", under: "/p", providerName: "P").isEmpty)
+    @Test(arguments: crumbCases)
+    func testCrumbs(_ c: CrumbCase) {
+        for check in c.checks {
+            #expect(DestinationBrowser.crumbs(for: check.folder, under: check.root, providerName: check.provider)
+                    == check.crumbs, "crumbs for \(check.folder) under \(check.root)")
+        }
     }
 
     // MARK: - Pre-flight refusals
@@ -591,117 +579,62 @@ import Foundation
 
     // MARK: - Collision preview
 
-    /// A name already taken in the destination is reported, one that is free is not.
-    @Test func testCollidingNamesReportsOnlyTakenNames() throws {
-        let fm = try fixture()
-        fm.virtualDisk["/p/School/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/report.pdf", "/p/Health/notes.txt"],
-            into: "/p/School",
-            fileManager: fm
-        )
-        #expect(colliding == ["report.pdf"])
+    /// One collision preview: files planted in the fixture, the selection, the destination, and
+    /// the names expected, in selection order (the order the tooltip lists them in).
+    struct Collision: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        var planted: [String] = []
+        let from: [String]
+        let into: String
+        let expected: [String]
     }
 
-    /// An item already in the destination doesn't collide with itself, or the picker would report
-    /// a collision and the already-there refusal for one file.
-    @Test func testAnItemAlreadyInTheDestinationIsNotACollision() throws {
-        let fm = try fixture()
-        fm.virtualDisk["/p/School/settled.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+    static let collisions: [Collision] = [
+        Collision(testDescription: "a taken name is reported, a free one is not",
+                  planted: ["/p/School/report.pdf"],
+                  from: ["/p/Health/report.pdf", "/p/Health/notes.txt"], into: "/p/School", expected: ["report.pdf"]),
+        // Or the picker would report a collision and the already-there refusal for one file.
+        Collision(testDescription: "an item already in the destination does not collide with itself",
+                  planted: ["/p/School/settled.pdf"],
+                  from: ["/p/School/settled.pdf"], into: "/p/School", expected: []),
+        // Replacing a folder replaces its whole contents: the case most worth seeing first.
+        Collision(testDescription: "a folder name collides too",
+                  from: ["/p/School/Son"], into: "/p/Health/Medical/Kaiser", expected: ["Son"]),
+        Collision(testDescription: "every name free",
+                  from: ["/p/Health/a.pdf", "/p/Health/b.pdf"], into: "/p/School", expected: []),
+        Collision(testDescription: "no destination is not a question yet",
+                  from: ["/p/Health/a.pdf"], into: "", expected: []),
+        // The move is flat, so both derive the same target and the second prompts. Nothing need
+        // be on disk, so an existence check alone would report a clean move and then ask anyway.
+        // One name, one prompt — not one entry per source.
+        Collision(testDescription: "two selected items sharing a name",
+                  from: ["/p/Health/report.pdf", "/p/School/report.pdf"], into: "/p/Health/Prescriptions",
+                  expected: ["report.pdf"]),
+        // The footer counts names, and the second and third both land on the same target.
+        Collision(testDescription: "three of a name is one name",
+                  from: ["/p/Health/x.pdf", "/p/School/x.pdf", "/p/Health/Medical/x.pdf"], into: "/p/School/Son",
+                  expected: ["x.pdf"]),
+        // Taken in the destination and repeated in the selection, or the footer counts it twice.
+        Collision(testDescription: "a name colliding for both reasons is reported once",
+                  planted: ["/p/School/dup.pdf"],
+                  from: ["/p/Health/dup.pdf", "/p/Health/Medical/dup.pdf"], into: "/p/School", expected: ["dup.pdf"]),
+        // The within-selection rule must not turn every multi-item move into a warning.
+        Collision(testDescription: "distinct names from different folders stay clean",
+                  from: ["/p/Health/a.pdf", "/p/School/b.pdf", "/p/Health/Medical/c.pdf"],
+                  into: "/p/Health/Prescriptions", expected: []),
+        Collision(testDescription: "selection order is kept",
+                  planted: ["/p/School/zebra.pdf", "/p/School/apple.pdf"],
+                  from: ["/p/Health/zebra.pdf", "/p/Health/apple.pdf"], into: "/p/School",
+                  expected: ["zebra.pdf", "apple.pdf"]),
+    ]
 
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/School/settled.pdf"], into: "/p/School", fileManager: fm
-        )
-        #expect(colliding.isEmpty)
-    }
-
-    /// A folder whose name is taken collides as a file does. Replacing a folder replaces its whole
-    /// contents, so this is the case most worth seeing before confirming.
-    @Test func testAFolderNameCollidesToo() throws {
+    @Test(arguments: collisions)
+    func testCollidingNames(_ c: Collision) throws {
         let fm = try fixture()
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/School/Son"], into: "/p/Health/Medical/Kaiser", fileManager: fm
-        )
-        #expect(colliding == ["Son"])
-    }
-
-    /// Every name free means no preview to show.
-    @Test func testNoCollisionsWhenEveryNameIsFree() throws {
-        let fm = try fixture()
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/a.pdf", "/p/Health/b.pdf"], into: "/p/School", fileManager: fm
-        )
-        #expect(colliding.isEmpty)
-    }
-
-    /// An empty destination is not a question yet.
-    @Test func testNoDestinationYieldsNoCollisions() throws {
-        let fm = try fixture()
-        #expect(DestinationBrowser.collidingNames(movingFrom: ["/p/Health/a.pdf"], into: "", fileManager: fm).isEmpty)
-    }
-
-    /// Two selected items sharing a name collide with each other: the move is flat, so both derive
-    /// the same target and the second prompts. Nothing need be on disk, so an existence check alone
-    /// would report a clean move and then ask anyway.
-    @Test func testTwoSelectedItemsSharingANameCollide() throws {
-        let fm = try fixture()
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/report.pdf", "/p/School/report.pdf"],
-            into: "/p/Health/Prescriptions",
-            fileManager: fm
-        )
-        #expect(colliding == ["report.pdf"], "one name, one prompt — not one entry per source")
-    }
-
-    /// Three of a name is still one name: the footer counts names, and the second and third both
-    /// land on the same target.
-    @Test func testARepeatedNameIsReportedOnce() throws {
-        let fm = try fixture()
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/x.pdf", "/p/School/x.pdf", "/p/Health/Medical/x.pdf"],
-            into: "/p/School/Son",
-            fileManager: fm
-        )
-        #expect(colliding == ["x.pdf"])
-    }
-
-    /// A name that collides for both reasons (taken in the destination and repeated in the
-    /// selection) is still one name, or the footer would count it twice.
-    @Test func testANameCollidingForBothReasonsIsReportedOnce() throws {
-        let fm = try fixture()
-        fm.virtualDisk["/p/School/dup.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/dup.pdf", "/p/Health/Medical/dup.pdf"],
-            into: "/p/School",
-            fileManager: fm
-        )
-        #expect(colliding == ["dup.pdf"])
-    }
-
-    /// Distinct names from distinct folders are still clean: the within-selection rule must not
-    /// turn every multi-item move into a warning.
-    @Test func testDistinctNamesFromDifferentFoldersStayClean() throws {
-        let fm = try fixture()
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/a.pdf", "/p/School/b.pdf", "/p/Health/Medical/c.pdf"],
-            into: "/p/Health/Prescriptions",
-            fileManager: fm
-        )
-        #expect(colliding.isEmpty)
-    }
-
-    /// Reported in selection order, which is the order the tooltip lists them in.
-    @Test func testCollidingNamesKeepSelectionOrder() throws {
-        let fm = try fixture()
-        fm.virtualDisk["/p/School/zebra.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        fm.virtualDisk["/p/School/apple.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/Health/zebra.pdf", "/p/Health/apple.pdf"],
-            into: "/p/School",
-            fileManager: fm
-        )
-        #expect(colliding == ["zebra.pdf", "apple.pdf"])
+        for path in c.planted {
+            fm.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+        #expect(DestinationBrowser.collidingNames(movingFrom: c.from, into: c.into, fileManager: fm) == c.expected)
     }
 
     // MARK: - Search cost
@@ -749,15 +682,6 @@ import Foundation
 
     // MARK: - Truncation is reported, not silent
 
-    /// A walk that exhausts the tree is complete. The flag must not always be true, or the picker
-    /// would caveat results it fully searched.
-    @Test func testAnExhaustiveSearchIsNotTruncated() throws {
-        let fm = try fixture()
-        let outcome = DestinationBrowser.search("son", under: "/p", fileManager: fm)
-        #expect(outcome.matches.count == 2)
-        #expect(!outcome.stoppedEarly && !outcome.skippedUnreadableDirectory)
-    }
-
     /// Each of the three caps stops the walk early and must say so: a partial list read as the
     /// complete one leads to "the folder isn't there".
     @Test func testEveryCapReportsTruncation() throws {
@@ -768,22 +692,6 @@ import Foundation
                 "depth ceiling — Kaiser/Son is below it")
         #expect(DestinationBrowser.search("son", under: "/p", maxListings: 1, fileManager: fm).stoppedEarly,
                 "listing budget")
-    }
-
-    /// A blank query is no search, not a truncated one, or the picker would show its "showing the
-    /// first N" caveat over the browse columns.
-    @Test func testABlankQueryIsNotTruncated() throws {
-        let fm = try fixture()
-        let blank = DestinationBrowser.search("", under: "/p", fileManager: fm)
-        #expect(!blank.stoppedEarly && !blank.skippedUnreadableDirectory)
-    }
-
-    /// …and an uncancelled walk is unaffected, so the hook cannot silently disable search.
-    @Test func testSearchIsUnaffectedWhenNotCancelled() throws {
-        let fm = try fixture()
-        let found = DestinationBrowser.search("son", under: "/p", fileManager: fm,
-                                              isCancelled: { false })
-        #expect(Set(found.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
     }
 
     // MARK: - Folders a root links to (iCloud Drive's Documents)

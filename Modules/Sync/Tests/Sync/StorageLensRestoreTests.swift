@@ -161,18 +161,33 @@ import Testing
 
     // MARK: Through the manager
 
+    /// A manager saving to its own store, that has scanned a root holding a 40 KB file once, with
+    /// the save awaited. `prepare` runs before the scan, given the root and the store. `remove()`
+    /// deletes both.
+    @MainActor
+    private func scannedManager(_ name: String, prepare: (URL, URL) throws -> Void = { _, _ in }) async throws
+    -> (manager: FileSyncManager, root: URL, url: URL, remove: () -> Void) {
+        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreScan-\(name)")
+        let url = try storeURL(name)
+        let remove = {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
+        try prepare(root, url)
+        let manager = FileSyncManager()
+        manager.storageLensStoreURL = url
+        await manager.buildStorageLens(root: root)
+        // The build saves in the background; awaited so the write can't land after `remove` has
+        // deleted the store's folder and recreate it.
+        StorageLensStore.waitForPendingWrites()
+        return (manager, root, url, remove)
+    }
+
     @MainActor
     @Test func abuildSavesAndAFreshManagerRestoresIt() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreScan")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("manager")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        let first = FileSyncManager()
-        first.storageLensStoreURL = url
-        await first.buildStorageLens(root: root)
-        StorageLensStore.waitForPendingWrites()
+        let (first, root, url, remove) = try await scannedManager("manager")
+        defer { remove() }
         let scanned = try #require(first.storageLensReport)
         #expect(!first.storageLensLifecycle.isRestored)               // it was scanned, not restored
         #expect(first.storageLensLifecycle.completedAt != nil)
@@ -206,24 +221,15 @@ import Testing
 
     @MainActor
     @Test func restoringNeverReplacesResultsAlreadyOnScreen() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreGuard")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("guard")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        // A saved snapshot for this root whose numbers differ from what a scan would produce.
-        StorageLensStore.saveInBackground(
-            StorageLensSnapshot(root: root.path, report: report(totalBytes: 999),
-                                completedAt: Date(timeIntervalSince1970: 1_700_000_000)), to: url)
-        StorageLensStore.waitForPendingWrites()
-
-        let manager = FileSyncManager()
-        manager.storageLensStoreURL = url
-        await manager.buildStorageLens(root: root)                     // fresh results on screen
-        // The build saves in the background; awaited so the write can't land after the `defer`
-        // has removed the store's folder and recreate it.
-        StorageLensStore.waitForPendingWrites()
+        // A saved snapshot for this root whose numbers differ from what a scan would produce, then
+        // the scan, so fresh results are on screen.
+        let (manager, root, _, remove) = try await scannedManager("guard") { root, url in
+            StorageLensStore.saveInBackground(
+                StorageLensSnapshot(root: root.path, report: report(totalBytes: 999),
+                                    completedAt: Date(timeIntervalSince1970: 1_700_000_000)), to: url)
+            StorageLensStore.waitForPendingWrites()
+        }
+        defer { remove() }
         let fresh = try #require(manager.storageLensReport)
 
         #expect(!manager.restoreStorageLens(root: root))               // declines
@@ -253,16 +259,8 @@ import Testing
     @Test func aProviderSwitchClearsTheScreenButKeepsTheSavedReport() async throws {
         // `clearStorageLens` runs on an ordinary provider switch. Deleting the saved snapshot there
         // would lose the other provider's report every time you glanced at this one.
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreSwitch")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("switch")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        let manager = FileSyncManager()
-        manager.storageLensStoreURL = url
-        await manager.buildStorageLens(root: root)
-        StorageLensStore.waitForPendingWrites()
+        let (manager, root, _, remove) = try await scannedManager("switch")
+        defer { remove() }
 
         manager.clearStorageLens()
         #expect(manager.storageLensReport == nil)                      // screen cleared
@@ -273,16 +271,8 @@ import Testing
 
     @MainActor
     @Test func forgettingErasesTheSavedReport() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreForget")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("forget")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        let manager = FileSyncManager()
-        manager.storageLensStoreURL = url
-        await manager.buildStorageLens(root: root)
-        StorageLensStore.waitForPendingWrites()
+        let (manager, root, _, remove) = try await scannedManager("forget")
+        defer { remove() }
 
         manager.forgetStoredStorageLens(root: root.path)
         StorageLensStore.waitForPendingWrites()
@@ -295,16 +285,8 @@ import Testing
         // The Settings readout asks what this store occupies, and must answer "nothing" after a
         // Clear. An empty list writes no file: even `{"schema":1,"snapshots":[]}` reads as `[]` to
         // `load` but shows in a size readout as a Clear that hadn't worked.
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreForgetAll")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("forget-all")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        let manager = FileSyncManager()
-        manager.storageLensStoreURL = url
-        await manager.buildStorageLens(root: root)
-        StorageLensStore.waitForPendingWrites()
+        let (manager, root, url, remove) = try await scannedManager("forget-all")
+        defer { remove() }
         #expect(manager.storedStorageLensSizeOnDisk() != nil)
 
         manager.forgetStoredStorageLens()
@@ -317,16 +299,8 @@ import Testing
     @Test func aRescanClearsTheRestoredFlag() async throws {
         // Once you re-analyze, the numbers are live again and the "from your last scan" marker
         // must stop claiming otherwise.
-        let root = try makeCanonicalTempRoot(prefix: "StorageRestoreRescan")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = try storeURL("rescan")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
-
-        let manager = FileSyncManager()
-        manager.storageLensStoreURL = url
-        await manager.buildStorageLens(root: root)
-        StorageLensStore.waitForPendingWrites()
+        let (manager, root, _, remove) = try await scannedManager("rescan")
+        defer { remove() }
         manager.clearStorageLens()
         #expect(manager.restoreStorageLens(root: root))
         #expect(manager.storageLensLifecycle.isRestored)

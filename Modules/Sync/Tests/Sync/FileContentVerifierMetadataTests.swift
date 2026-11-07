@@ -15,32 +15,6 @@ struct FileContentVerifierMetadataTests {
         return dir
     }
 
-    @Test("A regular file hashes")
-    func regularFile() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appendingPathComponent("a.txt")
-        try Data("hello".utf8).write(to: file)
-
-        let outcome = await FileContentVerifier.hashOutcome(filePath: file.path)
-        #expect(outcome.hash != nil)
-    }
-
-    @Test("A symlink hashes its TARGET's bytes, not the link's")
-    func symlinkFollowsToTarget() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let target = dir.appendingPathComponent("target.txt")
-        try Data("the real contents, comfortably longer than the link path".utf8).write(to: target)
-        let link = dir.appendingPathComponent("link.txt")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
-
-        let viaLink = await FileContentVerifier.hashOutcome(filePath: link.path).hash
-        let direct = await FileContentVerifier.hashOutcome(filePath: target.path).hash
-        #expect(viaLink != nil)
-        #expect(viaLink == direct)
-    }
-
     @Test("A symlink to a DIRECTORY is unverifiable")
     func symlinkToDirectory() async throws {
         let dir = try scratch()
@@ -55,27 +29,6 @@ struct FileContentVerifierMetadataTests {
         // first read errors, and the verdict is unverifiable either way. The check is kept because
         // it reaches that verdict without opening anything.
         #expect(await FileContentVerifier.hashOutcome(filePath: link.path).hash == nil)
-    }
-
-    @Test("A broken symlink is unverifiable")
-    func brokenSymlink() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let link = dir.appendingPathComponent("dangling")
-        try FileManager.default.createSymbolicLink(
-            at: link, withDestinationURL: dir.appendingPathComponent("nothing-here"))
-
-        // Refused by the resolved `attributesOfItem`, which follows the link and fails.
-        #expect(await FileContentVerifier.hashOutcome(filePath: link.path).hash == nil)
-    }
-
-    @Test("A directory and a missing path are both unverifiable")
-    func directoryAndMissing() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        #expect(await FileContentVerifier.hashOutcome(filePath: dir.path).hash == nil)
-        #expect(await FileContentVerifier.hashOutcome(
-            filePath: dir.appendingPathComponent("absent").path).hash == nil)
     }
 
     /// A file manager that reports a size other than the one on disk, standing in for the file

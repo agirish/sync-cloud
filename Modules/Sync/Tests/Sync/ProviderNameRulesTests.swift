@@ -13,10 +13,12 @@ import Foundation
         #expect(ProviderNameRules.normalizedComponent("Swimming ") == "Swimming")
         #expect(ProviderNameRules.normalizedComponent("  Swimming") == "Swimming")
         #expect(ProviderNameRules.normalizedComponent("Notes..") == "Notes")
+        #expect(ProviderNameRules.normalizedComponent("dot.") == "dot")
         #expect(ProviderNameRules.normalizedComponent("name . ") == "name")
         #expect(ProviderNameRules.normalizedComponent("plain") == "plain")
         // Interior whitespace and dots are real, visible name content.
         #expect(ProviderNameRules.normalizedComponent("a b.c") == "a b.c")
+        #expect(ProviderNameRules.normalizedComponent("a.b") == "a.b", "interior dot is kept")
     }
 
     @Test func testNormalizedComponentUnifiesUnicodeForms() {
@@ -40,6 +42,8 @@ import Foundation
         #expect(ProviderNameRules.nearNameKey(forRelativePath: "Fitness /Swimming .", foldCase: false) == "Fitness/Swimming")
         #expect(ProviderNameRules.nearNameKey(forRelativePath: "Fitness/SWIMMING ", foldCase: true) == "fitness/swimming")
         #expect(ProviderNameRules.nearNameKey(forRelativePath: "Fitness/SWIMMING ", foldCase: false) == "Fitness/SWIMMING")
+        #expect(ProviderNameRules.nearNameKey(forRelativePath: "a/cafe\u{0301}/b", foldCase: false) == "a/café/b")
+        #expect(ProviderNameRules.nearNameKey(forRelativePath: "Swimming /x.txt", foldCase: false) == "Swimming/x.txt")
     }
 
     @Test func testNameDifferenceDetailNamesTheCulprit() {

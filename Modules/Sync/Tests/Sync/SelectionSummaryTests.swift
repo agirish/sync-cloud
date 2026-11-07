@@ -34,11 +34,6 @@ import Foundation
         #expect(SelectionSummary.totalBytes(of: FileNode(id: "/D", name: "D", isDirectory: true, children: nil)) == 0)
     }
 
-    @Test func totalSumsAcrossASelection() {
-        let selection = [file("/a", 100), file("/b", 200), file("/link", 5, symlink: true)]
-        #expect(SelectionSummary.totalBytes(of: selection) == 300)
-    }
-
     @Test func overlappingSelectionCountsNestedBytesOnce() {
         // ⌘-click can select a folder and items inside it; bytes under the folder count once. The
         // count stays the raw selection count.

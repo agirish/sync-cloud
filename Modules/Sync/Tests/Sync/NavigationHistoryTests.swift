@@ -204,41 +204,30 @@ import Combine
     /// A source switch replaces the history of the pane it switched, and only that pane's. The
     /// switched pane's Back stack points into a tree being taken off screen, so it goes; the
     /// sibling's points into a tree still there, so clearing it would empty the other pane's Back
-    /// button.
+    /// button. Both ways round: polarity in this method is four separate `isLeft` branches
+    /// (history, selection, browse path, reload scope), and a test on one side can't see a flip in
+    /// any of them.
     @MainActor
-    @Test func testRetargetPaneClearsOnlyItsOwnHistory() async throws {
+    @Test(arguments: [true, false])
+    func testRetargetPaneClearsOnlyItsOwnHistory(switchedIsLeft: Bool) async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "b", isLeft: false)
+        let switched: KeyPath<FileSyncManager, String> = switchedIsLeft ? \.leftRelativePath : \.rightRelativePath
+        let still: KeyPath<FileSyncManager, String> = switchedIsLeft ? \.rightRelativePath : \.leftRelativePath
+        let switchedHistory = { switchedIsLeft ? manager.leftHistory : manager.rightHistory }
+        let stillHistory = { switchedIsLeft ? manager.rightHistory : manager.leftHistory }
 
-        manager.retargetPane(isLeft: true, landing: "")
+        manager.retargetPane(isLeft: switchedIsLeft, landing: "")
 
-        #expect(manager.leftRelativePath == "")
-        #expect(manager.leftHistory == PaneNavigationHistory())
-        #expect(!manager.leftHistory.canGoBack)
+        #expect(manager[keyPath: switched] == "")
+        #expect(switchedHistory() == PaneNavigationHistory())
+        #expect(!switchedHistory().canGoBack)
 
-        #expect(manager.rightRelativePath == "b", "the untouched pane was re-homed by the other pane's switch")
-        #expect(manager.rightHistory.entries == ["", "b"])
-        #expect(manager.rightHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
-    }
-
-    /// The mirror. Polarity in this method is four separate `isLeft` branches (history, selection,
-    /// browse path, reload scope), and a test on one side can't see a flip in any of them.
-    @MainActor
-    @Test func testRetargetPaneClearsOnlyItsOwnHistoryOnTheRight() async throws {
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        manager.focusOn(relativePath: "a", isLeft: true)
-        manager.focusOn(relativePath: "b", isLeft: false)
-
-        manager.retargetPane(isLeft: false, landing: "")
-
-        #expect(manager.rightRelativePath == "")
-        #expect(manager.rightHistory == PaneNavigationHistory())
-        #expect(!manager.rightHistory.canGoBack)
-
-        #expect(manager.leftRelativePath == "a", "the untouched pane was re-homed by the other pane's switch")
-        #expect(manager.leftHistory.entries == ["", "a"])
-        #expect(manager.leftHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
+        let stillFolder = switchedIsLeft ? "b" : "a"
+        #expect(manager[keyPath: still] == stillFolder, "the untouched pane was re-homed by the other pane's switch")
+        #expect(stillHistory().entries == ["", stillFolder])
+        #expect(stillHistory().canGoBack, "the untouched pane lost the Back stack it had earned")
     }
 
     /// The selection, both ways round. The app-target test covers the left switch; this covers

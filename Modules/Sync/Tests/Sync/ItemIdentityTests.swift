@@ -59,6 +59,8 @@ import Testing
         try Data("2025".utf8).write(to: file)
 
         let recorded = ItemIdentity.snapshot(at: file, fileManager: FileManager.default)
+        #expect(recorded.drift(at: file, fileManager: FileManager.default) == .unchanged,
+                "an untouched item read as drift")
 
         // Same byte count, different content — the case a size-only guard waves through.
         try Data("2026".utf8).write(to: file)
@@ -155,17 +157,6 @@ import Testing
         let recorded = ItemIdentity.file(size: 4, modified: nil)
         let current = ItemIdentity.directory(childNames: "", fileNumber: nil)
         #expect(ItemIdentity.compare(recorded: recorded, current: current) == .changed)
-    }
-
-    @Test func anUntouchedItemDoesNotReadAsDrift() throws {
-        let base = try makeCanonicalTempRoot(prefix: "IdentityStable")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let file = base.appendingPathComponent("stable.txt")
-        try Data("hello".utf8).write(to: file)
-
-        let recorded = ItemIdentity.snapshot(at: file, fileManager: FileManager.default)
-
-        #expect(recorded.drift(at: file, fileManager: FileManager.default) == .unchanged)
     }
 
     /// The shallow identity's known limit: a change deep inside a subtree leaves the folder's own

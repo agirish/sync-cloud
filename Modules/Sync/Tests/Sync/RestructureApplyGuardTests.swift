@@ -94,24 +94,8 @@ import Testing
 
     /// The same call-site guard on the scaffold — the other landing that mints records.
     @Test @MainActor func aFailedLedgerWriteRefusesTheScaffoldLanding() async throws {
-        let base = try Self.scratch()
+        let (manager, base, root, profiles) = try RestructureScaffoldApplyTests.makeWorld { _ in FileManager.default }
         defer { try? FileManager.default.removeItem(at: base) }
-        let root = base.appendingPathComponent("tree")
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Health/Dental/2025"),
-            withIntermediateDirectories: true)
-        let profiles = base.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        let manager = FileSyncManager()
-        manager.filingFolderProfile = FolderProfile(
-            profileId: "t", root: root.path,
-            folders: ["Health/Dental/2025": FolderProfileEntry(
-                path: "Health/Dental/2025", role: nil, naming: nil, anchors: [],
-                acceptsNewFiles: nil, fileCount: 2, subfolderCount: 0, axes: [:])],
-            personTokens: [])
-        manager.filingProfileDirectoryId = "t"
-        manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o500], ofItemAtPath: profiles.appendingPathComponent("t").path)
         defer {
@@ -335,18 +319,14 @@ import Testing
         }
     }
 
-    /// The flag is held across a real landing, which the hand-set test above can't see. This parks
-    /// a live landing inside step 3 and checks a second entry gets the flag's own sentence: the
-    /// operation count also refuses in this window, in other words. Removing the
-    /// `restructureLandingInProgress = true` assignments must fail this.
-    @Test(.parksAThread) @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
-        let gate = GateFileManager()
-        let base = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: base) }
+    /// `Documents/Tax/2013/Federal Tax/f.pdf` under a profile `t` that knows `Tax`, with a manager on
+    /// `gate`.
+    @MainActor
+    private static func gatedWorld(_ gate: GateFileManager) throws -> (manager: FileSyncManager, base: URL) {
+        let base = try scratch()
         let root = base.appendingPathComponent("Documents")
         let sourceDir = root.appendingPathComponent("Tax/2013/Federal Tax")
-        try FileManager.default.createDirectory(at: sourceDir,
-                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
         try Data("x".utf8).write(to: sourceDir.appendingPathComponent("f.pdf"))
         let profiles = base.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
@@ -361,11 +341,26 @@ import Testing
         manager.filingProfilesDirectory = profiles
         manager.filingProfileDirectoryId = "t"
         manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
-        let manifest = RestructureManifest(
-            profileId: "t", manifestId: "gate-1", createdAt: "2026-08-28T15:00:00",
-            family: "Tax", kind: .shape,
-            actions: [.init(action: .renameDir, src: "Tax/2013/Federal Tax",
-                            dst: "Tax/2013/Forms", evidence: "e")])
+        return (manager, base)
+    }
+
+    /// The era rename `Tax/2013/Federal Tax` → `Tax/2013/Forms`.
+    private static func eraRename(_ id: String) -> RestructureManifest {
+        RestructureManifest(profileId: "t", manifestId: id, createdAt: "2026-08-28T15:00:00",
+                            family: "Tax", kind: .shape,
+                            actions: [.init(action: .renameDir, src: "Tax/2013/Federal Tax",
+                                            dst: "Tax/2013/Forms", evidence: "e")])
+    }
+
+    /// The flag is held across a real landing, which the hand-set test above can't see. This parks
+    /// a live landing inside step 3 and checks a second entry gets the flag's own sentence: the
+    /// operation count also refuses in this window, in other words. Removing the
+    /// `restructureLandingInProgress = true` assignments must fail this.
+    @Test(.parksAThread) @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
+        let gate = GateFileManager()
+        let (manager, base) = try Self.gatedWorld(gate)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let manifest = Self.eraRename("gate-1")
 
         let first = Task { await manager.applyPlan(manifest) }
         // The landing is parked once the executor's first probe reaches the gate — entered on
@@ -420,18 +415,6 @@ import Testing
                 "⌘Z after a removal must not replay the previous landing's moves into folders the removal just trashed")
     }
 
-    /// A bounded disk-condition wait — the undo/redo handlers enqueue their moves as Tasks,
-    /// so the test yields main-actor turns until the disk shows the result (or the budget
-    /// runs out and the test names it).
-    @MainActor
-    private static func waitFor(_ what: String, _ condition: () -> Bool) async throws {
-        for _ in 0..<200 {
-            if condition() { return }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        Issue.record("wait budget exhausted: \(what)")
-    }
-
     /// The handlers' side of the landing flag: the session group is live while a landing suspends
     /// (armed at step 5, then the re-derive awaits), and a ⌘Z replayed then would race the
     /// landing's walk, corrupting the derived profile and wedging the ledger undo. The handlers
@@ -480,13 +463,14 @@ import Testing
         #expect(fm.fileExists(atPath: forms.path))
 
         undo.undo()
-        try await Self.waitFor("the era rename is undone") {
+        // The undo/redo handlers enqueue their moves as Tasks, so wait for the disk to show them.
+        await waitUntil("the era rename is undone") {
             fm.fileExists(atPath: federal.path) && !fm.fileExists(atPath: forms.path)
         }
         #expect(undo.canRedo)
 
         undo.redo()
-        try await Self.waitFor("the era rename is redone") {
+        await waitUntil("the era rename is redone") {
             fm.fileExists(atPath: forms.path) && !fm.fileExists(atPath: federal.path)
         }
         #expect(fm.fileExists(atPath: forms.path), "⌘⇧Z replays the landing forward")
@@ -542,34 +526,10 @@ import Testing
     @Test(.parksAThread) @MainActor func aProfileSwitchDuringTheInverseStopsTheRepoint() async throws {
         let gate = GateFileManager()
         gate.setArmed(false)   // the LANDING runs ungated; only the undo's inverse parks
-        let base = try Self.scratch()
+        let (manager, base) = try Self.gatedWorld(gate)
         defer { try? FileManager.default.removeItem(at: base) }
-        let root = base.appendingPathComponent("Documents")
-        let sourceDir = root.appendingPathComponent("Tax/2013/Federal Tax")
-        try FileManager.default.createDirectory(at: sourceDir,
-                                                withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: sourceDir.appendingPathComponent("f.pdf"))
-        let profiles = base.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        let manager = FileSyncManager(fileManager: gate)
-        manager.filingFolderProfile = FolderProfile(
-            profileId: "t", root: root.path,
-            folders: ["Tax": FolderProfileEntry(path: "Tax", role: nil, naming: nil,
-                                                anchors: [], acceptsNewFiles: nil,
-                                                fileCount: 0, subfolderCount: 1, axes: [:])],
-            personTokens: [])
-        manager.filingProfilesDirectory = profiles
-        manager.filingProfileDirectoryId = "t"
-        manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
-        let manifest = RestructureManifest(
-            profileId: "t", manifestId: "race-1", createdAt: "2026-08-28T15:00:00",
-            family: "Tax", kind: .shape,
-            actions: [.init(action: .renameDir, src: "Tax/2013/Federal Tax",
-                            dst: "Tax/2013/Forms", evidence: "e")])
-        let landed = await manager.applyPlan(manifest)
+        let landed = await manager.applyPlan(Self.eraRename("race-1"))
         #expect(landed.refusal == nil)
-        let activeAfterLanding = manager.filingProfileDirectoryId
 
         gate.setArmed(true)
         let undoTask = Task { await manager.undoReorganisation(manifestId: "race-1") }
@@ -588,7 +548,6 @@ import Testing
                 "the record stays applied — the survey was not re-pointed")
         #expect(manager.filingProfileDirectoryId == "walk-fresh",
                 "the freshly activated profile must not be replaced")
-        _ = activeAfterLanding
     }
 
     // MARK: - A profile that does not say which folder it describes

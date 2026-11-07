@@ -18,12 +18,7 @@ import Testing
     }
 
     /// Records which paths the reader was asked about, across concurrent calls.
-    private final class ReadLog: @unchecked Sendable {
-        private let lock = NSLock()
-        private var paths: [String] = []
-        func record(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
-        var recorded: [String] { lock.lock(); defer { lock.unlock() }; return paths }
-    }
+    private typealias ReadLog = LockedBox<[String]>
 
     @MainActor
     @Test func aRestampedDownloadIsFoundEndToEnd() async throws {
@@ -48,6 +43,16 @@ import Testing
         // It must not inflate the headline, which promises exactly what "Apply recommended" does.
         #expect(manager.duplicateSummary.reclaimableBytes == 0)
         #expect(manager.duplicateSummary.needsReviewCount == 1)
+
+        // The call-site half of `isRecommendedForBatch`. The group property is pinned in
+        // DuplicateFinderSameTextTests; this is the check that the manager's batch actually
+        // consults it — a filter dropped here would leave that property true and unused.
+        await manager.applyRecommendedDuplicates(manager.duplicateGroups)
+
+        // Both copies still on disk, and the group still listed for a per-group look.
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Utilities/Jul 2023.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/9829custbill.pdf").path))
+        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
     }
 
     @MainActor
@@ -59,13 +64,13 @@ import Testing
         try write(root.appendingPathComponent("c.txt"), bytes: 6002, fill: 0x43)
         try write(root.appendingPathComponent("d.jpg"), bytes: 6003, fill: 0x44)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root,
-                                     textFingerprint: { log.record($0); return .tooLittleText },
+                                     textFingerprint: { path in log.withLock { $0.append(path) }; return .tooLittleText },
                                      fingerprintCache: nil, textlessCache: nil)
 
-        let asked = Set(log.recorded.map { ($0 as NSString).lastPathComponent })
+        let asked = Set(log.withLock { $0 }.map { ($0 as NSString).lastPathComponent })
         #expect(asked == ["a.pdf", "b.PDF"])
     }
 
@@ -100,13 +105,13 @@ import Testing
 
         var options = DuplicateFinderOptions()
         options.detectSameText = false
-        let log = ReadLog()
+        let log = ReadLog([])
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root, options: options,
-                                     textFingerprint: { log.record($0); return .digest("FP") },
+                                     textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
                                      fingerprintCache: nil, textlessCache: nil)
 
-        #expect(log.recorded.isEmpty)
+        #expect(log.withLock { $0 }.isEmpty)
         #expect(manager.duplicateGroups.isEmpty)
         #expect(manager.duplicateScanSkips.textUnreadable == 0)
     }
@@ -120,18 +125,18 @@ import Testing
         try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
         try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let cache = ContentHashCache()
         let manager = FileSyncManager()
         for _ in 0..<2 {
             manager.clearDuplicates()
             await manager.findDuplicates(root: root,
-                                         textFingerprint: { log.record($0); return .digest("FP") },
+                                         textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
                                          fingerprintCache: cache)
         }
 
         #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
-        #expect(log.recorded.count == 2)   // two documents, read once each across two scans
+        #expect(log.withLock { $0 }.count == 2)   // two documents, read once each across two scans
     }
 
     @MainActor
@@ -145,20 +150,20 @@ import Testing
         try write(edited, bytes: 6000, fill: 0x41)
         try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let cache = ContentHashCache()
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root,
-                                     textFingerprint: { log.record($0); return .digest("FP") },
+                                     textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
                                      fingerprintCache: cache)
-        #expect(log.recorded.count == 2)
+        #expect(log.withLock { $0 }.count == 2)
 
         try write(edited, bytes: 6100, fill: 0x43)
         manager.clearDuplicates()
         await manager.findDuplicates(root: root,
-                                     textFingerprint: { log.record($0); return .digest("FP") },
+                                     textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
                                      fingerprintCache: cache)
-        #expect(log.recorded.filter { $0 == edited.path }.count == 2)
+        #expect(log.withLock { $0 }.filter { $0 == edited.path }.count == 2)
     }
 
     // MARK: What the review pass found
@@ -201,12 +206,12 @@ import Testing
         try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
         let shared = ContentHashCache()
-        let log = ReadLog()
+        let log = ReadLog([])
         let manager = FileSyncManager()
         for _ in 0..<2 {
             manager.clearDuplicates()
             await manager.findDuplicates(root: root, cache: shared,
-                                         textFingerprint: { log.record($0); return .digest("FP") },
+                                         textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
                                          fingerprintCache: shared)
         }
 
@@ -214,35 +219,7 @@ import Testing
         #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
         // …and every read went to the extractor, because no fingerprint was cached under a key the
         // content hashes also own.
-        #expect(log.recorded.count == 4)
-    }
-
-    @MainActor
-    @Test func aSameTextGroupSurvivesApplyRecommended() async throws {
-        // The call-site half of `isRecommendedForBatch`. The group property is pinned in
-        // DuplicateFinderSameTextTests; this is the check that the manager's batch actually
-        // consults it — a filter dropped here would leave that property true and unused.
-        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let kept = root.appendingPathComponent("Utilities/Jul 2023.pdf")
-        let other = root.appendingPathComponent("Downloads/9829custbill.pdf")
-        try write(kept, bytes: 6000, fill: 0x41)
-        try write(other, bytes: 6040, fill: 0x42)
-        try write(root.appendingPathComponent("Utilities/u-only.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("Downloads/d-only.txt"), bytes: 12, fill: 0x62)
-
-        let manager = FileSyncManager()
-        await manager.findDuplicates(root: root,
-                                     textFingerprint: { $0.hasSuffix(".pdf") ? .digest("FP") : .tooLittleText },
-                                     fingerprintCache: nil, textlessCache: nil)
-        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
-
-        await manager.applyRecommendedDuplicates(manager.duplicateGroups)
-
-        // Both copies still on disk, and the group still listed for a per-group look.
-        #expect(FileManager.default.fileExists(atPath: kept.path))
-        #expect(FileManager.default.fileExists(atPath: other.path))
-        #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
+        #expect(log.withLock { $0 }.count == 4)
     }
 
     @MainActor
@@ -288,19 +265,19 @@ import Testing
         try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
         try write(root.appendingPathComponent("Other/photo-id.pdf"), bytes: 6040, fill: 0x42)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let cache = ContentHashCache()
         let textless = ContentHashCache()
         let manager = FileSyncManager()
         for _ in 0..<2 {
             manager.clearDuplicates()
             await manager.findDuplicates(root: root,
-                                         textFingerprint: { log.record($0); return .tooLittleText },
+                                         textFingerprint: { path in log.withLock { $0.append(path) }; return .tooLittleText },
                                          fingerprintCache: cache, textlessCache: textless)
             #expect(manager.duplicateGroups.isEmpty)
             #expect(manager.duplicateScanSkips.textUnreadable == 2)   // still reported, every scan
         }
-        #expect(log.recorded.count == 2)   // read once each across two scans
+        #expect(log.withLock { $0 }.count == 2)   // read once each across two scans
         // And the negatives never reach the fingerprint index, where an older build would read
         // them as two identical digests.
         #expect(await cache.count == 0)
@@ -315,17 +292,17 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let shared = ContentHashCache()
         let manager = FileSyncManager()
         for _ in 0..<2 {
             manager.clearDuplicates()
             await manager.findDuplicates(root: root,
-                                         textFingerprint: { log.record($0); return .tooLittleText },
+                                         textFingerprint: { path in log.withLock { $0.append(path) }; return .tooLittleText },
                                          fingerprintCache: shared, textlessCache: shared)
         }
         #expect(await shared.count == 0)
-        #expect(log.recorded.count == 2)
+        #expect(log.withLock { $0 }.count == 2)
     }
 
     /// The other half of the refusal: the negatives sharing the byte-hash cache, which Verify and
@@ -335,20 +312,20 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
-        let log = ReadLog()
+        let log = ReadLog([])
         let shared = ContentHashCache()
         let manager = FileSyncManager()
         for _ in 0..<2 {
             manager.clearDuplicates()
             await manager.findDuplicates(root: root, cache: shared,
-                                         textFingerprint: { log.record($0); return .tooLittleText },
+                                         textFingerprint: { path in log.withLock { $0.append(path) }; return .tooLittleText },
                                          fingerprintCache: ContentHashCache(), textlessCache: shared)
         }
         #expect(await shared.hash(for: try #require(
             FileSyncManager.fingerprintCacheKey(forPath: root.appendingPathComponent("Scans/receipt.pdf").path,
                                                 fileManager: FileManager.default))) == nil,
                 "a negative landed in the byte-hash cache")
-        #expect(log.recorded.count == 2, "the declined negative cache should leave the document read every scan")
+        #expect(log.withLock { $0 }.count == 2, "the declined negative cache should leave the document read every scan")
     }
 
     @MainActor
@@ -361,12 +338,12 @@ import Testing
         try write(placeholder, bytes: 6000, fill: 0x41)
         try write(root.appendingPathComponent("B/statement-copy.pdf"), bytes: 6040, fill: 0x42)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let cache = ContentHashCache()
         let manager = FileSyncManager()
         let downloaded = OSAllocatedUnfairLock(initialState: false)
         let reader: @Sendable (String) async -> FingerprintReading = { path in
-            log.record(path)
+            log.withLock { $0.append(path) }
             if path == placeholder.path, !downloaded.withLock({ $0 }) { return .unreadable }
             return .digest("FP")
         }
@@ -378,46 +355,31 @@ import Testing
         }
         // Scans 1 and 2 each read it (unreadable), scan 3 read it and grouped it, and the copy was
         // read once and served from the cache after.
-        #expect(log.recorded.filter { $0 == placeholder.path }.count == 3)
-        #expect(log.recorded.count == 4)
+        #expect(log.withLock { $0 }.filter { $0 == placeholder.path }.count == 3)
+        #expect(log.withLock { $0 }.count == 4)
         #expect(manager.duplicateGroups.contains { $0.matchType == .sameText })
     }
 
-    @Test func aNegativeFromAnotherSchemeIsAMiss() async throws {
-        // The token floor is versioned by the scheme, so a negative recorded under another one is
-        // not trusted: the document is read again.
+    /// A negative recorded under another scheme, or another token floor, is not trusted: the
+    /// document is read again. The floor is versioned by the scheme, and can also move without a
+    /// scheme bump, when a document the new floor would fingerprint must be read again.
+    @Test(arguments: ["none:pdf-text-0",
+                      "none:\(ContentFingerprint.scheme):floor\(ContentFingerprint.minimumTokens + 1)"])
+    func aNegativeFromAnotherSchemeOrFloorIsAMiss(storedMarker: String) async throws {
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let doc = root.appendingPathComponent("A/old.pdf")
         try write(doc, bytes: 6000, fill: 0x41)
         let textless = ContentHashCache()
         let key = try #require(FileSyncManager.fingerprintCacheKey(forPath: doc.path, fileManager: FileManager.default))
-        await textless.store("none:pdf-text-0", for: key)
+        await textless.store(storedMarker, for: key)
 
-        let log = ReadLog()
+        let log = ReadLog([])
         let out = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: FileManager.default,
                                                              cache: ContentHashCache(), textless: textless,
-                                                             extract: { log.record($0); return .digest("FP") })
+                                                             extract: { path in log.withLock { $0.append(path) }; return .digest("FP") })
         #expect(out[doc.path] == "FP")
-        #expect(log.recorded == [doc.path])
-    }
-
-    /// A negative recorded under another token floor is a miss too: the floor can move without a
-    /// scheme bump, and a document the new floor would fingerprint must be read again.
-    @Test func aNegativeFromAnotherFloorIsAMiss() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let doc = root.appendingPathComponent("A/floor.pdf")
-        try write(doc, bytes: 6000, fill: 0x41)
-        let textless = ContentHashCache()
-        let key = try #require(FileSyncManager.fingerprintCacheKey(forPath: doc.path, fileManager: FileManager.default))
-        await textless.store("none:\(ContentFingerprint.scheme):floor\(ContentFingerprint.minimumTokens + 1)", for: key)
-        let log = ReadLog()
-        let out = await FileSyncManager.fingerprintDocuments([doc.path], fileManager: FileManager.default,
-                                                             cache: ContentHashCache(), textless: textless,
-                                                             extract: { log.record($0); return .digest("FP") })
-        #expect(out[doc.path] == "FP")
-        #expect(log.recorded == [doc.path])
+        #expect(log.withLock { $0 } == [doc.path])
         #expect(ContentFingerprint.tooLittleTextMarker.hasSuffix(":floor\(ContentFingerprint.minimumTokens)"))
     }
 }

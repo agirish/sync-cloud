@@ -39,54 +39,17 @@ import EventsTestSupport
         try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         try write(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x55)
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: redundantName, isDirectory: true, size: 8000, itemCount: 2,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        return (keeper, redundant, DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                                  isDirectory: true, copies: [k, r], reclaimableBytes: 4000))
+        let k = DuplicateCopy.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)
+        let r = DuplicateCopy.stub(redundant.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1)
+        return (keeper, redundant, .stub([k, r], matchType: .overlapping(sharedFraction: 0.5), reclaimable: 4000))
     }
 
-    /// The copy leaves permanently and the merge still succeeds, but the banner must not offer the
-    /// undo: taking it would delete the only remaining copy of the folded files.
-    @MainActor
-    @Test func aMergeWhoseCopyWasDestroyedPermanentlyDoesNotPromiseUndo() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "MergeUndoPromise")
-        defer { try? FileManager.default.removeItem(at: base) }
-        // A unique name, so the Trash check below can't be answered by someone else's folder.
-        let rName = "Redundant-\(UUID().uuidString)"
-        let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
-        defer { try? FileManager.default.removeItem(at: trashed) }
-        let pair = try makePair(base, redundantName: rName)
-
-        let manager = FileSyncManager(fileManager: TrashlessVolume())
-        manager.undoManager = UndoManager()
-        manager.permanentDeleteConfirmer = { _ in true }   // the user confirms the permanent delete
-        manager.duplicateGroups = [pair.group]
-
-        let ok = await manager.mergeDuplicateGroup(pair.group)
-
-        // The premise: this is the permanent-delete path, not a quietly refused merge.
-        #expect(ok == true, "the merge did not complete, so the banner below is not the success one")
-        #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false,
-                "the redundant copy is still on disk — the permanent delete never happened")
-        #expect(FileManager.default.fileExists(atPath: trashed.path) == false,
-                "the copy reached the Trash after all, so nothing here is the unrecoverable case")
-        #expect(FileManager.default.fileExists(atPath: pair.keeper.appendingPathComponent("unique.txt").path),
-                "the unique file was not folded in, so there is no copy-undo to be dangerous")
-
-        // The invariant: no undo offered for a merge that can't be taken back.
-        #expect(manager.banner?.message.contains("Merged") == true)
-        #expect(manager.banner?.message.contains("⌘Z") != true,
-                "the merge offered ⌘Z after destroying the copy permanently — taking it deletes the folded files from the keeper, and the originals are gone")
-        #expect(manager.banner?.isUndoable != true)
-    }
-
-    /// The banner isn't the only surface that offers ⌘Z. `undoable: !anyPermanentlyDeleted` hides
-    /// only the banner's button; if the registration still ran, Edit ▸ Undo would read "Undo Merge
-    /// Keeper" and firing it would delete the folded files out of the keeper while the original is
-    /// permanently gone. This asserts the registration itself, then fires the undo to prove the
-    /// folded file survives.
+    /// The copy leaves permanently and the merge still succeeds, but nothing may offer the undo:
+    /// taking it would delete the only remaining copy of the folded files. Not the banner, and not
+    /// the registration: `undoable: !anyPermanentlyDeleted` hides only the banner's button; if the
+    /// registration still ran, Edit ▸ Undo would read "Undo Merge Keeper" and firing it would delete
+    /// the folded files out of the keeper while the original is permanently gone. This asserts the
+    /// banner and the registration, then fires the undo to prove the folded file survives.
     @MainActor
     @Test func aMergeWhoseCopyWasDestroyedPermanentlyRegistersNoUndoAtAll() async throws {
         let log = LogCapture()
@@ -101,16 +64,25 @@ import EventsTestSupport
         let manager = FileSyncManager(fileManager: TrashlessVolume())
         let undo = UndoManager()
         manager.undoManager = undo
-        manager.permanentDeleteConfirmer = { _ in true }
+        manager.permanentDeleteConfirmer = { _ in true }   // the user confirms the permanent delete
         manager.duplicateGroups = [pair.group]
 
         let ok = await manager.mergeDuplicateGroup(pair.group)
 
+        // The premise: this is the permanent-delete path, not a quietly refused merge.
         #expect(ok == true, "the merge did not complete, so nothing here is the unrecoverable case")
         #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false,
                 "the copy is still on disk — the permanent delete never happened")
+        #expect(FileManager.default.fileExists(atPath: trashed.path) == false,
+                "the copy reached the Trash after all, so nothing here is the unrecoverable case")
         #expect(FileManager.default.fileExists(atPath: folded.path),
                 "the unique file was not folded in, so there is no copy-undo to be dangerous")
+
+        // No undo offered on the banner for a merge that can't be taken back…
+        #expect(manager.banner?.message.contains("Merged") == true)
+        #expect(manager.banner?.message.contains("⌘Z") != true,
+                "the merge offered ⌘Z after destroying the copy permanently — taking it deletes the folded files from the keeper, and the originals are gone")
+        #expect(manager.banner?.isUndoable != true)
 
         // The invariant: the Edit menu has nothing to offer for a merge that can't be reversed.
         #expect(undo.canUndo == false,
@@ -205,14 +177,11 @@ import EventsTestSupport
         let undo = UndoManager()
         manager.undoManager = undo
         manager.permanentDeleteConfirmer = { _ in true }
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let ca = DuplicateCopy(id: a.path, name: aName, isDirectory: true, size: 8000, itemCount: 2,
-                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let cb = DuplicateCopy(id: b.path, name: bName, isDirectory: true, size: 8000, itemCount: 2,
-                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true, copies: [k, ca, cb], reclaimableBytes: 8000)
+        let group = DuplicateGroup.stub(
+            [.stub(keeper.path, keeper: true, isDirectory: true, size: 4000),
+             .stub(a.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1),
+             .stub(b.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1)],
+            matchType: .overlapping(sharedFraction: 0.5), reclaimable: 8000)
         manager.duplicateGroups = [group]
 
         _ = await manager.mergeDuplicateGroup(group)
@@ -375,9 +344,7 @@ import EventsTestSupport
     }
 
     private func copy(_ url: URL, keeper: Bool, unique: Int) -> DuplicateCopy {
-        DuplicateCopy(id: url.path, name: url.lastPathComponent, isDirectory: true, size: 4000,
-                      itemCount: 1, modificationDate: nil, uniqueItemCount: unique, depth: 0,
-                      isRecommendedKeeper: keeper)
+        .stub(url.path, keeper: keeper, isDirectory: true, size: 4000, unique: unique)
     }
 
     /// A previous step the merge must not offer to reverse. Registered directly so the assertion is
@@ -403,11 +370,8 @@ import EventsTestSupport
 
         let manager = FileSyncManager()
         let undo = registerPriorStep(manager)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                                   isDirectory: true,
-                                   copies: [copy(keeper, keeper: true, unique: 0),
-                                            copy(vanished, keeper: false, unique: 1)],
-                                   reclaimableBytes: 4000)
+        let group = DuplicateGroup.stub([copy(keeper, keeper: true, unique: 0), copy(vanished, keeper: false, unique: 1)],
+                                        matchType: .overlapping(sharedFraction: 0.5))
 
         let ok = await manager.mergeDuplicateGroup(group)
         #expect(ok, "skipping a copy that is already gone is not a failure")
@@ -430,10 +394,7 @@ import EventsTestSupport
         let manager = FileSyncManager()
         let undo = registerPriorStep(manager)
         // One copy, so `redundantCopies` is empty and the fold loop never runs.
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 1.0), name: "Keeper",
-                                   isDirectory: true,
-                                   copies: [copy(keeper, keeper: true, unique: 0)],
-                                   reclaimableBytes: 0)
+        let group = DuplicateGroup.stub([copy(keeper, keeper: true, unique: 0)], matchType: .overlapping(sharedFraction: 1.0))
 
         _ = await manager.mergeDuplicateGroup(group)
         let banner = try #require(manager.banner)

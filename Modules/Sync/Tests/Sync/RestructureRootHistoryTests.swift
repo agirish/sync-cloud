@@ -60,17 +60,35 @@ import Testing
         return m
     }
 
+    /// Two folders holding the same tree and a profiles directory, with a manager filing there.
+    private func twoFolders() throws -> (a: URL, b: URL, profiles: URL, m: FileSyncManager) {
+        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        try Self.tree(in: a)
+        try Self.tree(in: b)
+        return (a, b, profiles, manager(profiles))
+    }
+
+    /// Makes `id`'s ledger unreadable, as a copy that can't be made sees it; `release` restores it.
+    private static func hold(_ id: String, in profiles: URL) throws -> (held: URL, release: () -> Void) {
+        let held = profiles.appendingPathComponent("\(id)/restructure.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
+        return (held, { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) })
+    }
+
+    /// Whether the root map still has an entry naming `id`.
+    private static func mapNames(_ id: String, in profiles: URL) -> Bool {
+        guard case .loaded(let entries) = RestructureRootMap.read(in: profiles) else { return false }
+        return entries.contains { $0.profileId == id }
+    }
+
     // MARK: - A → B
 
     /// Walking another folder starts that folder's own ledger: the first folder's suppression does
     /// not reach it. The first folder's history survives a sweep while the second is active, and
     /// so does the profile its landing was applied under — a walk back re-points Undo at it.
     @Test func anotherFolderStartsItsOwnHistoryAndTheFirstOneIsKept() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let stale = try await walk(m, a, at: 0)
         let a0 = try await walk(m, a, at: 1)
         let a1 = try await walk(m, a, at: 2)
@@ -101,11 +119,8 @@ import Testing
     /// so the old folder is not stranded — and walking back takes them up again. A folder whose
     /// only history is a verdict is still kept for the walk back.
     @Test func theVerdictsFollowTheFolderTheyWereMadeIn() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let receipt = "Finance/Receipts/2024 receipt.pdf"
         let a0 = try await walk(m, a, at: 0)
         PersonTagStore(directory: profiles, profileId: a0)
@@ -133,11 +148,8 @@ import Testing
     /// Walking back takes the first folder's history up again — suppression, draft and landing —
     /// and its Undo is offered from the new profile.
     @Test func walkingBackTakesTheFolderHistoryUpAgain() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         let a1 = try await walk(m, a, at: 1)
         let store = Self.ledger(a1, profiles)
@@ -282,11 +294,8 @@ import Testing
     /// `profiles.json`. Leaving and coming back must take the history the user was looking at —
     /// the pre-landing folder's — not the undone landing's newer folder.
     @Test func walkingBackAfterAnUndoTakesThePostUndoHistory() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         let a1 = try await walk(m, a, at: 1)
@@ -340,17 +349,13 @@ import Testing
     /// empty ledger, and neither may displace the entry, or the next sweep takes the history. Once
     /// the copy can be made, it comes back.
     @Test func aFailedCopyKeepsTheEntryUntilTheHistoryComesBack() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         _ = try await walk(m, b, at: 1)
-        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let (_, release) = try Self.hold(a0, in: profiles)
+        defer { release() }
 
         let a1 = try await walk(m, a, at: 2)
 
@@ -358,10 +363,7 @@ import Testing
             atPath: profiles.appendingPathComponent("\(a1)/restructure.json").path),
                 "a failed copy left the folder with no ledger of its own")
         #expect(!Self.ledger(a1, profiles).isSuppressed(Self.forms))
-        func namesA0() -> Bool {
-            guard case .loaded(let entries) = RestructureRootMap.read(in: profiles) else { return false }
-            return entries.contains { $0.profileId == a0 }
-        }
+        func namesA0() -> Bool { Self.mapNames(a0, in: profiles) }
         #expect(namesA0(), "the entry naming the folder's history was dropped though nothing was taken up")
 
         _ = try await walk(m, a, at: 3)
@@ -369,7 +371,7 @@ import Testing
         _ = try await walk(m, b, at: 4)
         #expect(namesA0(), "walking away from an empty ledger displaced the entry naming the history")
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        release()
         let a4 = try await walk(m, a, at: 5)
         #expect(Self.ledger(a4, profiles).isSuppressed(Self.forms),
                 "the history never came back once it could be copied")
@@ -390,20 +392,16 @@ import Testing
     /// or the sweep retires the real one. The entry stays until the history is taken up, the walk
     /// back brings it back, and Setup is told on screen, not only in the log.
     @Test func historyMadeAfterAFailedTakeUpDoesNotDisplaceTheEntry() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         let left = try await walkReport(m, b, at: 1)
         #expect(left.historyNotice == nil, "a walk with nothing to take up said something failed")
-        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let (_, release) = try Self.hold(a0, in: profiles)
+        defer { release() }
         let failed = try await walkReport(m, a, at: 2)
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        release()
         let notice = try #require(failed.historyNotice, "the failed take-up was said only in the log")
         #expect(notice.contains("“\(a.lastPathComponent)”"), "the sentence does not name the folder")
         // What the user made in the folder after it started empty.
@@ -421,20 +419,16 @@ import Testing
     /// The same, walking the same folder again: the take-up is tried again rather than the entry
     /// dropped because the folder now holds something.
     @Test func aWalkOfTheSameFolderRetriesAFailedTakeUp() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         try Self.land(a0, under: a0, at: 0, in: profiles)
         _ = try await walk(m, b, at: 1)
-        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let (_, release) = try Self.hold(a0, in: profiles)
+        defer { release() }
         let a1 = try await walk(m, a, at: 2)
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        release()
         Self.ledger(a1, profiles).suppress(Self.receipts)
 
         let again = try await walkReport(m, a, at: 3)
@@ -467,11 +461,8 @@ import Testing
     /// up, would land on a profile with no corpus and start an hours-long survey though the corpus
     /// was on disk. The control: a folder with no survey of its own starts none.
     @Test func theFoldersSurveyFollowsItAcrossWalks() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         try Self.survey(a0, profiles, root: a)
@@ -498,11 +489,8 @@ import Testing
     /// carry the old folder's history into the new one, and the next walk away would record that
     /// borrowed history as the new folder's own, over the entry naming its real one.
     @Test func aMapThatCannotBeWrittenRefusesTheSave() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         let b0 = try await walk(m, b, at: 1)
@@ -542,19 +530,15 @@ import Testing
     /// the walk started; counted as history, the next walk of the same folder, or a walk away,
     /// would drop or displace the entry naming the real history, and the sweep would retire it.
     @Test func aTrendPointInTheEmptyLedgerIsNotHistory() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.ledger(a0, profiles).suppress(Self.forms)
         _ = try await walk(m, b, at: 1)
-        let held = profiles.appendingPathComponent("\(a0)/restructure.json")
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: held.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path) }
+        let (held, release) = try Self.hold(a0, in: profiles)
+        defer { release() }
         let a1 = try await walk(m, a, at: 2)
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: held.path)
+        release()
         // An entry from before a failed take-up was marked: only the history test
         // tells it from a stale one, and that test must not count a trend point.
         guard case .loaded(var unmarked) = RestructureRootMap.read(in: profiles) else {
@@ -564,10 +548,7 @@ import Testing
         try RestructureRootMap.write(unmarked, in: profiles)
         Self.stampTrend(a1, profiles, at: 2)
         try #require(!Self.ledger(a1, profiles).trend.isEmpty, "the fixture must stamp a trend point")
-        func namesA0() -> Bool {
-            guard case .loaded(let entries) = RestructureRootMap.read(in: profiles) else { return false }
-            return entries.contains { $0.profileId == a0 }
-        }
+        func namesA0() -> Bool { Self.mapNames(a0, in: profiles) }
         try #require(namesA0())
 
         let a2 = try await walk(m, a, at: 3)
@@ -589,11 +570,8 @@ import Testing
     /// A folder left with no history (only the trend point every walk stamps) gets no entry: one
     /// would pin its profile folder, corpus and memory, for good.
     @Test func aFolderWithNoHistoryIsNotRecorded() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let a0 = try await walk(m, a, at: 0)
         Self.stampTrend(a0, profiles, at: 0)
 
@@ -683,11 +661,8 @@ import Testing
     /// before the map existed, and the sweep retires nothing — not even a folder it otherwise
     /// would.
     @Test func anUnreadableMapCarriesTheLedgerAndRetiresNothing() async throws {
-        let a = try Self.scratch(), b = try Self.scratch(), profiles = try Self.scratch()
+        let (a, b, profiles, m) = try twoFolders()
         defer { for url in [a, b, profiles] { try? FileManager.default.removeItem(at: url) } }
-        try Self.tree(in: a)
-        try Self.tree(in: b)
-        let m = manager(profiles)
         let stale = try await walk(m, a, at: 0)
         let a0 = try await walk(m, a, at: 1)
         Self.ledger(a0, profiles).suppress(Self.forms)

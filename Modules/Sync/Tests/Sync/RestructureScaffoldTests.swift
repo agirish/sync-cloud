@@ -74,7 +74,9 @@ import Foundation
 @MainActor
 @Suite struct RestructureScaffoldApplyTests {
 
-    private func makeWorld() throws
+    /// A tree holding `Health/Dental/2025` and a profile `t` describing it, with a manager on the
+    /// disk `fileManager` makes for the base (a scratch Trash by default).
+    static func makeWorld(fileManager: (URL) -> FileManaging = { ScratchTrash(in: $0) }) throws
         -> (manager: FileSyncManager, base: URL, root: URL, profilesDir: URL) {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scaffold-\(UUID().uuidString)")
@@ -85,7 +87,7 @@ import Foundation
         let profiles = base.appendingPathComponent("profiles")
         try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
                                                 withIntermediateDirectories: true)
-        let manager = FileSyncManager(fileManager: ScratchTrash(in: base))
+        let manager = FileSyncManager(fileManager: fileManager(base))
         manager.filingFolderProfile = FolderProfile(
             profileId: "t", root: root.path,
             folders: ["Health/Dental/2025": FolderProfileEntry(
@@ -104,7 +106,7 @@ import Foundation
     }
 
     @Test func aLandingCreatesTheScaffoldSkipsWhatExistsAndWritesTheLedger() async throws {
-        let (manager, base, root, _) = try makeWorld()
+        let (manager, base, root, _) = try Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
         // One target appears on disk between plan and apply — the re-probe must skip it and
         // report it, and the rest of the landing still runs (invariants 2 and 5).
@@ -134,7 +136,7 @@ import Foundation
     }
 
     @Test func everyGuardRefusesWithASentenceAndTouchesNothing() async throws {
-        let (manager, base, root, _) = try makeWorld()
+        let (manager, base, root, _) = try Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
         manager.isVerifyAllRunning = true
         let refused = await manager.applyScaffold(for: Self.finding())
@@ -153,7 +155,7 @@ import Foundation
     }
 
     @Test func anUnreadableLedgerRefusesTheLandingBeforeItTouchesDisk() async throws {
-        let (manager, base, root, profiles) = try makeWorld()
+        let (manager, base, root, profiles) = try Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
         // The store must be reloaded over the broken file — the world's store read a clean one.
         try Data("{ not json".utf8).write(
@@ -168,7 +170,7 @@ import Foundation
     }
 
     @Test func anAllDriftFamilyRefusesWithTheHonestSentence() async throws {
-        let (manager, base, _, _) = try makeWorld()
+        let (manager, base, _, _) = try Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
         let outcome = await manager.applyScaffold(for: Self.finding(scaffold: []))
         #expect(outcome.refusal?.contains("nothing to scaffold") == true)
@@ -176,7 +178,7 @@ import Foundation
     }
 
     @Test func oneGroupedUndoRemovesEverythingTheLandingCreated() async throws {
-        let (manager, base, root, _) = try makeWorld()
+        let (manager, base, root, _) = try Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: base) }
         // Event grouping on, as the app's window undo manager has it: with it off, the redo
         // registration inside the undo closure fires "must begin a group before registering

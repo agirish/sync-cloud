@@ -10,12 +10,7 @@ import Testing
     nonisolated private static let text = "chase bank statement account summary for the period ending march"
 
     /// Thread-safe list of paths a closure saw.
-    final class Seen: @unchecked Sendable {
-        private let lock = NSLock()
-        private var _paths: [String] = []
-        var paths: [String] { lock.withLock { _paths } }
-        func note(_ p: String) { lock.withLock { _paths.append(p) } }
-    }
+    typealias Seen = LockedBox<[String]>
 
     /// Cloud-only until fetched: the one state a test can't stage on disk.
     final class Cloud: @unchecked Sendable {
@@ -60,18 +55,18 @@ import Testing
             ($1, FilingSurvey.Stamp(size: 100 + $0, modified: 1_700_000_000))
         })
         let cloud = Cloud([root.appendingPathComponent("A/two.pdf").path, root.appendingPathComponent("B/three.pdf").path])
-        let fetched = Seen(), read = Seen()
+        let fetched = Seen([]), read = Seen([])
         let run = DocumentSurveyRun(
             profileId: "p", root: root, salt: "abcd", plan: plan, stamps: stamps,
-            environment: .init(readDocument: { read.note($0); return Self.text },
+            environment: .init(readDocument: { path in read.withLock { $0.append(path) }; return Self.text },
                                isAvailable: { cloud.isAvailable($0) },
                                fetch: { path in
-                                   fetched.note(path)
+                                   fetched.withLock { $0.append(path) }
                                    if path.hasSuffix("two.pdf") { cloud.land(path) }
                                }))
         let report = await run.run()
-        #expect(fetched.paths.map { ($0 as NSString).lastPathComponent } == ["two.pdf", "three.pdf"])
-        #expect(read.paths.map { ($0 as NSString).lastPathComponent } == ["one.pdf", "two.pdf"])
+        #expect(fetched.withLock { $0 }.map { ($0 as NSString).lastPathComponent } == ["two.pdf", "three.pdf"])
+        #expect(read.withLock { $0 }.map { ($0 as NSString).lastPathComponent } == ["one.pdf", "two.pdf"])
         #expect(report.documentsRead == 2)
         #expect(report.documentsUnavailable == 1)
         #expect(report.read["B/three.pdf"] == nil, "a download that never landed is not stamped")
@@ -89,9 +84,11 @@ import Testing
         let id = try #require(m.filingSurveyInUse?.ownProfileId)
         let cloudOnly = x.documents[1]
         let cloud = Cloud([cloudOnly, real(cloudOnly)])
-        let fetched = Seen()
+        let fetched = Seen([])
         m.documentSurveyIsAvailable = { cloud.isAvailable($0) }
-        m.sourceDocumentFetch = { fetched.note($0); cloud.land($0); cloud.land(URL(fileURLWithPath: $0).resolvingSymlinksInPath().path) }
+        m.sourceDocumentFetch = { path in
+            fetched.withLock { $0.append(path) }; cloud.land(path); cloud.land(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)
+        }
         #expect(m.filingRoutingMemory == nil, "premise: folders only")
         let fingerprintBefore = m.filingRoutingFingerprint
 
@@ -104,7 +101,7 @@ import Testing
         let report = try await m.runDocumentSurvey(plan: plan).get()
         #expect(report.isComplete)
         #expect(report.documentsRead == 3)
-        #expect(fetched.paths.count == 1 && fetched.paths.first.map(real) == real(cloudOnly))
+        #expect(fetched.withLock { $0 }.count == 1 && fetched.withLock { $0 }.first.map(real) == real(cloudOnly))
         #expect(m.documentSurveySourceRoot == nil)
 
         #expect(FilingProfileStore.memory(id: id, in: x.f.profiles) != nil, "memory written under the source's id")
@@ -125,13 +122,13 @@ import Testing
     func thePrimarySurveysReadingNeverFetches() async throws {
         let (manager, docs, _, _, root) = try FilingResurveyTests.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
-        let fetched = Seen()
-        manager.sourceDocumentFetch = { fetched.note($0) }
+        let fetched = Seen([])
+        manager.sourceDocumentFetch = { path in fetched.withLock { $0.append(path) } }
         manager.documentSurveyIsAvailable = { _ in false }
         let plan = try await manager.planDocumentSurvey(root: docs).get()
         #expect(plan.sourceRoot == nil && plan.toDownload == 0)
         let report = try await manager.runDocumentSurvey(plan: plan).get()
-        #expect(fetched.paths.isEmpty)
+        #expect(fetched.withLock { $0 }.isEmpty)
         #expect(report.documentsUnavailable == plan.total)
     }
 

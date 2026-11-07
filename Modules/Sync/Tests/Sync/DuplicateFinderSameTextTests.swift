@@ -48,41 +48,32 @@ import Testing
         // which is `chooseKeeper`'s rule and not merely the alphabetically-earlier path.
         #expect(groups[0].keeper.path == "/root/Utilities/Jul 2023.pdf")
         #expect(groups[0].reclaimableBytes == 402_401)
+
+        // The never-auto-trash rule. Text equality is weaker than byte equality (on a real tree,
+        // 9 of 212 such groups were a signed copy beside its original or a visual revision), so
+        // the batch must not act on it blind…
+        #expect(groups[0].isRecommendedForBatch == false)
+        // …but the user can still resolve it themselves once they have looked.
+        #expect(groups[0].isFullyResolvableByRemoval)
+        #expect(groups[0].allowsKeeperChoice)
+        #expect(groups[0].recommendedRemovalPaths == ["/root/Downloads/9829custbill07182023.pdf"])
     }
 
-    @Test func withoutFingerprintsNothingChanges() {
-        // The feature is off when no document was read, which is why the other grouping tests
-        // pass unchanged.
-        let (tree, hashes) = restampedPair
-        #expect(DuplicateFinder.findGroups(tree: tree, fileHashes: hashes).isEmpty)
-    }
-
-    @Test func theOptionTurnsItOff() {
+    /// The pair is not grouped: with no document read (the feature is off then, which is why the
+    /// other grouping tests pass unchanged), with the option off, on different fingerprints, and
+    /// on a fingerprint on one side only, which is not evidence.
+    @Test(arguments: [
+        (fingerprints: [String: String](), detectSameText: true),
+        (["/root/Utilities/Jul 2023.pdf": "FP", "/root/Downloads/9829custbill07182023.pdf": "FP"], false),
+        (["/root/Utilities/Jul 2023.pdf": "FP-A", "/root/Downloads/9829custbill07182023.pdf": "FP-B"], true),
+        (["/root/Utilities/Jul 2023.pdf": "FP"], true),
+    ])
+    func theRestampedPairIsNotGrouped(fingerprints: [String: String], detectSameText: Bool) {
         let (tree, hashes) = restampedPair
         var options = DuplicateFinderOptions()
-        options.detectSameText = false
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: hashes, options: options,
-            textFingerprints: ["/root/Utilities/Jul 2023.pdf": "FP",
-                               "/root/Downloads/9829custbill07182023.pdf": "FP"])
-        #expect(groups.isEmpty)
-    }
-
-    @Test func differentFingerprintsDoNotGroup() {
-        let (tree, hashes) = restampedPair
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: hashes,
-            textFingerprints: ["/root/Utilities/Jul 2023.pdf": "FP-A",
-                               "/root/Downloads/9829custbill07182023.pdf": "FP-B"])
-        #expect(groups.isEmpty)
-    }
-
-    @Test func aFingerprintOnOneSideOnlyIsNotEvidence() {
-        let (tree, hashes) = restampedPair
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: hashes,
-            textFingerprints: ["/root/Utilities/Jul 2023.pdf": "FP"])
-        #expect(groups.isEmpty)
+        options.detectSameText = detectSameText
+        #expect(DuplicateFinder.findGroups(tree: tree, fileHashes: hashes, options: options,
+                                           textFingerprints: fingerprints).isEmpty)
     }
 
     // MARK: What it refuses
@@ -119,22 +110,6 @@ import Testing
     }
 
     // MARK: The promises
-
-    @Test func aSameTextGroupIsNeverInTheRecommendedBatch() {
-        // The never-auto-trash rule. Text equality is weaker than byte equality (on a real tree,
-        // 9 of 212 such groups were a signed copy beside its original or a visual revision), so
-        // the batch must not act on it blind.
-        let (tree, hashes) = restampedPair
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: hashes,
-            textFingerprints: ["/root/Utilities/Jul 2023.pdf": "FP",
-                               "/root/Downloads/9829custbill07182023.pdf": "FP"])
-        #expect(groups[0].isRecommendedForBatch == false)
-        // …but the user can still resolve it themselves once they have looked.
-        #expect(groups[0].isFullyResolvableByRemoval)
-        #expect(groups[0].allowsKeeperChoice)
-        #expect(groups[0].recommendedRemovalPaths == ["/root/Downloads/9829custbill07182023.pdf"])
-    }
 
     @Test func itRunsBeforeVersionsSoARestampedCopyIsNotCalledANewerVersion() {
         // `All Pages.pdf` beside `All Pages copy.pdf` reduces to one version stem, and the versions
@@ -187,28 +162,11 @@ import Testing
         // Disjoint removal sets: nothing one group trashes is something the other kept.
         #expect(Set(identical[0].recommendedRemovalPaths)
                 .isDisjoint(with: Set(sameText[0].recommendedRemovalPaths)))
-    }
 
-    @Test func reAimingTheKeeperCannotSmuggleTheAnchorOntoTheRemovalList() throws {
-        // `choosingKeeper` relabels by id, and the protected flag is what stops it turning the
-        // identical group's keeper into this group's removal candidate.
-        let tree = [
-            dir("/root/A", [file("/root/A/bill.pdf"), file("/root/A/a-only.txt")]),
-            dir("/root/Copy", [file("/root/Copy/bill.pdf"), file("/root/Copy/c-only.txt")]),
-            dir("/root/B", [file("/root/B/restamped.pdf"), file("/root/B/b-only.txt")]),
-        ]
-        let hashes = [
-            "/root/A/bill.pdf": "H", "/root/Copy/bill.pdf": "H", "/root/B/restamped.pdf": "H2",
-            "/root/A/a-only.txt": "UA", "/root/Copy/c-only.txt": "UC", "/root/B/b-only.txt": "UB",
-        ]
-        let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: hashes,
-            textFingerprints: ["/root/A/bill.pdf": "FP", "/root/Copy/bill.pdf": "FP",
-                               "/root/B/restamped.pdf": "FP"])
-        let sameText = try #require(groups.first { $0.matchType == .sameText })
-        let anchor = sameText.keeper.path
-
-        let reAimed = sameText.choosingKeeper("/root/B/restamped.pdf")
+        // Re-aiming the keeper can't smuggle the anchor onto the removal list: `choosingKeeper`
+        // relabels by id, and the protected flag is what stops it turning the identical group's
+        // keeper into this group's removal candidate.
+        let reAimed = sameText[0].choosingKeeper("/root/B/restamped.pdf")
         #expect(reAimed.keeper.path == "/root/B/restamped.pdf")
         #expect(reAimed.recommendedRemovalPaths.isEmpty)
         #expect(reAimed.copies.first { $0.path == anchor }?.isProtectedFromRemoval == true)

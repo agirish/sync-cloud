@@ -120,27 +120,17 @@ import Events
 
     /// Changing the source on one pane must not close the other pane's open columns. The switched
     /// pane's stack names folders under a root it is leaving; the sibling's names folders still on
-    /// screen.
-    @Test func testRetargetPaneClearsOnlyItsOwnStack() {
+    /// screen. Both ways round, so neither side's polarity can be the one that is wrong.
+    @Test(arguments: [false, true])
+    func testRetargetPaneClearsOnlyItsOwnStack(isLeft: Bool) {
         let m = FileSyncManager()
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
 
-        m.retargetPane(isLeft: false, landing: "")
-        #expect(m.rightBrowsePath.isEmpty)
-        #expect(m.leftBrowsePath.components == ["Documents"],
-                "a source switch on the right pane closed the left pane's open columns")
-    }
-
-    /// The mirror, so neither side's polarity can be the one that is wrong.
-    @Test func testRetargetPaneClearsOnlyItsOwnStackOnTheLeft() {
-        let m = FileSyncManager()
-        m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
-        m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
-
-        m.retargetPane(isLeft: true, landing: "")
-        #expect(m.leftBrowsePath.isEmpty)
-        #expect(m.rightBrowsePath.components == ["Photos"])
+        m.retargetPane(isLeft: isLeft, landing: "")
+        #expect((isLeft ? m.leftBrowsePath : m.rightBrowsePath).isEmpty)
+        #expect((isLeft ? m.rightBrowsePath : m.leftBrowsePath).components == [isLeft ? "Photos" : "Documents"],
+                "a source switch on one pane closed the other pane's open columns")
     }
 
     /// The stack travels with the tree it indexes, like the history beside it.
@@ -258,23 +248,6 @@ import Events
 
         #expect(m.leftBrowsePath.isEmpty, "a re-root resets rather than prunes — new scope, not a changed one")
         #expect(m.leftRelativePath == "Archive")
-    }
-
-    /// And the surviving stack is still only as deep as the tree supports: a folder deleted while
-    /// the rail was showing it is pruned on the next republish, so Compare cannot inherit a stack
-    /// into a folder that is gone.
-    @Test func testASharedStackIsStillPrunedAgainstTheTreeItLandsOn() {
-        let m = FileSyncManager()
-        m.lastLoadedLeftFocusPath = ""      // a republish only happens on a loaded tree
-        m.leftBrowsePath.drill(into: "Receipts", atDepth: 0)
-        m.leftBrowsePath.drill(into: "2025", atDepth: 1)
-
-        // The republished tree has Receipts but no longer has 2025 under it.
-        let receipts = FileNode(id: "/r/Receipts", name: "Receipts", isDirectory: true, children: [])
-        let index = PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [receipts]), treeRoot: "/r")
-        m.pruneBrowsePath(isLeft: true, against: index, treeRoot: "/r")
-
-        #expect(m.leftBrowsePath.components == ["Receipts"])
     }
 
     /// Browsing must not clear session-ignored paths — that clear belongs to a change of

@@ -44,6 +44,20 @@ import Testing
 
         var store: OneWaySyncStore { scratch.store }
 
+        /// One pass of `look` (the next one by default) as it is, at day 0 and with no marker,
+        /// without `run()`'s upload stand-in or its reading the record back.
+        func apply(_ look: OneWaySyncLook? = nil, state: OneWaySyncSavedState? = nil,
+                   writer: OneWaySyncWriter? = nil, isCancelled: @escaping @Sendable () -> Bool = { false },
+                   holdingBack: Set<String> = [],
+                   confirm: @escaping @Sendable ([String]) async -> [String: OneWaySyncUploadOutcome] = { _ in [:] }
+        ) async throws -> OneWaySyncRunResult {
+            try await OneWaySyncRun.apply(
+                look ?? self.look(), state: state ?? self.state, firstRun: firstRun, store: store,
+                writer: try writer ?? world.writer(at: now), marker: nil, hardwareID: "HW-1", macName: "Test Mac",
+                holdingBack: holdingBack, isCancelled: isCancelled, confirmUploads: confirm,
+                now: { OneWayDiskWorld.day0 })
+        }
+
         func look() -> OneWaySyncLook {
             OneWaySyncRun.look(record: record, state: state, exclusions: OneWaySyncExclusions(), places: world.places,
                                download: false, now: now, outside: store.loadOutside(), isShared: { _ in false })
@@ -280,11 +294,9 @@ import Testing
         #expect(look.plan.steps.count == 3)
         // b changes in Dropbox after the look: its move into a's name refuses.
         try write(world, .dropbox, "Finance/b.pdf", "second, edited in Dropbox")
-        let result = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: try world.writer(at: sync.now),
-            marker: nil, hardwareID: "HW-1", macName: "Test Mac",
-            confirmUploads: { paths in Dictionary(uniqueKeysWithValues: paths.map { ($0, OneWaySyncUploadOutcome.uploaded(documentID: nil)) }) },
-            now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(look, confirm: { paths in
+            Dictionary(uniqueKeysWithValues: paths.map { ($0, OneWaySyncUploadOutcome.uploaded(documentID: nil)) })
+        })
         #expect(!result.notDone.isEmpty)
         #expect(!world.everythingInDropbox.contains { $0.contains(OneWaySyncPlanner.temporaryNamePrefix) })
         #expect(world.read(.dropbox, "Finance/a.pdf") == "first")

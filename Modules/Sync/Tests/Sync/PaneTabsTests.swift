@@ -48,29 +48,19 @@ import Events
 
     // MARK: Closing
 
-    /// Finder's rule, and the one that lets you close several in a row without moving the pointer.
-    @Test func closingTheActiveTabSelectsTheOneToItsRight() {
-        var tabs = list(["A", "B", "C"], selected: 1)
-        let closed = tabs.close(at: 1)
+    /// Closing the active tab selects the one to its right (Finder's rule, and the one that lets
+    /// you close several in a row without moving the pointer), or its left when it was last.
+    /// Closing a parked tab to the LEFT of the active one keeps the *same tab* live, at a lower
+    /// index: the case that silently mis-selects if the index is not adjusted.
+    @Test(arguments: [(selected: 1, closeAt: 1, active: "C", order: ["A", "C"]),
+                      (2, 2, "B", ["A", "B"]),
+                      (2, 0, "C", ["B", "C"])])
+    func closingATabSelectsTheRightNeighbour(selected: Int, closeAt: Int, active: String, order: [String]) {
+        var tabs = list(["A", "B", "C"], selected: selected)
+        let closed = tabs.close(at: closeAt)
         #expect(closed)
-        #expect(tabs.active.relativePath == "C")
-    }
-
-    @Test func closingTheTrailingTabFallsBackToItsLeft() {
-        var tabs = list(["A", "B", "C"], selected: 2)
-        let closed = tabs.close(at: 2)
-        #expect(closed)
-        #expect(tabs.active.relativePath == "B")
-    }
-
-    /// The case that silently mis-selects if the index is not adjusted: closing something to the
-    /// LEFT of the active tab keeps the *same tab* live, at a lower index.
-    @Test func closingAParkedTabToTheLeftKeepsTheSameTabActive() {
-        var tabs = list(["A", "B", "C"], selected: 2)
-        let closed = tabs.close(at: 0)
-        #expect(closed)
-        #expect(tabs.active.relativePath == "C")
-        #expect(tabs.tabs.map(\.relativePath) == ["B", "C"])
+        #expect(tabs.active.relativePath == active)
+        #expect(tabs.tabs.map(\.relativePath) == order)
     }
 
     /// A pane always holds a location — the last tab is refused here and the window closes instead
@@ -428,11 +418,7 @@ import Events
 }
 
 /// What survives a quit, and what deliberately does not.
-///
-/// `.serialized` only for the two log assertions: `aCorruptValueReadsAsNothingStored` emits the
-/// line `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` looks for, and in parallel
-/// it could land in that test's window and satisfy it. Only this suite writes those sentences.
-@Suite(.serialized) struct PaneTabsStoreTests {
+@Suite struct PaneTabsStoreTests {
 
     /// Everything logged between two of this test's own markers, with `act` run between them.
     ///
@@ -455,16 +441,6 @@ import Events
         #expect(loaded?.entries == [.init(providerId: "iCloud", relativePath: "Finance"),
                                     .init(providerId: "Dropbox", relativePath: "Photos")])
         #expect(loaded?.selected == 1)
-    }
-
-    /// The stored path is the COMBINED one — scope plus column stack — because that is the folder
-    /// that was on screen, and restoring only the scope would reopen the tab somewhere shallower.
-    @Test func theStoredPathIsWhereTheTabActuallyWas() {
-        let defaults = ScratchDefaults("PaneTabsStore-combined")
-        let deep = PaneTab(providerId: "iCloud", relativePath: "Finance",
-                           browsePath: PaneBrowsePath(relativePath: "US/2024"))
-        PaneTabsStore.save(tabs: [deep], selected: 0, isLeft: true, to: defaults)
-        #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.relativePath == "Finance/US/2024")
     }
 
     /// Pins survive a save, a load and a restore.
@@ -518,18 +494,18 @@ import Events
         #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
     }
 
-    @Test func aCorruptValueReadsAsNothingStored() {
-        let defaults = ScratchDefaults("PaneTabsStore-corrupt")
-        defaults.set("{not json", forKey: PaneTabsStore.tabsKey)
-        #expect(PaneTabsStore.load(isLeft: true, from: defaults) == nil)
-    }
-
-    /// …and says so. An unreadable key returns the same `nil` as a missing one, so the caller
-    /// seeds a fresh strip and the next save overwrites it for good. That is right (there is
-    /// nothing to restore), but it must not lose the user's strip in silence. Reachable by a
-    /// hand-edited plist or a later format change.
+    /// A corrupt value reads as nothing stored, and says so. An unreadable key returns the same
+    /// `nil` as a missing one, so the caller seeds a fresh strip and the next save overwrites it
+    /// for good. That is right (there is nothing to restore), but it must not lose the user's strip
+    /// in silence. Reachable by a hand-edited plist or a later format change.
     @MainActor
     @Test func anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced() async throws {
+        // Not JSON at all: nil. Loaded outside the log window, so only the load below can meet
+        // the warning's assertion.
+        let notJSON = ScratchDefaults("PaneTabsStore-corrupt")
+        notJSON.set("{not json", forKey: PaneTabsStore.tabsKey)
+        #expect(PaneTabsStore.load(isLeft: true, from: notJSON) == nil)
+
         let defaults = ScratchDefaults("PaneTabsStore-corruptLog")
         defaults.set(#"[{"providerId":"iCloud","relativePath":]"#, forKey: PaneTabsStore.tabsKey)
 
@@ -580,16 +556,6 @@ import Events
     }
 
     // MARK: Restoring
-
-    @Test func aTabWhoseFolderIsGoneComesBackAtTheRootRatherThanAtNothing() {
-        let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Finance/US/2024")]
-        let restored = PaneTabsStore.restore(
-            entries: entries, selected: 0,
-            isKnownProvider: { _ in true },
-            folderExists: { _, _ in false })
-        #expect(restored?.list.count == 1)
-        #expect(restored?.list.active.relativePath == "")
-    }
 
     /// A re-rooted tab looks like any tab at the root in the restored list, so the restore reports
     /// it separately. The stored path is the last place that folder is named (the first save writes
@@ -739,7 +705,9 @@ import Events
     /// The active tab's columns, end to end through the overlay that writes them. The test above
     /// saves an entry already where the pane is, true of parked tabs only. Here the active entry is
     /// a stale snapshot at the root and the pane has walked three columns deep; without the overlay
-    /// the tab on screen would go to disk at the root.
+    /// the tab on screen would go to disk at the root. The stored path is the COMBINED one (scope
+    /// plus column stack): that is the folder that was on screen, and restoring only the scope
+    /// would reopen the tab somewhere shallower.
     @Test func theActiveTabIsSavedWhereThePaneIsAndNotWhereItWasParked() {
         let defaults = ScratchDefaults("PaneTabsStore-activeOverlay")
         let strip = PaneTabList(tabs: [PaneTab(providerId: "iCloud"),
@@ -914,15 +882,16 @@ import Events
         #expect(PaneTabsStore.load(isLeft: false, from: defaults)?.selected == 2)
     }
 
-    /// A tab whose folder is gone loses its stack with the scope: the components name folders under
-    /// a path that no longer resolves, and would point New Folder and paste at a path that doesn't
-    /// exist.
+    /// A tab whose folder is gone comes back at the root rather than at nothing, and loses its
+    /// stack with the scope: the components name folders under a path that no longer resolves,
+    /// and would point New Folder and paste at a path that doesn't exist.
     @Test func aTabWhoseFolderIsGoneLosesItsStackToo() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud",
                                            relativePath: "School/US/Daughter/Homework", stackDepth: 3)]
         let restored = PaneTabsStore.restore(entries: entries, selected: 0,
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in false })
+        #expect(restored?.list.count == 1)
         #expect(restored?.list.active.relativePath == "")
         #expect(restored?.list.active.browsePath.isEmpty == true)
     }
@@ -960,22 +929,15 @@ import Events
         #expect(cut.stack.depth == 4, "a tab opened from four open columns came back with none")
     }
 
-    /// The same with the pane's location split the other way, scope deep and a shallow stack on
-    /// top: the cut is the pane's, not a fixed one.
-    @Test func openingHereHonoursAScopeThatIsNotTheRoot() {
-        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health",
-                                          openedFromScope: "Health")
+    /// With the pane's scope not the root: opening here, scope deep and a shallow stack on top,
+    /// shows the cut is the pane's, not a fixed one; Open in New Tab on a folder under the pane
+    /// keeps the scope and puts the rest in the stack, so the new tab has the ancestor columns.
+    @Test(arguments: [("Health/Medical/Included Health", ["Medical", "Included Health"]),
+                      ("Health/Medical/Included Health/Expert Opinions", ["Medical", "Included Health", "Expert Opinions"])])
+    func openingUnderAScopeThatIsNotTheRootKeepsTheScope(target: String, stack: [String]) {
+        let cut = PaneTabOpening.location(of: target, openedFromScope: "Health")
         #expect(cut.scope == "Health")
-        #expect(cut.stack.components == ["Medical", "Included Health"])
-    }
-
-    /// Open in New Tab on a folder under the pane keeps the scope and puts the rest in the stack,
-    /// so the new tab has the ancestor columns.
-    @Test func openingAFolderUnderThePaneGivesItTheAncestorColumns() {
-        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
-                                          openedFromScope: "Health")
-        #expect(cut.scope == "Health")
-        #expect(cut.stack.components == ["Medical", "Included Health", "Expert Opinions"])
+        #expect(cut.stack.components == stack)
     }
 
     /// A target outside the pane's scope is all scope, no stack; the components would otherwise

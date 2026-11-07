@@ -17,7 +17,7 @@ import Foundation
     }
 
     /// Builds a profile from a list of folder paths, each optionally carrying axes.
-    private static func profile(_ paths: [String], axes: [String: [String: String]] = [:]) -> FolderProfile {
+    fileprivate static func profile(_ paths: [String], axes: [String: [String: String]] = [:]) -> FolderProfile {
         var folders: [String: FolderProfileEntry] = [:]
         for path in paths {
             folders[path] = entry(path, axes: axes[path] ?? [:])
@@ -200,12 +200,6 @@ import Foundation
 
     // MARK: Non-vacuity
 
-    @Test func theDetectorCanActuallyFireOnTheFixture() {
-        // The controls above all assert emptiness, and a detector that always returned `[]` would
-        // pass every one of them. This is the half that makes them mean something.
-        #expect(!StructureDivergence.findings(in: Self.incomeTax).isEmpty)
-    }
-
     @Test func anEmptyProfileFindsNothingWithoutCrashing() {
         let p = Self.profile([])
         #expect(StructureDivergence.findings(in: p).isEmpty)
@@ -378,21 +372,10 @@ import Foundation
         return words
     }
 
-    private static func profile(_ paths: [String],
-                                axes: [String: [String: String]] = [:]) -> FolderProfile {
-        var folders: [String: FolderProfileEntry] = [:]
-        for path in paths {
-            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                               acceptsNewFiles: true, fileCount: 1,
-                                               subfolderCount: 0, axes: axes[path] ?? [:])
-        }
-        return FolderProfile(profileId: "test", root: "/root", folders: folders, personTokens: [])
-    }
-
     /// Every folder in a profile, both ways, including the path shapes where the two would part
     /// company if the remainder test were dropped for `lastPathComponent`.
     @Test func theMapSelectsExactlyTheChildrenTheWalkDid() {
-        let awkward = Self.profile([
+        let awkward = StructureDivergenceTests.profile([
             // Ordinary.
             "A", "A/B", "A/B/C", "A/D",
             // A trailing slash: `deletingLastPathComponent` buckets this under `A`; the walk saw
@@ -428,7 +411,7 @@ import Foundation
     /// The convenience overload, used by the tests above and any isolated caller, builds the map
     /// itself and must answer the same as the threaded one.
     @Test func theOverloadThatBuildsItsOwnMapAgrees() {
-        let p = Self.profile(["A", "A/B", "A/C", "A/B/D"])
+        let p = StructureDivergenceTests.profile(["A", "A/B", "A/C", "A/B/D"])
         let map = StructureDivergence.families(in: p)
         for path in p.folders.keys {
             #expect(StructureDivergence.vocabulary(of: path, in: p)

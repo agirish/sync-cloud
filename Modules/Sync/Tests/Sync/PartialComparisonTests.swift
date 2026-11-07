@@ -29,12 +29,22 @@ import Foundation
         #expect(coverage.isComplete, "a folder deep in the tree is suppressed row by row, not side-wide")
     }
 
+    /// The sentence says what is missing from the result, the thing being acted on, not merely that
+    /// something went wrong. Both losses, not one: besides the suppressed Missing rows, a walk
+    /// stopped by the node budget never recorded the entries past it, so those are in neither map
+    /// and produce no row in either direction. Naming only the suppression would imply the partial
+    /// side's unique files are listed.
     @Test func anUnreadRootOnOneSideIsNamedBySource() throws {
         let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:])
         #expect(!coverage.isComplete)
         let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
         #expect(message.contains("iCloud"))
         #expect(!message.contains("Dropbox"), "the readable side must not be named as a problem")
+        #expect(message.contains("incomplete"))
+        #expect(message.contains("nothing is reported as missing on that side"),
+                "the suppression — no Missing row is minted against a side whose view is unknown")
+        #expect(message.contains("not compared"),
+                "the quieter loss: entries the walk never reached are in no map at all")
     }
 
     /// The side matters: naming the wrong one sends the reader to check the wrong account.
@@ -45,50 +55,22 @@ import Foundation
         #expect(!message.contains("iCloud"))
     }
 
-    /// Both sides partial is one sentence, not two, and it has to read as English.
+    /// Both sides partial is one sentence, not two, and it has to read as English. It says "either
+    /// side", not "that side", which would leave the reader guessing which one.
     @Test func bothSidesReadAsOneSentence() throws {
         let coverage = PartialComparison.of(left: ["": info(unexplored: true)],
                                             right: ["": info(unexplored: true)])
         let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
         #expect(message.contains("iCloud and Dropbox"))
         #expect(message.contains("were"), "two sources take a plural verb")
+        #expect(message.contains("either side"))
+        #expect(!message.contains("that side"))
     }
 
     /// `isUnexplored` false at the root key is not partial: the key can exist for other reasons, and
     /// only the mark means the side is unknown.
     @Test func aRootKeyWithoutTheMarkIsComplete() {
         #expect(PartialComparison.of(left: ["": info(unexplored: false)], right: [:]).isComplete)
-    }
-
-    /// The sentence says what is missing from the result, the thing being acted on, not merely that
-    /// something went wrong.
-    @Test func theSentenceSaysWhatIsNotListed() throws {
-        let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:])
-        let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
-        #expect(message.contains("incomplete"))
-    }
-
-    /// Both losses, not one. Besides the suppressed Missing rows, a walk stopped by the node budget
-    /// never recorded the entries past it, so those are in neither map and produce no row in either
-    /// direction. Naming only the suppression would imply the partial side's unique files are
-    /// listed.
-    @Test func theSentenceNamesTheUnreadEntriesToo() throws {
-        let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:])
-        let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
-        #expect(message.contains("nothing is reported as missing on that side"),
-                "the suppression — no Missing row is minted against a side whose view is unknown")
-        #expect(message.contains("not compared"),
-                "the quieter loss: entries the walk never reached are in no map at all")
-    }
-
-    /// Two partial sides say "either side", not "that side", which would leave the reader guessing
-    /// which one.
-    @Test func bothSidesPartialNamesBoth() throws {
-        let coverage = PartialComparison.of(left: ["": info(unexplored: true)],
-                                            right: ["": info(unexplored: true)])
-        let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
-        #expect(message.contains("either side"))
-        #expect(!message.contains("that side"))
     }
 
     // MARK: - The warm-branch overload, whose conjunction is load-bearing in both directions

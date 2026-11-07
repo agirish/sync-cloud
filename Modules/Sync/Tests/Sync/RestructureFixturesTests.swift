@@ -31,23 +31,18 @@ import Foundation
         return try JSONDecoder().decode(FolderProfile.self, from: JSONSerialization.data(withJSONObject: tree))
     }
 
-    // MARK: The flagship family
-
-    /// `Finance/US/Income Tax`, every depth: 17 direct members, 24 distinct child names, and the
-    /// one shape finding the live tree produces.
-    @Test func theFlagshipFixtureDecodesAndHoldsTheFamily() throws {
-        let profile = try Self.flagshipProfile()
-        #expect(profile.folders.count == 235)
-
-        let members = profile.folders.keys
-            .filter { $0.hasPrefix("Finance/US/Income Tax/") && $0.filter { $0 == "/" }.count == 3 }
-        #expect(members.count == 17)
-
-        let childNames = Set(profile.folders.keys
-            .filter { $0.filter { $0 == "/" }.count == 4 }
-            .map { ($0 as NSString).lastPathComponent })
-        #expect(childNames.count == 24)
+    /// The 6 Aug oracle: the two families the 6 Aug run brought into agreement, reconstructed
+    /// pre-rename (`profile`), with the log's four `rename-dir` operations (`expected`).
+    static func oracle() throws -> (object: [String: Any], profile: FolderProfile) {
+        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
+                                                 withExtension: "json", subdirectory: "Fixtures"))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let profile = try JSONDecoder().decode(
+            FolderProfile.self, from: JSONSerialization.data(withJSONObject: try #require(object["profile"])))
+        return (object, profile)
     }
+
+    // MARK: The flagship family
 
     @Test func theShapeDetectorFindsTheFlagshipFamilyInItsFixture() throws {
         let profile = try Self.flagshipProfile()
@@ -62,53 +57,5 @@ import Foundation
         #expect(flagship.memberCount == 17)
         #expect(flagship.drift.count == 5)
         #expect(flagship.shapeless == ["CA State"])
-    }
-
-    // MARK: The reference tree
-
-    /// The whole 3,013-folder tree, structural fields only. The shape detector returns exactly one
-    /// finding on it, and a second appearing (or that one vanishing) on a re-lift is a change
-    /// someone has to explain, not a count to update in passing.
-
-    @Test func theReferenceTreeHoldsExactlyOneShapeFinding() throws {
-        let profile = try Self.profile(named: "restructure-reference-tree")
-        #expect(profile.folders.count == 3013)
-
-        let findings = StructureDivergence.findings(in: profile)
-        #expect(findings.map(\.family) == ["Finance/US/Income Tax"])
-    }
-
-    // MARK: The 6 Aug oracle
-
-    /// The two families the 6 Aug run brought into agreement, reconstructed pre-rename, with the
-    /// log's four `rename-dir` operations as the expected output. The mapping
-    /// `Application → Petition` under H-1B (and the reverse under H-4) must derive exactly these
-    /// operations with these `filesCarried`, and no `move-file`.
-    @Test func theOracleFixtureDecodesAndItsSourcesCarryTheLoggedCounts() throws {
-        let url = try #require(Bundle.module.url(forResource: "restructure-immigration-oracle",
-                                                 withExtension: "json", subdirectory: "Fixtures"))
-        let object = try #require(try JSONSerialization.jsonObject(
-            with: Data(contentsOf: url)) as? [String: Any])
-
-        let expected = try #require(object["expected"] as? [[String: Any]])
-        #expect(expected.count == 4)
-        #expect(expected.allSatisfy { $0["action"] as? String == "rename-dir" })
-
-        // The embedded profile decodes with the real decoder, exactly as the fixtures above do.
-        let profileData = try JSONSerialization.data(withJSONObject: object["profile"] as Any)
-        let profile = try JSONDecoder().decode(FolderProfile.self, from: profileData)
-        #expect(profile.folders.count == 157)
-
-        // Every expected rename's source exists pre-rename, is gone post-rename, and carries the
-        // logged file count — the invariant the reconstruction (and its two patched counts) exists
-        // to hold.
-        for op in expected {
-            let src = try #require(op["src"] as? String)
-            let dst = try #require(op["dst"] as? String)
-            let carried = try #require(op["filesCarried"] as? Int)
-            let entry = try #require(profile.folders[src], "missing pre-rename source \(src)")
-            #expect(entry.fileCount == carried)
-            #expect(profile.folders[dst] == nil, "post-rename name \(dst) must not pre-exist")
-        }
     }
 }

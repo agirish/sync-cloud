@@ -12,6 +12,9 @@ import Combine
         ScratchDefaults("KeptNames-\(name)")
     }
 
+    /// The keep is about the name (the store never sees a path), so the same name in another
+    /// folder is the same decision. That is deliberate: it stops a move or copy from re-asking a
+    /// question the user already answered.
     @MainActor
     @Test func aKeptNameSurvivesTheStoreBeingRebuilt() {
         let defaults = scratch("persist")
@@ -88,19 +91,6 @@ import Combine
         await Task.yield()
 
         #expect(publishes == 0)
-    }
-
-    /// The keep is about the name, so the same name in another folder is the same decision. That
-    /// is deliberate: it stops a move or copy from re-asking a question the user already answered.
-    @MainActor
-    @Test func keepingANameCoversEveryFileWithThatName() {
-        let defaults = scratch("byname")
-
-        let store = KeptNamesStore(userDefaults: defaults)
-        store.keep("scan 001 .pdf")
-        // The store never sees a path, which is what lets the keep survive the file moving.
-        #expect(store.isKept("scan 001 .pdf"))
-        #expect(store.isKept("scan 002 .pdf") == false)
     }
 }
 

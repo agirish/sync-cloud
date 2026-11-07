@@ -172,38 +172,27 @@ import Foundation
         #expect(child?.rightItemPath == "/right/Swimming/log.txt")
     }
 
-    @Test func testLeftOnlyChildTargetsTheRightSidesRealFolderSpelling() {
-        let left = [
-            "Swimming ": info(leftURL, "Swimming ", isDir: true),
-            "Swimming /new.txt": info(leftURL, "Swimming /new.txt"),
-        ]
-        let right = [
-            "Swimming": info(rightURL, "Swimming", isDir: true)
-        ]
+    /// A child on one side only is re-aimed at the other side's real folder; a naive join would
+    /// give "/right/Swimming /new.txt" and create the doppelganger folder on copy.
+    @Test(arguments: [true, false])
+    func testAOneSidedChildTargetsTheOtherSidesRealFolderSpelling(childOnTheLeft: Bool) {
+        var left = ["Swimming ": info(leftURL, "Swimming ", isDir: true)]
+        var right = ["Swimming": info(rightURL, "Swimming", isDir: true)]
+        if childOnTheLeft {
+            left["Swimming /new.txt"] = info(leftURL, "Swimming /new.txt")
+        } else {
+            right["Swimming/extra.txt"] = info(rightURL, "Swimming/extra.txt")
+        }
 
         let diffs = compute(left: left, right: right)
 
-        let missing = diffs.first { $0.type == .missingOnRight }
-        #expect(missing?.relativePath == "Swimming /new.txt")
-        // Re-aimed at the destination's real folder; a naive join would give
-        // "/right/Swimming /new.txt" and create the doppelganger folder on copy.
-        #expect(missing?.rightItemPath == "/right/Swimming/new.txt")
-    }
-
-    @Test func testRightOnlyChildTargetsTheLeftSidesRealFolderSpelling() {
-        let left = [
-            "Swimming ": info(leftURL, "Swimming ", isDir: true)
-        ]
-        let right = [
-            "Swimming": info(rightURL, "Swimming", isDir: true),
-            "Swimming/extra.txt": info(rightURL, "Swimming/extra.txt"),
-        ]
-
-        let diffs = compute(left: left, right: right)
-
-        let missing = diffs.first { $0.type == .missingOnLeft }
-        #expect(missing?.relativePath == "Swimming/extra.txt")
-        #expect(missing?.leftItemPath == "/left/Swimming /extra.txt")
+        let missing = diffs.first { $0.type == (childOnTheLeft ? .missingOnRight : .missingOnLeft) }
+        #expect(missing?.relativePath == (childOnTheLeft ? "Swimming /new.txt" : "Swimming/extra.txt"))
+        if childOnTheLeft {
+            #expect(missing?.rightItemPath == "/right/Swimming/new.txt")
+        } else {
+            #expect(missing?.leftItemPath == "/left/Swimming /extra.txt")
+        }
     }
 
     /// Two conflicted folders, one inside the other: the deeper pair already spells both levels
@@ -252,48 +241,27 @@ import Foundation
     /// `log.txt` stays in that folder's missing row and the right's `log.txt` gets its own row,
     /// even though the file's near-name is claimed once on each side. Pairing it across into the
     /// folder the exact pair owns would handle `log.txt` twice on sync and never report the right
-    /// side's own `log.txt`, which the left `Swimming` lacks.
-    @Test(arguments: [false, true])
-    func testAChildOfAFolderThatPairsWithNothingStaysInItsMissingRow(caseInsensitive: Bool) {
-        let left = [
-            "Swimming": info(leftURL, "Swimming", isDir: true),
-            "Swimming ": info(leftURL, "Swimming ", isDir: true),
-            "Swimming /log.txt": info(leftURL, "Swimming /log.txt", size: 1),
-        ]
-        let right = [
-            "Swimming": info(rightURL, "Swimming", isDir: true),
-            "Swimming/log.txt": info(rightURL, "Swimming/log.txt", size: 2),
-        ]
+    /// side's own `log.txt`, which the left `Swimming` lacks. Mirrored, the doppelganger pair is on
+    /// the right, and the left `log.txt` must not pair across into the right's unpaired folder.
+    @Test(arguments: [(caseInsensitive: false, mirrored: false), (true, false), (false, true)])
+    func testAChildOfAFolderThatPairsWithNothingStaysInItsMissingRow(caseInsensitive: Bool, mirrored: Bool) {
+        func side(_ root: URL, doppelganger: Bool, logSize: Int) -> [String: FileDiffEngine.FileInfo] {
+            var files = ["Swimming": info(root, "Swimming", isDir: true)]
+            if doppelganger { files["Swimming "] = info(root, "Swimming ", isDir: true) }
+            let log = doppelganger ? "Swimming /log.txt" : "Swimming/log.txt"
+            files[log] = info(root, log, size: logSize)
+            return files
+        }
 
-        let diffs = compute(left: left, right: right, caseInsensitive: caseInsensitive)
-
-        #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/log.txt"])
-        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
-        #expect(byPath["Swimming "]?.type == .missingOnRight)
-        #expect(byPath["Swimming "]?.enclosedItemCount == 1)
-        #expect(byPath["Swimming/log.txt"]?.type == .missingOnLeft)
-    }
-
-    /// Mirrored: the doppelganger pair is on the right, and the left `log.txt` must not pair across
-    /// into the right's unpaired folder.
-    @Test func testAChildOfARightFolderThatPairsWithNothingStaysInItsMissingRow() {
-        let left = [
-            "Swimming": info(leftURL, "Swimming", isDir: true),
-            "Swimming/log.txt": info(leftURL, "Swimming/log.txt", size: 1),
-        ]
-        let right = [
-            "Swimming": info(rightURL, "Swimming", isDir: true),
-            "Swimming ": info(rightURL, "Swimming ", isDir: true),
-            "Swimming /log.txt": info(rightURL, "Swimming /log.txt", size: 2),
-        ]
-
-        let diffs = compute(left: left, right: right)
+        let diffs = compute(left: side(leftURL, doppelganger: !mirrored, logSize: 1),
+                            right: side(rightURL, doppelganger: mirrored, logSize: 2),
+                            caseInsensitive: caseInsensitive)
 
         #expect(diffs.map(\.relativePath) == ["Swimming ", "Swimming/log.txt"])
         let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
-        #expect(byPath["Swimming "]?.type == .missingOnLeft)
+        #expect(byPath["Swimming "]?.type == (mirrored ? .missingOnLeft : .missingOnRight))
         #expect(byPath["Swimming "]?.enclosedItemCount == 1)
-        #expect(byPath["Swimming/log.txt"]?.type == .missingOnRight)
+        #expect(byPath["Swimming/log.txt"]?.type == (mirrored ? .missingOnRight : .missingOnLeft))
     }
 
     /// A file against a folder whose names differ invisibly is one row carrying the folder's

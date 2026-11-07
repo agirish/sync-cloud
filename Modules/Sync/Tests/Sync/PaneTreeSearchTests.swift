@@ -51,12 +51,6 @@ import Foundation
 
     // MARK: - Matching
 
-    @Test("A substring of a name matches, whatever its case")
-    func matchingIsCaseInsensitive() {
-        let found = hits("tax").map(\.name)
-        #expect(found == ["Tax Return 2025.pdf", "tax-notes.md", "taxes.csv"])
-    }
-
     /// The reason the fold exists rather than a plain `lowercased()`: a name typed without its
     /// accent has to find the file that carries one, in both directions.
     @Test("Diacritics fold, both ways")
@@ -132,9 +126,10 @@ import Foundation
     // MARK: - Order and position
 
     /// ↩ walks down the pane, so the hits arrive in the order the outline draws them: depth-first,
-    /// pre-order.
+    /// pre-order. A substring of a name matches, whatever its case.
     @Test("Hits arrive in the order the pane lists them")
     func hitsArriveInOutlineOrder() {
+        #expect(hits("tax").map(\.name) == ["Tax Return 2025.pdf", "tax-notes.md", "taxes.csv"])
         #expect(hits("tax").map(\.relativePath) == [
             "Documents/Finance/Tax Return 2025.pdf",
             "Documents/Finance/tax-notes.md",
@@ -283,23 +278,16 @@ import Foundation
                           tree: PaneTreeSearchTests.tree(), otherPaths: otherPaths)
     }
 
-    @Test("An empty query is not an active search, and draws nothing")
-    func anEmptyQueryIsInactive() {
-        let idle = results("")
+    /// An empty query is not an active search, and draws nothing; neither is whitespace. Matching
+    /// trims, so activity must too, or a lone space would dim every row and show "No matches" for
+    /// a keystroke that asked nothing.
+    @Test("An empty or whitespace-only query is not an active search", arguments: ["", "   "])
+    func anEmptyQueryIsInactive(_ query: String) {
+        let idle = results(query)
         #expect(!idle.isActive)
         #expect(idle.hits.isEmpty)
         #expect(!idle.isDimmed(path: "/root/Movies"))
         #expect(idle.summary(at: 0) == nil)
-    }
-
-    /// …and neither is whitespace. Matching trims, so activity must too, or a lone space would dim
-    /// every row and show "No matches" for a keystroke that asked nothing.
-    @Test("A whitespace-only query is not a search either")
-    func aWhitespaceQueryIsInactive() {
-        let spaces = results("   ")
-        #expect(!spaces.isActive)
-        #expect(!spaces.isDimmed(path: "/root/Movies"))
-        #expect(spaces.summary(at: 0) == nil)
     }
 
     /// The same effective query typed with stray spaces is the same search, so the pane must not
@@ -418,29 +406,19 @@ import Foundation
     // MARK: - The stamp
 
     /// The point of the type: the payload is three maps and an array a broad query can fill with
-    /// thousands of entries, and `FileTreeView.==` compares this on every render.
-    @Test("Two results from the same computation compare equal without walking the hits")
+    /// thousands of entries, and `FileTreeView.==` compares this on every render. Two results from
+    /// one computation compare equal without walking the hits; a recomputation, a changed query and
+    /// the other pane's results are each noticed.
+    @Test("Equality is the stamp")
     func equalityIsTheStamp() {
         #expect(results("tax") == results("tax"))
-    }
-
-    @Test("A recomputation is noticed")
-    func aNewGenerationIsNoticed() {
         #expect(results("tax", generation: 1) != results("tax", generation: 2))
-    }
-
-    @Test("A changed query is noticed")
-    func aNewQueryIsNoticed() {
         #expect(results("tax") != results("taxes"))
-    }
-
-    @Test("The other pane's results are never mistaken for this one's")
-    func theSideIsNoticed() {
         let left = PaneSearchResults(side: .left, generation: 1, query: "tax",
                                      tree: PaneTreeSearchTests.tree(), otherPaths: nil)
         let right = PaneSearchResults(side: .right, generation: 1, query: "tax",
                                       tree: PaneTreeSearchTests.tree(side: .right), otherPaths: nil)
-        #expect(left != right)
+        #expect(left != right, "the other pane's results were mistaken for this one's")
     }
 
     @Test("The resting value is inactive and empty on both sides")

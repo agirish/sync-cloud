@@ -78,20 +78,23 @@ import Testing
 
     // MARK: 1 — THE bug: an edit two levels down refuses the undo
 
-    /// Copy a folder, change a file's size two levels deep, ⌘Z: the undo refuses. The shallow
-    /// identity reads `.unchanged` here and would trash the only copy of the edit.
+    /// Copy a folder, edit a file two levels deep, ⌘Z: the undo refuses. The shallow identity reads
+    /// `.unchanged` here and would trash the only copy of the edit. Two edits: the file grows, and
+    /// the harder half, same size with only the date moved (a same-length rewrite, the deep twin of
+    /// `copyUndoRefusesASameSizeEditOfTheCopy`), which only the per-file date in the deep digest
+    /// can see.
     @MainActor
-    @Test func copyUndoRefusesADeepEditThatChangedAFilesSize() async throws {
+    @Test(arguments: [999, 4])
+    func copyUndoRefusesADeepEdit(editedSize: Int) async throws {
         let manager = makeManager()
         let fm = MockFileManager()
         try plantDeepSource(on: fm, under: "/deepid-src")
         try await copyDeepTree(manager: manager, fm: fm, from: "/deepid-src", to: "/deepid-dst")
 
-        // The user grows the deep file inside the copy. Nothing at the copied root moves: same
-        // immediate children, same (nil) directory date.
+        // Nothing at the copied root moves: same immediate children, same (nil) directory date.
         let shallowAtRegistration = try shallowIdentity(fm, root: "/deepid-dst/project")
         fm.virtualDisk["/deepid-dst/project/src/deep/notes.md"] =
-            file(999, modified: Date(timeIntervalSince1970: 9_999))
+            file(editedSize, modified: Date(timeIntervalSince1970: 9_999))
         try #require(shallowAtRegistration.drift(at: URL(fileURLWithPath: "/deepid-dst/project"),
                                                  fileManager: fm) == .unchanged,
                      "fixture check: this edit must be exactly the one the shallow identity cannot see")
@@ -106,41 +109,12 @@ import Testing
                 "got \(String(describing: manager.banner?.message))")
         #expect(fm.virtualDisk["/deepid-dst/project"] != nil,
                 "the copy must still be on disk — trashing it takes the only instance of the edit")
-        #expect(fm.virtualDisk["/deepid-dst/project/src/deep/notes.md"]?.attributes?[FileAttributeKey.size] as? Int == 999,
+        let edited = fm.virtualDisk["/deepid-dst/project/src/deep/notes.md"]?.attributes
+        #expect(edited?[FileAttributeKey.size] as? Int == editedSize,
+                "the edited deep file must be left exactly as the user wrote it")
+        #expect(edited?[FileAttributeKey.modificationDate] as? Date == Date(timeIntervalSince1970: 9_999),
                 "the edited deep file must be left exactly as the user wrote it")
         #expect(fm.virtualDisk["/deepid-src/project"] != nil, "the source is untouched by an undo")
-    }
-
-    /// The harder half: same size, only the date moved, a same-length rewrite two levels down.
-    /// Only the per-file date in the deep digest can see it.
-    @MainActor
-    @Test func copyUndoRefusesADeepEditThatChangedOnlyAFilesDate() async throws {
-        let manager = makeManager()
-        let fm = MockFileManager()
-        try plantDeepSource(on: fm, under: "/deepdate-src")
-        try await copyDeepTree(manager: manager, fm: fm, from: "/deepdate-src", to: "/deepdate-dst")
-
-        // Same 4 bytes, later timestamp: the deep twin of `copyUndoRefusesASameSizeEditOfTheCopy`.
-        let shallowAtRegistration = try shallowIdentity(fm, root: "/deepdate-dst/project")
-        fm.virtualDisk["/deepdate-dst/project/src/deep/notes.md"] =
-            file(4, modified: Date(timeIntervalSince1970: 9_999))
-        try #require(shallowAtRegistration.drift(at: URL(fileURLWithPath: "/deepdate-dst/project"),
-                                                 fileManager: fm) == .unchanged,
-                     "fixture check: this edit must be exactly the one the shallow identity cannot see")
-        manager.banner = nil
-
-        manager.undoManager?.undo()
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-
-        #expect(manager.banner?.severity == .warning,
-                "the undo must refuse, not proceed; banner: \(String(describing: manager.banner?.message))")
-        #expect(manager.banner?.message.contains("changed since") == true,
-                "got \(String(describing: manager.banner?.message))")
-        #expect(fm.virtualDisk["/deepdate-dst/project"] != nil,
-                "the copy must still be on disk")
-        #expect(fm.virtualDisk["/deepdate-dst/project/src/deep/notes.md"]?.attributes?[FileAttributeKey.modificationDate] as? Date
-                == Date(timeIntervalSince1970: 9_999),
-                "the rewritten deep file must be left exactly as the user wrote it")
     }
 
     // MARK: 2 — no false refusals

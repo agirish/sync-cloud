@@ -52,7 +52,8 @@ import Foundation
         #expect(m.hasFoundDuplicates == false, "the duplicates lens still reports a completed scan")
         #expect(m.hasSuggestedFiling == false, "filing outlived the provider switch")
         #expect(m.automationDryRunLifecycle.hasCompleted == false, "the automation dry-run outlived the provider switch")
-        // The one that is easy to forget.
+        // The one that is easy to forget, and dangerous, not merely wrong: its rows carry absolute
+        // paths under the provider no longer selected, and the fix path renames by those paths.
         #expect(m.riskyNames.isEmpty, "the risky-name finding outlived the provider switch")
         #expect(m.hasScannedNames == false,
                 "Organize still reports a completed name scan, so its chip stays up on the new provider")
@@ -101,17 +102,5 @@ import Foundation
         #expect(m.filingOCRInFlight.isEmpty)
         #expect(m.filingUnreadableScans.isEmpty)
         #expect(m.filingPageSamples.isEmpty)
-    }
-
-    /// The finding's root makes a stale list dangerous, not merely wrong: the rows carry absolute
-    /// paths under the provider no longer selected, and the fix path renames by those paths.
-    @Test func aStaleFindingWouldHaveCarriedTheOldProvidersAbsolutePaths() {
-        let m = manager()
-        let staleRoot = try! #require(m.nameScanRoot).path
-        #expect(m.riskyNames.allSatisfy { $0.id.hasPrefix(staleRoot) },
-                "fixture is not representative — the rows must be rooted under the old provider")
-
-        m.clearLensResultsForProviderSwitch()
-        #expect(m.riskyNames.isEmpty)
     }
 }

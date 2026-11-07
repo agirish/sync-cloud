@@ -72,7 +72,7 @@ public struct PaneChildrenIndex: Equatable, Sendable {
     ///
     /// Where the walk did spell the row as parent plus name, almost everywhere, the key is the
     /// row's id as it is: no allocation, and a string the walk already made native
-    /// (`FileSyncManager.nativePath`). `TreeWalkBenchmark.columnIndexBuild` measures the rest.
+    /// (`FileSyncManager.nativePath`).
     ///
     /// Directories are recognised from `info.isDirectory`, not `children != nil`: the projection
     /// keeps `nil` for a leaf and `[]` for an empty directory, and a directory that arrived without
@@ -109,8 +109,8 @@ public struct PaneChildrenIndex: Equatable, Sendable {
     /// checked without making it.
     ///
     /// On the bytes in place, with one `memcmp`: this runs for every directory on every publish,
-    /// and the generic `utf8.starts(with:)` doubles the whole build (measured in Release by
-    /// `TreeWalkBenchmark.columnIndexBuild`). Strings without contiguous UTF-8 (a bridged one) take
+    /// and the generic `utf8.starts(with:)` doubles the whole build (measured in Release).
+    /// Strings without contiguous UTF-8 (a bridged one) take
     /// that generic comparison, which says the same.
     private static func continues(_ id: String, _ directory: String) -> Bool {
         let slash = UInt8(ascii: "/")

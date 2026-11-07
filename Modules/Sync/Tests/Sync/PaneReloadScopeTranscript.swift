@@ -2,23 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// A controlled fixture for proving a change to pane reloading is behaviour-preserving
-/// (`CLAUDE.md` §5). The CLI reaches `FileDiffEngine` directly and never touches
-/// `FileSyncManager`, so diffing its binary would exercise none of this; the subject is the
-/// manager itself.
-///
-/// It writes a canonical transcript to `$SYNCCLOUD_TRANSCRIPT` and asserts nothing about it. Run
-/// it before and after the change and `diff` the two: trees, item counts, differences,
-/// `hasScanned`, the prefetch cache's keys, and the state after a file operation, a forced rescan
-/// and a sort change must match, apart from the intended delta. Tree versions are recorded as the
-/// proxy for "did this pane reload": every adopt bumps one.
+/// How a refresh scoped to one pane treats the other: it leaves it alone, and never cancels a
+/// wider refresh down to nothing.
 @Suite struct PaneReloadScopeTranscript {
 
     /// Two roots that differ, so the scan has something to report and a stale comparison would show.
     private static func makeFixture() throws -> (root: URL, left: URL, right: URL) {
         // A directory per call: the tests here run in parallel, and on one shared path each would
-        // `removeItem` the others' trees mid-walk. The transcript is path-relative, so a per-call
-        // name doesn't affect its diff.
+        // `removeItem` the others' trees mid-walk.
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("synccloud-reload-scope-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
@@ -44,60 +35,6 @@ import Foundation
         return (resolved,
                 resolved.appendingPathComponent("left", isDirectory: true),
                 resolved.appendingPathComponent("right", isDirectory: true))
-    }
-
-    /// Everything about the manager an observer could see, in a stable order.
-    ///
-    /// Paths are printed relative to the fixture root so the transcript does not carry the temp
-    /// directory's name, which changes per run and would swamp the diff.
-    @MainActor
-    private static func snapshot(_ label: String, _ m: FileSyncManager, root: URL) -> String {
-        // Both spellings of the temp root: the manager echoes the provider paths it was handed
-        // (`/var/…`) while the walk reports resolved ones (`/private/var/…`), and
-        // `resolvingSymlinksInPath()` returns the `/var` form either way. Each is stripped with or
-        // without its leading slash, so a transcript whose `FileDifference.relativePath` lost its
-        // first character still compares.
-        func rel(_ path: String) -> String {
-            for base in [root.path, "/private" + root.path] {
-                if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }
-                let bare = String(base.dropFirst())
-                if path.hasPrefix(bare) { return String(path.dropFirst(bare.count)) }
-            }
-            return path
-        }
-        func paths(_ nodes: [FileNode]) -> [String] {
-            var out: [String] = []
-            func walk(_ ns: [FileNode]) {
-                for n in ns.sorted(by: { $0.id < $1.id }) {
-                    out.append(rel(n.id))
-                    walk(n.children ?? [])
-                }
-            }
-            walk(nodes)
-            return out
-        }
-        var lines = ["=== \(label)"]
-        lines.append("left.focus         \(m.leftRelativePath)")
-        lines.append("right.focus        \(m.rightRelativePath)")
-        lines.append("left.stack         \(m.leftBrowsePath.components.joined(separator: "/"))")
-        lines.append("right.stack        \(m.rightBrowsePath.components.joined(separator: "/"))")
-        lines.append("left.treeVersion   \(m.leftPaneTree.version)")
-        lines.append("right.treeVersion  \(m.rightPaneTree.version)")
-        lines.append("left.itemCount     \(m.leftItemCount)")
-        lines.append("right.itemCount    \(m.rightItemCount)")
-        lines.append("left.lastLoaded    \(m.lastLoadedLeftFocusPath.map(rel) ?? "nil")")
-        lines.append("right.lastLoaded   \(m.lastLoadedRightFocusPath.map(rel) ?? "nil")")
-        lines.append("hasScanned         \(m.hasScanned)")
-        lines.append("prefetch.keys      \(m.prefetchedTrees.keys.map(rel).sorted().joined(separator: ","))")
-        lines.append("left.tree")
-        lines.append(contentsOf: paths(m.leftTree).map { "  \($0)" })
-        lines.append("right.tree")
-        lines.append(contentsOf: paths(m.rightTree).map { "  \($0)" })
-        lines.append("differences")
-        lines.append(contentsOf: m.differences
-            .map { "  \(rel($0.relativePath)) \($0.type)" }
-            .sorted())
-        return lines.joined(separator: "\n")
     }
 
     /// A one-pane refresh must not walk the other pane, asserted rather than left to a transcript
@@ -176,74 +113,5 @@ import Foundation
                 "a one-pane refresh cancelled the two-pane one and left the other pane blank")
         #expect(!m.leftTree.isEmpty)
         #expect(m.rightItemCount > 0)
-    }
-
-    /// A left-pane tab switch, as the app performs one: drop the moving pane's tree and the shared
-    /// comparison, move the pane, then a one-pane refresh. Kept in one place so a change to it reads
-    /// clearly in the diff; steps 01 and 04–06 don't use it and are the controls.
-    @MainActor
-    private func tabSwitch(_ m: FileSyncManager, to focus: String,
-                           left: CloudProvider, right: CloudProvider) async {
-        m.invalidatePaneTree(isLeft: true)
-        m.invalidateDifferencesForPaneRetarget()
-        m.focusOn(relativePath: focus, isLeft: true)
-        await m.refreshTreesAndScan(left: left, right: right, reloading: .leftOnly)
-    }
-
-    /// The script. Each step is a thing a user does; the transcript is taken after each.
-    ///
-    /// The last three steps check that a file operation, a forced rescan and a sort change each
-    /// still rebuild both panes. Every staleness source clears `prefetchedTrees` and nothing else,
-    /// so a "this pane already has that focus, skip it" shortcut would show pre-operation state here.
-    @MainActor
-    @Test func writeTranscript() async throws {
-        guard let out = ProcessInfo.processInfo.environment["SYNCCLOUD_TRANSCRIPT"] else {
-            // Not a transcript run: nothing to record, and nothing to assert.
-            return
-        }
-        let fixture = try Self.makeFixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        let m = FileSyncManager()
-        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder",
-                                 rootPath: fixture.left.path, type: .localFolder)
-        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
-                                  rootPath: fixture.right.path, type: .localFolder)
-        var transcript: [String] = []
-        func record(_ label: String) {
-            transcript.append(Self.snapshot(label, m, root: fixture.root))
-        }
-
-        await m.refreshTreesAndScan(left: left, right: right)
-        record("01 initial refresh")
-
-        // A tab switch on the left pane, as `applyTab` performs one.
-        await tabSwitch(m, to: "Finance/US", left: left, right: right)
-        record("02 left tab switch to Finance/US")
-
-        await tabSwitch(m, to: "", left: left, right: right)
-        record("03 left tab switch back to the root")
-
-        // A file operation: the disk changed, so both panes must rebuild. It writes into the right
-        // root too, or the control would pass with the right pane's reload deleted outright.
-        try "new".write(to: fixture.left.appendingPathComponent("added-by-op.txt"),
-                        atomically: true, encoding: .utf8)
-        try "new".write(to: fixture.right.appendingPathComponent("added-on-the-right.txt"),
-                        atomically: true, encoding: .utf8)
-        m.prefetchedTrees.removeAll()
-        m.noteScanConfigChanged()
-        await m.refreshTreesAndScan(left: left, right: right)
-        record("04 after a file operation")
-
-        m.prepareForcedRescan()
-        await m.refreshTreesAndScan(left: left, right: right)
-        record("05 after a forced rescan")
-
-        m.sortOption = .size
-        await m.refreshTreesAndScan(left: left, right: right)
-        record("06 after a sort change")
-
-        try transcript.joined(separator: "\n\n").appending("\n")
-            .write(toFile: out, atomically: true, encoding: .utf8)
     }
 }

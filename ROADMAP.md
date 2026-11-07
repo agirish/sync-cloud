@@ -3205,7 +3205,7 @@ anywhere until one has run. The card reports both branches; wiring its merge int
 waits for the pair→mapping flow.)*
 
 *(2026-08-28, proposal O18 — **the measurement was attempted and is BLOCKED, and the merge stays
-unwired.** `DuplicatedTaxonomyMeasurementTests` is the scan: a real walk of the profile's root fed
+unwired.** `DuplicatedTaxonomyMeasurementTests` (deleted 2026-11-06) was the scan: a real walk of the profile's root fed
 to `DuplicateFinder.findGroups` with the persisted content-hash and content-fingerprint indexes,
 then this detector over the groups, sweeping the share threshold. It cannot run from a terminal
 without **Full Disk Access** — `~/Documents` is TCC-protected, and the walker returns an empty tree
@@ -3577,8 +3577,9 @@ goes to a branch.
   real duplicated taxonomy, so tuning it cannot be the fix. Struck rather than deleted because
   the replacement question is the useful part: **what distinguishes "the same document
   legitimately belongs in both folders" from "these are two taxonomies of one thing"?** The
-  yield number is still owed and still needs a scan — `DuplicatedTaxonomyMeasurementTests` is
-  that scan, blocked on Full Disk Access.
+  yield number is still owed and still needs a scan: a real walk of the profile's root, run with
+  Full Disk Access, fed to `DuplicateFinder.findGroups` and then this detector. The print-only suite
+  that tried it (`DuplicatedTaxonomyMeasurementTests`) was deleted on 2026-11-06.
 - **§6: what should the Organize overview ledger count while a survey is running?** Making
   Restructure runnable changes `countedLenses` and `pendingPasses`
   (`Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift:418`, `:468`), and a lens that

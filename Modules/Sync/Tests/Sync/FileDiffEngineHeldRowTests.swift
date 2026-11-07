@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Rows whose suggested direction is a guess — `FileDifference.heldBack` — and the two places that
@@ -27,6 +28,38 @@ import Foundation
             leftFilesInfo: leftInfo, rightFilesInfo: rightInfo,
             dateToleranceSeconds: tolerance)
         return Dictionary(uniqueKeysWithValues: rows.map { ($0.relativePath, $0) })
+    }
+
+    /// The cold scan branch over two real roots: the disk walk.
+    private func cold(_ leftRoot: URL, _ rightRoot: URL, tolerance: TimeInterval = 1) throws -> [FileDifference] {
+        FileDiffEngine.computeDifferences(
+            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
+            dateToleranceSeconds: tolerance)
+    }
+
+    /// The warm scan branch over two real roots: the pane trees, which carry the link fact.
+    private func warm(_ leftRoot: URL, _ rightRoot: URL) async -> [FileDifference] {
+        let leftTree = await FileSyncManager.buildTree(url: leftRoot, sortOption: .name)
+        let rightTree = await FileSyncManager.buildTree(url: rightRoot, sortOption: .name)
+        return FileDiffEngine.computeDifferences(
+            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
+            leftFilesInfo: FileDiffEngine.filesInfo(fromTree: leftTree, basePath: leftRoot.path),
+            rightFilesInfo: FileDiffEngine.filesInfo(fromTree: rightTree, basePath: rightRoot.path))
+    }
+
+    /// A manager listing `rows`, recording to `store`, that answers every collision with Replace.
+    @MainActor
+    private func makeManager(rows: [FileDifference], store: SyncHistoryStore,
+                         fileManager: FileManaging = FileManager.default) -> FileSyncManager {
+        let manager = FileSyncManager(fileManager: fileManager)
+        manager.syncHistoryStore = store
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
+        manager.rawDifferences = rows
+        manager.differences = rows
+        return manager
     }
 
     // MARK: FR39 — different sizes, no newer side
@@ -154,11 +187,7 @@ import Foundation
         try Data("two".utf8).write(to: original.appendingPathComponent("two.txt"))
         try fm.createSymbolicLink(at: leftRoot.appendingPathComponent("Linked"), withDestinationURL: original)
 
-        // Cold branch: the disk walk.
-        let coldRows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot))
+        let coldRows = try cold(leftRoot, rightRoot)
         let row = try #require(coldRows.first { $0.relativePath == "Linked" })
         #expect(coldRows.count == 1, "the link's contents collapse into its one row: \(coldRows.map(\.relativePath))")
         #expect(row.type == .missingOnRight)
@@ -166,24 +195,12 @@ import Foundation
         #expect(row.heldBack == .sourceIsSymbolicLink)
         #expect(row.description == "Folder missing on right (Backup) — it is a link, so a copy would be a link too, not what it points to")
 
-        // Warm branch: the pane tree, which carries the link fact on the node.
-        let leftTree = await FileSyncManager.buildTree(url: leftRoot, sortOption: .name)
-        let rightTree = await FileSyncManager.buildTree(url: rightRoot, sortOption: .name)
-        let warmRows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: FileDiffEngine.filesInfo(fromTree: leftTree, basePath: leftRoot.path),
-            rightFilesInfo: FileDiffEngine.filesInfo(fromTree: rightTree, basePath: rightRoot.path))
-        #expect(warmRows.first { $0.relativePath == "Linked" }?.heldBack == .sourceIsSymbolicLink,
+        #expect(await warm(leftRoot, rightRoot).first { $0.relativePath == "Linked" }?.heldBack == .sourceIsSymbolicLink,
                 "a warm scan must hold the same row a cold one does")
 
-        let manager = FileSyncManager()
         let store = makeTempHistoryStore(prefix: "HeldLinkRow")
         defer { removeHistoryStoreFiles(store) }
-        manager.syncHistoryStore = store
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, true) }
-        manager.rawDifferences = [row]
-        manager.differences = [row]
+        let manager = makeManager(rows: [row], store: store)
         let destination = rightRoot.appendingPathComponent("Linked")
         func destinationIsAbsent() -> Bool {
             (try? fm.attributesOfItem(atPath: destination.path)) == nil
@@ -226,10 +243,7 @@ import Foundation
         try Data("a".utf8).write(to: project.appendingPathComponent("a.txt"))
         try fm.createSymbolicLink(at: project.appendingPathComponent("lib"), withDestinationURL: elsewhere)
 
-        let coldRows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot))
+        let coldRows = try cold(leftRoot, rightRoot)
         let row = try #require(coldRows.first { $0.relativePath == "Project" })
         #expect(coldRows.count == 1, "the folder's contents collapse into its one row: \(coldRows.map(\.relativePath))")
         #expect(row.type == .missingOnRight)
@@ -239,22 +253,12 @@ import Foundation
                 + "so a copy would carry the link, not what it points to")
         #expect(row.mirrored().heldBack == row.heldBack, "a pane swap keeps the hold")
 
-        let leftTree = await FileSyncManager.buildTree(url: leftRoot, sortOption: .name)
-        let rightTree = await FileSyncManager.buildTree(url: rightRoot, sortOption: .name)
-        let warmRows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: FileDiffEngine.filesInfo(fromTree: leftTree, basePath: leftRoot.path),
-            rightFilesInfo: FileDiffEngine.filesInfo(fromTree: rightTree, basePath: rightRoot.path))
-        #expect(warmRows.first { $0.relativePath == "Project" }?.heldBack == .enclosesSymbolicLink(path: "Project/lib"),
+        #expect(await warm(leftRoot, rightRoot).first { $0.relativePath == "Project" }?.heldBack == .enclosesSymbolicLink(path: "Project/lib"),
                 "a warm scan must hold the same row a cold one does")
 
         // The control: the same folder with no link in it is an ordinary, unheld row.
         try fm.removeItem(at: project.appendingPathComponent("lib"))
-        let plain = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot))
-        let plainRow = try #require(plain.first { $0.relativePath == "Project" })
+        let plainRow = try #require(try cold(leftRoot, rightRoot).first { $0.relativePath == "Project" })
         #expect(plainRow.heldBack == nil)
         #expect(plainRow.description == "Folder missing on right (Backup)")
     }
@@ -311,18 +315,10 @@ import Foundation
         try Data("e".utf8).write(to: elsewhere.appendingPathComponent("e.txt"))
 
         func rows() async throws -> (cold: [String: FileDifference], warm: [String: FileDifference]) {
-            let cold = FileDiffEngine.computeDifferences(
-                left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-                leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-                rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot))
-            let leftTree = await FileSyncManager.buildTree(url: leftRoot, sortOption: .name)
-            let rightTree = await FileSyncManager.buildTree(url: rightRoot, sortOption: .name)
-            let warm = FileDiffEngine.computeDifferences(
-                left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-                leftFilesInfo: FileDiffEngine.filesInfo(fromTree: leftTree, basePath: leftRoot.path),
-                rightFilesInfo: FileDiffEngine.filesInfo(fromTree: rightTree, basePath: rightRoot.path))
-            return (Dictionary(uniqueKeysWithValues: cold.map { ($0.relativePath, $0) }),
-                    Dictionary(uniqueKeysWithValues: warm.map { ($0.relativePath, $0) }))
+            func byPath(_ rows: [FileDifference]) -> [String: FileDifference] {
+                Dictionary(uniqueKeysWithValues: rows.map { ($0.relativePath, $0) })
+            }
+            return (byPath(try cold(leftRoot, rightRoot)), byPath(await warm(leftRoot, rightRoot)))
         }
 
         let inside = try await rows()
@@ -374,23 +370,14 @@ import Foundation
             try fm.setAttributes([.modificationDate: sameTime], ofItemAtPath: url.path)
         }
 
-        let rows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
-            dateToleranceSeconds: 5)
+        let rows = try cold(leftRoot, rightRoot, tolerance: 5)
         #expect(rows.map(\.relativePath) == ["a-held.txt", "b-missing.txt"])
         #expect(rows.first?.heldBack == .sizesDifferWithoutANewerSide)
         #expect(rows.allSatisfy { $0.action == .copyToRight }, "both rows point the same way, so only the hold tells them apart")
 
-        let manager = FileSyncManager()
         let store = makeTempHistoryStore(prefix: "HeldBulkRow")
         defer { removeHistoryStoreFiles(store) }
-        manager.syncHistoryStore = store
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, true) }
-        manager.rawDifferences = rows
-        manager.differences = rows
+        let manager = makeManager(rows: rows, store: store)
 
         await manager.syncAll(direction: .copyToRight, confirmed: true)
 
@@ -424,23 +411,14 @@ import Foundation
         try Data("only on the left".utf8).write(to: leftRoot.appendingPathComponent("c-to-right.txt"))
         try Data("only on the right".utf8).write(to: rightRoot.appendingPathComponent("d-to-left.txt"))
 
-        let rows = FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
-            dateToleranceSeconds: 5).sorted { $0.relativePath < $1.relativePath }
+        let rows = try cold(leftRoot, rightRoot, tolerance: 5).sorted { $0.relativePath < $1.relativePath }
         try #require(rows.map(\.relativePath) == ["a-held.txt", "b-held.txt", "c-to-right.txt", "d-to-left.txt"])
         try #require(rows.map { $0.heldBack != nil } == [true, true, false, false])
         try #require(rows.map(\.action) == [.copyToRight, .copyToRight, .copyToRight, .copyToLeft])
 
-        let manager = FileSyncManager()
         let store = makeTempHistoryStore(prefix: "HeldCopyRemaining")
         defer { removeHistoryStoreFiles(store) }
-        manager.syncHistoryStore = store
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, true) }
-        manager.rawDifferences = rows
-        manager.differences = rows
+        let manager = makeManager(rows: rows, store: store)
 
         let resolved = await manager.copyRemaining(rows, isMove: false)
 
@@ -477,21 +455,13 @@ import Foundation
         for url in [leftRoot.appendingPathComponent("held.txt"), rightRoot.appendingPathComponent("held.txt")] {
             try fm.setAttributes([.modificationDate: d1], ofItemAtPath: url.path)
         }
-        let row = try #require(FileDiffEngine.computeDifferences(
-            left: mac, leftURL: leftRoot, right: backup, rightURL: rightRoot,
-            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftRoot),
-            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightRoot),
-            dateToleranceSeconds: 5).first)
+        let row = try #require(try cold(leftRoot, rightRoot, tolerance: 5).first)
         try #require(row.heldBack == .sizesDifferWithoutANewerSide && row.action == .copyToRight,
                      "the premise: a held row whose guess is left → right")
 
-        let manager = FileSyncManager(fileManager: ScratchTrash(in: root))
         let store = makeTempHistoryStore(prefix: "HeldRedirected")
         defer { removeHistoryStoreFiles(store) }
-        manager.syncHistoryStore = store
-        manager.collisionResolver = { _ in .replace }
-        manager.rawDifferences = [row]
-        manager.differences = [row]
+        let manager = makeManager(rows: [row], store: store, fileManager: ScratchTrash(in: root))
 
         let redirected = row.redirected(to: .copyToLeft)
         #expect(redirected.id == row.id && redirected.leftItemPath == row.leftItemPath

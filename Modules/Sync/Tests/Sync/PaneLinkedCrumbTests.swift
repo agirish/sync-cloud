@@ -70,13 +70,15 @@ import Events
     // MARK: - Skipping levels
 
     /// A crumb several levels up is a jump, not a step: it lands exactly where it was clicked
-    /// rather than one column out.
-    @Test func testAnAncestorCrumbSkipsStraightToItsFolder() {
+    /// rather than one column out. The right pane can drive the link too.
+    @Test(arguments: [(fromLeft: true, stack: ["Documents", "Invoices", "2025"]),
+                      (false, ["Documents", "Invoices"])])
+    func testAnAncestorCrumbSkipsStraightToItsFolder(fromLeft: Bool, stack: [String]) {
         let m = FileSyncManager()
-        m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices", "2025"])
-        m.rightBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices", "2025"])
+        m.leftBrowsePath = PaneBrowsePath(components: stack)
+        m.rightBrowsePath = PaneBrowsePath(components: stack)
 
-        navigate(m, to: "Documents")
+        navigate(m, to: "Documents", from: fromLeft)
 
         #expect(m.leftBrowsePath.components == ["Documents"])
         #expect(m.rightBrowsePath.components == ["Documents"])
@@ -137,17 +139,6 @@ import Events
         #expect(m.rightBrowsePath.components == ["Documents"])
         #expect(m.combinedRelativePath(isLeft: true) == m.combinedRelativePath(isLeft: false),
                 "however they got there, both panes must report the same location")
-    }
-
-    @Test func testTheRightPaneCanDriveTheLinkToo() {
-        let m = FileSyncManager()
-        m.leftBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices"])
-        m.rightBrowsePath = PaneBrowsePath(components: ["Documents", "Invoices"])
-
-        navigate(m, to: "Documents", from: false)
-
-        #expect(m.rightBrowsePath.components == ["Documents"])
-        #expect(m.leftBrowsePath.components == ["Documents"])
     }
 
     // MARK: - Honesty about the sibling's tree

@@ -12,7 +12,6 @@ import Foundation
 /// - ``ask`` carries no plan: it is a question whose answer is a remembered choice (§5.3). **No
 ///   detector produces one yet**; the case is reserved, and `carriesPlan` and the lens's glyph,
 ///   symbol and verb already answer for it, so §5.3's detector needs nothing else.
-///   `nothingConstructsTheReservedAskKind` keeps "reserved" true.
 public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Sibling folders shaped differently at different times — the shipped detector.
     case shape

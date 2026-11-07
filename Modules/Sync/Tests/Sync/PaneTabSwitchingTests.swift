@@ -339,32 +339,26 @@ import Foundation
 
     /// A switch inside one source at one scope keeps the pane's tree. Dropping it would re-walk
     /// something identical (a visible refresh on every switch) and republish the tree
-    /// empty-then-shallow, into the prune that would flatten the column stack just restored.
+    /// empty-then-shallow, into the prune that would flatten the column stack just restored. A
+    /// switch that changes the source drops it: it walks a root the pane is leaving.
     @MainActor
-    @Test func switchingInsideOneSourceKeepsTheTreeItIsAlreadyShowing() async throws {
-        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
+    @Test(arguments: ["iCloud", "Dropbox"])
+    func switchingKeepsTheTreeOnlyInsideOneSource(arrivingAt providerId: String) async throws {
+        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: providerId)])
         manager.leftTree = [FileNode(id: "/r/Documents", name: "Documents", isDirectory: true, children: [])]
         manager.lastLoadedLeftFocusPath = ""
 
         manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
 
-        #expect(!manager.leftTree.isEmpty,
-                "the pane's tree was dropped for a move inside the tree it was already showing")
-        #expect(manager.lastLoadedLeftFocusPath == "",
-                "the pane was marked unloaded, so its next republish prunes the restored stack")
-    }
-
-    /// …and a switch that changes the source drops it: it walks a root the pane is leaving.
-    @MainActor
-    @Test func switchingToAnotherSourceDropsTheTree() async throws {
-        let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "Dropbox")])
-        manager.leftTree = [FileNode(id: "/r/Documents", name: "Documents", isDirectory: true, children: [])]
-        manager.lastLoadedLeftFocusPath = ""
-
-        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
-
-        #expect(manager.leftTree.isEmpty,
-                "the pane kept a tree walked from the source it just left")
+        if providerId == "iCloud" {
+            #expect(!manager.leftTree.isEmpty,
+                    "the pane's tree was dropped for a move inside the tree it was already showing")
+            #expect(manager.lastLoadedLeftFocusPath == "",
+                    "the pane was marked unloaded, so its next republish prunes the restored stack")
+        } else {
+            #expect(manager.leftTree.isEmpty,
+                    "the pane kept a tree walked from the source it just left")
+        }
     }
 
     /// Moving to another folder in the same source keeps the fast-path cache, so the arriving tab
@@ -407,11 +401,21 @@ import Foundation
 
     /// A tab switch reloads only the pane it moved; walking the other again would rebuild something
     /// identical. `.both` stays the default for every other caller, so a file operation, a forced
-    /// rescan and a sort change still rebuild both panes (`PaneReloadScopeTranscript`).
+    /// rescan and a sort change still rebuild both panes. The switch does drop the comparison: it
+    /// was computed for the folder pair the pane is leaving, and a stale "in sync" is the most
+    /// expensive wrong answer this app can give. The tabs are at different folders, since a
+    /// same-folder switch keeps the comparison.
     @MainActor
     @Test func aTabSwitchInvalidatesOnlyThePaneItMoved() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
                                      PaneTab(providerId: "iCloud", relativePath: "Elsewhere")])
+        manager.differences = [FileDifference(relativePath: "stale.pdf",
+                                              leftItemPath: "/l/stale.pdf",
+                                              rightItemPath: "/r/stale.pdf",
+                                              type: .missingOnRight,
+                                              action: .copyToRight,
+                                              description: "missing")]
+        manager.hasScanned = true
         manager.leftTree = [FileNode(id: "/l/A", name: "A", isDirectory: true, children: [])]
         manager.rightTree = [FileNode(id: "/r/B", name: "B", isDirectory: true, children: [])]
         manager.lastLoadedLeftFocusPath = ""
@@ -429,7 +433,10 @@ import Foundation
                 "the still pane was marked unloaded, which is what makes it re-walk")
         #expect(manager.rightItemCount == 1)
         // The comparison still goes: one pane moving DOES change the folder pair.
-        #expect(!manager.hasScanned)
+        #expect(manager.differences.isEmpty,
+                "the previous folder's differences survived a tab switch")
+        #expect(!manager.hasScanned,
+                "the pane claims a scan it ran against the tab it just left")
     }
 
     /// The scope the host hands the refresh names that same pane, or a pane is invalidated and
@@ -652,30 +659,7 @@ import Foundation
         #expect(manager.leftRelativePath == "")
     }
 
-    /// A tab switch to another folder drops the comparison: it was computed for the folder pair the
-    /// pane is leaving, and a stale "in sync" is the most expensive wrong answer this app can give.
-    /// The tabs are at different folders, since a same-folder switch keeps the comparison.
-    @MainActor
-    @Test func switchingTabsThrowsAwayTheComparisonBuiltForTheOldFolder() async throws {
-        let manager = manager(tabs: [PaneTab(providerId: "iCloud"),
-                                     PaneTab(providerId: "iCloud", relativePath: "Elsewhere")])
-        manager.differences = [FileDifference(relativePath: "stale.pdf",
-                                              leftItemPath: "/l/stale.pdf",
-                                              rightItemPath: "/r/stale.pdf",
-                                              type: .missingOnRight,
-                                              action: .copyToRight,
-                                              description: "missing")]
-        manager.hasScanned = true
-
-        manager.switchTab(to: manager.leftPaneTabs.tabs[1].id, isLeft: true, currentProviderId: "iCloud")
-
-        #expect(manager.differences.isEmpty,
-                "the previous folder's differences survived a tab switch")
-        #expect(!manager.hasScanned,
-                "the pane claims a scan it ran against the tab it just left")
-    }
-
-    /// …and a switch inside one folder keeps the comparison and asks for no scan: a tab that shares
+    /// A switch inside one folder keeps the comparison and asks for no scan: a tab that shares
     /// the focus shares the answer. Refreshing is the Refresh button's job, and drilling through
     /// columns, which moves the same stack a tab carries, doesn't rescan either.
     @MainActor

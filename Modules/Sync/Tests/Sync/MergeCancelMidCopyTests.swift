@@ -11,52 +11,6 @@ import Foundation
 /// the one that observes the cancellation.
 @Suite struct MergeCancelMidCopyTests {
 
-    /// A real `FileManager` (the merge hashes real bytes, so a mock disk can't drive this path)
-    /// that cancels the run's `Progress` from inside the first `copyItem`, then lets the copy
-    /// finish, so step 2 observes the cancellation.
-    ///
-    /// It cancels on the worker's own thread: a test-side cancel would have to be scheduled on the
-    /// main actor, which the parallel suite can starve for seconds, so it could land in the wrong
-    /// place or not at all. A subclass rather than a `FileManaging` wrapper because only the
-    /// `fileManager is FileManager` fast path in `buildTree` yields file sizes to hash and plan.
-    private final class FirstCopyCancelGate: FileManager, @unchecked Sendable {
-        /// A `FileManager` subclass can't add mutable stored state (it is already unchecked
-        /// Sendable), so the state lives in a lock-guarded box.
-        private final class Gate: @unchecked Sendable {
-            private let lock = NSLock()
-            private var fired = false
-            private var progress: Progress?
-            /// True exactly once.
-            func trip() -> Bool {
-                lock.lock(); defer { lock.unlock() }
-                let first = !fired
-                fired = true
-                return first
-            }
-            func install(_ progress: Progress) { lock.lock(); self.progress = progress; lock.unlock() }
-            /// The installed Progress, waiting (bounded) for the test to hand it over.
-            func awaitProgress() -> Progress? {
-                let deadline = Date().addingTimeInterval(30)
-                while Date() < deadline {
-                    lock.lock(); let p = progress; lock.unlock()
-                    if let p { return p }
-                    Thread.sleep(forTimeInterval: 0.005)
-                }
-                return nil
-            }
-        }
-        private let gate = Gate()
-
-        /// Hands the gate the merge's Progress. The gate waits for it, so a late install can't make
-        /// the cancellation land early.
-        func installProgress(_ progress: Progress) { gate.install(progress) }
-
-        override func copyItem(at srcURL: URL, to dstURL: URL) throws {
-            if gate.trip() { gate.awaitProgress()?.cancel() }
-            try super.copyItem(at: srcURL, to: dstURL)
-        }
-    }
-
     private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: fill, count: bytes).write(to: url)
@@ -81,14 +35,12 @@ import Foundation
         try write(redundant.appendingPathComponent("a-unique.txt"), bytes: 5000, fill: 0x41)
         try write(redundant.appendingPathComponent("b-unique.txt"), bytes: 5000, fill: 0x42)
 
-        let gate = FirstCopyCancelGate()
+        let gate = NthCopyCancelGate(cancelOnCopyNumber: 1)
         let manager = FileSyncManager(fileManager: gate)
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 15000, itemCount: 3,
-                              modificationDate: nil, uniqueItemCount: 2, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.33), name: "Keeper",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        let group = DuplicateGroup.stub(
+            [.stub(keeper.path, keeper: true, isDirectory: true, size: 5000),
+             .stub(redundant.path, keeper: false, isDirectory: true, size: 15000, itemCount: 3, unique: 2)],
+            matchType: .overlapping(sharedFraction: 0.33), reclaimable: 5000)
         manager.duplicateGroups = [group]
 
         let merge = Task { await manager.mergeDuplicateGroup(group) }
@@ -126,21 +78,32 @@ import Foundation
         #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears on the cancel path too")
     }
 
-    /// A Trash-less volume whose `copyItem` cancels the run from inside the Nth call, so the cancel
-    /// can be aimed at a later fold after an earlier one has completed in full.
+    /// A real `FileManager` (the merge hashes real bytes, so a mock disk can't drive this path)
+    /// that cancels the run's `Progress` from inside the Nth `copyItem`, then lets the copy finish,
+    /// so the next step observes the cancellation. The cancel can be aimed at a later fold after an
+    /// earlier one has completed in full. `refusesTrash` makes it a Trash-less volume.
+    ///
+    /// It cancels on the worker's own thread: a test-side cancel would have to be scheduled on the
+    /// main actor, which the parallel suite can starve for seconds, so it could land in the wrong
+    /// place or not at all. A subclass rather than a `FileManaging` wrapper because only the
+    /// `fileManager is FileManager` fast path in `buildTree` yields file sizes to hash and plan.
     private final class NthCopyCancelGate: FileManager, @unchecked Sendable {
+        /// A `FileManager` subclass can't add mutable stored state (it is already unchecked
+        /// Sendable), so the state lives in a lock-guarded box.
         private final class Gate: @unchecked Sendable {
             private let lock = NSLock()
             private var seen = 0
             private var progress: Progress?
             let target: Int
             init(target: Int) { self.target = target }
+            /// True exactly once, on the `target`th call.
             func trip() -> Bool {
                 lock.lock(); defer { lock.unlock() }
                 seen += 1
                 return seen == target
             }
             func install(_ progress: Progress) { lock.lock(); self.progress = progress; lock.unlock() }
+            /// The installed Progress, waiting (bounded) for the test to hand it over.
             func awaitProgress() -> Progress? {
                 let deadline = Date().addingTimeInterval(30)
                 while Date() < deadline {
@@ -152,14 +115,22 @@ import Foundation
             }
         }
         private let gate: Gate
-        init(cancelOnCopyNumber n: Int) { gate = Gate(target: n); super.init() }
+        private let refusesTrash: Bool
+        init(cancelOnCopyNumber n: Int, refusesTrash: Bool = false) {
+            gate = Gate(target: n)
+            self.refusesTrash = refusesTrash
+            super.init()
+        }
+        /// Hands the gate the merge's Progress. The gate waits for it, so a late install can't make
+        /// the cancellation land early.
         func installProgress(_ progress: Progress) { gate.install(progress) }
         override func copyItem(at srcURL: URL, to dstURL: URL) throws {
             if gate.trip() { gate.awaitProgress()?.cancel() }
             try super.copyItem(at: srcURL, to: dstURL)
         }
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+            guard !refusesTrash else { throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError) }
+            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
     }
 
@@ -191,7 +162,7 @@ import Foundation
 
         // Copy #1 is A's a-only.txt, copy #2 is B's b1.txt: cancelling there makes B's b2.txt the
         // step that observes it, with A already complete and queued for the deferred trash.
-        let gate = NthCopyCancelGate(cancelOnCopyNumber: 2)
+        let gate = NthCopyCancelGate(cancelOnCopyNumber: 2, refusesTrash: true)
         let manager = FileSyncManager(fileManager: gate)
         manager.undoManager = UndoManager()
         let prompts = LockedBox<[[String]]>([])
@@ -199,14 +170,11 @@ import Foundation
             prompts.withLock { $0.append(names) }
             return true
         }
-        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
-        let ca = DuplicateCopy(id: a.path, name: aName, isDirectory: true, size: 10000, itemCount: 2,
-                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
-        let cb = DuplicateCopy(id: b.path, name: bName, isDirectory: true, size: 15000, itemCount: 3,
-                               modificationDate: nil, uniqueItemCount: 2, depth: 0, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.33), name: "Keeper",
-                                   isDirectory: true, copies: [k, ca, cb], reclaimableBytes: 5000)
+        let group = DuplicateGroup.stub(
+            [.stub(keeper.path, keeper: true, isDirectory: true, size: 5000),
+             .stub(a.path, keeper: false, isDirectory: true, size: 10000, itemCount: 2, unique: 1),
+             .stub(b.path, keeper: false, isDirectory: true, size: 15000, itemCount: 3, unique: 2)],
+            matchType: .overlapping(sharedFraction: 0.33), reclaimable: 5000)
         manager.duplicateGroups = [group]
 
         let merge = Task { await manager.mergeDuplicateGroup(group) }

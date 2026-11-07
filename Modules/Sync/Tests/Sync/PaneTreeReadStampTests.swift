@@ -9,19 +9,27 @@ import Foundation
 @MainActor
 @Suite struct PaneTreeReadStampTests {
 
-    private func manager(_ build: (MockFileManager) throws -> Void) rethrows -> FileSyncManager {
+    /// A manager over a mock disk holding `/src/a.txt`.
+    private func flat() throws -> FileSyncManager {
         let fm = MockFileManager()
-        try build(fm)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        return FileSyncManager(fileManager: fm)
+    }
+
+    /// A manager over a mock disk holding `/src/sub/a.txt`.
+    private func nested() throws -> FileSyncManager {
+        let fm = MockFileManager()
+        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/src/sub"), withIntermediateDirectories: true)
+        fm.virtualDisk["/src/sub/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         return FileSyncManager(fileManager: fm)
     }
 
     /// A cold walk stamps the pane, and a pane that has loaded nothing carries no stamp, so the bar
     /// omits the segment rather than invent a date.
     @Test func aColdWalkStampsThePaneAndAnUnloadedPaneCarriesNothing() async throws {
-        let manager = try manager { fm in
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-            fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let manager = try flat()
         #expect(manager.leftTreeReadAt == nil, "a pane that has loaded nothing already claims a read")
 
         let before = Date()
@@ -34,11 +42,7 @@ import Foundation
     /// A cache hit reports the walk's time, not the hit's. Navigating away and back serves the tree
     /// from `prefetchedTrees`, and the age must survive, or the listing nobody re-read looks freshest.
     @Test func aCacheHitCarriesTheAgeOfTheWalkThatBuiltIt() async throws {
-        let manager = try manager { fm in
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src/sub"), withIntermediateDirectories: true)
-            fm.virtualDisk["/src/sub/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let manager = try nested()
         await manager.loadTree(path: "/src", isLeft: true)
         let walked = try #require(manager.leftTreeReadAt)
 
@@ -56,11 +60,7 @@ import Foundation
     /// A slice drilled out of a cached root inherits that root's stamp, the same way it inherits
     /// the root's walk-stopped bit: the slice is part of that walk, not a walk of its own.
     @Test func aSliceOfACachedRootInheritsTheRootsStamp() async throws {
-        let manager = try manager { fm in
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src/sub"), withIntermediateDirectories: true)
-            fm.virtualDisk["/src/sub/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let manager = try nested()
         await manager.loadTree(path: "/src", isLeft: true)
         let aged = try #require(manager.leftTreeReadAt).addingTimeInterval(-600)
         manager.prefetchedTreeReadAt["/src"] = aged
@@ -74,10 +74,7 @@ import Foundation
     /// Dropping the cache drops the stamps with it, in one verb, so a stale date can't be inherited
     /// by the next tree cached at the same path.
     @Test func droppingTheCacheDropsTheStamps() async throws {
-        let manager = try manager { fm in
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-            fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let manager = try flat()
         await manager.loadTree(path: "/src", isLeft: true)
         #expect(!manager.prefetchedTreeReadAt.isEmpty, "the walk cached no stamp — this check is vacuous")
         manager.dropPrefetchedTrees()
@@ -87,10 +84,7 @@ import Foundation
     /// Re-pointing one pane clears its stamp and leaves the other's alone. A pane whose tree has
     /// just been thrown away must not go on being dated by a walk of somewhere else.
     @Test func invalidatingOnePaneClearsItsStampAndOnlyIts() async throws {
-        let manager = try manager { fm in
-            try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-            fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let manager = try flat()
         await manager.loadTree(path: "/src", isLeft: true)
         await manager.loadTree(path: "/src", isLeft: false)
         #expect(manager.leftTreeReadAt != nil && manager.rightTreeReadAt != nil)

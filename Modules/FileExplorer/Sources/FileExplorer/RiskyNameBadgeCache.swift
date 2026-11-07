@@ -9,7 +9,7 @@ import Sync
 /// (`PaneActionDelegate.riskyName(for:)`). `NameNormalizer.risky` rebuilds the name
 /// scalar-by-scalar and canonicalises it before it can answer. On real trees, with names bridged
 /// from `NSString` as `URL.lastPathComponent` returns them, a memo hit costs ~1.5 µs against
-/// ~4–26 µs for the live check (`NameCheckBenchmark`).
+/// ~4–26 µs for the live check.
 ///
 /// Lazy rather than an index built per publish, which would cost ~140 ms on the main actor for a
 /// 40,000-node tree; the memo pays only for rows someone looks at, and names repeat heavily.

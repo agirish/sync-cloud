@@ -17,51 +17,37 @@ import Testing
         FolderSource(id: FolderSource.idPrefix + id, path: path)
     }
 
-    @Test func theMountPointItselfIsOnTheVolume() {
-        #expect(FolderSource.isOnVolume(Self.card, volume: Self.card))
-    }
+    /// (path, volume, whether the path is on it, why).
+    static let membership: [(path: String, volume: String, isOn: Bool, why: String)] = [
+        (card, card, true, "the mount point itself is on the volume"),
+        ("\(card)/DCIM/100MSDCF", card, true, "a folder inside is on the volume"),
+        // Two cards in two readers named `CARD` and `CARD 2`: ejecting the first must not take the
+        // second's sources with it.
+        ("/Volumes/CARD 2/DCIM", card, false, "a volume whose name merely starts the same is not on it"),
+        ("/Volumes/CARDBOARD", card, false, "a volume whose name merely starts the same is not on it"),
+        ("~/Downloads", card, false, "a folder elsewhere is not on the volume"),
+        // `/` is refused, which keeps an unmount from emptying the app: every path is under `/`, so
+        // a root volume argument would claim every source on the machine, `~/Downloads` included.
+        ("~/Downloads", "/", false, "the root is never a volume for this purpose"),
+        ("/", "/", false, "the root is never a volume for this purpose"),
+        ("/Volumes/CARD", "/", false, "the root is never a volume for this purpose"),
+        // The other way that could happen: a notification without a path, or a caller reading a
+        // field that wasn't there.
+        ("~/Downloads", "", false, "an empty volume claims nothing"),
+        ("/Volumes/CARD", "", false, "an empty volume claims nothing"),
+        // `/Volumes` is on the boot volume, case-insensitive by default, so the two spellings name
+        // one mount point, and a card's row built from one must not survive an eject reported in
+        // the other.
+        ("/volumes/card/DCIM", card, true, "the mount point is case-folded"),
+        // Both spellings really do occur: a provider Location is user-settable and arrives spelled
+        // however it was typed.
+        ("\(card)/", card, true, "a trailing slash on the path is the same volume"),
+        (card, "\(card)/", true, "a trailing slash on the volume is the same volume"),
+    ]
 
-    @Test func aFolderInsideIsOnTheVolume() {
-        #expect(FolderSource.isOnVolume("\(Self.card)/DCIM/100MSDCF", volume: Self.card))
-    }
-
-    /// Two cards in two readers named `CARD` and `CARD 2`: ejecting the first must not take the
-    /// second's sources with it.
-    @Test func aVolumeWhoseNameMerelyStartsTheSameIsNotOnIt() {
-        #expect(!FolderSource.isOnVolume("/Volumes/CARD 2/DCIM", volume: Self.card))
-        #expect(!FolderSource.isOnVolume("/Volumes/CARDBOARD", volume: Self.card))
-    }
-
-    @Test func aFolderElsewhereIsNotOnTheVolume() {
-        #expect(!FolderSource.isOnVolume("~/Downloads", volume: Self.card))
-    }
-
-    /// `/` is refused, which keeps an unmount from emptying the app: every path is under `/`, so a
-    /// root volume argument would claim every source on the machine, `~/Downloads` included.
-    @Test func theRootIsNeverAVolumeForThisPurpose() {
-        #expect(!FolderSource.isOnVolume("~/Downloads", volume: "/"))
-        #expect(!FolderSource.isOnVolume("/", volume: "/"))
-        #expect(!FolderSource.isOnVolume("/Volumes/CARD", volume: "/"))
-    }
-
-    /// An empty volume string is the other way that could happen: a notification without a path,
-    /// or a caller reading a field that wasn't there.
-    @Test func anEmptyVolumeClaimsNothing() {
-        #expect(!FolderSource.isOnVolume("~/Downloads", volume: ""))
-        #expect(!FolderSource.isOnVolume("/Volumes/CARD", volume: ""))
-    }
-
-    /// `/Volumes` is on the boot volume, case-insensitive by default, so the two spellings name one
-    /// mount point, and a card's row built from one must not survive an eject reported in the other.
-    @Test func theMountPointIsCaseFolded() {
-        #expect(FolderSource.isOnVolume("/volumes/card/DCIM", volume: Self.card))
-    }
-
-    /// A trailing slash on either side is the same volume. Both spellings really do occur: a
-    /// provider Location is user-settable and arrives spelled however it was typed.
-    @Test func aTrailingSlashOnEitherSideIsTheSameVolume() {
-        #expect(FolderSource.isOnVolume("\(Self.card)/", volume: Self.card))
-        #expect(FolderSource.isOnVolume(Self.card, volume: "\(Self.card)/"))
+    @Test(arguments: membership)
+    func isOnVolume(_ c: (path: String, volume: String, isOn: Bool, why: String)) {
+        #expect(FolderSource.isOnVolume(c.path, volume: c.volume) == c.isOn, "\(c.why): \(c.path) on \(c.volume)")
     }
 
     /// A volume whose name case-folds to a different length still cuts in the right place.

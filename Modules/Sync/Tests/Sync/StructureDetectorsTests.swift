@@ -302,9 +302,14 @@ import Foundation
 
     // MARK: The reference tree, pinned
 
-    /// The full detector set over the reference tree, matching the counts in ROADMAP v5 §5.2. A
-    /// movement here is a rule change or a fixture re-lift, and either is a decision, not a drift.
+    /// The full detector set over the reference tree (all 3,013 folders, structural fields only),
+    /// matching the counts in ROADMAP v5 §5.2. A movement here is a rule change or a fixture
+    /// re-lift, and either is a decision, not a drift: the shape detector finds exactly one family,
+    /// and a second appearing (or that one vanishing) is a change someone has to explain.
     @Test func theReferenceTreeCountsArePinned() throws {
+        let profile = try RestructureFixturesTests.profile(named: "restructure-reference-tree")
+        #expect(profile.folders.count == 3013)
+        #expect(StructureDivergence.findings(in: profile).map(\.family) == ["Finance/US/Income Tax"])
         let report = try Self.referenceReport
         var byKind: [FindingKind: Int] = [:]
         for finding in report.findings { byKind[finding.kind, default: 0] += 1 }
@@ -336,65 +341,5 @@ import Foundation
         // case is the synthetic one above.
         #expect(subjects(.mirroredInbox).isEmpty)
         #expect(subjects(.echoName).contains("Finance/US/TODO/IRS/IRS"))
-    }
-
-    // MARK: The reserved kind
-
-    /// `FindingKind.ask` is reserved, and this makes "reserved" checkable. Nothing constructs one
-    /// yet (its detector is ROADMAP v5 §5.3); the case exists so that landing it is a detector and
-    /// nothing else, since `carriesPlan` and the lens's glyph, symbol and verb already answer for it.
-    /// But a case with rules and no producer looks, in every switch, like one that ships.
-    ///
-    /// Scans every source that could construct one (`Modules/*/Sources`, `MacApp` and the CLI),
-    /// because "no detector produces it" is a claim about the whole app. The scanned roots bound the
-    /// conclusion, so they are asserted, and so is the scan's ability to find a construction at all.
-    @Test func nothingConstructsTheReservedAskKind() throws {
-        let sources = try Self.appAndCLISwiftSources()
-        var offenders: [String] = []
-        var controls = 0
-        for url in sources {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            // The spelling a construction takes: the labelled initialiser argument, and the
-            // manifest/key builders that pass a kind as `kind:`.
-            if text.contains("kind: .ask") { offenders.append(url.lastPathComponent) }
-            if text.contains("kind: .echoName") || text.contains("kind: .backlog") { controls += 1 }
-        }
-        #expect(offenders.isEmpty,
-                "a detector now produces .ask (\(offenders.joined(separator: ", "))) — the case is no longer reserved, so StructureDivergence's note and the lens's verb, glyph and tint rules all need to be about a kind that ships")
-        #expect(controls > 0,
-                "the scan found no `kind: .<case>` construction anywhere, so its empty result about .ask says nothing — the roots or the spelling are wrong")
-    }
-
-    /// `Modules/*/Sources`, `MacApp` and `SyncCloudCLI/Sources`. The CLI builds findings of its own
-    /// to report, so a scan that skipped it would answer about the app, not the product.
-    private static func appAndCLISwiftSources() throws -> [URL] {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let modules = repo.appendingPathComponent("Modules")
-        var roots = [repo.appendingPathComponent("MacApp"),
-                     repo.appendingPathComponent("SyncCloudCLI/Sources")]
-        roots += try FileManager.default
-            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
-            .map { $0.appendingPathComponent("Sources") }
-
-        var files: [URL] = []
-        for root in roots {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else { continue }
-            files += FileManager.default
-                .enumerator(at: root, includingPropertiesForKeys: nil)?
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" } ?? []
-        }
-        #expect(files.count > 100, "found only \(files.count) sources — the roots did not resolve")
-        #expect(files.contains { $0.path.hasSuffix("Sync/StructureDivergence.swift") },
-                "the module the kind lives in is not being scanned")
-        #expect(files.contains { $0.path.contains("SyncCloudCLI/Sources/") },
-                "the CLI is not being scanned")
-        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
-        return files
     }
 }

@@ -13,7 +13,8 @@ import Events
 /// with the first merge's step: "Undo Last Run" would list a few deletes while `undo()` reverses a
 /// whole merge, including deleting the folded files out of the keeper.
 ///
-/// Removing the `handedBack` guard in `deleteItems` (invalidate, never pair) must fail both tests.
+/// Removing the `handedBack` guard in `deleteItems` (invalidate, never pair) must fail the unit and the
+/// scenario below.
 @MainActor
 @Suite struct DeleteHandbackRunPairingTests {
 
@@ -68,21 +69,9 @@ import Events
 
         #expect(manager.lastSyncRunUndoPreview == nil,
                 "the handed-back delete armed the run pairing against the caller's PREVIOUS step (“\(manager.lastSyncRunUndoPreview?.actionName ?? "nil")”) — “Undo Last Run” would itemize these deletes while undo() reverses that other action")
-    }
 
-    /// …and the delete's records still reach the durable store: the guard withholds the pairing,
-    /// not the history. Dropping the `recordSyncHistory` call would pass the test above.
-    @Test func aHandedBackDeleteStillRecordsItsHistory() async throws {
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let fm = MockFileManager()
-        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        fm.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
-
-        _ = await manager.deleteItems(at: ["/src/a.txt"], fileManager: fm,
-                                      restoreUndoHandback: { _, _ in })
-
+        // …and the delete's records still reach the durable store: the guard withholds the pairing,
+        // not the history. Dropping the `recordSyncHistory` call would pass the check above.
         let recorded = manager.syncHistoryStore.records
         #expect(recorded.contains { $0.action == .delete && $0.sourcePath == "/src/a.txt" },
                 "the handed-back delete recorded no durable history at all: \(recorded)")
@@ -137,15 +126,10 @@ import Events
         let redundant = base.appendingPathComponent(redundantName)
         try write(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
         try write(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x61)
-        let copies = [
-            DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
-                          modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true),
-            DuplicateCopy(id: redundant.path, name: redundantName, isDirectory: true, size: 8000,
-                          itemCount: 2, modificationDate: nil, uniqueItemCount: 1, depth: 0,
-                          isRecommendedKeeper: false)
+        let copies: [DuplicateCopy] = [
+            .stub(keeper.path, keeper: true, isDirectory: true, size: 4000),
+            .stub(redundant.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1),
         ]
-        return (keeper, redundant,
-                DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
-                               isDirectory: true, copies: copies, reclaimableBytes: 4000))
+        return (keeper, redundant, .stub(copies, matchType: .overlapping(sharedFraction: 0.5), reclaimable: 4000))
     }
 }

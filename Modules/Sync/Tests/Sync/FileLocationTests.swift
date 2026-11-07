@@ -225,24 +225,17 @@ struct FileLocationTests {
 
     /// A path that cannot be statted at all — deleted mid-download, or never there. Folding nil
     /// into `false` would print "This Mac only" over a file that is on this Mac in no sense.
+    /// Containment and the verdict are separate answers, and an unknown file keeps them apart:
+    /// containment still says "outside", the verdict still says nothing.
     @Test func unknownMaterializationIsNeverAVerdict() {
         let outside = Self.coverage([Self.iCloud()])
+        #expect(self.outside(path: "/Users/u/Projects/gone.md", in: outside))
         #expect(FileLocation.verdict(forPath: "/Users/u/Projects/gone.md",
                                      in: outside, isCloudOnly: nil) == nil)
         // …and inside a cloud folder too, where a provider name WAS available to print.
         #expect(FileLocation.verdict(
             forPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/gone.md",
             in: outside, isCloudOnly: nil) == nil)
-    }
-
-    /// Containment and the verdict are separate answers, and an unknown file keeps them apart:
-    /// containment still says "outside", the verdict still says nothing. Pinned so the two halves
-    /// cannot drift into one.
-    @Test func containmentAloneStillAnswersWhenMaterializationDoesNot() {
-        let c = Self.coverage([Self.iCloud()])
-        let path = "/Users/u/Projects/gone.md"
-        #expect(outside(path: path, in: c))
-        #expect(FileLocation.verdict(forPath: path, in: c, isCloudOnly: nil) == nil)
     }
 
     // MARK: A dataless file is never "This Mac only"

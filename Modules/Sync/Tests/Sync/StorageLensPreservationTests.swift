@@ -44,22 +44,8 @@ import Testing
         #expect(StorageLensStore.load(from: url).map(\.root) == ["/b"])
     }
 
-    /// A file from a newer build is good data, not corruption: it is kept where it is, not set
-    /// aside (`aForeignSchemaIsNotAnUnreadableEpisode` says why).
-    @Test func aForeignSchemaIsKeptRatherThanOverwritten() throws {
-        let url = try storeURL("schema")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let future = Data("{\"schema\":99,\"snapshots\":[]}".utf8)
-        try future.write(to: url)
-
-        StorageLensStore.saveInBackground(snapshot("/b"), to: url)
-        StorageLensStore.waitForPendingWrites()
-
-        #expect(FileManager.default.contents(atPath: url.path) == future,
-                "a newer build's file was overwritten")
-    }
-
-    /// A newer build's file is not a self-clearing episode. Corruption clears: the set-aside frees
+    /// A file from a newer build is good data, not corruption: it is kept where it is, neither
+    /// overwritten nor set aside. Nor is it a self-clearing episode. Corruption clears: the set-aside frees
     /// the path and the next write lands a readable file. A foreign schema repeats: this build would
     /// set the newer file aside and write its own, the newer build would do the same back, and every
     /// launch would mint another set-aside that nothing sweeps (about 12 MB each for
@@ -146,16 +132,6 @@ import Testing
 
         guard case .unreadable = StorageLensStore.read(from: url) else {
             Issue.record("an exists-but-unreadable file did not read as .unreadable")
-            return
-        }
-    }
-
-    /// A genuinely absent file still reads `.absent`, so a first scan stays quiet and ordinary.
-    @Test func aGenuinelyAbsentFileStillReadsAsAbsent() throws {
-        let url = try storeURL("absent")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        guard case .absent = StorageLensStore.read(from: url) else {
-            Issue.record("an absent file did not read as .absent")
             return
         }
     }

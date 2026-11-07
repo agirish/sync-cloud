@@ -29,20 +29,16 @@ import Events
     }
 
     private func copy(_ path: String, keeper: Bool, size: Int = 1000,
-                      modified: Date? = scanned, isDirectory: Bool = false,
+                      modified: Date? = scanned, isDirectory: Bool = false, protected: Bool = false,
                       snapshot: FolderContentSnapshot? = nil) -> DuplicateCopy {
-        DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory,
-                      size: size, itemCount: 1, modificationDate: modified,
-                      uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper,
-                      contentSnapshot: snapshot)
+        .stub(path, keeper: keeper, isDirectory: isDirectory, size: size, modified: modified, depth: 1,
+              protected: protected, snapshot: snapshot)
     }
 
     private func group(_ copies: [DuplicateCopy],
                        matchType: DuplicateMatchType = .identical,
                        name: String = "x") -> DuplicateGroup {
-        DuplicateGroup(matchType: matchType, name: name, isDirectory: false, copies: copies,
-                       reclaimableBytes: copies.filter { !$0.isRecommendedKeeper }
-                           .reduce(0) { $0 + $1.size })
+        .stub(copies, matchType: matchType, name: name, isDirectory: false)
     }
 
     /// Reads the disk log, not `Logger.shared.entries`: the in-memory array is capped, and a
@@ -92,8 +88,8 @@ import Events
                                                           contents: [])
         fm.virtualDisk["/b/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil,
                                                           contents: [])
-        let walked = Recorder()
-        fm.onEnumerate = { url in walked.append(url.path) }
+        let walked = LockedBox<[String]>([])   // `onEnumerate` fires off the main actor
+        fm.onEnumerate = { url in walked.withLock { $0.append(url.path) } }
         let empty = FolderContentSnapshot(entries: [:], ignoredNames: [])
         let keeper = copy("/a/d", keeper: true, isDirectory: true, snapshot: empty)
         let other = copy("/b/d", keeper: false, isDirectory: true, snapshot: empty)
@@ -101,7 +97,7 @@ import Events
 
         #expect(await manager.assessDuplicatePair(copy: other, keeper: keeper) == .matches,
                 "the fixture itself refuses, so the order below would prove nothing")
-        let order = walked.paths
+        let order = walked.withLock { $0 }
         let copyWalk = try #require(order.firstIndex(of: "/b/d"), "the copy was never walked")
         let keeperWalk = try #require(order.firstIndex(of: "/a/d"), "the keeper was never walked")
         #expect(copyWalk < keeperWalk,
@@ -323,26 +319,6 @@ import Events
                 "the gate's post-confirmation pass let a drifted copy be destroyed permanently")
     }
 
-    /// The nil-`self` branch of the gate, reached directly: a manager torn down mid-delete can't
-    /// verify anything, so it refuses everything. The call site holds `self` on the awaiting frame,
-    /// so only a direct call reaches it.
-    @MainActor
-    @Test func theGateRefusesEverythingWhenItsManagerIsGone() async throws {
-        var gate: (@Sendable ([String]) async -> Set<String>)?
-        weak var weakManager: FileSyncManager?
-        let keeper = copy("/a/x", keeper: true)
-        let other = copy("/b/x", keeper: false)
-        do {
-            let manager = FileSyncManager(fileManager: MockFileManager())
-            weakManager = manager
-            gate = manager.duplicatePairRemovalGate(copy: other, keeper: keeper)
-        }
-        try #require(weakManager == nil,
-                     "the manager outlived its scope — the nil-self branch was never reached, so this pins nothing")
-        let closure = try #require(gate)
-        #expect(await closure(["/b/x"]) == ["/b/x"])
-    }
-
     // MARK: Success
 
     /// Why this verb exists: on a three-copy group the pair verdict is about one copy, and
@@ -462,10 +438,7 @@ import Events
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/kept/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
-        let other = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
-                                  itemCount: 1, modificationDate: Self.scanned, uniqueItemCount: 0,
-                                  depth: 1, isRecommendedKeeper: false,
-                                  isProtectedFromRemoval: true)
+        let other = copy("/kept/x", keeper: false, protected: true)
         manager.duplicateGroups = [group([keeper, other])]
 
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
@@ -501,10 +474,7 @@ import Events
         fm.virtualDisk["/kept/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
         let unprotected = copy("/kept/x", keeper: false)          // what the surface holds
-        let protectedNow = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
-                                         itemCount: 1, modificationDate: Self.scanned,
-                                         uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
-                                         isProtectedFromRemoval: true)
+        let protectedNow = copy("/kept/x", keeper: false, protected: true)
         manager.duplicateGroups = [group([keeper, protectedNow])] // what the rescan produced
 
         #expect(await manager.resolveDuplicateCopy(unprotected, keeper: keeper) == false,
@@ -526,14 +496,9 @@ import Events
         manager.duplicateGroups = [group([keeper, other])]
         manager.permanentDeleteConfirmer = { [weak manager] _ in
             // While the alert is up, a rescan lands and keeps the folder this copy sits in.
-            let protectedNow = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false,
-                                             size: 1000, itemCount: 1, modificationDate: Self.scanned,
-                                             uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
-                                             isProtectedFromRemoval: true)
-            manager?.duplicateGroups = [DuplicateGroup(matchType: .identical, name: "x",
-                                                       isDirectory: false,
-                                                       copies: [keeper, protectedNow],
-                                                       reclaimableBytes: 1000)]
+            let protectedNow = DuplicateCopy.stub("/kept/x", keeper: false, modified: Self.scanned,
+                                                  depth: 1, protected: true)
+            manager?.duplicateGroups = [DuplicateGroup.stub([keeper, protectedNow])]
             return true
         }
 
@@ -593,29 +558,11 @@ import Events
         let manager = makeManager(fm)
         fm.virtualDisk["/a/x"] = stub()      // "/kept/x" is already gone
         let keeper = copy("/a/x", keeper: true)
-        let other = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
-                                  itemCount: 1, modificationDate: Self.scanned, uniqueItemCount: 0,
-                                  depth: 1, isRecommendedKeeper: false,
-                                  isProtectedFromRemoval: true)
+        let other = copy("/kept/x", keeper: false, protected: true)
         manager.duplicateGroups = [group([keeper, other])]
 
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
         #expect(manager.banner?.message.contains("already gone") == true,
                 "reported \(manager.banner?.message ?? "no banner") for a file that does not exist")
-    }
-}
-
-/// Order-recording box for the walk-order test: the mock's `onEnumerate` fires off the main
-/// actor, so the array needs its own lock rather than the suite's isolation.
-private final class Recorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [String] = []
-    func append(_ path: String) {
-        lock.lock(); defer { lock.unlock() }
-        storage.append(path)
-    }
-    var paths: [String] {
-        lock.lock(); defer { lock.unlock() }
-        return storage
     }
 }

@@ -68,6 +68,28 @@ import Foundation
     }
 }
 
+/// The directories a class suite made, removed when the suite instance goes. Swift Testing makes
+/// one instance per test, so each test's fixtures are swept right after it finishes; otherwise
+/// each would leave a directory in the temp dir on the self-hosted runner.
+private final class ScratchDirectories {
+    private var made: [URL] = []
+    deinit { for dir in made { try? FileManager.default.removeItem(at: dir) } }
+
+    /// A fresh directory holding an empty `p`, the profile folder a store writes into.
+    func make(_ prefix: String) throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(prefix)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"), withIntermediateDirectories: true)
+        made.append(dir)
+        return dir
+    }
+}
+
+/// A one-rename manifest in `family`, under profile `p`.
+private func manifest(id: String, family: String = "F") -> RestructureManifest {
+    RestructureManifest(profileId: "p", manifestId: id, createdAt: "t", family: family,
+                        kind: .shape, actions: [.init(action: .renameDir, src: "\(family)/a", dst: "\(family)/b")])
+}
+
 /// `restructure.json` — the one app-owned file for everything Restructure remembers.
 ///
 /// Covered here: a round-trip per section, a suppression that outlives the profile that was active
@@ -76,20 +98,8 @@ import Foundation
 @MainActor
 @Suite final class RestructureStoreTests {
 
-    // A class suite so `deinit` can sweep what each test created; otherwise each test leaves a
-    // fixture directory in the temp dir on the self-hosted runner. Swift Testing makes one suite
-    // instance per test, so the sweep runs right after each test finishes.
-    private var scratch: [URL] = []
-    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
-
-    private func makeDirectory() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("restructure-store-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        scratch.append(dir)
-        return dir
-    }
+    private let scratch = ScratchDirectories()
+    private func makeDirectory() throws -> URL { try scratch.make("restructure-store") }
 
     private func fileBytes(_ dir: URL) throws -> Data {
         try Data(contentsOf: dir.appendingPathComponent("p/restructure.json"))
@@ -179,23 +189,24 @@ import Foundation
         #expect(third.nudgesAcknowledged.count == 1)
     }
 
-    /// A store written before this section existed decodes with it absent: the tolerant-decoder
-    /// rule every section here follows, so a new section needs no migration.
-    @Test func aStoreWithNoNudgeSectionDecodesWithoutOne() throws {
+    /// A store written before a section existed decodes with it absent: the tolerant-decoder rule
+    /// every section here follows, so a new section needs no migration.
+    @Test(arguments: ["nudgesAcknowledged", "trend"])
+    func aStoreWithoutASectionDecodesWithoutIt(section: String) throws {
         let dir = try makeDirectory()
         let before = RestructureStore(directory: dir, profileId: "p")
         before.suppress(RestructureKey(kind: .shape, path: "Finance"))
         // Strip the section, as a file older than it would lack it.
         var object = try #require(try JSONSerialization.jsonObject(with: fileBytes(dir))
                                     as? [String: Any])
-        #expect(object["nudgesAcknowledged"] != nil, "a positive control: this build writes it")
-        object["nudgesAcknowledged"] = nil
+        #expect(object[section] != nil, "a positive control: this build writes it")
+        object[section] = nil
         try JSONSerialization.data(withJSONObject: object)
             .write(to: dir.appendingPathComponent("p/restructure.json"))
 
         let reread = RestructureStore(directory: dir, profileId: "p")
         #expect(!reread.isUnreadable, "an absent section is absent, not unreadable")
-        #expect(reread.nudgesAcknowledged.isEmpty)
+        #expect(section == "trend" ? reread.trend.isEmpty : reread.nudgesAcknowledged.isEmpty)
         #expect(reread.isSuppressed(RestructureKey(kind: .shape, path: "Finance")))
     }
 
@@ -242,23 +253,6 @@ import Foundation
         #expect(reread.trend.first?.total == 5, "the oldest five were dropped")
         #expect(reread.trend.last?.total == RestructureStore.trendCap + 4)
         #expect(reread.trend.contains { $0.landing }, "landings survive the round trip")
-    }
-
-    /// A store written before the section existed decodes with it absent.
-    @Test func aStoreWithNoTrendSectionDecodesWithoutOne() throws {
-        let dir = try makeDirectory()
-        let before = RestructureStore(directory: dir, profileId: "p")
-        before.suppress(RestructureKey(kind: .shape, path: "Finance"))
-        var object = try #require(try JSONSerialization.jsonObject(with: fileBytes(dir))
-                                    as? [String: Any])
-        #expect(object["trend"] != nil, "a positive control: this build writes it")
-        object["trend"] = nil
-        try JSONSerialization.data(withJSONObject: object)
-            .write(to: dir.appendingPathComponent("p/restructure.json"))
-
-        let reread = RestructureStore(directory: dir, profileId: "p")
-        #expect(!reread.isUnreadable)
-        #expect(reread.trend.isEmpty)
     }
 
     /// A backlog subject is a folder path, so a landing that renames it must move this key with
@@ -577,26 +571,8 @@ import Foundation
 @MainActor
 @Suite final class RestructureStoreRobustnessTests {
 
-    // Class + deinit for the same reason as `RestructureStoreTests`: each test's fixture
-    // directory is swept the moment its suite instance goes away.
-    private var scratch: [URL] = []
-    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
-
-    private func makeDirectory() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("restructure-robust-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        scratch.append(dir)
-        return dir
-    }
-
-    private func manifest(id: String, family: String = "F") -> RestructureManifest {
-        RestructureManifest(profileId: "p", manifestId: id, createdAt: "t", family: family,
-                            kind: .shape, actions: [
-                                .init(action: .renameDir, src: "\(family)/a", dst: "\(family)/b"),
-                            ])
-    }
+    private let scratch = ScratchDirectories()
+    private func makeDirectory() throws -> URL { try scratch.make("restructure-robust") }
 
     /// A rename whose destination equals a key recorded before that folder was hand-deleted is
     /// history, not a programming error: the rekeyed claim wins and nothing traps at the tail
@@ -716,28 +692,13 @@ import Foundation
 @MainActor
 @Suite final class RestructureLedgerWriteTests {
 
-    private var scratch: [URL] = []
-    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
-
-    private func makeDirectory() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("restructure-write-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        scratch.append(dir)
-        return dir
-    }
+    private let scratch = ScratchDirectories()
+    private func makeDirectory() throws -> URL { try scratch.make("restructure-write") }
 
     private func fileURL(_ dir: URL) -> URL {
         dir.appendingPathComponent("p/restructure.json")
     }
 
-    private func manifest(id: String) -> RestructureManifest {
-        RestructureManifest(profileId: "p", manifestId: id, createdAt: "t", family: "F",
-                            kind: .shape, actions: [
-                                .init(action: .renameDir, src: "F/a", dst: "F/b"),
-                            ])
-    }
 
     private func record(id: String) -> RestructureStore.AppliedRecord {
         RestructureStore.AppliedRecord(manifest: manifest(id: id),

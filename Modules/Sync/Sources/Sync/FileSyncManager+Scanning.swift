@@ -685,8 +685,7 @@ extension FileSyncManager {
         // In-memory fast path: when both focused folders have deep trees in the prefetch cache
         // (file operations clear it, so cached means current), derive the comparison maps from
         // the trees instead of walking the disk. The saving is modest (~15–20% at 40k nodes),
-        // since building the `[String: FileInfo]` map dominates both branches
-        // (`TreeWalkBenchmark`).
+        // since building the `[String: FileInfo]` map dominates both branches.
         //
         // Both sources report symlinked entries with the target's size and date; but the tree
         // builder walks into symlinked directories (as the panes show them), while the disk
@@ -728,7 +727,7 @@ extension FileSyncManager {
                 guard !Task.isCancelled else { return nil }
                 // No disk at all: `filesInfo(fromTree:)` and the diff's one-sided rows hint each URL
                 // with its type. An unhinted file URL looks its path up on disk, one lookup per node
-                // and ~4x slower (`TreeWalkBenchmark`). The phases are timed apart so a slow run
+                // and ~4x slower. The phases are timed apart so a slow run
                 // says which half moved.
                 let flattenStart = CFAbsoluteTimeGetCurrent()
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
@@ -941,9 +940,9 @@ extension FileSyncManager {
     /// expandable, and loaded by `PaneColumnsView` when a column opens it.
     ///
     /// A pane can be pointed at any folder in one click, so it needs a ceiling. The largest real
-    /// source walks ~40k nodes in ~700 ms (`TreeWalkBenchmark`), so this is 5x that: only a tree
+    /// source walks ~40k nodes in ~700 ms, so this is 5x that: only a tree
     /// that would hang is cut. On `~` it costs ~1.3 s warm, where an unbounded walk ran for
-    /// minutes (`PaneNodeBudgetBenchmark`). Exhaustion is checked before a listing, so a spent
+    /// minutes. Exhaustion is checked before a listing, so a spent
     /// budget stops the next descent, not the current level.
     ///
     /// **The comparison scan's cold branch must use the same number.** Its warm branch compares
@@ -990,8 +989,8 @@ extension FileSyncManager {
     ///
     /// On the real filesystem an unlimited walk fans sibling subtrees across cores at the first two
     /// levels with siblings (`TreeBuilder.maxFanLevel`, bounded by `maxConcurrentSubtrees`), and
-    /// fetches Finder tags only when sorting by them. The fan-out is worth only ~1.2x
-    /// (`TreeWalkBenchmark`): the walk is bound by directory enumeration, one volume's syscalls,
+    /// fetches Finder tags only when sorting by them. The fan-out is worth only ~1.2x:
+    /// the walk is bound by directory enumeration, one volume's syscalls,
     /// which don't divide across cores. Don't expect more from more parallelism.
     /// - Parameter linkedFolders: the folders macOS links into a root from outside it, listed as
     ///   the real folders they point at (`PathBoundary.LinkedFolders`). The machine's table by
@@ -1010,7 +1009,7 @@ extension FileSyncManager {
                 /// Reading Finder tags is a separate xattr fetch per file, so tags are fetched
                 /// only when the sort reads them. Switching to the Tags sort reloads the trees
                 /// from disk (`sortOption.didSet`) rather than re-sorting nodes with no `tags`.
-                /// The fetch roughly doubles the walk (`TreeWalkBenchmark`), the biggest single
+                /// The fetch roughly doubles the walk, the biggest single
                 /// saving in it.
                 let includeTags: Bool
                 /// Keys prefetched when listing a directory so each child's resourceValues in
@@ -1540,7 +1539,7 @@ extension FileSyncManager {
     /// so hashing it misses Swift's fast path. `id` is the app's universal dictionary and set key,
     /// and bridged it hashes ~10x slower. Converting once per node here costs ~3% of a walk and
     /// saves far more in `filesInfo` and the main-actor `PaneChildrenIndex` build. See
-    /// `docs/string-bridging.md` and `BridgedStringBenchmark`.
+    /// `docs/string-bridging.md`.
     ///
     /// `name` is deliberately left bridged: nothing is keyed on it, and `sortLevel`'s
     /// `localizedStandardCompare` is an `NSString` method, so a native name would have to be

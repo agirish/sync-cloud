@@ -6,15 +6,6 @@ import Foundation
 /// false-cases of the lstat path.
 @Suite struct MaterializationStatusTests {
 
-    @Test func datalessFlagMath() {
-        #expect(MaterializationStatus.isDataless(flags: 0) == false)
-        #expect(MaterializationStatus.isDataless(flags: 0x4000_0000) == true)
-        // The dataless bit set alongside other flags still reads as dataless…
-        #expect(MaterializationStatus.isDataless(flags: 0x4000_0000 | 0x1) == true)
-        // …and an unrelated flag alone does not.
-        #expect(MaterializationStatus.isDataless(flags: 0x2000_0000) == false)
-    }
-
     /// Of all 32 `st_flags` bits, only bit 30 (`SF_DATALESS`, 0x4000_0000) may read as dataless. A
     /// mask typo, a shift slip or a signed-shift artifact on bit 31 flips one cell of this table.
     @Test func onlyTheDatalessBitReadsAsDataless() {
@@ -23,20 +14,10 @@ import Foundation
             #expect(MaterializationStatus.isDataless(flags: flag) == (bit == 30),
                     "bit \(bit) (\(String(flag, radix: 16)))")
         }
-        // All bits set reads dataless; all bits EXCEPT 30 set does not.
+        // No flags is not dataless; all bits set is; all bits EXCEPT 30 set is not.
+        #expect(MaterializationStatus.isDataless(flags: 0) == false)
         #expect(MaterializationStatus.isDataless(flags: .max) == true)
         #expect(MaterializationStatus.isDataless(flags: ~UInt32(0x4000_0000)) == false)
-    }
-
-    @Test func ordinaryLocalFileIsNotCloudOnly() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mat-\(UUID().uuidString).txt")
-        try "hello".write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(MaterializationStatus.isCloudOnly(atPath: url.path) == false)
-    }
-
-    @Test func missingPathIsNotCloudOnly() {
-        #expect(MaterializationStatus.isCloudOnly(atPath: "/no/such/file-\(UUID().uuidString)") == false)
     }
 
     /// A path that can't be statted has no answer, which differs from "not a placeholder":
@@ -59,6 +40,7 @@ import Foundation
         try Data("x".utf8).write(to: file)
 
         #expect(MaterializationStatus.isCloudOnlyIfKnown(atPath: file.path) == false)
+        #expect(MaterializationStatus.isCloudOnly(atPath: file.path) == false)
     }
 
     // MARK: linkTarget — the file a door asks about (TE206)

@@ -13,16 +13,11 @@ import Foundation
 
     /// Same shape as FileSyncManagerDuplicatesTests' helper — a plain keeper/redundant pair.
     private func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
-        DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                      size: 1000, itemCount: 1, modificationDate: nil,
-                      uniqueItemCount: keeper ? 0 : 1, depth: path.filter { $0 == "/" }.count,
-                      isRecommendedKeeper: keeper)
+        .stub(path, keeper: keeper, unique: keeper ? 0 : 1, depth: path.filter { $0 == "/" }.count)
     }
 
     private func grp(_ name: String, keeper: String, redundant: [String]) -> DuplicateGroup {
-        DuplicateGroup(matchType: .identical, name: name, isDirectory: false,
-                       copies: [copy(keeper, keeper: true)] + redundant.map { copy($0, keeper: false) },
-                       reclaimableBytes: 1000)
+        .stub([copy(keeper, keeper: true)] + redundant.map { copy($0, keeper: false) }, name: name, reclaimable: 1000)
     }
 
     /// Three eligible groups, a query leaving one ("Trash all 1"): exactly one copy goes to the
@@ -66,13 +61,9 @@ import Foundation
         for p in ["/a/x", "/b/x", "/a/y", "/kept/F1/y"] {
             mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
         }
-        let protectedOnly = DuplicateGroup(
-            matchType: .identical, name: "y", isDirectory: false,
-            copies: [copy("/a/y", keeper: true),
-                     DuplicateCopy(id: "/kept/F1/y", name: "y", isDirectory: false, size: 1000,
-                                   itemCount: 1, modificationDate: nil, uniqueItemCount: 1, depth: 3,
-                                   isRecommendedKeeper: false, isProtectedFromRemoval: true)],
-            reclaimableBytes: 1000)
+        let protectedOnly = DuplicateGroup.stub(
+            [copy("/a/y", keeper: true), .stub("/kept/F1/y", keeper: false, unique: 1, depth: 3, protected: true)],
+            reclaimable: 1000)
         #expect(protectedOnly.recommendedRemovalPaths.isEmpty)
         // Batched alongside a normal group, so the run gets past the "no paths at all" early exit.
         let normal = grp("x", keeper: "/a/x", redundant: ["/b/x"])
@@ -117,10 +108,9 @@ import Foundation
         for p in ["/a/r (1).doc", "/a/r.doc"] {
             mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
         }
-        let versions = DuplicateGroup(
-            matchType: .versions, name: "r.doc", isDirectory: false,
-            copies: [copy("/a/r (1).doc", keeper: true), copy("/a/r.doc", keeper: false)],
-            reclaimableBytes: 500)
+        let versions = DuplicateGroup.stub(
+            [copy("/a/r (1).doc", keeper: true), copy("/a/r.doc", keeper: false)],
+            matchType: .versions, name: "r.doc", reclaimable: 500)
         manager.duplicateGroups = [versions]
 
         await manager.applyRecommendedDuplicates([versions])   // explicitly handed the ineligible group

@@ -149,7 +149,7 @@ public class FileSyncManager: ObservableObject {
     /// have a progress bar and a cancel, and can't truncate: a storage total or a duplicate group
     /// computed from part of a tree is a wrong answer.
     ///
-    /// A 400,000-entry walk costs ~2.5 s (`PaneNodeBudgetBenchmark`, Release, warm), a fair price
+    /// A 400,000-entry walk costs ~2.5 s (Release, warm), a fair price
     /// for learning that the real answer would take minutes. Below it no prompt appears, and the
     /// probe's tree goes straight to the pass.
     nonisolated public static let defaultWholeTreeProbeBudget = 400_000

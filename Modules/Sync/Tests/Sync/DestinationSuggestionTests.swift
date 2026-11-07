@@ -30,25 +30,12 @@ import Testing
         #expect(DestinationSuggestions.yearFolder(for: items, in: parent, siblingFolders: siblings + ["April 2026"], latestYear: 2031)?.name == "2026")
     }
 
-    @Test func testNothingIsSuggestedWhenTheItemsNameDifferentYears() {
-        let items = ["\(parent)/Dec 2025", "\(parent)/16. Sep 2026"]
-        #expect(DestinationSuggestions.yearFolder(for: items, in: parent, siblingFolders: siblings, latestYear: 2031) == nil)
-    }
-
-    @Test func testNothingIsSuggestedWhenTheItemNamesNoYear() {
+    /// Nothing is suggested when the items name different years, when an item names no year or
+    /// two (ambiguous, not a pick of the first), or for a year folder itself.
+    @Test(arguments: [["Dec 2025", "16. Sep 2026"], ["Boarding passes"], ["Visa 2024-2026"], ["2025"]])
+    func testNothingIsSuggested(for names: [String]) {
         #expect(DestinationSuggestions.yearFolder(
-            for: ["\(parent)/Boarding passes"], in: parent, siblingFolders: siblings, latestYear: 2031) == nil)
-    }
-
-    /// Two years in one name is ambiguous, not a pick of the first.
-    @Test func testNothingIsSuggestedWhenTheItemNamesTwoYears() {
-        #expect(DestinationSuggestions.yearFolder(
-            for: ["\(parent)/Visa 2024-2026"], in: parent, siblingFolders: siblings, latestYear: 2031) == nil)
-    }
-
-    @Test func testAYearFolderIsNeverSuggestedForAYearFolder() {
-        #expect(DestinationSuggestions.yearFolder(
-            for: ["\(parent)/2025"], in: parent, siblingFolders: siblings, latestYear: 2031) == nil)
+            for: names.map { "\(parent)/\($0)" }, in: parent, siblingFolders: siblings, latestYear: 2031) == nil)
     }
 
     /// Two year folders could be chance; and years must be most of the folders there.

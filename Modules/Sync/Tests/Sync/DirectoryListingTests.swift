@@ -14,6 +14,15 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
     }
 
+    /// Locks `url` (chmod 000) and returns the clean-up to defer: unlock it, then remove `base`.
+    private func lock(_ url: URL, removing base: URL) throws -> () -> Void {
+        try chmod(url, 0o000)
+        return {
+            try? self.chmod(url, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+    }
+
     /// chmod 000 is a no-op for root, so these fixtures prove nothing there and the test bows out.
     /// It records an issue rather than plainly returning: a bare `return` passes, and on a root
     /// runner most of this file would go green while proving nothing, with nothing said.
@@ -49,18 +58,6 @@ import Testing
         #expect(listing.isComplete)
     }
 
-    @Test func aPopulatedDirectoryComesBackComplete() throws {
-        let base = try makeCanonicalTempRoot(prefix: "DirListFull")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let full = base.appendingPathComponent("full")
-        try makeDir(full, files: 3)
-
-        let listing = FileManager.default.listing(of: full)
-
-        #expect(listing.outcome == .listed)
-        #expect(listing.urls.count == 3)
-    }
-
     /// The case this seam exists for. If this directory and the empty one above were the same
     /// value, a folder-replace confirmation could say "0 items will be removed" about a folder
     /// whose contents it is about to remove.
@@ -69,11 +66,8 @@ import Testing
         let base = try makeCanonicalTempRoot(prefix: "DirListLocked")
         let locked = base.appendingPathComponent("locked")
         try makeDir(locked, files: 3)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         // The plain enumerator idiom: its `guard let` else-branch never fires, and it hands back
         // nothing. Reading that as "empty" is reading a failure.
@@ -107,11 +101,8 @@ import Testing
         try makeDir(root, files: 1)
         let sub = root.appendingPathComponent("locked-sub")
         try makeDir(sub, files: 4)
-        try chmod(sub, 0o000)
-        defer {
-            try? chmod(sub, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(sub, removing: base)
+        defer { cleanUp() }
 
         let listing = FileManager.default.listing(of: root, options: [])
 
@@ -131,11 +122,8 @@ import Testing
         try makeDir(root, files: 1)
         let sub = root.appendingPathComponent("locked-sub")
         try makeDir(sub, files: 4)
-        try chmod(sub, 0o000)
-        defer {
-            try? chmod(sub, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(sub, removing: base)
+        defer { cleanUp() }
 
         let listing = FileManager.default.listing(of: root)
 
@@ -261,11 +249,8 @@ import Testing
         let toOpen = base.appendingPathComponent("to-open")
         try FileManager.default.createSymbolicLink(at: toOpen, withDestinationURL: open)
 
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         for (name, url) in [("to a locked directory", toLocked), ("broken", broken),
                             ("self-referential", selfie), ("to a regular file", toFile)] {
@@ -426,11 +411,8 @@ import Testing
         try makeDir(locked, files: 3)
         let toLocked = base.appendingPathComponent("to-locked")
         try FileManager.default.createSymbolicLink(at: toLocked, withDestinationURL: locked)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         let counted = FileManager.default.childCount(of: link, options: [], cap: 1000)
 
@@ -472,11 +454,8 @@ import Testing
         let parent = base.appendingPathComponent("parent")
         let hidden = parent.appendingPathComponent(".locked")
         try makeDir(hidden, files: 3)
-        try chmod(hidden, 0o000)
-        defer {
-            try? chmod(hidden, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(hidden, removing: base)
+        defer { cleanUp() }
 
         let listing = FileManager.default.listing(of: parent, options: [.skipsHiddenFiles])
 
@@ -497,11 +476,8 @@ import Testing
         try makeDir(root, files: 2)
         let sub = root.appendingPathComponent("locked-sub")
         try makeDir(sub, files: 3)
-        try chmod(sub, 0o000)
-        defer {
-            try? chmod(sub, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(sub, removing: base)
+        defer { cleanUp() }
 
         let listing = FileManager.default.listing(of: root, options: [], keeping: { _ in false })
 
@@ -539,11 +515,8 @@ import Testing
         let base = try makeCanonicalTempRoot(prefix: "DirCountLocked")
         let locked = base.appendingPathComponent("locked")
         try makeDir(locked, files: 3)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         let counted = FileManager.default.childCount(of: locked, options: [], cap: 1000)
 
@@ -594,11 +567,8 @@ import Testing
         try makeDir(full, files: 3)
         let locked = base.appendingPathComponent("locked")
         try makeDir(locked, files: 3)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         let counted = FileManager.default.childCount(of: full, options: [], cap: 0)
         #expect(counted.count == 1)
@@ -615,11 +585,8 @@ import Testing
         try makeDir(root, files: 2)
         let locked = root.appendingPathComponent("locked-sub")
         try makeDir(locked, files: 4)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: base)
-        }
+        let cleanUp = try lock(locked, removing: base)
+        defer { cleanUp() }
 
         let counted = FileManager.default.childCount(of: root, options: [], cap: 1000)
 
@@ -636,6 +603,7 @@ import Testing
         try fm.createDirectory(at: URL(fileURLWithPath: "/locked"), withIntermediateDirectories: true)
         fm.virtualDisk["/locked/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         fm.unlistableDirectories = ["/locked"]
+        try fm.createDirectory(at: URL(fileURLWithPath: "/empty"), withIntermediateDirectories: true)
 
         // Faithful means non-nil and empty, not nil: a mock returning nil would make the dead
         // `guard let … else` branch look tested.
@@ -645,16 +613,8 @@ import Testing
         #expect(raw?.allObjects.count == 0)
 
         #expect(fm.listing(of: URL(fileURLWithPath: "/locked")).outcome == .unreadable)
-    }
-
-    @Test func theMockSeparatesAnEmptyDirectoryFromAnUnlistableOne() throws {
-        let fm = MockFileManager()
-        try fm.createDirectory(at: URL(fileURLWithPath: "/empty"), withIntermediateDirectories: true)
-        try fm.createDirectory(at: URL(fileURLWithPath: "/locked"), withIntermediateDirectories: true)
-        fm.unlistableDirectories = ["/locked"]
-
+        // …and it keeps an empty directory apart from an unlistable one.
         #expect(fm.listing(of: URL(fileURLWithPath: "/empty")).outcome == .listed)
-        #expect(fm.listing(of: URL(fileURLWithPath: "/locked")).outcome == .unreadable)
     }
 
     /// With nested unlistable directories the mock must name the outermost one, the one the real

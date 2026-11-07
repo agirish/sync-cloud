@@ -10,20 +10,13 @@ private struct FilterPassWindowMissed: Error, CustomStringConvertible {
     }
 }
 
-/// Holds the serial file-operation queue closed until `open()`, so a bulk sync can be caught and
-/// inspected mid-flight deterministically, without wall-clock sleeps.
-private actor Gate {
-    private var opened = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func wait() async {
-        if opened { return }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-    func open() {
-        opened = true
-        for waiter in waiters { waiter.resume() }
-        waiters.removeAll()
-    }
+/// A `copyToRight` row for `name` under the left and right roots `from`.
+private func diffRow(_ name: String, from roots: (left: String, right: String) = ("/l", "/r"),
+                     type: FileDifference.DifferenceType = .missingOnRight,
+                     isSyncing: Bool = false) -> FileDifference {
+    FileDifference(relativePath: name, leftItemPath: "\(roots.left)/\(name)",
+                   rightItemPath: "\(roots.right)/\(name)", type: type, action: .copyToRight,
+                   description: "test", isSyncing: isSyncing)
 }
 
 /// Pins the two in-flight-state invariants:
@@ -47,18 +40,8 @@ private actor Gate {
         mockFM.virtualDisk["/src/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         manager.bulkCollisionResolver = { _ in (.skip, false) }
 
-        func diff(_ name: String, type: FileDifference.DifferenceType) -> FileDifference {
-            FileDifference(
-                relativePath: name,
-                leftItemPath: "/src/\(name)",
-                rightItemPath: "/dst/\(name)",
-                type: type,
-                action: .copyToRight,
-                description: "test"
-            )
-        }
-        let skip = diff("a.txt", type: .differentDates)
-        let copy = diff("b.txt", type: .missingOnRight)
+        let skip = diffRow("a.txt", from: ("/src", "/dst"), type: .differentDates)
+        let copy = diffRow("b.txt", from: ("/src", "/dst"))
         manager.rawDifferences = [skip, copy]
         manager.differences = [skip, copy]
         return (manager, mockFM, skip, copy)
@@ -67,7 +50,7 @@ private actor Gate {
     /// Blocks the manager's serial operation queue behind `gate`, starts `syncAll`, and waits until
     /// it has marked its rows in-flight. The returned task can't finish until the gate opens.
     @MainActor
-    private func startGatedSyncAll(_ manager: FileSyncManager, gate: Gate) async -> Task<Void, Never> {
+    private func startGatedSyncAll(_ manager: FileSyncManager, gate: AsyncLatch) async -> Task<Void, Never> {
         Task { await manager.enqueueFileOperation { await gate.wait() } }
         await waitUntil("the gated operation occupies the queue") { manager.activeFileOperationsCount > 0 }
 
@@ -112,7 +95,7 @@ private actor Gate {
     @MainActor
     @Test func testIsSyncingSurvivesFilterPassMidBulkSync() async throws {
         let (manager, mockFM, skipDiff, copyDiff) = try makeBulkFixture()
-        let gate = Gate()
+        let gate = AsyncLatch()   // holds the serial queue closed, so the run is caught mid-flight
         let syncTask = await startGatedSyncAll(manager, gate: gate)
 
         // Both rows are marked while the run is parked behind the gated queue.
@@ -144,14 +127,7 @@ private actor Gate {
     @MainActor
     @Test func testMarkAndClearSyncingSurviveFilterPasses() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        let diff = FileDifference(
-            relativePath: "x.txt",
-            leftItemPath: "/l/x.txt",
-            rightItemPath: "/r/x.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "test"
-        )
+        let diff = diffRow("x.txt")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
@@ -178,18 +154,8 @@ private actor Gate {
     @MainActor
     @Test func testFilterPassPublishReconcilesRowsChangedDuringCompute() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        func diff(_ name: String) -> FileDifference {
-            FileDifference(
-                relativePath: name,
-                leftItemPath: "/l/\(name)",
-                rightItemPath: "/r/\(name)",
-                type: .missingOnRight,
-                action: .copyToRight,
-                description: "test"
-            )
-        }
-        let resolved = diff("resolved.txt")
-        let marked = diff("marked.txt")
+        let resolved = diffRow("resolved.txt")
+        let marked = diffRow("marked.txt")
         manager.rawDifferences = [resolved, marked]
         manager.differences = [resolved, marked]
 
@@ -217,14 +183,7 @@ private actor Gate {
     @MainActor
     @Test func theReconcilePassIsSkippedWhenNothingMovedMidCompute() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        let rows = (0..<3).map { i in
-            FileDifference(relativePath: "x\(i).txt",
-                           leftItemPath: "/l/x\(i).txt",
-                           rightItemPath: "/r/x\(i).txt",
-                           type: .missingOnRight,
-                           action: .copyToRight,
-                           description: "test")
-        }
+        let rows = (0..<3).map { diffRow("x\($0).txt") }
         manager.rawDifferences = rows
         manager.differences = rows
 
@@ -248,14 +207,7 @@ private actor Gate {
     @MainActor
     @Test func testFilterPassPublishDoesNotResurrectClearedSyncingFlag() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        let diff = FileDifference(
-            relativePath: "x.txt",
-            leftItemPath: "/l/x.txt",
-            rightItemPath: "/r/x.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "test"
-        )
+        let diff = diffRow("x.txt")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
         manager.markSyncing(ids: [diff.id])
@@ -279,15 +231,7 @@ private actor Gate {
     @MainActor
     @Test func aRowCarryingAStaleInFlightFlagIsPublishedCleared() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        let stale = FileDifference(
-            relativePath: "x.txt",
-            leftItemPath: "/l/x.txt",
-            rightItemPath: "/r/x.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "test",
-            isSyncing: true
-        )
+        let stale = diffRow("x.txt", isSyncing: true)
         manager.rawDifferences = [stale]
         manager.differences = [stale]
         #expect(manager.syncingDifferenceIds.isEmpty)
@@ -305,14 +249,7 @@ private actor Gate {
     @MainActor
     @Test func aPublishedListReplacedMidComputeIsComparedLive() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
-        let row = FileDifference(
-            relativePath: "x.txt",
-            leftItemPath: "/l/x.txt",
-            rightItemPath: "/r/x.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "test"
-        )
+        let row = diffRow("x.txt")
         manager.rawDifferences = [row]
         manager.differences = [row]
 
@@ -333,7 +270,7 @@ private actor Gate {
     @MainActor
     @Test func testVerifyAllRefusedWhileBulkSyncInFlight() async throws {
         let (manager, _, _, _) = try makeBulkFixture()
-        let gate = Gate()
+        let gate = AsyncLatch()   // holds the serial queue closed, so the run is caught mid-flight
         let syncTask = await startGatedSyncAll(manager, gate: gate)
 
         await manager.verifyAllWithChecksum()
@@ -390,14 +327,7 @@ private actor Gate {
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let diff = FileDifference(
-            relativePath: "f.txt",
-            leftItemPath: "/src/f.txt",
-            rightItemPath: "/dst/f.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "test"
-        )
+        let diff = diffRow("f.txt", from: ("/src", "/dst"))
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
@@ -428,14 +358,7 @@ private actor Gate {
 @Suite struct SyncingFlagStampingTests {
 
     private func rows(_ n: Int) -> [FileDifference] {
-        (0..<n).map { i in
-            FileDifference(relativePath: "p\(i).txt",
-                           leftItemPath: "/l/p\(i).txt",
-                           rightItemPath: "/r/p\(i).txt",
-                           type: .missingOnRight,
-                           action: .copyToRight,
-                           description: "test")
-        }
+        (0..<n).map { diffRow("p\($0).txt") }
     }
 
     @MainActor
@@ -452,20 +375,12 @@ private actor Gate {
                 "stamped row by row — that is O(n·m) copying and one publish each")
         #expect(manager.differences.allSatisfy { $0.isSyncing }, "and every row really is marked")
         #expect(manager.syncingDifferenceIds == ids)
-    }
 
-    @MainActor
-    @Test func clearingEveryRowPublishesExactlyOnce() {
-        let manager = FileSyncManager(fileManager: MockFileManager())
-        let all = rows(500)
-        manager.differences = all
-        let ids = Set(all.map(\.id))
-        manager.markSyncing(ids: ids)
-
-        let before = manager.publishedDifferencesVersion
+        // Clearing every row publishes once too.
+        let beforeClear = manager.publishedDifferencesVersion
         manager.clearSyncing(ids: ids)
 
-        #expect(manager.publishedDifferencesVersion - before == 1)
+        #expect(manager.publishedDifferencesVersion - beforeClear == 1)
         #expect(manager.differences.allSatisfy { !$0.isSyncing })
         #expect(manager.syncingDifferenceIds.isEmpty)
     }

@@ -139,10 +139,7 @@ import Testing
         try await sync.run()
         sync.refuse = []
         try run.write(world, .iCloud, "Finance/bad.pdf", "edited, longer", modified: OneWayDiskWorld.day0)
-        let stopped = try await OneWaySyncRun.apply(
-            sync.look(), state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: try world.writer(at: sync.now),
-            marker: nil, hardwareID: "HW-1", macName: "Test Mac", isCancelled: { true },
-            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let stopped = try await sync.apply(isCancelled: { true })
         #expect(stopped.record.refused.map(\.iCloudPath) == ["Finance/bad.pdf"])
         sync.record = stopped.record
         #expect(sync.look().plan.actions == [.replace(dropboxPath: "Finance/bad.pdf", with: "Finance/bad.pdf", needsDownload: false,
@@ -182,11 +179,9 @@ import Testing
         // Edited after the look, before the copy: the copy is the newer file.
         try run.write(world, .iCloud, "Finance/bad.pdf", "refused, newer", modified: OneWayDiskWorld.day0)
         let refuse = sync.refuse
-        let result = try await OneWaySyncRun.apply(
-            look, state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: try world.writer(at: sync.now),
-            marker: nil, hardwareID: "HW-1", macName: "Test Mac",
-            confirmUploads: { paths in Dictionary(uniqueKeysWithValues: paths.map { ($0, refuse.isEmpty ? .notConfirmed : OneWaySyncUploadOutcome.refused("no")) }) },
-            now: { OneWayDiskWorld.day0 })
+        let result = try await sync.apply(look, confirm: { paths in
+            Dictionary(uniqueKeysWithValues: paths.map { ($0, refuse.isEmpty ? .notConfirmed : OneWaySyncUploadOutcome.refused("no")) })
+        })
         let refusal = try #require(result.record.refused.first)
         #expect(refusal.size == Int64("refused".utf8.count))
         #expect(refusal.copySize == Int64("refused, newer".utf8.count))
@@ -252,10 +247,7 @@ import Testing
         sync.refuse = ["bad.pdf"]
         try await sync.run()
         try FileManager.default.removeItem(at: world.iCloud.appendingPathComponent("Finance/bad.pdf"))
-        let stopped = try await OneWaySyncRun.apply(
-            sync.look(), state: sync.state, firstRun: sync.firstRun, store: sync.store, writer: try world.writer(at: sync.now),
-            marker: nil, hardwareID: "HW-1", macName: "Test Mac", isCancelled: { true },
-            confirmUploads: { _ in [:] }, now: { OneWayDiskWorld.day0 })
+        let stopped = try await sync.apply(isCancelled: { true })
         #expect(stopped.record.refused.map(\.iCloudPath) == ["Finance/bad.pdf"])
         sync.record = stopped.record
         #expect(sync.look().plan.actions == [.moveToRemoved(dropboxPath: "Finance/bad.pdf", cause: .refusedCopy)])

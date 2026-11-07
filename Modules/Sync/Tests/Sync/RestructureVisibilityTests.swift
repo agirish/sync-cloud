@@ -5,31 +5,41 @@ import Foundation
 /// The one accessor rule: suppression is honoured at `visibleStructureFindings`, which every
 /// surface reads, so the lens, the overview and the rail badge cannot disagree about what
 /// "never suggest this again" meant.
+/// A manager over profile `t` at `/r` holding one firing backlog family (`Dental`), with its
+/// store in a fresh directory.
+@MainActor
+private func dentalManager(_ prefix: String) throws -> (manager: FileSyncManager, dir: URL) {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(prefix)-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"), withIntermediateDirectories: true)
+    let manager = FileSyncManager()
+    var folders: [String: FolderProfileEntry] = [:]
+    for (path, files, subs): (String, Int, Int) in [
+        ("Dental", 0, 3),
+        ("Dental/2023", 0, 1), ("Dental/2023/Claims", 2, 0),
+        ("Dental/2024", 0, 1), ("Dental/2024/Claims", 2, 0),
+        ("Dental/2025", 2, 0),
+    ] {
+        folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                           acceptsNewFiles: nil, fileCount: files,
+                                           subfolderCount: subs, axes: [:])
+    }
+    manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r", folders: folders, personTokens: [])
+    manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
+    return (manager, dir)
+}
+
+/// A same-text group of `name` in each of `folders` under `root`: the duplicate scan's half of a
+/// duplicated-taxonomy finding.
+private func papersGroup(_ name: String, in folders: [String], under root: String) -> DuplicateGroup {
+    .stub(folders.map { .stub("\(root)/\($0)/\(name)", keeper: false, size: 10, depth: 3) },
+          matchType: .sameText, name: name, isDirectory: false, reclaimable: 0)
+}
+
 @MainActor
 @Suite struct RestructureVisibilityTests {
 
     private func makeManager() throws -> (manager: FileSyncManager, dir: URL) {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("visibility-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        let manager = FileSyncManager()
-        // A profile with one firing backlog family.
-        var folders: [String: FolderProfileEntry] = [:]
-        for (path, files, subs): (String, Int, Int) in [
-            ("Dental", 0, 3),
-            ("Dental/2023", 0, 1), ("Dental/2023/Claims", 2, 0),
-            ("Dental/2024", 0, 1), ("Dental/2024/Claims", 2, 0),
-            ("Dental/2025", 2, 0),
-        ] {
-            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                               acceptsNewFiles: nil, fileCount: files,
-                                               subfolderCount: subs, axes: [:])
-        }
-        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
-                                                    folders: folders, personTokens: [])
-        manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
-        return (manager, dir)
+        try dentalManager("visibility")
     }
 
     @Test func aSuppressedFindingLeavesTheVisibleSetAndComesBackOnUnsuppress() throws {
@@ -142,15 +152,8 @@ import Foundation
         }
         manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
                                                     folders: folders, personTokens: [])
-        manager.duplicateGroups = ["a.pdf", "b.pdf", "c.pdf"].map { name in
-            DuplicateGroup(matchType: .sameText, name: name, isDirectory: false,
-                           copies: ["Papers/One", "Papers/Two"].map {
-                               DuplicateCopy(id: "/r/\($0)/\(name)", name: name,
-                                             isDirectory: false, size: 10, itemCount: 1,
-                                             modificationDate: nil, uniqueItemCount: 0, depth: 3,
-                                             isRecommendedKeeper: false)
-                           },
-                           reclaimableBytes: 0)
+        manager.duplicateGroups = ["a.pdf", "b.pdf", "c.pdf"].map {
+            papersGroup($0, in: ["Papers/One", "Papers/Two"], under: "/r")
         }
         manager.duplicateScanRoot = "/r"
         let taxonomy = try #require(manager.visibleStructureFindings.first {
@@ -296,18 +299,6 @@ import Foundation
         #expect(!onDisk.isSuppressed(RestructureKey(finding)))
     }
 
-    /// The landing's re-derive is what records the lineage the undo follows: a rule nothing calls
-    /// is one revert away from unused.
-    @Test func theReDeriveRecordsTheLineage() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Sync/FileSyncManager+RestructureApply.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
-        #expect(source.contains("let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)"))
-        #expect(source.contains("newStore.adoptLineage(from: store, renames: RestructureRederive.renameMap(of: landed))"),
-                "the re-derive swaps stores without recording which one it carried on from")
-    }
-
     @Test func withNoStoreTheVisibleSetIsTheWholeReport() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -322,26 +313,8 @@ import Foundation
 @Suite struct RestructureTrendStampTests {
 
     private func makeManager() throws -> (manager: FileSyncManager, dir: URL) {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("trend-stamp-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
-                                                withIntermediateDirectories: true)
-        let manager = FileSyncManager()
-        var folders: [String: FolderProfileEntry] = [:]
-        for (path, files, subs): (String, Int, Int) in [
-            ("Dental", 0, 3),
-            ("Dental/2023", 0, 1), ("Dental/2023/Claims", 2, 0),
-            ("Dental/2024", 0, 1), ("Dental/2024/Claims", 2, 0),
-            ("Dental/2025", 2, 0),
-        ] {
-            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                               acceptsNewFiles: nil, fileCount: files,
-                                               subfolderCount: subs, axes: [:])
-        }
-        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
-                                                    folders: folders, personTokens: [])
+        let (manager, dir) = try dentalManager("trend-stamp")
         manager.filingProfileDirectoryId = "t"
-        manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
         return (manager, dir)
     }
 
@@ -536,14 +509,7 @@ import Foundation
                                                      "Papers/One": (4, 0), "Papers/Two": (4, 0)])
         defer { try? FileManager.default.removeItem(at: dir) }
         func group(_ name: String, _ folders: [String]) -> DuplicateGroup {
-            DuplicateGroup(matchType: .sameText, name: name, isDirectory: false,
-                           copies: folders.map {
-                               DuplicateCopy(id: "\(Self.root)/\($0)/\(name)", name: name,
-                                             isDirectory: false, size: 10, itemCount: 1,
-                                             modificationDate: nil, uniqueItemCount: 0, depth: 3,
-                                             isRecommendedKeeper: false)
-                           },
-                           reclaimableBytes: 0)
+            papersGroup(name, in: folders, under: Self.root)
         }
         let pair = ["Papers/One", "Papers/Two"]
         let groups = ["a.pdf", "b.pdf", "c.pdf"].map { group($0, pair) }

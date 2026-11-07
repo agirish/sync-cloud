@@ -34,15 +34,15 @@ import Testing
         _ = try write("app/node_modules/pkg/manual.pdf", 0x51, count: 900)
         _ = try write("app/.build/out.pdf", 0x52, count: 900)
 
-        let read = ReadPaths()
+        let read = LockedBox<[String]>([])
         let cache = ContentHashCache()
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root, cache: cache,
-                                     textFingerprint: { path in read.add(path); return .tooLittleText },
+                                     textFingerprint: { path in read.withLock { $0.append(path) }; return .tooLittleText },
                                      fingerprintCache: nil, textlessCache: nil)
 
         let ignored = ["/.git/", "/node_modules/", "/.build/"]
-        let documents = read.all
+        let documents = read.withLock { $0 }
         #expect(documents.contains { $0.hasSuffix("/Docs/bill.pdf") }, "the control document was never read")
         #expect(!documents.contains { p in ignored.contains { p.contains($0) } },
                 "read documents under an ignored name: \(documents.sorted())")
@@ -55,12 +55,4 @@ import Testing
         #expect(manager.duplicateGroups.contains { g in g.copies.contains { $0.path.hasSuffix("/B") } },
                 "the control pair stopped grouping: \(manager.duplicateGroups.map(\.name))")
     }
-}
-
-/// The document reader's calls, gathered from its `@Sendable` closure.
-private final class ReadPaths: @unchecked Sendable {
-    private let lock = NSLock()
-    private var paths: [String] = []
-    func add(_ path: String) { lock.lock(); paths.append(path); lock.unlock() }
-    var all: [String] { lock.lock(); defer { lock.unlock() }; return paths }
 }
