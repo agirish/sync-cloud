@@ -126,8 +126,8 @@ Work in a worktree ([`COMMIT.md`](COMMIT.md)). The examples cut `v2.9` from `v2.
 5. **Re-bump the tip immediately, in its own commit** — `v2.x` becomes `2.10-dev` / `210`:
    `project.yml`, `xcodegen`, the test marker and the `CLAUDE.md` table.
 
-6. **Install and confirm.** Run the `install-sync-cloud` skill; the first line of
-   `~/sync-cloud.log` must name the new version.
+6. **Install and confirm.** Run the `install-sync-cloud` skill; the newest `launched` line
+   of `~/sync-cloud.log` must name the new version.
 
 ---
 

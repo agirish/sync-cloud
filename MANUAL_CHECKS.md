@@ -252,7 +252,7 @@ Checks, each staged so that a broken build and a correct one differ:
   this check passes on any build, because pinning aimed the chords right in the first place.
 - [ ] **The line names the pane and the reason.** While doing either walk, confirm the log line
   actually names the side it moved to and a human reason (*"Copy Path from a browse tab's menu"*,
-  *"Pin/Unpin from a browse tab's menu"*). A move that happens silently, or one that names the wrong
+  *"a browse tab verb was aimed at this pane"*). A move that happens silently, or one that names the wrong
   pane, is the failure — this is the check that the instrument itself is honest.
 
 **What was here before, and why it is gone.** This section used to assert that "the unpin door sat

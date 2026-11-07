@@ -120,7 +120,7 @@ For a mechanical choice with a clear default, pick it, say so in the report, and
   `~/sync-cloud.log` for a new line — not by `pgrep`, which cannot see a wedged app.
 - **Builds are ad-hoc; the installed copy is signed** with this Mac's Apple Development identity. An
   ad-hoc signature changes with every build, so macOS would treat each install as a new app and ask
-  for privacy access again; a signed copy keeps its grants. CI never signs. The log line after `launched` says
+  for privacy access again; a signed copy keeps its grants. CI never signs. A line just after `launched` says
   `Code signature: team …` or `Code signature: ad-hoc …`; an ad-hoc install asks for Documents
   access at first launch.
 - **The certificate expires 2026-12-01.** The skill signs through a renewal while both certificates
