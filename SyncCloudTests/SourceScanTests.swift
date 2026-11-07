@@ -58,6 +58,13 @@ import Foundation
         #expect(try declarationBody(of: "func nested() {", in: Self.fixture) == "\n            inner()")
     }
 
+    @Test func maskingBlanksLiteralsAndCommentsAndKeepsTheLayout() {
+        let text = "f(\"} return\") // } x\n/* { */ g()"
+        let masked = maskedCode(text)
+        #expect(masked == "f(          )       \n        g()")
+        #expect(masked.utf8.count == text.utf8.count)
+    }
+
     @Test func commentsGoAndStringsStay() {
         let code = sourceCodeOnly("""
             let url = "https://example.com" // the site

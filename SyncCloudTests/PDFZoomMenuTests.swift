@@ -16,18 +16,13 @@ import Testing
 @Suite(.serialized) final class PDFZoomMenuTests {
 
     let folder = NSTemporaryDirectory() + "pdf-zoom-" + UUID().uuidString
-    private let defaults: UserDefaults
-    private let suite = "PDFZoomMenuTests-" + UUID().uuidString
+    private let defaults = TestDefaults().defaults
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        defaults = try #require(UserDefaults(suiteName: suite))
     }
 
-    deinit {
-        try? FileManager.default.removeItem(atPath: folder)
-        wipeDefaultsSuite(suite)
-    }
+    deinit { try? FileManager.default.removeItem(atPath: folder) }
 
     /// A record of what the verbs were asked to do.
     final class Calls {
@@ -97,26 +92,11 @@ import Testing
 
     // MARK: End to end, minus AppKit's focus
 
-    private func pdfFile(pages: Int) -> String {
-        let file = (folder as NSString).appendingPathComponent("zoom.pdf")
-        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let context = CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil)!
-        for _ in 0..<pages { context.beginPDFPage(nil); context.endPDFPage() }
-        context.closePDF()
-        return file
-    }
-
     /// An open PDF: focused, ⌘+ steps its zoom ladder and not the text size; unfocused, the text
     /// size steps and the PDF's scale stays. The verbs are resolved the way the window
     /// resolves them (`shortcutPDFZoom` is `PDFZoomVerbs.resolve`, pinned below).
     @Test func theFocusDecidesWhichOneMoves() async throws {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.open(path: pdfFile(pages: 2), log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(pdf.phase == .open)
+        let pdf = try await openBlankPDF("zoom.pdf", pages: 2, in: folder, defaults: defaults)
         let size = FontSize.medium
 
         let focused = PDFZoomVerbs.resolve(workspace: .editor, pdf: pdf, readerHasFocus: true)
@@ -138,11 +118,7 @@ import Testing
 
     // MARK: The items are wired to the rules
 
-    private func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(file)")
-        return sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
-    }
+    private func source(_ file: String) throws -> String { sourceCodeOnly(try macAppFile(file)) }
 
     private func block(_ name: String, in source: String) throws -> String {
         let start = try #require(source.range(of: "struct \(name): View {"), "\(name) is gone — this scan would be vacuous")

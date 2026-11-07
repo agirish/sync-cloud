@@ -26,7 +26,7 @@ import Testing
                 "an empty path no longer resolves to the current directory — the empty guards in sourceRootedAt, and `expand` above, are written around that")
     }
 
-    private static func provider(_ id: String, _ name: String, root: String,
+    static func provider(_ id: String, _ name: String, root: String,
                                  type: CloudProvider.ProviderType = .dropBox) -> CloudProvider {
         CloudProvider(id: id, displayName: name, imageName: "", rootPath: root, type: type)
     }
@@ -39,70 +39,41 @@ import Testing
         provider("folder:disk", "Macintosh HD", root: "/", type: .localFolder),
     ]
 
-    @Test func walkingOntoACloudSourcesOwnRootAdoptsIt() {
+    /// `(path, the pane's source, the sources, or nil for the four above, the source adopted)`.
+    @Test(arguments: [
+        // Walking onto a cloud source's own root adopts it.
+        ("~/Dropbox", "folder:home", nil, "Dropbox"),
+        // What separates this from `owningSource`: every folder in a Dropbox tree is inside
+        // Dropbox, so a containment test would re-root the pane on every drill.
+        ("~/Dropbox/Backup", "folder:home", nil, nil),
+        // The guard against one-way doors. A re-root resets the pane's Back stack, so with `/` and
+        // `~` both folder sources a walk down the disk would strand the user in Home folder with
+        // `/Users` reachable only through the source picker.
+        ("~", "folder:disk", nil, nil),
+        // Otherwise a drill onto Dropbox's root would adopt Dropbox and reset the pane onto the
+        // root it is already showing.
+        ("~/Dropbox", "Dropbox", nil, nil),
+        // Settings stores a hand-typed root verbatim, and the path in hand is built from an
+        // expanded one. Both sides go through `resolve` or the two spellings never meet.
+        ("~/Dropbox", "folder:home", [SourceWalkInTests.provider("Dropbox", "Dropbox", root: "~/Dropbox")], "Dropbox"),
+        // A source with no root configured claims nothing. An app launched from Finder has `/` for
+        // a current directory, so an unset root resolves to `/`, and a pane on the startup disk
+        // would be handed to a source that names nowhere.
+        ("/", "folder:home", [SourceWalkInTests.provider("Ghost", "Ghost", root: "")], nil),
+        // The same guard from the pane's side: a pane on a source with no root builds an empty
+        // location, which resolves to the current directory just as the ghost's unset root does.
+        // Refusing the ghost covers both, so there is no separate empty-path guard.
+        ("", "folder:home", [SourceWalkInTests.provider("Ghost", "Ghost", root: "")], nil),
+        // A trailing slash on a user-settable root, which `SidebarSourceModel.isSameFolder` trims;
+        // reaching it through this rule proves the trimming is on the path used.
+        ("~/Dropbox", "folder:home", [SourceWalkInTests.provider("Dropbox", "Dropbox", root: "~/Dropbox/")], "Dropbox"),
+    ] as [(String, String, [CloudProvider]?, String?)])
+    func aWalkAdoptsOnlyASourceRootedThere(path: String, current: String, among: [CloudProvider]?,
+                                           adopts: String?) {
         let adopted = PaneLogic.sourceRootedAt(
-            ("~/Dropbox" as NSString).expandingTildeInPath,
-            currentProviderId: "folder:home", among: Self.sources, resolve: Self.expand)
-        #expect(adopted?.id == "Dropbox")
-    }
-
-    /// What separates this from `owningSource`: every folder in a Dropbox tree is inside Dropbox,
-    /// so a containment test would re-root the pane on every drill.
-    @Test func afolderInsideASourceIsNotThatSourcesRoot() {
-        let adopted = PaneLogic.sourceRootedAt(
-            ("~/Dropbox/Backup" as NSString).expandingTildeInPath,
-            currentProviderId: "folder:home", among: Self.sources, resolve: Self.expand)
-        #expect(adopted == nil)
-    }
-
-    /// The guard against one-way doors. A re-root resets the pane's Back stack, so with `/` and `~`
-    /// both folder sources a walk down the disk would strand the user in Home folder with `/Users`
-    /// reachable only through the source picker.
-    @Test func walkingOntoAFolderSourcesRootDoesNotAdoptIt() {
-        let adopted = PaneLogic.sourceRootedAt(
-            ("~" as NSString).expandingTildeInPath,
-            currentProviderId: "folder:disk", among: Self.sources, resolve: Self.expand)
-        #expect(adopted == nil, "a folder source must not be adopted — see the one-way-door rule")
-    }
-
-    /// Otherwise a drill onto Dropbox's root would adopt Dropbox and reset the pane onto the root
-    /// it is already showing.
-    @Test func thePaneIsNeverAdoptedOntoTheSourceItIsAlreadyOn() {
-        let adopted = PaneLogic.sourceRootedAt(
-            ("~/Dropbox" as NSString).expandingTildeInPath,
-            currentProviderId: "Dropbox", among: Self.sources, resolve: Self.expand)
-        #expect(adopted == nil)
-    }
-
-    /// Settings stores a hand-typed root verbatim, and the path in hand is built from an expanded
-    /// one. Both sides go through `resolve` or the two spellings never meet.
-    @Test func aTildeStoredRootMatchesAnExpandedPath() {
-        let adopted = PaneLogic.sourceRootedAt(
-            ("~/Dropbox" as NSString).expandingTildeInPath,
-            currentProviderId: "folder:home",
-            among: [Self.provider("Dropbox", "Dropbox", root: "~/Dropbox")],
-            resolve: Self.expand)
-        #expect(adopted?.id == "Dropbox", "the stored `~/Dropbox` must resolve against the expanded path")
-    }
-
-    /// A source with no root configured claims nothing. An app launched from Finder has `/` for a
-    /// current directory, so an unset root resolves to `/`, and a pane on the startup disk would be
-    /// handed to a source that names nowhere.
-    @Test func aSourceWithNoRootClaimsNothing() {
-        let adopted = PaneLogic.sourceRootedAt(
-            "/", currentProviderId: "folder:home",
-            among: [Self.provider("Ghost", "Ghost", root: "")], resolve: Self.expand)
-        #expect(adopted == nil)
-    }
-
-    /// The same guard from the pane's side: a pane on a source with no root builds an empty
-    /// location, which resolves to the current directory just as the ghost's unset root does.
-    /// Refusing the ghost covers both, so there is no separate empty-path guard.
-    @Test func aPaneWithNoRootAdoptsNothing() {
-        let adopted = PaneLogic.sourceRootedAt(
-            "", currentProviderId: "folder:home",
-            among: [Self.provider("Ghost", "Ghost", root: "")], resolve: Self.expand)
-        #expect(adopted == nil, "an empty pane path resolves to the current directory — the ghost source must not be sitting there to meet it")
+            (path as NSString).expandingTildeInPath,
+            currentProviderId: current, among: among ?? Self.sources, resolve: Self.expand)
+        #expect(adopted?.id == adopts)
     }
 
     /// The real-machine case, through the production resolver: `~/Dropbox` is a symlink to
@@ -125,17 +96,6 @@ import Testing
         #expect(adopted?.id == "Dropbox",
                 "the resolver must follow the link, or the feature is dead for exactly the source it was built for")
     }
-
-    /// A trailing slash on a user-settable root, which `SidebarSourceModel.isSameFolder` trims;
-    /// reaching it through this rule proves the trimming is on the path used.
-    @Test func aRootSpelledWithATrailingSlashStillMatches() {
-        let adopted = PaneLogic.sourceRootedAt(
-            ("~/Dropbox" as NSString).expandingTildeInPath,
-            currentProviderId: "folder:home",
-            among: [Self.provider("Dropbox", "Dropbox", root: "~/Dropbox/")],
-            resolve: Self.expand)
-        #expect(adopted?.id == "Dropbox")
-    }
 }
 
 /// The half of the walk-in that lives in `ContentView`, a `View` with `@State` no test can call.
@@ -144,18 +104,7 @@ import Testing
 @Suite struct SourceWalkInWiringTests {
 
     private static func body(of declaration: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView.swift — this scan would be vacuous")
-        let source = SyncCloudTests.strippingComments(raw)
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"),
-                               "\(declaration) never closes at member indentation")
-        return String(rest[..<end.lowerBound])
+        try declarationBody(of: declaration, in: macAppFile("ContentView.swift"))
     }
 
     /// The walk-in is consulted before the mirror is computed: a mirrored drill would hand this

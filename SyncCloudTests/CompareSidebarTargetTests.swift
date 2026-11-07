@@ -15,30 +15,18 @@ import Foundation
 /// instantiated here.
 @Suite struct CompareSidebarTargetTests {
 
-    static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func source() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
 
-    @Test func theScanCanSeeAKnownSymbol() throws {
-        #expect(try Self.source().contains("var folderSidebarTarget"))
+    /// One member's body, read whitespace-insensitively.
+    static func body(_ declaration: String) throws -> CodeText {
+        CodeText(try declarationBody(of: declaration, in: source()))
     }
 
     /// Only in Compare. One pane leaves nothing to disambiguate, and a caption reading "opens in
     /// the pane" is noise on a 180pt column.
     @Test func theCaptionIsCompareOnly() throws {
-        let code = try Self.source()
-        #expect(code.contains("guard selectedWorkspace == .compare else { return nil }"),
+        #expect(try Self.body("var folderSidebarTarget: SidebarTarget? {")
+                    .contains("guard selectedWorkspace == .compare else { return nil }"),
                 "the target caption is no longer gated to Compare — the other three workspaces would carry a caption that disambiguates nothing")
     }
 
@@ -48,12 +36,12 @@ import Foundation
     /// that is always the left pane, so the right is unreachable), and a stored toggle of the
     /// sidebar's own (a control that can disagree with everything else on screen).
     @Test func theSideIsTheFocusedPane() throws {
-        let code = try Self.source()
-        #expect(code.contains("return focusedPane == .left"),
+        let isLeft = try Self.body("var folderSidebarTargetIsLeft: Bool {")
+        #expect(isLeft.contains("return focusedPane == .left"),
                 "the sidebar target no longer follows the focused pane")
-        #expect(!code.contains("compareSidebarTargetsRight"),
+        #expect(!(try Self.source()).contains("compareSidebarTargetsRight"),
                 "the sidebar has its own stored side again — a second setter for a value that now governs the action bar and the lens scans too")
-        #expect(!code.contains("var folderSidebarTargetIsLeft: Bool { !lensTargetIsRight }"),
+        #expect(!isLeft.contains("lensTargetIsRight"),
                 "the target follows the selection again — with nothing selected that is always the left pane, and the right one is unreachable")
     }
 
@@ -61,7 +49,8 @@ import Foundation
     /// `focusedPaneSide` isn't cleared on the way out, so a lingering `.right` would aim Browse at
     /// a pane it doesn't have.
     @Test func theFocusedSideIsIgnoredWhereThereIsOnlyOnePane() throws {
-        #expect(try Self.source().contains("guard selectedWorkspace == .compare else { return true }"),
+        #expect(try Self.body("var folderSidebarTargetIsLeft: Bool {")
+                    .contains("guard selectedWorkspace == .compare else { return true }"),
                 "the focused Compare side is consulted outside Compare")
     }
 
@@ -77,10 +66,14 @@ import Foundation
         #expect(code.contains("func openFolderSidebarSource(_ source: SidebarSourceRow, inNewTab: Bool, side: Bool? = nil)"))
         #expect(code.contains("inNewTab: inNewTab, isLeft: isLeft)"),
                 "the inside-its-owner branch does not receive the resolved side — it re-reads the target")
-        #expect(!code.contains("""
-                                                 inNewTab: Bool) {
-        let isLeft = folderSidebarTargetIsLeft
-"""), "a source-row branch resolves the side itself again")
+        // Every open, enumerated from the source so a new branch is covered the day it appears: none
+        // resolves the side itself.
+        let opens = code.matches(of: /func (openFolderSidebar\w*)\(/).map { "func \($0.output.1)(" }
+        #expect(opens.count >= 3, "the source-row opens were not found — this check is aimed at nothing")
+        for open in opens {
+            #expect(!(try Self.body(open)).contains("let isLeft = folderSidebarTargetIsLeft"),
+                    "\(open) resolves the side itself again")
+        }
     }
 
     /// The menu is wired to open, and doesn't change the target: picking a side for one folder is
@@ -94,18 +87,6 @@ import Foundation
             let body = String(code[start.upperBound...].prefix(200))
             #expect(!body.contains("noteFocusedPane"),
                     "\(wiring) also moves the focused pane — picking a side for one folder is not a statement about the next, and this one now moves the action bar too")
-        }
-    }
-
-    /// The sidebar can't set the side itself, and that absence is the assertion.
-    ///
-    /// "The target reads the focused pane" stays green with a second setter beside it writing the
-    /// same state, so the setter's plumbing is named and required to be absent.
-    @Test func theSidebarHasNoWayToSetTheSideItself() throws {
-        let code = try Self.source()
-        for retired in ["pickFolderSidebarSide", "onPickSide", "compareSidebarTargetsRight"] {
-            #expect(!code.contains(retired),
-                    "\(retired) is back — the sidebar can set the focused pane from its own header again")
         }
     }
 
@@ -167,11 +148,5 @@ import Foundation
                         "at \(total)pt with a stored \(stored)pt sidebar the two panes are left \(rest)pt")
             }
         }
-    }
-
-    /// The split's minimum and the clamp's must be the same number, or the clamp reserves room the
-    /// split doesn't want (or, worse, less than it needs).
-    @Test func theClampAndTheSplitAgreeOnAPanesMinimum() {
-        #expect(PaneLogic.minComparePaneWidth == 250)
     }
 }

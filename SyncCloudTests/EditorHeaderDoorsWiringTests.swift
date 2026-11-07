@@ -297,29 +297,13 @@ import FileExplorer
         }
     }
 
-    /// The positive control: the scans are reading the real file.
-    @Test func theScanCanActuallyFail() throws {
-        let source = try Self.editor()
-        #expect(source.contains("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry:"), "not reading ContentView+Editor.swift")
-        #expect(!source.contains("thisStringIsNotInTheFile"))
-    }
-
     // MARK: Source helpers
 
     static func editor() throws -> String { try source("ContentView+Editor.swift") }
 
     /// A MacApp file with its comments removed by the shared lexer (``sourceCodeOnly(_:)``), so
-    /// prose describing the wiring can't satisfy a scan for it, while a `"https://…"` literal keeps
-    /// its tail.
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8), "cannot read \(name)")
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return sourceCodeOnly(text)
-    }
+    /// prose describing the wiring can't satisfy a scan for it.
+    static func source(_ name: String) throws -> String { sourceCodeOnly(try macAppFile(name)) }
 
     /// One member's body, to its own closing brace: ``declarationBody(of:in:sourceLocation:)``,
     /// asked whitespace-insensitively.

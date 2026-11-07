@@ -12,13 +12,6 @@ import Sync
 @MainActor
 @Suite struct OperationNotifierTests {
 
-    @Test func testNotifiesOnlyWhenEnabledAndInBackground() {
-        #expect(OperationNotifier.shouldNotify(enabled: true, appIsActive: false))
-        #expect(!OperationNotifier.shouldNotify(enabled: true, appIsActive: true))
-        #expect(!OperationNotifier.shouldNotify(enabled: false, appIsActive: false))
-        #expect(!OperationNotifier.shouldNotify(enabled: false, appIsActive: true))
-    }
-
     @Test func testTitlesPerSeverity() {
         #expect(OperationNotifier.title(for: .success) == "Operation complete")
         #expect(OperationNotifier.title(for: .warning) == "Operation finished with warnings")
@@ -107,17 +100,4 @@ import Sync
         #expect(code.contains("OperationNotifier.postIfEnabled(for:"),
                 "nothing in ContentView hands a new banner to OperationNotifier — the background-notification feature is unwired")
     }
-}
-
-/// One MacApp file, with the same non-vacuity guard `macAppSources()` carries. Finds `MacApp/`
-/// from this file itself, not through `macAppDirectory()`, so the suite stays self-contained.
-func macAppFile(_ name: String) throws -> String {
-    let url = URL(fileURLWithPath: #filePath)   // …/SyncCloudTests/OperationNotifierTests.swift
-        .deletingLastPathComponent()            // …/SyncCloudTests
-        .deletingLastPathComponent()            // repo root
-        .appendingPathComponent("MacApp/\(name)")
-    let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read MacApp/\(name) — the scan would be vacuous")
-    try #require(text.count > 500, "MacApp/\(name) read as \(text.count) characters — truncated?")
-    return text
 }

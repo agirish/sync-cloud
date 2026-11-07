@@ -10,13 +10,6 @@ import Design
 /// spine isn't covered here.
 @Suite struct EditorRailSpineTests {
 
-    @Test func everySpineHasTheSourcePaneRung() {
-        for workspace in Workspace.allCases {
-            #expect(ContentView.spineRungs(workspace: workspace).first == .sourcePane,
-                    "\(workspace.title) does not lead with the pane rung")
-        }
-    }
-
     /// The list is Edit's: a stray button in Organize's spine would be the first thing clicked.
     @Test func otherWorkspacesDrawOnlyThePaneRung() {
         for workspace in Workspace.allCases where workspace != .editor {
@@ -127,13 +120,6 @@ import Design
         #expect(EditorRailFold.paneRungAct(paneOpen: true) == .foldPane)
         #expect(EditorRailFold.paneRungTitle(paneOpen: true, source: "iCloud") == "Hide the iCloud pane")
         #expect(EditorRailFold.paneRungTitle(paneOpen: false, source: "iCloud").hasPrefix("Show the iCloud pane"))
-    }
-
-    /// A list button beside an open pane shows the list: the list isn't drawn there, so the rule
-    /// answers `.show`, and the host folds the pane on the way (`showEditorRail`).
-    @Test(arguments: EditorRailTab.allCases)
-    func aListButtonBesideAnOpenPaneShowsTheList(tab: EditorRailTab) {
-        #expect(EditorRailFold.rungAct(for: tab, railDrawn: false, currentTab: .files) == .show(tab))
     }
 
     /// One width for the four columns, and one column for the pane by default. The pane's slot is

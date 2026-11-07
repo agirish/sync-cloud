@@ -16,14 +16,6 @@ import Design
 
     static let marks = ["icloud", "dropbox", "googledrive", "onedrive"]
 
-    /// The scan sees brand assets, not the `folder.fill` fallback.
-    @Test func theBrandAssetsAreReachableFromThisTarget() {
-        for name in Self.marks {
-            #expect(NSImage(named: name) != nil,
-                    "\(name) is not in this target's catalog — the tests below would measure an SF Symbol instead")
-        }
-    }
-
     private func render(_ name: String, monochrome: Bool) -> NSBitmapImageRep? {
         let size = CGSize(width: 32, height: 32)
         let view = ProviderLogo(name, size: 32, monochrome: monochrome)

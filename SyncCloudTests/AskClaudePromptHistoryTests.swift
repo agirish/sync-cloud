@@ -166,32 +166,16 @@ import Testing
 
     // MARK: Through the real box
 
-    private func arrow(_ up: Bool, in window: NSWindow) -> NSEvent {
-        let characters = up ? "\u{F700}" : "\u{F701}"
-        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function], timestamp: 0,
-                                windowNumber: window.windowNumber, context: nil, characters: characters,
-                                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: up ? 126 : 125)!
-    }
-
     /// The panel in a window with its box in front, and a way to press an arrow in it.
-    private final class Box {
+    @MainActor private final class Box {
         let window: NSWindow
-        let host: NSHostingView<AskClaudePanel>
+        let host: NSView
         let composer: NSTextField
 
         init(_ chat: AskClaudeChat) throws {
-            let container = CGSize(width: 1000, height: 800)
-            host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
-                                                          accentFill: .blue, onAccent: .white, onAsk: { _ in }, onClose: {},
-                                                          onOpenSettings: { _ in }, container: container,
-                                                          settingsBridge: .keySaved))
-            host.frame = NSRect(origin: .zero, size: container)
-            window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
-            window.isReleasedWhenClosed = false
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            func field(in view: NSView) -> NSTextField? { (view as? NSTextField) ?? view.subviews.lazy.compactMap(field).first }
-            composer = try #require(field(in: host))
+            let rig = AskClaudePanelRig(chat: chat)
+            (window, host) = (rig.window, rig.host)
+            composer = try #require(rig.field)
         }
 
         func settle() async {

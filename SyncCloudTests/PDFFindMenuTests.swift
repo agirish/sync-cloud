@@ -110,11 +110,7 @@ import Testing
 
     // MARK: The items are wired to the rules
 
-    private func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(file)")
-        return sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
-    }
+    private func source(_ file: String) throws -> String { sourceCodeOnly(try macAppFile(file)) }
 
     /// The body of `struct <name>` up to the next top-level declaration.
     private func block(_ name: String, in source: String) throws -> String {

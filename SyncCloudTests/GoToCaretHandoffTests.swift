@@ -140,11 +140,7 @@ import AppKit
     /// The two-argument form is what the close path calls, and it must route through the rule above
     /// rather than carry a second copy (`CommandPaletteHost.swift`).
     @Test func theClosePathCallsTheRuleRatherThanRepeatingIt() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/CommandPaletteHost.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read CommandPaletteHost.swift — the checks below would be vacuous")
+        let text = try macAppFile("CommandPaletteHost.swift")
         #expect(text.contains("Self.restoreCaret(to: caretWasWith, in: host)"),
                 "the palette's close path no longer hands the caret back — closing ⌘K will leave the window focusing nothing")
         #expect(text.contains("let caretWasWith = Self.caretHolder(in: host)"),

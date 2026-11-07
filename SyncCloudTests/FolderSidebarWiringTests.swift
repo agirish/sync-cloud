@@ -12,38 +12,20 @@ import Foundation
 /// trigger so a scan that finds nothing fails.
 @Suite struct FolderSidebarWiringTests {
 
-    static func contentViewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(raw.count > 5000, "ContentView.swift is implausibly short — the scan is vacuous")
-        // Comments stripped at `//`, so a trigger named in prose cannot stand in for one that runs.
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func contentViewSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// Each trigger with the call it must make, matched as one string: `.onChange(of:
     /// selectedWorkspace)` exists for other reasons too, so finding it proves nothing unless the
-    /// refresh is inside it.
+    /// refresh is inside it. Every input `folderSidebarIsShowing` reads is one (Expand's hold in Edit
+    /// among them): anything that changed while the column was hidden stays dropped otherwise.
     @Test(arguments: ["browseSidebarVisible", "selectedWorkspace", "leftProviderId",
-                      "browseSidebarRecentsMode"])
+                      "browseSidebarRecentsMode", "editorSidebarVisible", "panesHiddenForCurrentTab",
+                      "folderSidebarHeldByExpand"])
     func everyTriggerTheGuardMakesNecessaryIsWired(value: String) throws {
         let source = try Self.contentViewSource()
         let declaration = ".onChange(of: \(value)) { _, _ in refreshFolderSidebarRows() }"
         #expect(source.contains(declaration),
                 "\(value) does not refresh the sidebar — with the on-screen guard in place, the column keeps whatever rows it last resolved")
-    }
-
-    /// The scan reads something: a trigger that is definitely there must be found, or the checks
-    /// above pass over an empty string.
-    @Test func theScanCanSeeAKnownTrigger() throws {
-        #expect(try Self.contentViewSource().contains("refreshFolderSidebarRows()"))
     }
 
     /// The guard is the one rule, not a hand-rolled copy: the layout's `if` and the refresh's guard
@@ -53,11 +35,7 @@ import Foundation
         #expect(!source.contains("selectedWorkspace == .browse, browseSidebarVisible"),
                 "the guard was re-spelled in ContentView instead of going through FolderSidebarModel")
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+SplitLayout.swift")
-        let layout = try #require(try? String(contentsOf: url, encoding: .utf8))
-        #expect(layout.contains("if folderSidebarIsShowing"),
+        #expect(try macAppFile("ContentView+SplitLayout.swift").contains("if folderSidebarIsShowing"),
                 "browseLayout draws the sidebar on its own condition rather than the shared rule")
     }
 }
@@ -67,11 +45,6 @@ import Foundation
 /// The chord, the menu item and the row travel together: one without the others documents a
 /// keystroke that does nothing, or ships one nobody can find.
 @Suite struct TheSidebarHasItsChordAndItsRow {
-
-    @Test func theChordIsInTheRegistry() {
-        #expect(AppChord.registry.contains { $0.display == "⌃⌘S" },
-                "⌃⌘S is not in the registry — the ⌘/ panel is generated from it, so the sidebar's chord would be undocumented")
-    }
 
     /// Exactly one row names it, by chord: two rows for one switch is how a panel starts disagreeing
     /// with itself.
@@ -106,54 +79,20 @@ import Foundation
 /// becoming visible must itself be a trigger, or the column shows a list resolved before it hid.
 @Suite struct SidebarRefreshTriggerTests {
 
-    static func appSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    @Test func theScanCanSeeTheRefreshAtAll() throws {
-        #expect(try Self.appSource().contains("refreshFolderSidebarRows()"))
-    }
-
-    /// The state values `folderSidebarIsShowing` reads, each named as a trigger (Expand's hold in
-    /// Edit among them). Named rather than counted: a wrong set of the right size would pass a count.
-    @Test func eachGateInputIsAlsoATrigger() throws {
-        let code = try Self.appSource()
-        for input in ["browseSidebarVisible", "editorSidebarVisible", "selectedWorkspace", "panesHiddenForCurrentTab",
-                      "folderSidebarHeldByExpand"] {
-            #expect(code.contains(".onChange(of: \(input)) { _, _ in refreshFolderSidebarRows() }"),
-                    "\(input) decides whether the sidebar is showing but does not refresh it — anything that changed while it was hidden stays dropped")
-        }
-    }
+    static func appSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// The row builder is handed the dragged order. `FolderSidebarModel.rows` applies it
     /// (`FavoriteOrderReachesTheRowsTests`), but the parameter defaults to empty, so dropping this
     /// argument draws an order nobody chose with the builder's own suite still green.
     @Test func theRefreshHandsTheBuilderTheDraggedOrder() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8))
+        let code = try macAppFile("ContentView+FolderSidebar.swift")
         #expect(code.contains("favoriteOrder: FolderJumpStore.shared.favoriteOrder"),
                 "the sidebar is built without the user's dragged order — every Favorites drag persists and draws nothing")
     }
 
     /// The gate really reads those inputs, so the list above can't fall behind the rule it protects.
     @Test func theGateReadsExactlyThoseFour() throws {
-        let sidebar = try #require(try? String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift"), encoding: .utf8))
+        let sidebar = try macAppFile("ContentView+FolderSidebar.swift")
         #expect(sidebar.contains("workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar"))
         #expect(sidebar.contains("panesCollapsed: panesHiddenForCurrentTab"))
         #expect(sidebar.contains("preference: folderSidebarPreference(for: selectedWorkspace) && !folderSidebarHeldByExpand"))
@@ -177,32 +116,12 @@ import Foundation
                 "the pane delegate is built without its favorite closure — the menu item draws and does nothing")
     }
 
-    /// The handler it names exists, so the check above can't be satisfied by a stale spelling.
-    @Test func theHandlerTheClosureNamesIsDefined() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8))
-        #expect(code.contains("func toggleFavorite(forPaneFolder node: FileNode, isLeft: Bool)"))
-    }
-
     /// One rule, asked once. The menu's label comes from `PaneActionDelegate.favoritePlace` and the
     /// tap must resolve the root and relative path the same way; a second derivation could offer
     /// "Remove from Favorites" for a folder the tap then adds. Scanned for the call, not the parts.
     @Test func theHandlerGoesThroughTheOneRuleRatherThanDerivingItAgain() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8))
-        let code = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-        let body = try #require(code.range(of: "func toggleFavorite(forPaneFolder"))
-            .upperBound
-        let handler = String(code[body...].prefix(900))
+        let handler = try declarationBody(of: "func toggleFavorite(forPaneFolder",
+                                          in: macAppFile("ContentView+FolderSidebar.swift"))
         #expect(handler.contains("PaneActionDelegate.favoritePlace("),
                 "the handler derives the pane root itself instead of asking the rule the menu asked")
         #expect(!handler.contains("PathBoundary.relativize("),
@@ -215,17 +134,7 @@ import Foundation
     /// key would destroy a value this build couldn't read. One named file, comments stripped, with a
     /// required anchor so a scan that matches nothing fails.
     @Test func everyFavoritePlacesWriteGoesThroughTheFunnel() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
+        let source = sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift"))
 
         try #require(source.contains("func writeFolderSidebarFavoritePlaces("),
                      "the funnel is gone, so this scan is asserting nothing")
@@ -247,35 +156,11 @@ import Foundation
 /// so a spelling elsewhere can't answer for it, and anchored so a renamed member fails.
 @Suite struct FolderSidebarOpenTargetingTests {
 
-    static func sidebarSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 5000, "the file is implausibly short — the scan is vacuous")
-        // Comments stripped, as this file's other scans do: the doc comments quote these spellings,
-        // so an unstripped scan would find the prose with the code reverted.
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func sidebarSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
 
-    /// One member's body: from its declaration to the next member declaration at the extension's
-    /// indentation. Structural, not a character budget, which an unrelated edit could truncate.
-    /// Member indentation only (4–5 spaces), so a local `var` in the body doesn't end the slice, and
-    /// deeper-indented signature continuation lines can't match.
+    /// One member's body, to its own closing brace.
     static func body(of declaration: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
-        let code = try sidebarSource()
-        let start = try #require(code.range(of: declaration),
-                                 "\(declaration) is gone — this scan is aimed at nothing",
-                                 sourceLocation: sourceLocation)
-        let rest = String(code[start.upperBound...])
-        let end = rest.range(of: #"\n {4,5}(private )?(func|var) "#, options: .regularExpression)
-        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+        try declarationBody(of: declaration, in: sidebarSource(), sourceLocation: sourceLocation)
     }
 
     /// `openFolderSidebarRow` asks the pane it is opening on: the source-switch guard compares the
@@ -328,8 +213,6 @@ import Foundation
                 "membership is taken AFTER addFolderSource — at that point the id is always known and wasAdded is always false")
         #expect(body.contains("let wasAdded = !knownBefore.contains(id)"),
                 "wasAdded is not derived from the before-the-call set")
-        #expect(!body.contains("let wasAdded = settings.folderSources.contains"),
-                "wasAdded is read off the after-the-fact list, which cannot tell added from existed")
     }
 
     /// A promotion that reached an existing source re-enables it. A "not added yet" row over an

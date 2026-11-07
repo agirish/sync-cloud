@@ -11,41 +11,28 @@ import Sync
 
     // MARK: The join
 
-    @Test func browsingWalksTheTargetDownFromTheFocusRoot() {
-        let root = "/Users/me/Documents"
-        let browse = PaneBrowsePath(relativePath: "Finance/US")
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: root, browsePath: browse)
-                == "/Users/me/Documents/Finance/US")
-    }
-
-    @Test func atRestTheFocusRootComesBackUntouched() {
-        // Trailing slash kept on purpose: the browse join normalizes it away, so this proves the
-        // at-rest path returns early. Deleting the `browsePath.isEmpty` guard must fail it.
-        let root = "/Users/me/Documents/"
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: root, browsePath: PaneBrowsePath()) == root)
-    }
-
-    @Test func aTrailingSlashRootJoinsWithoutDoublingTheSeparator() {
-        let root = "/Users/me/Documents/"
-        let browse = PaneBrowsePath(relativePath: "Scans")
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: root, browsePath: browse)
-                == "/Users/me/Documents/Scans")
-    }
-
-    @Test func anEmptyRootNeverInventsATarget() {
-        // Providers still resolving report an empty root; joining a browse trail onto it would
-        // hand the scan an absolute path fabricated from folder names ("/Finance"). Every scan
-        // action guards on `!root.isEmpty`, and this keeps that guard meaningful.
-        let browse = PaneBrowsePath(relativePath: "Finance")
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: "", browsePath: browse) == "")
-    }
-
-    @Test func theFilesystemRootJoinsToAbsoluteChildren() {
+    /// `(focus root, browse trail, scan root)`.
+    @Test(arguments: [
+        ("/Users/me/Documents", "Finance/US", "/Users/me/Documents/Finance/US"),
+        // At rest the focus root comes back untouched. Trailing slash kept on purpose: the browse
+        // join normalizes it away, so this proves the at-rest path returns early. Deleting the
+        // `browsePath.isEmpty` guard must fail it.
+        ("/Users/me/Documents/", "", "/Users/me/Documents/"),
+        // A trailing-slash root joins without doubling the separator.
+        ("/Users/me/Documents/", "Scans", "/Users/me/Documents/Scans"),
+        // An empty root never invents a target. Providers still resolving report an empty root;
+        // joining a browse trail onto it would hand the scan an absolute path fabricated from
+        // folder names ("/Finance"). Every scan action guards on `!root.isEmpty`, and this keeps
+        // that guard meaningful.
+        ("", "Finance", ""),
         // "/" normalizes to "" inside the join, so "/" + "A" is "/A", not "//A"; at rest the guard
         // hands "/" back verbatim rather than letting that normalization collapse it to "".
-        let browse = PaneBrowsePath(relativePath: "A")
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: "/", browsePath: browse) == "/A")
-        #expect(PaneLogic.lensScanRoot(focusRootExpanded: "/", browsePath: PaneBrowsePath()) == "/")
+        ("/", "A", "/A"),
+        ("/", "", "/"),
+    ])
+    func theScanRootIsTheFocusRootJoinedToTheBrowseTrail(root: String, trail: String, expected: String) {
+        let browse = trail.isEmpty ? PaneBrowsePath() : PaneBrowsePath(relativePath: trail)
+        #expect(PaneLogic.lensScanRoot(focusRootExpanded: root, browsePath: browse) == expected)
     }
 
     // MARK: The call site
@@ -53,20 +40,8 @@ import Sync
     /// A rule extracted for testability is one revert from unused: the join stays green even if
     /// `ContentView` reads the bare focus root. As in FileExplorer's `OrganizeScopeCallSiteTests`,
     /// the scan names its file, fails if it can't read it, and bounds the body by its closing brace.
-    static let contentViewURL = URL(fileURLWithPath: #filePath)  // …/SyncCloudTests/<this>.swift
-        .deletingLastPathComponent()                             // …/SyncCloudTests
-        .deletingLastPathComponent()                             // repo root
-        .appendingPathComponent("MacApp/ContentView.swift")
-
     @Test func theScanRootPropertyRoutesThroughTheBrowseAwareJoin() throws {
-        let text = try #require(try? String(contentsOf: Self.contentViewURL, encoding: .utf8),
-                                "cannot read ContentView.swift — this scan would be vacuous")
-        let declaration = "var lensScanRootExpanded: String {"
-        let start = try #require(text.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = text[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for \(declaration)")
-        let body = String(rest[..<end.lowerBound])
+        let body = try declarationBody(of: "var lensScanRootExpanded: String {", in: macAppFile("ContentView.swift"))
         #expect(body.contains("PaneLogic.lensScanRoot"),
                 "lensScanRootExpanded no longer routes through the browse-aware join")
         // The pairing, not just the ingredients: a flipped ternary (the right pane's root with the

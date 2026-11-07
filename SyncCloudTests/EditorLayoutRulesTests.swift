@@ -66,11 +66,7 @@ import Foundation
     /// guard. A source scan because `ContentView` is a `View` with `@State` that nothing can
     /// instantiate, with a positive control so a scan that stops finding the handler fails.
     @Test func theLaunchRefreshIsCompletedBeforeTheBootstrapGuardReturns() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read ContentView.swift — this scan would be vacuous")
+        let source = try macAppFile("ContentView.swift")
         // The handler's own closure (``declarationBody(of:in:sourceLocation:)`` matches its
         // braces), not a fixed window that a longer handler outgrows and a shorter one overruns.
         let body = CodeText(try declarationBody(of: ".onChange(of: settings.enabledProviders) {", in: source))

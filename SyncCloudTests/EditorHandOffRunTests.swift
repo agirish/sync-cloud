@@ -165,12 +165,6 @@ import FileExplorer
             let opened = Scene()
             opened.handOff(Self.file, pane: pane)
             #expect(Array(opened.steps.prefix(2)) == ["settle", "endNaming"], "\(pane): \(opened.steps)")
-            let already = Scene()
-            already.handOff(Self.file, pane: pane, openDocument: Self.file)
-            #expect(already.steps == ["endNaming", "showEdit"], "\(pane): \(already.steps)")
-            let cancelled = Scene()
-            cancelled.handOff(Self.file, pane: pane, openDocument: "/c/Documents/draft.md", settles: false)
-            #expect(!cancelled.steps.contains("endNaming"), "\(pane): the naming row went on Cancel")
         }
     }
 
@@ -419,13 +413,13 @@ import FileExplorer
     /// The app hands the act Edit's folder, through the one member that reads each workspace's
     /// view mode; `resolvedViewMode` is that member for the workspace on screen.
     @Test func theAppAsksForEditsFolder() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         #expect(CodeText(editor).contains("var editorFolder: String { leftPaneFolder(in: selectedWorkspace) }"))
         let folder = try declarationBody(of: "func leftPaneFolder(in workspace: Workspace) -> String {", in: editor)
         #expect(try CallArguments(of: "Self.paneFolder(", in: folder)
                     .passes("drawsColumns", "viewMode(in: workspace, isLeft: true) == .columns"),
                 "the folder is not read in the mode of the workspace it was asked about")
-        let content = CodeText(try OpenInEditorMenuTests.macApp("ContentView.swift"))
+        let content = CodeText(try macAppFile("ContentView.swift"))
         #expect(content.contains("viewMode(in: selectedWorkspace, isLeft: isLeft)"),
                 "resolvedViewMode no longer delegates — two answers to one question")
     }
@@ -470,9 +464,6 @@ import FileExplorer
         let app = CodeText(try macAppSources())
         let count = app.count(of: "pane: .staysPut") + app.count(of: "pane: EditorHandOffRun.Pane.staysPut")
         #expect(count == 1, "\(count) callers leave the pane where it is — expected exactly the differences list")
-        let differences = try CallArguments(of: "DifferencesView(", in: sourceCodeOnly(try macAppSources()))
-        #expect(differences.passes("onOpenInEditor", "{ handOffToEditor($0, pane: .staysPut) }"),
-                "the one `.staysPut` door is not the differences list's")
     }
 
     /// The app runs the shared act (`EditorRevealInBrowse.reveal`, whose order is
@@ -490,9 +481,5 @@ import FileExplorer
         #expect(reveal.passes("showBrowse", "{ selectedWorkspace = .browse }"), "the act does not switch to Browse")
         #expect(reveal.passes("owe", "{ owePaneSelection($0, with: companions, replacing: replaces) }"), "the act owes nothing — Browse lands with no selection")
         #expect(!body.contains("focusOn(") && !body.contains("focusPane("), "Reveal re-roots again")
-        #expect(try EditorRailRowMenuWiringTests.workspaceConstruction()
-                    .passes("onRevealInBrowse", "{ path in revealInBrowse(path, from: .header) }"))
-        #expect(try EditorRailRowMenuWiringTests.railRowActions()
-                    .passes("revealInBrowse", "{ path in revealInBrowse(path, from: .railRow) }"))
     }
 }

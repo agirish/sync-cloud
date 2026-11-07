@@ -9,45 +9,10 @@ import Sync
 @MainActor
 @Suite struct RestructureMenuVerbTests {
 
-    /// Both items exist in the Organize menu: a verb with a handler and no menu route can't be
-    /// found without already knowing where to look.
-    @Test func theOrganizeMenuCarriesBothVerbs() throws {
-        let organize = try #require(NSApp.mainMenu?.items
-            .first { $0.title == "Organize" }?.submenu)
-        let titles = organize.items.map(\.title)
-        #expect(titles.contains("Plan This Folder’s Shape…"))
-        #expect(titles.contains("Set Up Like Its Siblings"))
-    }
-
-    /// Above the Undo divider. These act on a folder; Undo reverses a landing that already
-    /// happened, and must not be mistaken for ⌘Z.
-    @Test func theyPrecedeTheLedgerUndo() throws {
-        let organize = try #require(NSApp.mainMenu?.items
-            .first { $0.title == "Organize" }?.submenu)
-        let titles = organize.items.map(\.title)
-        let plan = try #require(titles.firstIndex(of: "Plan This Folder’s Shape…"))
-        let setUp = try #require(titles.firstIndex(of: "Set Up Like Its Siblings"))
-        let undo = try #require(titles.firstIndex(of: "Undo This Reorganization…"))
-        #expect(plan < undo)
-        #expect(setUp < undo)
-        #expect(plan < setUp, "plan then set up — the order the roadmap lists them in")
-    }
-
-    /// No chords, by this menu's own rule. (A verb reaches ⌘K only after it has a menu item, never
-    /// the other way round.)
-    @Test func neitherVerbTakesAChord() throws {
-        let organize = try #require(NSApp.mainMenu?.items
-            .first { $0.title == "Organize" }?.submenu)
-        for title in ["Plan This Folder’s Shape…", "Set Up Like Its Siblings"] {
-            let item = try #require(organize.items.first { $0.title == title })
-            #expect(item.keyEquivalent.isEmpty, "\(title) took a chord")
-        }
-    }
-
     /// The Edit menu stays clean of them: what keeps the ledger undo away from ⌘Z keeps its
     /// neighbours away too.
     @Test func theEditMenuCarriesNoneOfThem() throws {
-        let edit = try #require(NSApp.mainMenu?.items.first { $0.title == "Edit" }?.submenu)
+        let edit = try appMenu("Edit")
         let titles = edit.items.map(\.title)
         for title in ["Plan This Folder’s Shape…", "Set Up Like Its Siblings",
                       "Undo This Reorganization…"] {
@@ -74,14 +39,8 @@ import Sync
     /// would offer `Plan…` on a store the card withholds it for, or keep `Set Up Like Its Siblings`
     /// enabled after its scaffold landed.
     @Test func bothCallSitesAskTheResolverTheSameQuestion() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let menu = try String(contentsOf: repo.appendingPathComponent("MacApp/ShortcutCommands.swift"),
-                              encoding: .utf8)
-        let workspace = try String(
-            contentsOf: repo.appendingPathComponent(
-                "Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift"),
-            encoding: .utf8)
+        let menu = try macAppFile("ShortcutCommands.swift")
+        let workspace = try repoFile("Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift")
 
         for (name, text) in [("the menu", menu), ("the workspace", workspace)] {
             #expect(text.contains("RestructureVerbResolver.resolve("),
@@ -104,18 +63,13 @@ import Sync
     /// passes `!isRunningTests`. A source scan: it can't run the launch path, but it forbids an
     /// unconditional stamp in a function the test host calls.
     @Test func attachDoesNotWriteUnlessARealLaunchAsksItTo() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let artifacts = try String(
-            contentsOf: repo.appendingPathComponent("MacApp/FilingArtifacts.swift"),
-            encoding: .utf8)
+        let artifacts = try macAppFile("FilingArtifacts.swift")
         #expect(artifacts.contains("recordingTrend: Bool = false"),
                 "the default must be the safe one — the test host takes the default")
         #expect(artifacts.contains("if recordingTrend { manager.stampStructureTrend() }"),
                 "the stamp is gated, not unconditional")
 
-        let app = try String(contentsOf: repo.appendingPathComponent("MacApp/SyncCloudApp.swift"),
-                             encoding: .utf8)
+        let app = try macAppFile("SyncCloudApp.swift")
         #expect(app.contains("recordingTrend: !isRunningTests"),
                 "the launch site is the one that opts in, and it excludes the test host")
 

@@ -26,11 +26,46 @@ import Testing
         return manager
     }
 
-    private func model(walk: SetupWalk? = nil, syncManager: FileSyncManager? = nil) async -> SetupModel {
-        SetupModel(settings: await settings(), peopleStore: nil, syncManager: syncManager,
-                   hasFilingProfile: false,
+    private func model(walk: SetupWalk? = nil, syncManager: FileSyncManager? = nil,
+                       peopleStore: PeopleStore? = nil, hasFilingProfile: Bool = false,
+                       startScreen: SetupFlow.Screen? = nil, draftURL: URL? = nil,
+                       onProfileWritten: @escaping () -> Void = {},
+                       onStartSurvey: @escaping (URL) -> Void = { _ in }) async -> SetupModel {
+        SetupModel(settings: await settings(), peopleStore: peopleStore, syncManager: syncManager,
+                   hasFilingProfile: hasFilingProfile,
                    defaults: ScratchDefaults("setup-model-d"),
-                   walk: walk, draftURL: nil)
+                   walk: walk, startScreen: startScreen, draftURL: draftURL,
+                   onProfileWritten: onProfileWritten, onStartSurvey: onStartSurvey)
+    }
+
+    /// One test's scratch folder: `folders` made under it, and an engine whose profiles live at
+    /// `profiles`, made unless `makesProfiles` is false. With `blocked`, a regular file stands
+    /// where the profiles folder's parent should be, so nothing can be written. `remove()` it in a
+    /// `defer`.
+    @MainActor private struct Scratch {
+        let root: URL
+        let engine = FileSyncManager.scratch()
+        var documents: URL { root.appendingPathComponent("Documents") }
+        var profiles: URL { root.appendingPathComponent("profiles") }
+        var blocker: URL { root.appendingPathComponent("blocker") }
+
+        init(_ tag: String, folders: [String] = [], makesProfiles: Bool = true, blocked: Bool = false) throws {
+            let fm = FileManager.default
+            root = fm.temporaryDirectory.appendingPathComponent("setup-\(tag)-\(UUID().uuidString)")
+            try fm.createDirectory(at: root, withIntermediateDirectories: true)
+            for folder in folders {
+                try fm.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+            }
+            if blocked {
+                try Data("not a folder".utf8).write(to: blocker)
+                engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+            } else {
+                if makesProfiles { try fm.createDirectory(at: profiles, withIntermediateDirectories: true) }
+                engine.filingProfilesDirectory = profiles
+            }
+        }
+
+        func remove() { try? FileManager.default.removeItem(at: root) }
     }
 
     private static func walk(folders: [String], files: [String] = []) -> SetupWalk {
@@ -204,19 +239,11 @@ import Testing
     /// A reading that lands while Structure is already on screen draws the tree it read. Continue
     /// never waits, so on a large tree Structure can open before the reading lands.
     @Test func aReadingThatLandsOnStructureDrawsItsTree() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-land-\(UUID().uuidString)")
-        let documents = root.appendingPathComponent("Documents")
-        for folder in ["Finance/US", "Family/Mother"] {
-            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
-                                                    withIntermediateDirectories: true)
-        }
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let s = try Scratch("land", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
+        defer { s.remove() }
 
-        let model = await self.model(syncManager: engine)
-        model.walkRoot = documents
+        let model = await self.model(syncManager: s.engine)
+        model.walkRoot = s.documents
         model.screen = .structure
         model.startWalk()
         for _ in 0..<500 where !model.walkState.isDone && model.walkFailureReason == nil {
@@ -235,20 +262,12 @@ import Testing
     /// rebuild: Workspaces reads the loose-file routes.
     @Test(.timeLimit(.minutes(2)))
     func aReadingRebuildsThePreviewOnlyWhereItIsRead() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-where-\(UUID().uuidString)")
-        let documents = root.appendingPathComponent("Documents")
-        for folder in ["Finance/US", "Family/Mother"] {
-            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
-                                                    withIntermediateDirectories: true)
-        }
-        try Data("x".utf8).write(to: documents.appendingPathComponent("loose.pdf"))
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let s = try Scratch("where", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
+        defer { s.remove() }
+        try Data("x".utf8).write(to: s.documents.appendingPathComponent("loose.pdf"))
 
-        let early = await self.model(syncManager: engine)
-        early.walkRoot = documents
+        let early = await self.model(syncManager: s.engine)
+        early.walkRoot = s.documents
         early.screen = .people
         early.startWalk()
         await early.lastWalk?.value
@@ -259,8 +278,8 @@ import Testing
         #expect(early.screen == .structure)
         #expect(early.preview != nil, "arrival at Structure no longer builds the preview")
 
-        let late = await self.model(syncManager: engine)
-        late.walkRoot = documents
+        let late = await self.model(syncManager: s.engine)
+        late.walkRoot = s.documents
         late.screen = .workspaces
         late.startWalk()
         await late.lastWalk?.value
@@ -273,19 +292,12 @@ import Testing
     /// the reading it supersedes, and a late result must not land as the new folder's reading.
     @Test(.timeLimit(.minutes(2)))
     func aReadingOfTheOldFolderThatLandsLateIsDropped() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-late-\(UUID().uuidString)")
-        let first = root.appendingPathComponent("First")
-        let second = root.appendingPathComponent("Second")
-        for folder in ["First/Finance/US", "First/Family/Mother", "Second/Taxes/2024"] {
-            try FileManager.default.createDirectory(at: root.appendingPathComponent(folder),
-                                                    withIntermediateDirectories: true)
-        }
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let s = try Scratch("late", folders: ["First/Finance/US", "First/Family/Mother", "Second/Taxes/2024"], makesProfiles: false)
+        defer { s.remove() }
+        let first = s.root.appendingPathComponent("First")
+        let second = s.root.appendingPathComponent("Second")
 
-        let model = await self.model(syncManager: engine)
+        let model = await self.model(syncManager: s.engine)
         model.walkRoot = first
         model.screen = .learn
         model.startWalk()
@@ -305,20 +317,12 @@ import Testing
     /// back after a Skip, and let two walks land, each resetting the Countries ticks.
     @Test(.timeLimit(.minutes(2)))
     func onlyTheLatestAwaitedReadingLands() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-gen-\(UUID().uuidString)")
-        let documents = root.appendingPathComponent("Documents")
-        for folder in ["Finance/US", "Family/Mother"] {
-            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
-                                                    withIntermediateDirectories: true)
-        }
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let s = try Scratch("gen", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
+        defer { s.remove() }
 
         // The test holds the main actor, so neither reading can land before the next step.
-        let skipped = await self.model(syncManager: engine)
-        skipped.changeWalkRoot(to: documents)
+        let skipped = await self.model(syncManager: s.engine)
+        skipped.changeWalkRoot(to: s.documents)
         skipped.screen = .learn
         skipped.startWalk()
         #expect(skipped.skip())
@@ -326,8 +330,8 @@ import Testing
         #expect(skipped.walkState == .skipped, "the reading landed over a Skip: \(skipped.walkState)")
         #expect(!skipped.crumbs.contains(.structure), "Structure came back after Skip")
 
-        let twice = await self.model(syncManager: engine)
-        twice.changeWalkRoot(to: documents)
+        let twice = await self.model(syncManager: s.engine)
+        twice.changeWalkRoot(to: s.documents)
         twice.startWalk()
         let first = try #require(twice.lastWalk)
         twice.startWalk()
@@ -386,9 +390,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "remove", profile: nil)
         store.add(displayName: "Maya")
-        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
-                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
-                               walk: nil, draftURL: nil)
+        let model = await self.model(peopleStore: store, hasFilingProfile: true)
         #expect(model.rosterNames == ["Maya"], "premise: the roster is what the chips show")
 
         model.requestRemovePerson(named: "Maya")
@@ -415,16 +417,14 @@ import Testing
         let draftURL = root.appendingPathComponent("setup-draft.json")
         let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = profiles
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                               draftURL: draftURL,
-                               onProfileWritten: {
-                                   // What `FilingArtifacts.attach` does, pointed at the scratch folder.
-                                   guard let id = FilingProfileStore.activeProfileId(in: profiles) else { return }
-                                   engine.filingPeopleStore = PeopleStore(directory: profiles,
-                                                                          profileId: id, profile: nil)
-                               })
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: engine, draftURL: draftURL,
+                                     onProfileWritten: {
+                                         // What `FilingArtifacts.attach` does, pointed at the scratch folder.
+                                         guard let id = FilingProfileStore.activeProfileId(in: profiles) else { return }
+                                         engine.filingPeopleStore = PeopleStore(directory: profiles,
+                                                                                profileId: id, profile: nil)
+                                     })
         model.screen = .people
         model.newPersonField = "Maya"
         model.commitTypedPerson()
@@ -483,22 +483,16 @@ import Testing
     /// way; the guard protects the model, which would otherwise record the refusal as a failed walk
     /// and throw away the profile just written.
     @Test func twoSavesAtOnceWriteOneProfile() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-save-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("save")
+        defer { s.remove() }
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
 
         async let first = model.save()
         async let second = model.save()
         let wrote = await [first, second]
 
-        let written = try FileManager.default.contentsOfDirectory(atPath: profiles.path)
+        let written = try FileManager.default.contentsOfDirectory(atPath: s.profiles.path)
             .filter { $0.hasPrefix("walk-") }
         #expect(written.count == 1, "two presses wrote \(written.count) profiles: \(written)")
         #expect(model.walkState.isDone,
@@ -515,18 +509,11 @@ import Testing
     /// a failed walk, it would throw the tree away and show its reason on screens already behind,
     /// headed "Couldn't read that folder".
     @Test func aFailedSaveStaysOnStructureAndKeepsTheReading() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-savefail-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        // A regular file where the profiles folder's parent should be: nothing can be written.
-        let blocker = root.appendingPathComponent("blocker")
-        try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+        let s = try Scratch("savefail", blocked: true)
+        defer { s.remove() }
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.screen = .structure
         await model.saveAndContinue()
 
@@ -543,8 +530,8 @@ import Testing
                 "a Save that keeps failing leaves Structure with no way on")
 
         // And the same press, once the write can succeed, moves on and clears the line.
-        try FileManager.default.removeItem(at: blocker)
-        try FileManager.default.createDirectory(at: engine.filingProfilesDirectory!,
+        try FileManager.default.removeItem(at: s.blocker)
+        try FileManager.default.createDirectory(at: s.engine.filingProfilesDirectory!,
                                                 withIntermediateDirectories: true)
         await model.saveAndContinue()
         #expect(model.writtenReport != nil, "premise: the second press wrote")
@@ -618,16 +605,11 @@ import Testing
     /// can't carry the sheet on from whatever screen is current when it lands.
     @Test(.timeLimit(.minutes(2)))
     func backIsRefusedWhileSaveWrites() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-backsave-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("backsave")
+        defer { s.remove() }
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.screen = .structure
         #expect(model.canGoBack, "premise: Back is offered on Structure")
         var (press, gate) = try await startSaving(model)
@@ -651,17 +633,11 @@ import Testing
 
     /// Continue Without Saving moves on and writes nothing; it is offered only after a failed Save.
     @Test func continuingWithoutSavingMovesOnAndWritesNothing() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-nosave-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let blocker = root.appendingPathComponent("blocker")
-        try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+        let s = try Scratch("nosave", blocked: true)
+        defer { s.remove() }
 
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.screen = .structure
         #expect(model.structureSecondaryTitle == nil, "offered before any Save had failed")
         await model.saveAndContinue()
@@ -677,22 +653,17 @@ import Testing
     /// Structure, where a second press must not write a second profile from the same tree or ask
     /// for a second reading of the documents.
     @Test func aWrittenReadingIsNotOfferedForSavingAgain() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-twice-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("twice")
+        defer { s.remove() }
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         #expect(model.canWriteProfile, "premise: a reading to write")
         #expect(await model.save(), "premise: the first Save wrote")
 
         #expect(!model.canWriteProfile,
                 "Structure would offer “Save and Start Reading” over a reading already written")
         #expect(await model.save() == false, "a second Save of the same reading was let through")
-        let written = try FileManager.default.contentsOfDirectory(atPath: profiles.path)
+        let written = try FileManager.default.contentsOfDirectory(atPath: s.profiles.path)
             .filter { $0.hasPrefix("walk-") }
         #expect(written.count == 1, "one reading wrote \(written.count) profiles: \(written)")
 
@@ -705,18 +676,11 @@ import Testing
     /// second time. Otherwise Summary would list the new countries while the profile on disk held
     /// the old ones.
     @Test func aCountryChangedAfterSaveIsSavedAgain() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-recountry-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("recountry")
+        defer { s.remove() }
         var started: [URL] = []
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]), draftURL: nil,
-                               onStartSurvey: { started.append($0) })
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US/2024", "Finance/IN/2024"]),
+                                     syncManager: s.engine, onStartSurvey: { started.append($0) })
         model.confirmedCountries = ["US"]
         #expect(model.structurePrimaryTitle == "Save and Start Reading")
         #expect(await model.save(), "premise: the first Save wrote")
@@ -736,7 +700,7 @@ import Testing
         #expect(await model.save(), "the second Save wrote nothing")
         let second = try #require(model.writtenReport?.profileId)
         #expect(second != first, "the changed countries did not write a new profile")
-        let written = try #require(FilingProfileStore.profile(id: second, in: profiles))
+        let written = try #require(FilingProfileStore.profile(id: second, in: s.profiles))
         #expect(written.folders["Finance/IN"]?.axes["jurisdiction"] == "IN",
                 "the profile the second Save wrote does not hold IN")
         #expect(started.count == 1, "the second Save started reading the same folder again: \(started)")
@@ -774,9 +738,11 @@ import Testing
                 "the landed reading is offered as \(model.structurePrimaryTitle)")
     }
 
-    /// On a re-run, a reading in progress is not passed off as the profile already here. With no
-    /// reading in hand Structure shows this Mac's profile, read-only; while one runs it says so.
-    @Test func aReadingInProgressHidesTheProfileAlreadyHere() async throws {
+    /// On a re-run, a reading in progress or a failed one is not passed off as the profile already
+    /// here. With no reading in hand Structure shows this Mac's profile, read-only; while one runs
+    /// it says so, and a failed one is said.
+    @Test(arguments: [false, true])
+    func aReadingNotInHandHidesTheProfileAlreadyHere(failed: Bool) async throws {
         let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
         engine.filingFolderProfile = FileSyncManager.previewProfile(
@@ -786,22 +752,18 @@ import Testing
         #expect(model.structureIsReadOnly, "premise: the re-run shows this Mac's profile")
         #expect(model.structureShownProfile != nil, "premise: and draws it")
 
-        model.walkState = .running
-        #expect(!model.structureIsReadOnly, "a reading in progress is called the profile already here")
-        #expect(model.structureShownProfile == nil, "the old profile is drawn while the reading runs")
-        #expect(model.structurePrimaryTitle == "Skip Saving")
+        model.walkState = failed ? .failed("The folder could not be read.") : .running
+        let reading = failed ? "a failed reading" : "a reading in progress"
+        #expect(!model.structureIsReadOnly, "\(reading) is called the profile already here")
+        #expect(model.structureShownProfile == nil, "the old profile is drawn over \(reading)")
+        if !failed { #expect(model.structurePrimaryTitle == "Skip Saving") }
     }
 
     /// Skip Saving moves on without waiting, and writes nothing.
     @Test func skipSavingMovesOnAndWritesNothing() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-skipsave-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
-        let model = await self.model(syncManager: engine)
+        let s = try Scratch("skipsave")
+        defer { s.remove() }
+        let model = await self.model(syncManager: s.engine)
         model.screen = .structure
         model.walkState = .running
 
@@ -809,21 +771,16 @@ import Testing
 
         #expect(model.screen == .workspaces, "Skip Saving stayed on \(model.screen)")
         #expect(model.walkState.isRunning, "Skip Saving stopped the reading")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+        #expect(try FileManager.default.contentsOfDirectory(atPath: s.profiles.path).isEmpty,
                 "Skip Saving wrote a profile")
     }
 
     /// And once the reading has landed, the same press saves.
     @Test func structuresPressSavesOnceTheReadingLands() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-pressave-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("pressave")
+        defer { s.remove() }
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.readDocuments = false
         model.screen = .structure
 
@@ -837,18 +794,11 @@ import Testing
     /// since. The sheet runs the press in a `Task`, so a reading can land between the render and
     /// the press; deciding then would start hours of reading under a button that said skip.
     @Test func aPressUnderSkipSavingNeverSavesTheReadingThatLandedSince() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-skiprace-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("skiprace")
+        defer { s.remove() }
         var started: [URL] = []
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               startScreen: .structure, draftURL: nil,
-                               onStartSurvey: { started.append($0) })
+        let model = await self.model(syncManager: s.engine, startScreen: .structure,
+                                     onStartSurvey: { started.append($0) })
         model.walkState = .running
         let drawn = model.structurePrimaryTitle
         #expect(drawn == "Skip Saving", "premise: the button was drawn as Skip Saving")
@@ -862,7 +812,7 @@ import Testing
 
         #expect(model.screen == .workspaces, "Skip Saving stayed on \(model.screen)")
         #expect(model.writtenReport == nil, "a press under Skip Saving saved")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+        #expect(try FileManager.default.contentsOfDirectory(atPath: s.profiles.path).isEmpty,
                 "a press under Skip Saving wrote a profile")
         #expect(started.isEmpty, "a press under Skip Saving started reading the documents")
     }
@@ -873,17 +823,10 @@ import Testing
     /// tree's box rather than the last reading's tree, the counts are dashes, the switch is off
     /// limits, and the button is Continue, with nothing to save or skip.
     @Test func aReadingThatFailsOnStructureIsSaidThere() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-failed-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                               startScreen: .structure, draftURL: nil)
+        let s = try Scratch("failed")
+        defer { s.remove() }
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
+                                     syncManager: s.engine, startScreen: .structure)
         #expect(model.structureShownProfile != nil, "premise: the landed reading draws its tree")
 
         // Learn Again, and the new reading fails while Structure is on screen.
@@ -904,23 +847,8 @@ import Testing
 
         await model.pressStructurePrimary(shownSkipSaving: false)
         #expect(model.screen == .workspaces, "Continue stayed on \(model.screen)")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: profiles.path).isEmpty,
+        #expect(try FileManager.default.contentsOfDirectory(atPath: s.profiles.path).isEmpty,
                 "Continue over a failed reading wrote a profile")
-    }
-
-    /// On a re-run, a failed reading is said rather than passing this Mac's profile off as it.
-    @Test func aFailedReadingHidesTheProfileAlreadyHere() async throws {
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = FileManager.default.temporaryDirectory
-        engine.filingFolderProfile = FileSyncManager.previewProfile(
-            walk: Self.walk(folders: ["Finance/US"]), registry: nil, jurisdictionValues: [])
-        let model = await self.model(syncManager: engine)
-        model.screen = .structure
-        #expect(model.structureIsReadOnly, "premise: the re-run shows this Mac's profile")
-
-        model.walkState = .failed("The folder could not be read.")
-        #expect(!model.structureIsReadOnly, "a failed reading is called the profile already here")
-        #expect(model.structureShownProfile == nil, "the old profile is drawn over the failed reading")
     }
 
     /// While the reading runs, Structure counts nothing and the switch waits: no zeros or old
@@ -974,17 +902,11 @@ import Testing
 
     /// And Learn Again still reads the folder afresh, and moves on without waiting.
     @Test func learnAgainReadsAfreshAndMovesOn() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-again-\(UUID().uuidString)")
-        let documents = root.appendingPathComponent("Documents")
-        try FileManager.default.createDirectory(at: documents.appendingPathComponent("Finance/US"),
-                                                withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
+        let s = try Scratch("again", folders: ["Documents/Finance/US"], makesProfiles: false)
+        defer { s.remove() }
 
-        let model = await self.model(walk: Self.walk(folders: ["Finance/US"]), syncManager: engine)
-        model.walkRoot = documents
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US"]), syncManager: s.engine)
+        model.walkRoot = s.documents
         model.screen = .learn
         model.pressLearnAgain()
         #expect(model.walkState == .running, "Learn Again did not start a reading")
@@ -1009,15 +931,10 @@ import Testing
     /// Summary describes what Save wrote, not the reading in hand: an unsaved reading isn't
     /// "Learned", and a written profile stays learned after Learn is skipped on the way back.
     @Test func summarySaysWhatWasWritten() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-summary-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("summary")
+        defer { s.remove() }
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.confirmedCountries = ["US"]
 
         #expect(SummaryScreen.folderLine(for: model) == "Read Documents — not saved")
@@ -1036,9 +953,7 @@ import Testing
         #expect(SummaryScreen.countriesLine(for: model) == "Countries: US")
 
         // And the screen draws these rules, not a copy of them.
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/Setup/SummaryScreen.swift"), encoding: .utf8)
+        let source = try macAppFile("Setup/SummaryScreen.swift")
         #expect(source.contains("row(\"folder\", Self.folderLine(for: model),"))
         #expect(source.contains("if let countries = Self.countriesLine(for: model) {"))
     }
@@ -1046,11 +961,8 @@ import Testing
     /// Saves a walk into a fresh profiles folder — holding a hand-built profile first, when asked
     /// to — and answers which folders the reading was started on.
     private func save(besideAHandBuiltProfile: Bool) async throws -> (model: SetupModel, started: [URL], walk: SetupWalk) {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-read-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let s = try Scratch("read")
+        defer { s.remove() }
         if besideAHandBuiltProfile {
             _ = try FilingProfileStore.writeProfile(
                 FolderProfile(profileId: "hand", root: "/Volumes/Archive/Docs",
@@ -1058,16 +970,13 @@ import Testing
                                 path: "Finance", role: nil, naming: nil, anchors: [],
                                 acceptsNewFiles: nil, fileCount: 1, subfolderCount: 0, axes: [:])],
                               personTokens: []),
-                in: profiles, builtBy: "hand — setup-read fixture")
+                in: s.profiles, builtBy: "hand — setup-read fixture")
         }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
         let walk = Self.walk(folders: ["Finance/US", "Family/Mother"])
         var started: [URL] = []
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: besideAHandBuiltProfile,
-                               defaults: ScratchDefaults("setup-model-d"), walk: walk, draftURL: nil,
-                               onStartSurvey: { started.append($0) })
+        let model = await self.model(walk: walk, syncManager: s.engine,
+                                     hasFilingProfile: besideAHandBuiltProfile,
+                                     onStartSurvey: { started.append($0) })
         #expect(model.readDocuments, "premise: reading the documents was asked for")
         await model.save()
         #expect(model.writtenReport != nil, "premise: the walk's profile was written")
@@ -1097,18 +1006,10 @@ import Testing
     /// mid-reading still says Learn, and nothing would cancel a second walk of the same tree.
     @Test(.timeLimit(.minutes(2)))
     func learnWhileTheFolderIsBeingReadReadsItOnce() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-learn-twice-\(UUID().uuidString)")
-        let documents = root.appendingPathComponent("Documents")
-        for folder in ["Finance/US", "Family/Mother"] {
-            try FileManager.default.createDirectory(at: documents.appendingPathComponent(folder),
-                                                    withIntermediateDirectories: true)
-        }
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = root.appendingPathComponent("profiles")
-        let model = await self.model(syncManager: engine)
-        model.changeWalkRoot(to: documents)
+        let s = try Scratch("learn-twice", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
+        defer { s.remove() }
+        let model = await self.model(syncManager: s.engine)
+        model.changeWalkRoot(to: s.documents)
         model.screen = .learn
         // The test holds the main actor, so the reading cannot land before the second press.
         model.pressLearnPrimary()
@@ -1136,9 +1037,7 @@ import Testing
         store.add(displayName: "Abhishek", relationship: "me")
         store.add(displayName: "Maya", relationship: "wife")
         let id = try #require(store.people.first { $0.relationship == "me" }?.id)
-        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
-                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
-                               startScreen: .you, draftURL: nil)
+        let model = await self.model(peopleStore: store, hasFilingProfile: true, startScreen: .you)
         model.onOpen()
         #expect(model.draft.yourName == "Abhishek", "premise: You opens on the roster's name")
 
@@ -1159,22 +1058,15 @@ import Testing
     /// Structure would preview the new household beside a Continue while the profile on disk kept
     /// the old person axis.
     @Test func aPersonAddedAfterSaveIsSavedAgain() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-rehousehold-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
-        let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: engine,
-                               hasFilingProfile: false, defaults: ScratchDefaults("setup-model-d"),
-                               walk: Self.walk(folders: ["Finance/US", "Family/Maya", "Family/Ravi"]),
-                               draftURL: nil,
-                               onProfileWritten: {
-                                   guard let id = FilingProfileStore.activeProfileId(in: profiles) else { return }
-                                   engine.filingPeopleStore = PeopleStore(directory: profiles,
-                                                                          profileId: id, profile: nil)
-                               })
+        let s = try Scratch("rehousehold")
+        defer { s.remove() }
+        let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Maya", "Family/Ravi"]),
+                                     syncManager: s.engine,
+                                     onProfileWritten: {
+                                         guard let id = FilingProfileStore.activeProfileId(in: s.profiles) else { return }
+                                         s.engine.filingPeopleStore = PeopleStore(directory: s.profiles,
+                                                                                profileId: id, profile: nil)
+                                     })
         model.screen = .people
         model.newPersonField = "Maya"
         model.commitTypedPerson()
@@ -1193,8 +1085,8 @@ import Testing
         #expect(await model.save(), "the second Save wrote nothing")
         let second = try #require(model.writtenReport?.profileId)
         #expect(second != first)
-        let before = try #require(FilingProfileStore.profile(id: first, in: profiles))
-        let after = try #require(FilingProfileStore.profile(id: second, in: profiles))
+        let before = try #require(FilingProfileStore.profile(id: first, in: s.profiles))
+        let after = try #require(FilingProfileStore.profile(id: second, in: s.profiles))
         #expect(before.folders["Family/Ravi"]?.axes["person"] == nil, "premise: the first had no Ravi")
         #expect(after.folders["Family/Ravi"]?.axes["person"] == "Ravi",
                 "the second Save's profile does not hold Ravi")
@@ -1217,9 +1109,7 @@ import Testing
                 { "id": "granny", "displayName": "Granny" } ] }
             """.utf8).write(to: dir.appendingPathComponent("p/people.json"))
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        let model = SetupModel(settings: await settings(), peopleStore: store, syncManager: nil,
-                               hasFilingProfile: true, defaults: ScratchDefaults("setup-model-d"),
-                               walk: nil, draftURL: nil)
+        let model = await self.model(peopleStore: store, hasFilingProfile: true)
         #expect(model.rosterIsReadOnly, "premise: the roster is read-only")
         #expect(model.rosterRepeatsAnId, "a roster with one id twice was not told apart from an unreadable one")
         let shown = model.rosterNames

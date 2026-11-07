@@ -282,6 +282,12 @@ import Sync
         await waitUntil("the panel was placed under the field") {
             host.childWindows?.first.map { $0.frame.minX == field.minX && $0.frame.width == field.width } ?? false
         }
+        // At the field's width and left edge, just under it: what makes the list read as belonging
+        // to that field. The field rect is not centred and not square, so a transposed placement
+        // can't land on the right answer by accident.
+        #expect(host.childWindows?.first?.frame.maxY == field.minY - GoToResultsPanel.gapBelowField,
+                "the list is not hanging just under the field — a gap of \(GoToResultsPanel.gapBelowField)pt is what makes the two read as one object")
+        #expect((host.childWindows?.first?.frame.height ?? 0) > 0, "the list has no height — nothing is drawn")
         // The field's new rect is set before the resize, so the anchor answers with the laid-out
         // toolbar. That is the real order: `didResize` is posted from inside `setFrame`, and the
         // controller reads again a frame later for the case where it is not (see `present`).
@@ -364,7 +370,7 @@ import Sync
     /// narrowed one. Every `return` in the block is parsed and must be `event`, since
     /// `return .none` swallows as surely as `return nil`.
     @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
-        let source = Self.masked(try Self.panelSource())
+        let source = maskedCode(try Self.panelSource())
         let block = try Self.braceBalancedBlock(after: "addMonitor(matching: [.leftMouseDown",
                                                 in: source,
                                                 what: "the click monitor")
@@ -396,7 +402,7 @@ import Sync
     /// from that window) works throughout, and ⌘K on an open field selects what is in it. A monitor
     /// would swallow the chord before the menu item saw it.
     @Test func thereIsNoKeyDownMonitorSwallowingTheChord() throws {
-        let source = Self.masked(try Self.panelSource())
+        let source = maskedCode(try Self.panelSource())
         #expect(!source.contains("addMonitor(matching: .keyDown"),
                 "a keyDown monitor is back — ⌘K is being intercepted before the menu item sees it")
         #expect(!source.contains("closesThePalette"),
@@ -409,7 +415,7 @@ import Sync
     /// The resign observer is on the host. On the panel it would never fire, since a window that
     /// cannot take key cannot resign it.
     @Test func theResignObserverWatchesTheHostRatherThanThePanel() throws {
-        let source = Self.masked(try Self.panelSource())
+        let source = maskedCode(try Self.panelSource())
         // The registration's arguments, not its closure body: `braceBalancedBlock` starts at the
         // first brace, which is the handler, and `object:` is named before it.
         let anchor = try #require(source.range(of: "resignObserver = NotificationCenter.default.addObserver"),
@@ -420,29 +426,11 @@ import Sync
         #expect(!call.contains("object: panel"))
     }
 
-    @Test func rejectsConstructsTheMaskCannotLex() throws {
-        let source = try Self.panelSource()
-        #expect(!source.contains("\"\"\""),
-                "CommandPalettePanel.swift now uses a multi-line string literal, which `masked` cannot lex — teach it `\"\"\"` before trusting any scan in this suite")
-        #expect(!source.contains("#\""),
-                "CommandPalettePanel.swift now uses a raw string literal, which `masked` cannot lex — teach it `#\"…\"#` before trusting any scan in this suite")
-        let code = Self.masked(source)
-        #expect(code.count == source.count,
-                "the mask changed the source's length, so every range it produces indexes the original wrongly")
-        var depth = 0
-        for character in code {
-            if character == "{" { depth += 1 }
-            if character == "}" { depth -= 1 }
-        }
-        #expect(depth == 0,
-                "the masked source's braces do not balance (net \(depth)) — the mask has leaked a literal or a comment, and every block bound in this suite is suspect")
-    }
-
     /// The helper the monitors install through must still install, and `dismiss()` must still drain
     /// them. Gutting `addMonitor`, or dropping `eventMonitors.append` or the drain, would leave the
     /// call-site scan above green.
     @Test func theMonitorHelperInstallsAndDismissDrainsThem() throws {
-        let source = Self.masked(try Self.panelSource())
+        let source = maskedCode(try Self.panelSource())
         let helper = try Self.braceBalancedBlock(after: "private func addMonitor(matching mask:",
                                                  in: source, what: "addMonitor")
         #expect(helper.contains("NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)"),
@@ -457,75 +445,11 @@ import Sync
                 "dismiss() leaves stale tokens in the bag — the next dismiss() would remove them twice")
     }
 
-    /// Source with every comment and every string's contents blanked to spaces, same length. A
-    /// brace or a `return` inside a string or a trailing comment would otherwise move a block's
-    /// bounds or count as a statement. Block comments nest in Swift, so they are tracked by depth,
-    /// not a flag. Offsets are preserved, so a range found in the masked text indexes the original;
-    /// delimiters are kept, so `""` still reads as a literal.
-    ///
-    /// It cannot lex multi-line `"""` literals, raw strings `#"…"#`, or interpolation containing a
-    /// nested string literal (`"\(d["k"])"`): each gives wrong verdicts.
-    /// `rejectsConstructsTheMaskCannotLex` fails the scan if `CommandPalettePanel.swift` uses the
-    /// first two.
-    static func masked(_ source: String) -> String {
-        var out = ""
-        out.reserveCapacity(source.count)
-        var inLineComment = false, inString = false, escaped = false
-        var blockDepth = 0
-        var index = source.startIndex
-        while index < source.endIndex {
-            let character = source[index]
-            let next = source.index(after: index)
-            let peek: Character? = next < source.endIndex ? source[next] : nil
-            if inLineComment {
-                if character == "\n" { inLineComment = false; out.append(character) } else { out.append(" ") }
-            } else if blockDepth > 0 {
-                if character == "/", peek == "*" { blockDepth += 1; out += "  "; index = next }
-                else if character == "*", peek == "/" { blockDepth -= 1; out += "  "; index = next }
-                else { out.append(character == "\n" ? "\n" : " ") }
-            } else if inString {
-                if escaped { escaped = false; out.append(" ") }
-                else if character == "\\" { escaped = true; out.append(" ") }
-                else if character == "\"" { inString = false; out.append(character) }
-                else { out.append(character == "\n" ? "\n" : " ") }
-            } else if character == "/", peek == "/" { inLineComment = true; out += "  "; index = next }
-            else if character == "/", peek == "*" { blockDepth = 1; out += "  "; index = next }
-            else if character == "\"" { inString = true; out.append(character) }
-            else { out.append(character) }
-            index = source.index(after: index)
-        }
-        return out
-    }
-
-    /// The text between an anchor's opening `{` and its matching `}`, found by balancing braces,
-    /// never by indentation, which an `if` or a nested closure can move. Masks comments and strings
-    /// itself, so callers cannot forget to.
+    /// The body after `anchor`, to its own closing brace, read over ``maskedCode(_:)``: a brace or a
+    /// `return` inside a string or a comment can then neither move the bounds nor count.
     static func braceBalancedBlock(after anchor: String, in source: String,
                                    what: String) throws -> String {
-        let code = Self.masked(source)
-        let start = try #require(code.range(of: anchor), "\(what) is gone — this scan would be vacuous")
-        // Unique, as the FileExplorer helper requires: `range(of:)` takes the first match silently,
-        // and a second would mean answering about text nobody chose.
-        let occurrences = code.components(separatedBy: anchor).count - 1
-        try #require(occurrences == 1,
-                     "\(what)'s anchor occurs \(occurrences)× in code — this scan would read the first")
-        // From the start of the match, not its end: an anchor that carries its own `{`
-        // (`func dismiss() {`) would otherwise skip past it and balance the next block instead.
-        let rest = code[start.lowerBound...]
-        let open = try #require(rest.firstIndex(of: "{"), "no opening brace for \(what)")
-        var depth = 0
-        var close: String.Index?
-        var index = open
-        while index < rest.endIndex {
-            if rest[index] == "{" { depth += 1 }
-            if rest[index] == "}" {
-                depth -= 1
-                if depth == 0 { close = index; break }
-            }
-            index = rest.index(after: index)
-        }
-        let end = try #require(close, "no matching closing brace for \(what)")
-        return String(rest[rest.index(after: open)..<end])
+        try declarationBody(of: anchor, in: maskedCode(source))
     }
 
     /// Every `return <expr>` in a block, as the expression's text, in source order. A
@@ -576,7 +500,7 @@ import Sync
     /// every test would stay green until a run where a window holds key (see `makeHost`). Ordering
     /// out at teardown, after the assertions, is right: it keeps these windows from accumulating.
     @Test func onlyTeardownEverOrdersAWindowOut() throws {
-        let source = Self.masked(try Self.fixtureSource())
+        let source = maskedCode(try Self.fixtureSource())
         let teardown = try Self.braceBalancedBlock(after: "private func teardown(", in: source,
                                                    what: "the fixture's teardown")
         #expect(teardown.contains("orderOut"),
@@ -600,17 +524,7 @@ import Sync
 
     /// Reads `CommandPalettePanel.swift` itself. Fails loudly when it cannot be found, so a rename
     /// cannot leave an empty haystack in which every `contains` quietly answers false.
-    static func panelSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("MacApp/CommandPalettePanel.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read CommandPalettePanel.swift — the scan would be vacuous")
-        // `#require`, not `#expect`: a truncated file would make every `!contains` pass.
-        try #require(text.count > 500, "CommandPalettePanel.swift is implausibly short")
-        return text
-    }
+    static func panelSource() throws -> String { try macAppFile("CommandPalettePanel.swift") }
 
     /// ...and a click on the palette must not dismiss it, or the list would close under the
     /// pointer before it could be used.
@@ -705,25 +619,6 @@ import Sync
         #expect(state.rows.count > 0)
         #expect(state.selection == PaletteSelection.initialIndex(in: state.rows),
                 "the selection is a stale index into the previous results — ↩ would run a row nobody looked at")
-    }
-
-    /// The list is placed under the field, at the field's width and left edge, which is what makes
-    /// it read as belonging to that field. The field rect is not centred and not square, so a
-    /// transposed placement can't land on the right answer by accident.
-    @Test func theListIsPlacedUnderTheFieldItHangsFrom() async throws {
-        let host = makeHost()
-        let controller = CommandPalettePanelController()
-        defer { teardown(host, controller) }
-        let field = Self.fieldRect(in: host)
-        present(controller, over: host, anchor: { field })
-        await waitUntil("the panel was placed") { (host.childWindows?.first?.frame.width ?? 0) == field.width }
-        let panel = try #require(host.childWindows?.first)
-
-        #expect(panel.frame.minX == field.minX, "the list is not aligned with the field's left edge")
-        #expect(panel.frame.width == field.width, "the list is not as wide as the field")
-        #expect(panel.frame.maxY == field.minY - GoToResultsPanel.gapBelowField,
-                "the list is not hanging just under the field — a gap of \(GoToResultsPanel.gapBelowField)pt is what makes the two read as one object")
-        #expect(panel.frame.height > 0, "the list has no height — nothing is drawn")
     }
 
     /// The anchor keeps looking across run loop turns rather than spending its retries at once.

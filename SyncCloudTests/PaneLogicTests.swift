@@ -178,27 +178,17 @@ import Sync
 
     // MARK: relativeIgnoreTargets
 
-    @Test func testIgnoreTargetsStripBasePathAndLeadingSlash() {
-        let targets = PaneLogic.relativeIgnoreTargets(
-            nodeIds: ["/root/docs/a.txt", "/root/docs/sub/b.txt"],
-            basePath: "/root/docs")
-        #expect(targets == ["a.txt", "sub/b.txt"])
-    }
-
-    @Test func testIgnoreTargetsOutsideBasePassThrough() {
-        let targets = PaneLogic.relativeIgnoreTargets(
-            nodeIds: ["/elsewhere/c.txt"],
-            basePath: "/root/docs")
-        #expect(targets == ["/elsewhere/c.txt"])
-    }
-
-    @Test func testIgnoreTargetsStripOnlyAtComponentBoundary() {
-        // "/root/ab" is not an ancestor of "/root/abc/x" — a bare string prefix must not
-        // alias a sibling root into a bogus relative target ("c/x").
-        let targets = PaneLogic.relativeIgnoreTargets(
-            nodeIds: ["/root/abc/x", "/root/ab/y"],
-            basePath: "/root/ab")
-        #expect(targets == ["/root/abc/x", "y"])
+    /// `(node ids, base path, the targets)`. Outside the base a path passes through; inside, the
+    /// base and its leading slash go. Only at a component boundary: "/root/ab" is not an ancestor
+    /// of "/root/abc/x", and a bare string prefix would alias a sibling root into a bogus relative
+    /// target ("c/x").
+    @Test(arguments: [
+        (["/root/docs/a.txt", "/root/docs/sub/b.txt"], "/root/docs", ["a.txt", "sub/b.txt"]),
+        (["/elsewhere/c.txt"], "/root/docs", ["/elsewhere/c.txt"]),
+        (["/root/abc/x", "/root/ab/y"], "/root/ab", ["/root/abc/x", "y"]),
+    ])
+    func testIgnoreTargetsAreRelativeToTheBase(nodeIds: [String], basePath: String, expected: [String]) {
+        #expect(PaneLogic.relativeIgnoreTargets(nodeIds: nodeIds, basePath: basePath) == expected)
     }
 
     // MARK: ignoreBasePath — the base `relativeIgnoreTargets` is measured against
@@ -274,10 +264,13 @@ import Sync
 
     // MARK: swappedProviderIds
 
-    @Test func testSwappedProviderIdsExchangeSides() {
-        let swapped = PaneLogic.swappedProviderIds(leftProviderId: "iCloud", rightProviderId: "Dropbox")
-        #expect(swapped.leftProviderId == "Dropbox")
-        #expect(swapped.rightProviderId == "iCloud")
+    /// The ids change sides. Both panes on the same provider: swapping changes nothing, so neither
+    /// pane's id onChange fires, and the swap action must not seed its suppression counter for it.
+    @Test(arguments: [("iCloud", "Dropbox"), ("iCloud", "iCloud")])
+    func testSwappedProviderIdsExchangeSides(left: String, right: String) {
+        let swapped = PaneLogic.swappedProviderIds(leftProviderId: left, rightProviderId: right)
+        #expect(swapped.leftProviderId == right)
+        #expect(swapped.rightProviderId == left)
     }
 
     @Test func testSwappingProviderIdsTwiceRestoresOriginal() {
@@ -285,14 +278,6 @@ import Sync
         let twice = PaneLogic.swappedProviderIds(leftProviderId: once.leftProviderId, rightProviderId: once.rightProviderId)
         #expect(twice.leftProviderId == "A")
         #expect(twice.rightProviderId == "B")
-    }
-
-    @Test func testSwappingEqualProviderIdsIsANoOp() {
-        // Both panes on the same provider: swapping the ids changes nothing, so neither pane's
-        // id onChange fires — the swap action must not seed its suppression counter for this case.
-        let swapped = PaneLogic.swappedProviderIds(leftProviderId: "iCloud", rightProviderId: "iCloud")
-        #expect(swapped.leftProviderId == "iCloud")
-        #expect(swapped.rightProviderId == "iCloud")
     }
 
     // MARK: Resize split layout
@@ -322,19 +307,17 @@ import Sync
 
     // clampedFraction
 
-    @Test func testClampedFractionPassesValuesInsideTheBounds() {
-        #expect(isClose(PaneLogic.clampedFraction(0.3, lower: 0.25, upper: 0.75), 0.3))
-    }
-
-    @Test func testClampedFractionPinsToTheNearerBound() {
-        #expect(isClose(PaneLogic.clampedFraction(0.1, lower: 0.25, upper: 0.75), 0.25))
-        #expect(isClose(PaneLogic.clampedFraction(0.9, lower: 0.25, upper: 0.75), 0.75))
-    }
-
-    @Test func testClampedFractionPinsToUpperWhenBoundsInvert() {
-        // Defensive: if a caller ever passes upper < lower, the outer min wins and the result
-        // pins to upper — documenting that the larger section's minimum is the one sacrificed.
-        #expect(isClose(PaneLogic.clampedFraction(0.5, lower: 0.6, upper: 0.4), 0.4))
+    /// `(value, lower, upper, result)`: inside the bounds it passes; outside, it pins to the nearer
+    /// bound. Defensive: if a caller ever passes upper < lower, the outer min wins and the result
+    /// pins to upper, documenting that the larger section's minimum is the one sacrificed.
+    @Test(arguments: [
+        (0.3, 0.25, 0.75, 0.3),
+        (0.1, 0.25, 0.75, 0.25),
+        (0.9, 0.25, 0.75, 0.75),
+        (0.5, 0.6, 0.4, 0.4),
+    ] as [(CGFloat, CGFloat, CGFloat, CGFloat)])
+    func testClampedFractionStaysInsideTheBounds(value: CGFloat, lower: CGFloat, upper: CGFloat, expected: CGFloat) {
+        #expect(isClose(PaneLogic.clampedFraction(value, lower: lower, upper: upper), expected))
     }
 
     @Test func testHorizontalSplitDegradesToEvenSplitInNarrowWindow() {

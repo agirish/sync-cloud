@@ -23,7 +23,7 @@ import Foundation
     /// The selection handler reads the mark before the one-click open consumes it, and there is no
     /// unconditional left-pane clear; the right pane's goes through its own rule.
     @Test func theClearReadsTheMarkBeforeItIsConsumed() throws {
-        let source = try EditorDivergenceWiringTests.source("ContentView.swift")
+        let source = try macAppFile("ContentView.swift")
         let content = CodeText(source)
         // The handler's own closure, brace-bounded.
         let handler = CodeText(try declarationBody(of: ".onChange(of: syncManager.selectedLeftPaths) { _, paths in",

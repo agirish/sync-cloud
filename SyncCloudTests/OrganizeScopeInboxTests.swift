@@ -10,18 +10,7 @@ import Foundation
 /// file can't be read: a scan of an empty haystack passes as green as one that proves something.
 @Suite struct OrganizeScopeInboxTests {
 
-    static func contentView() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
-        // stop instead of reporting one issue in front of a page of green.
-        try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
+    static func contentView() throws -> String { try macAppFile("ContentView.swift") }
 
     @Test func theInboxRootSwapIsGone() throws {
         let source = try Self.contentView()
@@ -37,16 +26,9 @@ import Foundation
     /// would jump the source rail into a folder nobody asked for.
     @Test func theRailNoLongerOpensOnTheInbox() throws {
         let source = try Self.contentView()
-        // No rail-path resolver, matched by shape (`tidy…` or `lens…`) over comment-stripped code,
-        // since ContentView's prose may still name one.
-        #expect(!sourceCodeOnly(source).contains("RailRelativePath"),
-                "the rail's inbox resolver is back — Organize opens on TODO again on a fresh install")
-
+        // The pane keeps the folder it was in, and `LensEntryContinuityTests` bans every pane move
+        // in this body; this holds that no rule of Organize's own, the inbox above all, moves it.
         let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)
-        // The pane keeps the folder it was in (`LensEntryContinuityTests`); this suite holds that
-        // no rule of Organize's own, the inbox above all, moves it.
-        #expect(!body.contains("focusOn("),
-                "entering Organize positions the left pane again — the folder it was in is lost")
         // The key, not the word "inbox": the body's own comment may say "inbox", and a scan for the
         // word would fail a correct implementation.
         #expect(!body.contains("filingInboxRelativePathKey"),
@@ -56,11 +38,7 @@ import Foundation
     /// The setting can express "off". A placeholder of the key's default ("TODO") would make a
     /// cleared field look exactly like an untouched one.
     @Test func theInboxSettingCanBeCleared() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/Settings/Sources/Settings/SettingsView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SettingsView.swift — this scan would be vacuous")
+        let source = try repoFile("Modules/Settings/Sources/Settings/SettingsView.swift")
         #expect(source.contains("TextField(\"None\", text: $filingInbox)"),
                 "the inbox field advertises its default as its placeholder again, so a cleared field looks unset")
         #expect(!source.contains("TextField(\"TODO\", text: $filingInbox)"))
@@ -104,19 +82,10 @@ import Foundation
             in: source)
         #expect(body.contains("setOrganizeScope(folder, providerRoot: providerRoot)"),
                 "Organize This Folder no longer sets the scope, so five lenses would ignore it")
-        // The two roots must not be swapped here. The scope is measured against the account root,
-        // so any reachable folder can be one; the filing scan's taxonomy is the source's anchor.
-        // The anchor as scope makes folders above the documents tree un-scopable; the root as
-        // taxonomy hands filing the whole account. The scan files into the row's File Into folder,
-        // resolved from the anchor by `filingDestinationRoot(forAnchor:)`
-        // (`OrganizeScopeAutoRescanTests`).
-        #expect(body.contains("let into = filingDestinationRoot(forAnchor: providerAnchor)"),
-                "the filing scan is anchored at the account root again, so its taxonomy is the whole account")
-        #expect(body.contains("providerRoot: URL(fileURLWithPath: into)"))
-        // The one write normalizes the root away, so no caller can mint a second encoding of the
-        // global view. The root is a required argument, so no caller can inherit the focused
-        // pane's (`OrganizeScopeRootOwnershipTests`).
-        #expect(source.contains("func setOrganizeScope(_ path: String?, providerRoot: String)"))
+        // The two roots must not be swapped here: the scope against the account root, the filing
+        // scan's taxonomy at the source's anchor (`OrganizeScopeAutoRescanTests
+        // .everyFilingScanFilesIntoFileIntosFolder`). The one write normalizes the root away, so no
+        // caller can mint a second encoding of the global view.
         // One resolver behind both read and write, so they can't drift about what a stored
         // provider root means.
         #expect(source.contains("organizeScopePath = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),

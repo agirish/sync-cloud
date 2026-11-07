@@ -9,29 +9,14 @@ import Foundation
 /// unrelated pane click (`followsPane: true` where it doesn't belong).
 ///
 /// `ContentView` needs a live `FileSyncManager` and a render pass, so the call sites are checked
-/// in source: `testTheScanCanActuallyFail` proves the reader sees real text, and the exact count
-/// means a new entry point can't be added without deciding this.
+/// in source: the reader fails loudly on a missing or short file, and the exact count means a new entry point can't be added without deciding this.
 @Suite struct QuickLookOriginTests {
 
-    /// One named file, length-checked — for the checks that assert something about *that* file.
-    static func source(_ name: String) throws -> String {
-        let text = try readable(name)
-        // `#require`, not `#expect`: a truncated file would make every `contains` false and every
-        // `!contains` true, so stop instead of reporting a page of green.
-        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
-
-    /// Any file in `MacApp/`, without the length guard, so a short new file there doesn't fail
-    /// this suite. The sweep's non-vacuity is checked on its result instead, by
-    /// `testTheScanFindsTheCallSites`.
+    /// One MacApp file with no length floor, for the sweep, so a small new file passes. The checks
+    /// about one named file read it through `macAppFile`, which has the floor.
     static func readable(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(name)")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read \(name) — every check below would be vacuous")
+        try #require(try? String(contentsOf: macAppDirectory().appendingPathComponent(name), encoding: .utf8),
+                     "cannot read \(name) — every check below would be vacuous")
     }
 
     /// Every call to `toggleQuickLook(` across the app, each as `toggleQuickLook(<its whole
@@ -62,12 +47,6 @@ import Foundation
         return names.sorted()
     }
 
-    @Test func testTheScanCanActuallyFail() throws {
-        #expect(try Self.source("ContentView.swift").contains("func toggleQuickLook("),
-                "this is not ContentView, or the presenter has been renamed")
-        #expect(try !Self.source("ContentView.swift").contains("a string that is definitely not in ContentView"))
-    }
-
     /// The scan finds call sites at all, or every per-site check below loops over nothing.
     @Test func testTheScanFindsTheCallSites() throws {
         let sites = try Self.callSites()
@@ -91,13 +70,13 @@ import Foundation
     @Test func testEveryPaneEntryPointFollowsTheSelection() throws {
         // Space, in the one handler every pane surface shares (`PaneQuickLookScopeTests` says why
         // it is one function).
-        let search = try Self.source("ContentView+PaneSearch.swift")
+        let search = try macAppFile("ContentView+PaneSearch.swift")
         // The handler's own body, not a character window, which would fail for the wrong reason
         // whenever the body grew.
         let body = try CallArguments(of: "toggleQuickLook(", in: try declarationBody(of: "func paneQuickLook()", in: search))
         #expect(body.unlabeled == [normalizedCode("URL(fileURLWithPath: targetPath)")] && body.passes("followsPane", "true"),
                 "Space opens a pane preview that will not follow the selection")
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         // The whole argument list, not a character window, which an unrelated new argument would
         // push `onQuickLook:` out of. The lexer-backed reader doesn't take a `)` in a string for
         // the call's end.
@@ -107,7 +86,7 @@ import Foundation
 
         // File ▸ Quick Look is the row menu's verb from the menu bar, so it previews the pane
         // selection and must follow it. Named here; the count above only says a site exists.
-        let shortcuts = try Self.source("ShortcutCommands.swift")
+        let shortcuts = try macAppFile("ShortcutCommands.swift")
         // To the member's own closing brace, found by matching braces, so an argument added to an
         // unrelated verb can't push `followsPane: true` out of view.
         let resolver = CodeText(try declarationBody(of: "var shortcutPaneRowVerbs", in: shortcuts))
@@ -120,7 +99,7 @@ import Foundation
     /// The entry points that are not the panes'. Both surfaces can hold a selection at once, so a
     /// pane click must not move or close a preview one of these put up.
     @Test func testTheOtherSurfacesDoNotClaimThePaneSelection() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         for marker in ["DifferencesView(", "onQuickLook: { toggleQuickLook($0) }"] {
             #expect(CodeText(content).contains(marker), "\(marker) is gone — this check has stopped covering it")
         }
@@ -142,7 +121,7 @@ import Foundation
     /// binding without going through `toggleQuickLook`, so a stale `true` would be inherited by the
     /// next preview whatever opened it.
     @Test func testTheOriginIsClearedWhenThePanelIsDismissed() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains(".onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }"),
                 "dismissing the panel leaves the origin flag set")
         #expect(content.contains(".onChange(of: paneQuickLookTarget)"),

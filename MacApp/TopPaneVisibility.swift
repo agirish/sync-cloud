@@ -28,11 +28,6 @@ enum TopPaneVisibility {
         workspace == .compare ? .compare : .singleSource
     }
 
-    /// How many provider panes a workspace shows: both sides for a comparison, one for a lens.
-    static func paneCount(for workspace: Workspace) -> Int {
-        mode(for: workspace) == .compare ? 2 : 1
-    }
-
     /// The default hidden state, before any stored override: shown, so the source browser is in
     /// the same place on every workspace.
     ///

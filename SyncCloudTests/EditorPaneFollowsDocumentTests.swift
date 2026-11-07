@@ -468,7 +468,7 @@ import FileExplorer
         #expect(record.lowerBound < settle.lowerBound)
         // One writer of a debt: every door goes through this function. Counted as calls in code, so
         // a construction over several lines is one and a comment naming it is none.
-        let editor = sourceCodeOnly(try EditorDivergenceWiringTests.source("ContentView+Editor.swift"))
+        let editor = sourceCodeOnly(try macAppFile("ContentView+Editor.swift"))
         #expect(argumentLists(of: "PaneSelectionDebt(", in: editor).count == 1,
                 "a second place builds a debt — a second path around the rule")
     }
@@ -561,7 +561,7 @@ import FileExplorer
 
     /// The triggers, and the reveal reaching the left pane only.
     @Test func theTriggersAndTheRevealAreWired() throws {
-        let content = try EditorDivergenceWiringTests.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         // A workspace switch asks too, so a debt owed elsewhere drops at once, with its line. Each
         // handler is read as its closure's own braces, which `declarationBody` matches.
         let switchHandler = CodeText(try declarationBody(of: ".onChange(of: selectedWorkspace) { _, workspace in",

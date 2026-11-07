@@ -24,19 +24,15 @@ import Testing
         let sent = Box<[AskClaudeChat.Queued]>([])
         chat.sendQueued = { [weak chat] waiting in
             sent.value.append(waiting)
-            chat?.ask(waiting.text, screen: screen, tools: QueueNoTools())
+            chat?.ask(waiting.text, screen: screen, tools: NoTools())
         }
         return (chat, sent)
-    }
-
-    private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
-        await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
     }
 
     @Test func aQuestionTypedWhileClaudeAnswersGoesWhenTheAnswerEnds() async {
         let gate = Gate()
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: gate)
-        chat.ask("Find my latest I-797", screen: screen, tools: QueueNoTools())
+        chat.ask("Find my latest I-797", screen: screen, tools: NoTools())
         chat.attach([Self.receipt])
         chat.queue("open it in Preview", spoken: false)
         // The chips go with it, and the box is clear for the next one.
@@ -56,7 +52,7 @@ import Testing
     /// Only one question waits: a second Return joins it on its own line, with its chips.
     @Test func aSecondQuestionJoinsTheFirst() {
         let (chat, _) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.attach([Self.receipt])
         chat.queue("open it", spoken: true)
         chat.attach([Self.receipt, Self.lease])
@@ -69,7 +65,7 @@ import Testing
     /// Stop ends the answer and the question stays, unsent, until they say: Send, Edit or Cancel.
     @Test func stopKeepsItUnsent() async {
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.queue("two", spoken: false)
         chat.stop()
         await waitUntilIdle(chat)
@@ -85,7 +81,7 @@ import Testing
     /// A problem keeps it too: with no key, the same problem would meet it.
     @Test func aProblemKeepsItUnsent() async {
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate(), key: nil)
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.queue("two", spoken: false)
         await waitUntilIdle(chat)
         try? await Task.sleep(for: .milliseconds(100))
@@ -96,7 +92,7 @@ import Testing
     /// Edit gives the text back for the box and the chips back above it; Cancel drops both.
     @Test func editGivesItBackAndCancelDropsIt() {
         let (chat, _) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.attach([Self.receipt])
         chat.queue("two", spoken: false)
         #expect(chat.editQueued() == "two")
@@ -115,7 +111,7 @@ import Testing
     /// New Chat while it waits: the answer goes, the question stays for them to send.
     @Test func newChatKeepsItUnsent() async {
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.queue("two", spoken: false)
         chat.newChat()
         #expect(!chat.isRunning)
@@ -131,7 +127,7 @@ import Testing
         let center = NotificationCenter()
         let gate = Gate()
         let (chat, sent) = chat(d, gate: gate, keyChanges: center)
-        chat.ask("one", screen: screen, tools: QueueNoTools())
+        chat.ask("one", screen: screen, tools: NoTools())
         chat.attach([Self.receipt])
         chat.queue("is this the newest?", spoken: false)
         d.set(["/Private"], forKey: AskClaudePrivacy.hiddenFoldersKey)
@@ -148,23 +144,14 @@ import Testing
     @Test func theBoxStaysOpenAndReturnQueues() async throws {
         let (chat, sent) = chat(ScratchDefaults("AskClaudeQueueTests"), gate: Gate())
         var asked: [String] = []
-        chat.ask("one", screen: screen, tools: QueueNoTools())
-        let container = CGSize(width: 1000, height: 800)
-        let host = NSHostingView(rootView: AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue,
-                                                          accentFill: .blue, onAccent: .white, onAsk: { asked.append($0) },
-                                                          onClose: {}, onOpenSettings: { _ in }, container: container,
-                                                          settingsBridge: .keySaved))
-        host.frame = NSRect(origin: .zero, size: container)
-        let window = AskClaudePanelWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        chat.ask("one", screen: screen, tools: NoTools())
+        let rig = AskClaudePanelRig(chat: chat, onAsk: { asked.append($0) }, panelWindow: true)
+        let window = rig.window
         window.orderFrontRegardless()
         window.makeKey()
         defer { window.orderOut(nil) }
-        host.layoutSubtreeIfNeeded()
-        func field(in view: NSView) -> NSTextField? { (view as? NSTextField) ?? view.subviews.lazy.compactMap(field).first }
-        let box = try #require(field(in: host))
+        rig.host.layoutSubtreeIfNeeded()
+        let box = try #require(rig.field)
         #expect(box.isEnabled && box.isEditable)
         #expect(window.makeFirstResponder(box))
         let editor = try #require(window.firstResponder as? NSTextView)
@@ -200,24 +187,6 @@ private struct GatedTransport: AskClaudeTransport {
 
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
         while !gate.open { try await Task.sleep(for: .milliseconds(10)) }
-        let lines = [
-            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
-    }
-}
-
-@MainActor
-private final class QueueNoTools: AskClaudeToolRunning {
-    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-        AskClaudeToolOutcome(result: "", step: "")
+        return SSE.response(SSE.text("ok", outputTokens: 5))
     }
 }

@@ -118,19 +118,19 @@ import Testing
     @Test func organizeAndEditLayOutThroughTheRow() throws {
         let split = try CodeText(declarationBody(
             of: "func singleSourceLayout(collapsed: Bool, geo: GeometryProxy) -> some View {",
-            in: OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift")))
+            in: macAppFile("ContentView+SplitLayout.swift")))
         #expect(split.contains("CollapsibleRailRow {"), "Organize's row no longer keeps its workspace")
         #expect(split.count(of: "bottomPaneView") == 1, "Organize writes its workspace more than once")
 
         let editor = try CodeText(declarationBody(
             of: "func editorLayout(collapsed: Bool, geo: GeometryProxy) -> some View {",
-            in: OpenInEditorMenuTests.macApp("ContentView+Editor.swift")))
+            in: macAppFile("ContentView+Editor.swift")))
         #expect(editor.contains("CollapsibleRailRow {"), "Edit's row no longer keeps its workspace")
         #expect(editor.count(of: "editorWorkspace(showsRail:") == 1, "Edit writes its workspace more than once")
 
         // Identity can also break outside those bodies: one `case` per state is two call sites, and
         // an `.id` keyed on the fold is a new identity on every toggle.
-        let dispatch = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift"))
+        let dispatch = sourceCodeOnly(try macAppFile("ContentView+SplitLayout.swift"))
         #expect(dispatch.contains("case .singleExpanded, .singleCollapsed:"),
                 "Organize's two states are separate cases — the row is built in two places again")
         #expect(dispatch.contains("case .editorExpanded, .editorCollapsed:"),
@@ -149,7 +149,7 @@ import Testing
 
     @Test func noAnimationIsKeyedOnTheWorkspaceOrTheCollapse() throws {
         for name in try QuickLookOriginTests.macAppSwiftFiles() {
-            let source = sourceCodeOnly(try OpenInEditorMenuTests.macApp(name))
+            let source = sourceCodeOnly(try macAppFile(name))
             // `.animation(nil, value: …)` is the suppression that makes the snap structural, so it
             // is the one keyed animation allowed.
             let animating = source.components(separatedBy: "\n")
@@ -169,16 +169,13 @@ import Testing
     /// And the switch and the pane toggle strip any animation a caller wraps them in, so a later
     /// `withAnimation` cannot bring the fade back (or ignore Reduce Motion).
     @Test func theSwitchAndThePaneToggleSuppressAnyAnimation() throws {
-        let content = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView.swift"))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(content.contains(".animation(nil, value: selectedWorkspace)"))
         #expect(content.contains(".animation(nil, value: panesHiddenForCurrentTab)"))
     }
 
     @Test func organizesLensSwitchesArePlainAssignments() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift")
-        let code = CodeText(sourceCodeOnly(try String(contentsOf: url, encoding: .utf8)))
+        let code = CodeText(try repoFile("Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift"))
         #expect(code.count(of: "railLens = ") >= 5, "the scan no longer finds the lens switches")
         let eased = code.contains("withAnimation(listSettle) { railLens")
         #expect(!eased, "a lens switch eases again")

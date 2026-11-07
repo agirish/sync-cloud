@@ -9,28 +9,11 @@ import FileExplorer
 @MainActor
 @Suite struct RestructureHelpTopicTests {
 
-    /// The pointer must resolve. An unknown id opens the book at its front, a silent failure: the
-    /// reader asked for a page and got the cover.
-    @Test func theLensPointsAtATopicTheBookHas() {
-        let ids = HelpBook.sections.flatMap { $0.topics.map(\.id) }
-        #expect(ids.contains(OrganizeHelpTopics.restructure),
-                "the lens points at \(OrganizeHelpTopics.restructure), which the book does not have")
-    }
-
     /// And at the right one: the page about what Restructure finds, not a neighbour.
     @Test func theTopicIsTheOneAboutRestructure() throws {
         let topic = try #require(HelpBook.sections.flatMap(\.topics)
             .first { $0.id == OrganizeHelpTopics.restructure })
         #expect(topic.title.contains("Restructure"))
-    }
-
-    /// An unresolvable id opens the front of the book rather than a blank card — a broken
-    /// pointer is a disappointment, not a crash.
-    @Test func anUnknownTopicFallsBackToTheFront() {
-        let ids = HelpBook.sections.flatMap { $0.topics.map(\.id) }
-        #expect(!ids.contains("no-such-topic"))
-        #expect(HelpBook.sections.first?.topics.first?.id != nil,
-                "there has to be a front page to fall back to")
     }
 
     // MARK: The book actually opens there
@@ -81,6 +64,10 @@ import FileExplorer
     /// And the fallback is the *rendered* front page, not merely a resolved-to-nil id: a broken
     /// pointer must be a disappointment, never a blank card.
     @Test func anUnknownTopicRendersTheFrontPage() throws {
+        let ids = HelpBook.sections.flatMap { $0.topics.map(\.id) }
+        #expect(!ids.contains("no-such-topic"))
+        #expect(HelpBook.sections.first?.topics.first?.id != nil,
+                "there has to be a front page to fall back to")
         let front = try #require(Self.raster(openAt: nil))
         let broken = try #require(Self.raster(openAt: "no-such-topic"))
         #expect(Self.differingPixels(front, broken) == 0,

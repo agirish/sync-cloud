@@ -41,6 +41,9 @@ import Sync
                 "the stored selection survives as the active tab")
         #expect(p.lines == [.init(level: .info, message: "Restored 3 left browse tabs")])
         #expect(p.adoptProviderId == nil, "the pane is already on the active tab's source")
+        // `adoptProviderId` and `adoptLog` are one decision: the host logs `plan.adoptLog ?? ""`
+        // beside the adopt, so a line without its id would audit nothing.
+        #expect(p.adoptLog == nil)
     }
 
     /// The singular/plural and side vocabulary. Without the side, a Compare launch could not say
@@ -48,9 +51,9 @@ import Sync
     @Test func theLinesNameTheSideAndCountHonestly() throws {
         let right = plan(entries: [entry(path: "Docs"), entry(path: "")], isLeft: false)
         #expect(right.lines == [.init(level: .info, message: "Restored 2 right browse tabs")])
-        let single = plan(entries: [entry(path: "Docs"), entry(path: "Docs/B")], isLeft: false,
+        let single = plan(entries: [entry(path: "Docs")], isLeft: false,
                           known: ["iCloud"], folderExists: { _, _ in true })
-        #expect(single.lines.last?.message == "Restored 2 right browse tabs")
+        #expect(single.lines.last?.message == "Restored 1 right browse tab")
     }
 
     // MARK: Drops (source gone or switched off)
@@ -109,18 +112,6 @@ import Sync
                 "what the restore threw away is still said first — got \(p.lines)")
         #expect(p.lines.last?.message.hasPrefix("Did not restore the left browse tab “Docs/Tax”") == true)
         #expect(!p.lines.contains { $0.message.contains("Restored") })
-    }
-
-    /// `adoptProviderId` and `adoptLog` are one decision. The host logs `plan.adoptLog ?? ""` beside
-    /// the adopt, so an id without its line would write an empty line into the log, and a line
-    /// without its id would audit nothing.
-    @Test func adoptionAndItsAuditLineAlwaysTravelTogether() {
-        let adopting = plan(entries: [entry("Dropbox", path: "Work")], currentProviderId: "iCloud")
-        #expect((adopting.adoptProviderId == nil) == (adopting.adoptLog == nil))
-        #expect(adopting.adoptLog?.isEmpty == false)
-
-        let staying = plan(entries: [entry(path: "Docs/Tax")])
-        #expect((staying.adoptProviderId == nil) == (staying.adoptLog == nil))
     }
 
     // MARK: Re-rooted folders

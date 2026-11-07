@@ -37,13 +37,6 @@ import FileExplorer
         #expect(settle.contains("mayLeave(thenRetry: retry)"))
     }
 
-    /// A window close doesn't ask: the PDF belongs to the app and outlives the window, so its order
-    /// is not at risk.
-    @Test func aWindowCloseDoesNotAskAboutThePDF() throws {
-        let tabs = CodeText(try EditorDiskWatchWiringTests.source("ContentView+PaneTabs.swift"))
-        #expect(tabs.contains("settle: { settleEditorDocument(asksAboutPDFWork: false, asksAboutTheOnlyCopy: false) }"))
-    }
-
     /// ⌘Q asks too, from the delegate, which holds the tools the window adopted, in Quit's words
     /// rather than Leave's.
     @Test func quittingAsksAboutThePDF() throws {

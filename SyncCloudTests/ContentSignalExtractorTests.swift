@@ -265,28 +265,6 @@ import UniformTypeIdentifiers
         #expect(peak == 1, "\(peak) PDF parses overlapped — extraction is no longer serialized")
     }
 
-    /// The companion to the above: the parses really happen and are issued concurrently. Without
-    /// it, `peakConcurrentParses == 1` is satisfied by a run that read nothing.
-    @Test func theSerializationTestActuallyParsesConcurrentlyIssuedWork() async throws {
-        let dir = FixtureDir()
-        let paths = try (0..<6).map { i -> String in
-            let p = dir.path("doc\(i).pdf")
-            try Self.writePDF(lines: ["MARKER\(i) statement policy"], to: p)
-            return p
-        }
-        let texts = await withTaskGroup(of: String?.self) { group -> [String] in
-            for p in paths { group.addTask { await ContentSignalExtractor.snippet(forFileAt: p) } }
-            var out: [String] = []
-            for await t in group { if let t { out.append(t) } }
-            return out
-        }
-        #expect(texts.count == 6, "only \(texts.count) of 6 documents were read")
-        #expect(PDFKitSerialAccess.peakConcurrentParses >= 1,
-                "the counter never moved — it is not observing the parse")
-        #expect(texts.allSatisfy { $0.contains("MARKER") },
-                "a document came back without its marker — the reads are not returning real text")
-    }
-
     // MARK: - "Could not look" is not "nothing to say"
 
     /// Every reader here answers `""` on failure, so a log line is the only thing that separates a

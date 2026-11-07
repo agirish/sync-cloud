@@ -61,7 +61,7 @@ import FileExplorer
     // MARK: - The aimed pane: the write half must agree with the read half
 
     static func host() throws -> String {
-        try CommandPaletteRouteCallSiteTests.source("CommandPaletteHost.swift")
+        try macAppFile("CommandPaletteHost.swift")
     }
 
     /// The provider id named in a member's `aimedAtRight == true` branch. Positional and strict:

@@ -12,29 +12,12 @@ import FileExplorer
 /// `ContentLayout` case and `browseLayout`; what it draws (`PaneHeader`, `FileTreeView`,
 /// `PersonView`) is render-tested in its own package, so this file checks only the wiring.
 ///
-/// Every reader fails loudly on a missing or implausibly short file, every assertion names a string
-/// whose absence is the regression, and `testTheScanCanActuallyFail` proves the reader sees real
-/// text. Several checks also assert the old shape is gone, since "the new call is present" stays
+/// Every reader fails loudly on a missing or implausibly short file, and every assertion names a
+/// string whose absence is the regression. Several checks also assert the old shape is gone, since "the new call is present" stays
 /// true if both are left in. A check about one file's contents names that file; a check about a
 /// call site reads all of `MacApp/` (`macAppSources`), since which file a member sits in isn't
 /// pinned.
 @Suite struct BrowseWorkspaceCallSiteTests {
-
-    /// One named file, for the checks that are about that file: the positive control, and the
-    /// negatives whose string another file says for legitimate reasons.
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/<this>.swift
-            .deletingLastPathComponent()                   // …/SyncCloudTests
-            .deletingLastPathComponent()                   // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        // `#require`, not `#expect`: a truncated file would record one issue and hand the short
-        // string on, so every `!contains` here would pass. Stop instead, as
-        // `OrganizeScopeCallSiteTests.source` does.
-        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
 
     /// The same text with comments removed, for counting, where prose naming a member would
     /// otherwise count as the member. The shared stripper, ``sourceCodeOnly(_:)``.
@@ -47,15 +30,6 @@ import FileExplorer
     /// comment-stripped text, so a decoy in a comment can't become the answer.
     static func body(of declaration: String, in source: String) throws -> String {
         try declarationBody(of: declaration, in: source)
-    }
-
-    /// The positive control. If the reader returned the wrong text, the presence checks would fail
-    /// loudly but the absence checks would pass unnoticed. It names a file because proving the
-    /// reader works needs a text known to contain one thing and not another.
-    @Test func testTheScanCanActuallyFail() throws {
-        let content = try Self.source("ContentView.swift")
-        #expect(content.contains("func paneColumn(isLeft: Bool)"), "this file is not ContentView")
-        #expect(!content.contains("a string that is definitely not in ContentView"))
     }
 
     /// The reader's own control: a decoy in a comment must not become the answer. The first fixture
@@ -147,14 +121,7 @@ import FileExplorer
         let content = try macAppSources()
         #expect(content.contains("onCollapse: contentLayout.hasCollapsibleRail"),
                 "the collapse rung is no longer resolved from the layout — a full-window workspace can inherit one")
-        // Sliced to the first brace closing at the nested type's indentation: `hasCollapsibleRail`
-        // lives inside `ContentLayout`, so the member-level slicer would read past it.
-        let declaration = try #require(content.range(of: "var hasCollapsibleRail: Bool {"),
-                                       "the collapse rung's answer is gone — this scan would be vacuous")
-        let rest = content[declaration.upperBound...]
-        let close = try #require(rest.range(of: "\n        }"),
-                                 "hasCollapsibleRail never closes at its own indentation")
-        let rung = Self.codeOnly(String(rest[..<close.lowerBound]))
+        let rung = try declarationBody(of: "var hasCollapsibleRail: Bool {", in: content)
         #expect(rung.contains(".browseFull"),
                 "Browse is no longer named in the collapse rung's answer — it would hide the only thing in the window")
         #expect(!rung.contains("default:"),
@@ -195,7 +162,7 @@ import FileExplorer
     /// left for the app to get wrong.
     @Test func testThePreviewIsTheInfoInspectorsAlone() throws {
         let macApp = Self.codeOnly(try macAppSources())
-        let content = Self.codeOnly(try Self.source("ContentView.swift"))
+        let content = Self.codeOnly(try macAppFile("ContentView.swift"))
         #expect(content.contains("AnyView(InspectorFilePreview("),
                 "the inspector no longer draws the preview")
         #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
@@ -214,7 +181,7 @@ import FileExplorer
     /// The pane is told the order it is sorted in. Its background menus tick it; the parameter
     /// defaults to Name, so a host that stopped passing it would silently tick Name for every order.
     @Test func testThePaneIsToldTheSortOrder() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("sortOption: syncManager.sortOption,"),
                 "the pane's background menus are not told the current sort order")
     }
@@ -276,7 +243,7 @@ import FileExplorer
     // MARK: ⌘K
 
     @Test func testThePaletteCanReachBrowse() throws {
-        let host = try Self.source("CommandPaletteHost.swift")
+        let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("case .browse:"), "runPaletteRoute has no Browse arm")
         #expect(host.contains("workspaceSelection.wrappedValue = .browse"))
     }
@@ -287,13 +254,10 @@ import FileExplorer
     /// so a divider added to tidy up the bar would be 13pt the arithmetic can't see, and
     /// under-measuring folds the whole toolbar behind macOS's overflow chevron.
     @Test func testTheBarDrawsNoGroupRule() throws {
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        let toolbar = try macAppFile("ContentView+Toolbar.swift")
         #expect(!toolbar.contains("workspaceRuleIndex"),
                 "the group rule's index is back — the bar's width arithmetic no longer counts separators")
-        let bar = try #require(toolbar.range(of: "var workspaceBar: some View {"))
-        let rest = toolbar[bar.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"))
-        #expect(!String(rest[..<end.lowerBound]).contains("Divider()"),
+        #expect(!(try declarationBody(of: "var workspaceBar: some View {", in: toolbar)).contains("Divider()"),
                 "the workspace bar draws a Divider again — the metrics charge nothing for it")
     }
 
@@ -305,8 +269,8 @@ import FileExplorer
     /// no ✕ and no Esc target. Checked as both layouts mounting one shared member, in two named
     /// files: over all of `MacApp/`, one layout mounting it twice would pass.
     @Test func testBothLayoutsMountThePersonGather() throws {
-        let content = try Self.source("ContentView.swift")
-        let split = try Self.source("ContentView+SplitLayout.swift")
+        let content = try macAppFile("ContentView.swift")
+        let split = try macAppFile("ContentView+SplitLayout.swift")
         #expect(content.contains("func personGatherSection(_ scope: PersonScope)"),
                 "the gather's card is not a shared member — only one layout can mount it")
         #expect(content.contains("personGatherSection(scope)"),

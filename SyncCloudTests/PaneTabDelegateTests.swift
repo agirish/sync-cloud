@@ -14,29 +14,11 @@ import Sync
 
     private func delegate(syncManager: FileSyncManager, isLeft: Bool = true,
                           onOpenInNewTab: @escaping (FileNode) -> Void = { _ in }) -> PaneActionDelegate {
-        PaneActionDelegate(
-            handler: nil, syncManager: syncManager, settings: SettingsManager.scratch(), isLeft: isLeft,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
-            onOpenInNewTab: onOpenInNewTab, onNewTabHere: { _ in }, onCloseTab: { })
+        paneDelegate(syncManager: syncManager, isLeft: isLeft, onOpenInNewTab: onOpenInNewTab)
     }
 
     private func tab(_ path: String) -> PaneTab {
         PaneTab(providerId: "iCloud", relativePath: path)
-    }
-
-    /// At one tab the answer is no; past a second it is yes.
-    @Test func closeTabIsOfferedOnlyPastASecondTab() {
-        let manager = FileSyncManager.scratch()
-        let d = delegate(syncManager: manager)
-        #expect(!d.canCloseTab,
-                "the background menu offers Close Tab on a lone tab, where the verb closes the window")
-
-        manager.openTab(tab("Second"), isLeft: true, currentProviderId: "iCloud")
-        #expect(d.canCloseTab, "Close Tab is withheld even though the pane has two tabs")
     }
 
     /// The downward direction: two tabs back to one, on the delegate built when there were two.

@@ -99,7 +99,7 @@ import FileExplorer
     /// supply, not a spelling of the rule: without the probe there is no path row, and without
     /// `root` on the providers every typed path answers "Not in any source".
     @Test func theHostSuppliesTheProbeAndTheProviderRoots() throws {
-        let host = try Self.source("CommandPaletteHost.swift")
+        let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("CommandPaletteState(index: index, pathProbe: Self.pathKind)"),
                 "the palette is built without a path probe — Go to Folder silently offers nothing, on every query")
         // The source's root: a typed path is judged against the whole account, so the landing
@@ -108,7 +108,7 @@ import FileExplorer
         #expect(host.contains("root: (provider.rootPath as NSString).expandingTildeInPath)"),
                 "the sources reach the router with no path on them — every typed path answers \"Not in any source\"")
 
-        let panel = try Self.source("CommandPalettePanel.swift")
+        let panel = try macAppFile("CommandPalettePanel.swift")
         #expect(panel.contains("probe: pathProbe == nil ? nil : { [self] in probeKind($0) }"),
                 "the state holds a probe and does not hand it to the router — the field types into a rule that cannot answer")
     }
@@ -125,24 +125,8 @@ import FileExplorer
             var calls: [String] = []
         }
         let counter = Counter()
-        let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
-                            styleMask: [.borderless], backing: .buffered, defer: false)
-        host.isReleasedWhenClosed = false
-        let controller = CommandPalettePanelController()
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "p", name: "Docs", isMounted: true,
-                                        isCurrent: true, root: "/Users/x/Documents")],
-            providerRoot: "/Users/x/Documents", folders: ["Legal"], home: "/Users/x",
-            isScanning: false, hasSurvey: true)
-        let state = CommandPaletteState(index: index,
-                                        pathProbe: { counter.calls.append($0); return .directory })
-        controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
-                           anchor: { CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80,
-                                            width: 420, height: 28) },
-                           onRun: { _ in }, onDismiss: {})
-        await waitUntil("the panel was placed, so the view is really reading the rows") {
-            (host.childWindows?.first?.frame.width ?? 0) == 420
-        }
+        let (state, controller, host) = await mountedPalette(
+            folders: ["Legal"], probe: { counter.calls.append($0); return .directory })
         defer { controller.dismiss(); host.orderOut(nil) }
 
         // The view's read is made here rather than waited for: a sleep would pass for the wrong
@@ -170,6 +154,30 @@ import FileExplorer
                 "the mounted view re-checked the disk on its own \(counter.calls.count - beforeIdle) time(s) while nothing changed")
     }
 
+    /// A palette over `folders` of one Documents source, mounted on an off-screen host and placed,
+    /// so its view is really reading the rows. The caller dismisses it.
+    private func mountedPalette(folders: [String], probe: PalettePathProbe? = nil) async
+        -> (CommandPaletteState, CommandPalettePanelController, NSWindow) {
+        let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
+                            styleMask: [.borderless], backing: .buffered, defer: false)
+        host.isReleasedWhenClosed = false
+        let controller = CommandPalettePanelController()
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "p", name: "Docs", isMounted: true,
+                                        isCurrent: true, root: "/Users/x/Documents")],
+            providerRoot: "/Users/x/Documents", folders: folders, home: "/Users/x",
+            isScanning: false, hasSurvey: true)
+        let state = CommandPaletteState(index: index, pathProbe: probe)
+        controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
+                           anchor: { CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80,
+                                            width: 420, height: 28) },
+                           onRun: { _ in }, onDismiss: {})
+        await waitUntil("the panel was placed, so the view is really reading the rows") {
+            (host.childWindows?.first?.frame.width ?? 0) == 420
+        }
+        return (state, controller, host)
+    }
+
     /// A few main-queue turns, so the mounted panel re-renders and its body really reads the rows
     /// before anything is counted.
     private func settle() async {
@@ -181,24 +189,8 @@ import FileExplorer
     /// panel's body and every ↑ ↓. Driven through the controller and a mounted panel, so the body's
     /// read is real.
     @Test func typingRanksOnceAndMovingRanksNothing() async {
-        let host = NSWindow(contentRect: CGRect(x: -9_000, y: -9_000, width: 900, height: 600),
-                            styleMask: [.borderless], backing: .buffered, defer: false)
-        host.isReleasedWhenClosed = false
-        let controller = CommandPalettePanelController()
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "p", name: "Docs", isMounted: true,
-                                        isCurrent: true, root: "/Users/x/Documents")],
-            providerRoot: "/Users/x/Documents",
-            folders: ["Legal", "Legal/Contracts", "Taxes", "Taxes/2025", "Health"],
-            home: "/Users/x", isScanning: false, hasSurvey: true)
-        let state = CommandPaletteState(index: index)
-        controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
-                           anchor: { CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80,
-                                            width: 420, height: 28) },
-                           onRun: { _ in }, onDismiss: {})
-        await waitUntil("the panel was placed, so the view is really reading the rows") {
-            (host.childWindows?.first?.frame.width ?? 0) == 420
-        }
+        let (state, controller, host) = await mountedPalette(
+            folders: ["Legal", "Legal/Contracts", "Taxes", "Taxes/2025", "Health"])
         defer { controller.dismiss(); host.orderOut(nil) }
 
         let before = state.rankingRuns
@@ -228,13 +220,4 @@ import FileExplorer
                 "the rows still answer the previous query")
     }
 
-    private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — the checks below would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short")
-        return text
-    }
 }

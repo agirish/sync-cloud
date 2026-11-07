@@ -15,63 +15,38 @@ import Sync
 
     // MARK: The decision
 
-    /// Results scanned from an ancestor of the file already cover it: no rescan.
-    @Test func aCompletedScanCoveringTheFileIsUsedAsIs() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Projects/app/a.txt", paneRoot: "/Users/u/Projects",
-            scannedRoot: "/Users/u/Projects", isScanning: false) == .revealInExistingResults)
-    }
-
-    /// "A scan has run" is not "this file was looked at". A completed scan of a sibling folder says
-    /// nothing about this file, and revealing against it would answer "no duplicates of X" from
-    /// results that never saw X.
-    @Test func aCompletedScanOfSomewhereElseDoesNotCountAsCurrent() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Projects/a.txt", paneRoot: "/Users/u/Projects",
-            scannedRoot: "/Users/u/Documents", isScanning: false)
-                == .scanThenReveal(root: "/Users/u/Projects"))
-    }
-
-    /// The boundary rule, which a plain `hasPrefix` would get wrong: `/Users/u/Projects-old` is not
-    /// inside `/Users/u/Projects`.
-    @Test func aSiblingSharingAStringPrefixIsNotCovered() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Projects-old/a.txt", paneRoot: "/Users/u/Projects-old",
-            scannedRoot: "/Users/u/Projects", isScanning: false)
-                == .scanThenReveal(root: "/Users/u/Projects-old"))
-    }
-
-    /// No scan has ever run, the common first use. The pane's own folder is the root, as the
-    /// "Find Duplicates" button scans: a duplicate is relational, so a wider root finds more than
-    /// the file's own folder would.
-    @Test func noScanAtAllScansThePanesFolder() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Projects/a.txt", paneRoot: "/Users/u/Projects",
-            scannedRoot: nil, isScanning: false) == .scanThenReveal(root: "/Users/u/Projects"))
-    }
-
-    /// A scan already running is waited for rather than restarted: it is most of the way through
-    /// the same work, and `DuplicateReveal.outcome` answers `.waiting` until it publishes.
-    @Test func aRunningScanIsWaitedForNotRestarted() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Projects/a.txt", paneRoot: "/Users/u/Projects",
-            scannedRoot: nil, isScanning: true) == .waitForRunningScan)
-    }
-
-    /// The fallback. Nothing guarantees the pane's folder contains the row's file (a pane can be
-    /// re-rooted while a menu is open), and a scan that doesn't contain the file can't answer. The
-    /// file's own folder keeps the request answerable.
-    @Test func aPaneRootThatDoesNotContainTheFileFallsBackToItsFolder() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Elsewhere/a.txt", paneRoot: "/Users/u/Projects",
-            scannedRoot: nil, isScanning: false)
-                == .scanThenReveal(root: "/Users/u/Elsewhere"))
-    }
-
-    @Test func anEmptyPaneRootFallsBackToTheFilesFolder() {
-        #expect(DuplicateRevealCoordinator.decide(
-            filePath: "/Users/u/Elsewhere/a.txt", paneRoot: "", scannedRoot: nil,
-            isScanning: false) == .scanThenReveal(root: "/Users/u/Elsewhere"))
+    /// `(file, the pane's root, the root last scanned, a scan running, the decision)`.
+    @Test(arguments: [
+        // Results scanned from an ancestor of the file already cover it: no rescan.
+        ("/Users/u/Projects/app/a.txt", "/Users/u/Projects", "/Users/u/Projects", false,
+         DuplicateRevealCoordinator.Decision.revealInExistingResults),
+        // "A scan has run" is not "this file was looked at". A completed scan of a sibling folder
+        // says nothing about this file, and revealing against it would answer "no duplicates of X"
+        // from results that never saw X.
+        ("/Users/u/Projects/a.txt", "/Users/u/Projects", "/Users/u/Documents", false,
+         .scanThenReveal(root: "/Users/u/Projects")),
+        // The boundary rule, which a plain `hasPrefix` would get wrong: `/Users/u/Projects-old` is
+        // not inside `/Users/u/Projects`.
+        ("/Users/u/Projects-old/a.txt", "/Users/u/Projects-old", "/Users/u/Projects", false,
+         .scanThenReveal(root: "/Users/u/Projects-old")),
+        // No scan has ever run, the common first use. The pane's own folder is the root, as the
+        // "Find Duplicates" button scans: a duplicate is relational, so a wider root finds more
+        // than the file's own folder would.
+        ("/Users/u/Projects/a.txt", "/Users/u/Projects", nil, false, .scanThenReveal(root: "/Users/u/Projects")),
+        // A scan already running is waited for rather than restarted: it is most of the way
+        // through the same work, and `DuplicateReveal.outcome` answers `.waiting` until it publishes.
+        ("/Users/u/Projects/a.txt", "/Users/u/Projects", nil, true, .waitForRunningScan),
+        // The fallback. Nothing guarantees the pane's folder contains the row's file (a pane can be
+        // re-rooted while a menu is open), and a scan that doesn't contain the file can't answer.
+        // The file's own folder keeps the request answerable; an empty pane root likewise.
+        ("/Users/u/Elsewhere/a.txt", "/Users/u/Projects", nil, false, .scanThenReveal(root: "/Users/u/Elsewhere")),
+        ("/Users/u/Elsewhere/a.txt", "", nil, false, .scanThenReveal(root: "/Users/u/Elsewhere")),
+    ] as [(String, String, String?, Bool, DuplicateRevealCoordinator.Decision)])
+    func theDecisionReadsWhatTheResultsOnScreenCover(file: String, paneRoot: String, scannedRoot: String?,
+                                                     isScanning: Bool,
+                                                     expected: DuplicateRevealCoordinator.Decision) {
+        #expect(DuplicateRevealCoordinator.decide(filePath: file, paneRoot: paneRoot,
+                                                  scannedRoot: scannedRoot, isScanning: isScanning) == expected)
     }
 
     // MARK: The handoff
@@ -79,7 +54,7 @@ import Sync
     /// Drives the real entry point and reads back everything it is supposed to move.
     private func handoff(
         node: FileNode, isLeft: Bool = true, manager: FileSyncManager,
-        paneRoot: String = "/Users/u/Projects"
+        paneRoot: @escaping (Bool) -> String = { _ in "/Users/u/Projects" }
     ) -> (workspace: Workspace, lens: OrganizeLens?, request: DuplicateRevealRequest?,
           scanned: [URL]) {
         var workspace = Workspace.compare
@@ -93,7 +68,7 @@ import Sync
             selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
             organizeLens: Binding(get: { lens }, set: { lens = $0 }),
             revealRequest: Binding(get: { request }, set: { request = $0 }),
-            paneRoot: { _ in paneRoot },
+            paneRoot: paneRoot,
             startScan: { scanned.append($0) })
         coordinator.findDuplicates(of: node, isLeft: isLeft)
         return (workspace, lens, request, scanned)
@@ -121,6 +96,9 @@ import Sync
         expectLandsOnDuplicates(result)
         #expect(result.request?.path == "/Users/u/Projects/a.txt")
         #expect(result.scanned.isEmpty, "rescanned results that already covered the file")
+        // Answered from the results on screen, so no snapshot: it would wait for a completion
+        // that never comes.
+        #expect(result.request?.awaitsScanReplacing == nil)
     }
 
     /// The request is set even when a scan has to run first, the common first-use path. Setting it
@@ -146,16 +124,6 @@ import Sync
         let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
         #expect(result.scanned.map(\.path) == ["/Users/u/Projects"])
         #expect(result.request?.awaitsScanReplacing == .init(root: "/Users/u/Elsewhere"))
-    }
-
-    /// A request answered from the results on screen starts no scan, and must not carry a
-    /// snapshot, or it would wait for a completion that never comes.
-    @Test func aNoScanRequestCarriesNoSnapshot() {
-        let manager = FileSyncManager.scratch()
-        manager.duplicateScanRoot = "/Users/u/Projects"
-        let result = handoff(node: Self.file("/Users/u/Projects/a.txt"), manager: manager)
-        #expect(result.scanned.isEmpty)
-        #expect(result.request?.awaitsScanReplacing == nil)
     }
 
     /// The `notScanned` empty state's recovery button: only a path survives to it (its request was
@@ -196,20 +164,11 @@ import Sync
     /// and answer about the wrong tree.
     @Test func theScanIsAimedAtTheRowsOwnSide() {
         var sides: [Bool] = []
-        var workspace = Workspace.compare
-        var lens: OrganizeLens? = .toFile
-        var request: DuplicateRevealRequest?
-        let coordinator = DuplicateRevealCoordinator(
-            syncManager: FileSyncManager.scratch(),
-            selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
-            organizeLens: Binding(get: { lens }, set: { lens = $0 }),
-            revealRequest: Binding(get: { request }, set: { request = $0 }),
-            paneRoot: { isLeft in
-                sides.append(isLeft)
-                return isLeft ? "/Users/u/Left" : "/Users/u/Right"
-            },
-            startScan: { _ in })
-        coordinator.findDuplicates(of: Self.file("/Users/u/Right/a.txt"), isLeft: false)
+        _ = handoff(node: Self.file("/Users/u/Right/a.txt"), isLeft: false, manager: FileSyncManager.scratch(),
+                    paneRoot: { isLeft in
+                        sides.append(isLeft)
+                        return isLeft ? "/Users/u/Left" : "/Users/u/Right"
+                    })
         #expect(sides == [false], "the handoff asked the wrong pane for its root")
     }
 }

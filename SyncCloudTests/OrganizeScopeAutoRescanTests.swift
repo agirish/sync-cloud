@@ -11,17 +11,7 @@ import Foundation
 /// the declaration's closing brace, failing loudly if the declaration can't be found.
 @Suite struct OrganizeScopeAutoRescanTests {
 
-    static func contentView() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read MacApp/ContentView.swift — this scan would be vacuous")
-        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
-        // stop instead of reporting one issue in front of a page of green.
-        try #require(text.count > 10_000, "ContentView.swift is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
+    static func contentView() throws -> String { try macAppFile("ContentView.swift") }
 
     /// The shared reader, ``declarationBody(of:in:)``, whose uniqueness guard stops a decoy
     /// declaration above the real one being read silently.
@@ -86,15 +76,7 @@ import Foundation
         #expect(fileInto.contains("var lensFilingDestinationRoot: String { filingDestinationRoot(forProviderId: lensProviderId) }"))
     }
 
-    static func contentViewFileInto() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FileInto.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read MacApp/ContentView+FileInto.swift — this scan would be vacuous")
-        try #require(text.count > 2_000, "ContentView+FileInto.swift is implausibly short")
-        return text
-    }
+    static func contentViewFileInto() throws -> String { try macAppFile("ContentView+FileInto.swift") }
 
     /// Every entry point that starts a filing scan files into File Into's folder, and says when
     /// that tree isn't the source, so Names and Renames aren't answered about another tree. Row

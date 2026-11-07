@@ -23,16 +23,9 @@ import Testing
 
     // MARK: - The show gate
 
-    /// The only combination that opens the form by itself: nothing completed, nobody greeted, no
-    /// profile.
-    @Test func theFormOpensItselfOnlyOnAnUntouchedMachine() {
-        #expect(SetupFlow.shouldAutoShow(hasCompletedSetup: false,
-                                         hasSeenLegacyWelcome: false,
-                                         hasFilingProfile: false))
-    }
-
-    /// Every other combination refuses. All eight are enumerated, because a `||` written the wrong
-    /// way round still passes a spot check.
+    /// The form opens itself only on an untouched machine (nothing completed, nobody greeted, no
+    /// profile), and every other combination refuses. All eight are enumerated, because a `||`
+    /// written the wrong way round still passes a spot check.
     @Test func everyOtherCombinationRefuses() {
         for completed in [true, false] {
             for greeted in [true, false] {
@@ -45,17 +38,6 @@ import Testing
                 }
             }
         }
-    }
-
-    /// Each input can refuse on its own: with the other two clear, any single flag closes the gate.
-    /// The control for the table above, which a rule refusing only on two of three could pass.
-    @Test func eachFlagClosesTheGateByItself() {
-        #expect(!SetupFlow.shouldAutoShow(hasCompletedSetup: true,
-                                          hasSeenLegacyWelcome: false, hasFilingProfile: false))
-        #expect(!SetupFlow.shouldAutoShow(hasCompletedSetup: false,
-                                          hasSeenLegacyWelcome: true, hasFilingProfile: false))
-        #expect(!SetupFlow.shouldAutoShow(hasCompletedSetup: false,
-                                          hasSeenLegacyWelcome: false, hasFilingProfile: true))
     }
 
     // MARK: - Where it opens
@@ -447,8 +429,9 @@ import Testing
     /// literals count, and `Logger` lines are exempt: the log names artifacts as the code does
     /// (`filing profile`, `filing-memory.json`).
     @Test func noSetupCopyUsesRetiredVocabulary() throws {
-        // Every screen file, each with a known sentence as its canary, so "the extractor works" is
-        // a claim about this copy rather than a count a broken extractor could still satisfy.
+        // Every file the sheet is made of, each screen with a known sentence as its canary, so "the
+        // extractor works" is a claim about this copy rather than a count a broken extractor could
+        // still satisfy. A file with no canary must still yield copy.
         let canaries = ["MacApp/SetupSheet.swift": "Set up SyncCloud",
                         "MacApp/SetupFlow.swift": "Stays on this Mac",
                         "MacApp/Setup/SetupChrome.swift": "More options",
@@ -463,17 +446,16 @@ import Testing
                         "MacApp/Setup/WorkspacesScreen.swift": "What you can do now",
                         "MacApp/Setup/AppearanceScreen.swift": "Make it yours",
                         "MacApp/Setup/SummaryScreen.swift": "You’re all set"]
-        for (file, canary) in canaries {
-            let url = URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent(file)
-            let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                      "cannot read \(file) — this scan would be vacuous")
-            try #require(source.count > 500, "\(file) is implausibly short")
-
-            let literals = Self.userFacingLiterals(in: source)
-            #expect(literals.contains(canary),
-                    "\(file): the extractor did not find “\(canary)”, so this scan is not reading the copy")
+        let files = try Self.setupFiles()
+        #expect(Set(canaries.keys).isSubset(of: files), "a canary names a file the sheet no longer has")
+        for file in files {
+            let literals = Self.userFacingLiterals(in: try repoFile(file))
+            if let canary = canaries[file] {
+                #expect(literals.contains(canary),
+                        "\(file): the extractor did not find “\(canary)”, so this scan is not reading the copy")
+            } else {
+                try #require(!literals.isEmpty, "\(file): the extractor found no copy at all")
+            }
 
             for word in ["tidy", "filing"] {
                 let offenders = literals.filter { $0.localizedCaseInsensitiveContains(word) }
@@ -481,6 +463,16 @@ import Testing
                         "\(file) still says “\(word)” to the user: \(offenders.prefix(3))")
             }
         }
+    }
+
+    /// Every file the sheet is made of: the host, the flow, and each file in `MacApp/Setup`.
+    private static func setupFiles() throws -> [String] {
+        let directory = macAppDirectory().appendingPathComponent("Setup")
+        let screens = try #require(try? FileManager.default.contentsOfDirectory(atPath: directory.path))
+            .filter { $0.hasSuffix(".swift") }
+        try #require(screens.count >= 10,
+                     "the setup directory holds \(screens.count) files — this scan is looking at the wrong place")
+        return ["MacApp/SetupSheet.swift", "MacApp/SetupFlow.swift"] + screens.sorted().map { "MacApp/Setup/\($0)" }
     }
 
     /// The positive control: the extractor returns copy, and the matcher catches the banned word in
@@ -511,21 +503,10 @@ import Testing
 
         // Every file the sheet is made of: the host alone sends the user nowhere, and the screens
         // hold the live "Settings ▸ …" pointers.
-        var files = ["MacApp/SetupSheet.swift", "MacApp/SetupFlow.swift"]
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let directory = repo.appendingPathComponent("MacApp/Setup")
-        let screens = try #require(try? FileManager.default.contentsOfDirectory(atPath: directory.path))
-            .filter { $0.hasSuffix(".swift") }
-        try #require(screens.count >= 10,
-                     "the setup directory holds \(screens.count) files — this scan is looking at the wrong place")
-        files += screens.map { "MacApp/Setup/\($0)" }
-
-        for file in files {
-            let url = repo.appendingPathComponent(file)
-            let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        for file in try Self.setupFiles() {
+            let source = try repoFile(file)
             for literal in Self.userFacingLiterals(in: source) {
-                for named in Self.settingsDestinations(in: literal) {
+                for named in HelpBookTests.settingsDestinations(in: literal) {
                     found += 1
                     #expect(realNames.contains(named),
                             "\(file) sends the user to Settings ▸ \(named), which is not a tab. Real tabs: \(realNames.sorted())")
@@ -534,26 +515,6 @@ import Testing
         }
 
         #expect(found > 0, "no “Settings ▸ …” references were found in the form — this scan is vacuous")
-    }
-
-    /// The tab names in every "Settings ▸ X" in a string. Stops at the first character that is
-    /// neither a letter nor a space and keeps only the leading capitalised words, so "Settings ▸
-    /// People — a first name is enough" yields `People`.
-    private static func settingsDestinations(in text: String) -> [String] {
-        var out: [String] = []
-        var rest = Substring(text)
-        while let marker = rest.range(of: "Settings ▸ ") {
-            let tail = rest[marker.upperBound...]
-            let run = tail.prefix { $0.isLetter || $0 == " " }
-            var name: [String] = []
-            for word in run.split(separator: " ").map(String.init) {
-                guard let first = word.first, first.isUppercase else { break }
-                name.append(word)
-            }
-            if !name.isEmpty { out.append(name.joined(separator: " ")) }
-            rest = tail
-        }
-        return out
     }
 
     /// String literals on lines that are neither comments nor `Logger` calls. Line-based on
@@ -611,12 +572,7 @@ import Testing
         #expect(SetupFlow.disclosureScreen != .summary,
                 "Summary comes after the walk — a notice there discloses nothing")
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/Setup/LearnScreen.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read LearnScreen.swift — the checks below would be vacuous")
-        try #require(source.count > 500, "LearnScreen.swift is implausibly short")
+        let source = try macAppFile("Setup/LearnScreen.swift")
 
         // Drawn through the rule, not at a location somebody has to remember.
         #expect(source.contains("if SetupFlow.disclosureScreen == .learn {"),
@@ -635,11 +591,7 @@ import Testing
                     "\(note) is drawn \(source.components(separatedBy: note).count - 1) times — one of them is on the wrong screen")
         }
         // The button the notice is about, on the screen it is about.
-        let host = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SetupSheet.swift")
-        let hostSource = try #require(try? String(contentsOf: host, encoding: .utf8))
-        #expect(hostSource.contains("primary: model.learnPrimaryTitle"),
+        #expect(try macAppFile("SetupSheet.swift").contains("primary: model.learnPrimaryTitle"),
                 "Learn's primary button no longer reads the walk state")
     }
 
@@ -647,15 +599,9 @@ import Testing
     /// `SetupSheet` can't be built in a test, so without this the rule tests would stay green over a
     /// button that went back to doing its own thing.
     @Test func theSetupButtonsCallTheRulesTheModelTests() throws {
-        let setup = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
-        func source(_ path: String) throws -> String {
-            let text = try #require(try? String(contentsOf: setup.appendingPathComponent(path), encoding: .utf8),
-                                    "cannot read \(path) — the checks below would be vacuous")
-            try #require(text.count > 1_000, "\(path) is implausibly short")
-            return text
-        }
+        // Whitespace-insensitive (``CodeText``), so a needle spanning two lines doesn't pin their
+        // indentation.
+        func source(_ path: String) throws -> CodeText { CodeText(try macAppFile(path)) }
         let sheet = try source("SetupSheet.swift")
         // Learn: Continue over a reading keeps it; Learn Again is the secondary.
         #expect(sheet.contains("primaryAction: { model.pressLearnPrimary() }"),
@@ -667,7 +613,7 @@ import Testing
         #expect(sheet.contains("Task { await model.pressStructurePrimary(shownSkipSaving: shownSkipSaving) }"),
                 "Structure's primary no longer goes through `pressStructurePrimary`")
         // What the button said is captured as it is drawn, from the title it drew.
-        #expect(sheet.contains("let primary = model.structurePrimaryTitle\n            frame(primary: primary,"),
+        #expect(sheet.contains("let primary = model.structurePrimaryTitle\n frame(primary: primary,"),
                 "Structure's button draws one title and the press reads another")
         #expect(sheet.contains("{ [shownSkipSaving = primary == SetupModel.skipSavingTitle] in"),
                 "a Skip Saving press is decided when the Task runs, not when the button was drawn")
@@ -689,7 +635,7 @@ import Testing
                 "Structure's stats row counts past `counts(_:)` — zeros or old counts while it reads")
         #expect(structure.contains(".disabled(!model.structureReadingSwitchIsEnabled)"),
                 "the reading switch is live past `structureReadingSwitchIsEnabled`")
-        #expect(structure.components(separatedBy: "} else if !model.structureShowsWalkStatus {").count - 1 == 2,
+        #expect(structure.count(of: "} else if !model.structureShowsWalkStatus {") == 2,
                 "Structure draws its lens or its grey-words legend over a reading it does not have")
         #expect(structure.contains("private var profile: FolderProfile? { model.structureShownProfile }"),
                 "Structure draws a tree past `structureShownProfile` — an old one while a reading runs")
@@ -698,7 +644,7 @@ import Testing
         #expect(structure.contains("Text(failure + \" \" + Self.saveFailedNextStep)"),
                 "the failure line no longer says what to do next")
         // Closing (Esc, ✕, a click outside, Not Now) keeps the open screen's answers.
-        #expect(sheet.contains("model.commitBeforeClosing()\n        onDismiss()"),
+        #expect(sheet.contains("model.commitBeforeClosing()\n onDismiss()"),
                 "closing no longer commits the open screen before it closes")
         #expect(sheet.contains(".onTapGesture { close() }"), "a click outside skips the commit")
         #expect(sheet.contains("onDismiss: { close() },"), "Esc and ✕ skip the commit")
@@ -707,7 +653,7 @@ import Testing
         // (both hosted in `SetupSheetTeardownTests`), and quitting, which that suite must not post.
         #expect(sheet.contains(".onDisappear { model.commitBeforeClosing() }"),
                 "taking the sheet down no longer commits the open screen")
-        #expect(sheet.contains("NSApplication.willTerminateNotification)) { _ in\n            model.commitBeforeClosing()"),
+        #expect(sheet.contains("NSApplication.willTerminateNotification)) { _ in\n model.commitBeforeClosing()"),
                 "quitting with setup open no longer commits the open screen")
         // Summary: Learn goes back to the Learn screen, not out to a Settings tab.
         #expect(try source("Setup/SummaryScreen.swift").contains("action: { model.returnToLearn() }"),
@@ -717,11 +663,11 @@ import Testing
         #expect(people.contains("? nil : { model.requestRemovePerson(named: $0) })"),
                 "People's ✕ no longer goes through `requestRemovePerson` — a roster person may go unasked")
         // …and none is drawn on a roster this sheet cannot write.
-        #expect(people.contains("onRemove: model.rosterIsReadOnly\n                              ? nil :"),
+        #expect(people.contains("onRemove: model.rosterIsReadOnly\n ? nil :"),
                 "People draws a ✕ on a read-only roster — the chip goes and the person comes back")
         #expect(people.contains("rosterRepeatsAnId: model.rosterRepeatsAnId"),
                 "People's read-only note no longer says which refusal it is")
-        #expect(people.components(separatedBy: "model.removePerson(").count - 1 == 1,
+        #expect(people.count(of: "model.removePerson(") == 1,
                 "People calls `removePerson` somewhere besides the question's Remove button")
         #expect(people.contains("if let name = model.personAwaitingRemoval { model.removePerson(named: name) }"),
                 "the question's Remove no longer removes the person it asked about")
@@ -747,20 +693,14 @@ import Testing
         #expect(PeopleScreen.foundBlurb(found: 0, offered: 0).hasPrefix("No folder names looked like people"))
 
         // Both screens route their finished reading through these rules.
-        let setup = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/Setup")
-        let people = try String(contentsOf: setup.appendingPathComponent("PeopleScreen.swift"), encoding: .utf8)
+        let people = try macAppFile("Setup/PeopleScreen.swift")
         #expect(people.contains("return Self.foundBlurb(found: model.walkState.walk?.people.count ?? 0,"))
-        let countries = try String(contentsOf: setup.appendingPathComponent("CountriesScreen.swift"), encoding: .utf8)
-        #expect(countries.contains("confident: model.countryCandidates.filter(JurisdictionCandidates.isConfident).count)"))
+        #expect(try macAppFile("Setup/CountriesScreen.swift").contains("confident: model.countryCandidates.filter(JurisdictionCandidates.isConfident).count)"))
     }
 
     /// Summary no longer talks about the folder walk as work that has not shipped.
     @Test func summaryDoesNotDescribeTheWalkAsUnshipped() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/Setup/SummaryScreen.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        let source = try macAppFile("Setup/SummaryScreen.swift")
         for stale in ["Learning your folders comes next", "when it lands",
                       "not in this build yet"] {
             #expect(!source.contains(stale),
@@ -796,24 +736,20 @@ import Testing
     /// out at, while the sheet's own `switch` decides whether a panel is there; if they part, screens
     /// are measured at a width the card never gives them.
     @Test func theWhyPanelRuleMatchesWhatTheSheetDraws() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SetupSheet.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
-        // Anchored without the access level, so changing `screenCard`'s visibility doesn't break
-        // the scan.
-        let body = try #require(source.range(of: "var screenCard: some View {"),
-                                "the sheet's screen switch has moved — this scan would be vacuous")
-        let switchBody = String(source[body.upperBound...])
-
-        for screen in SetupFlow.Screen.allCases {
-            let label = "        case .\(screen.rawValue):"
-            let caseStart = try #require(switchBody.range(of: label),
+        // The switch is `screenCard`'s own body; each arm runs to the next screen's label, and both
+        // are read whitespace-insensitively, so neither the access level nor the indentation is
+        // part of the check.
+        let body = CodeText(try declarationBody(of: "var screenCard: some View {",
+                                                in: try macAppFile("SetupSheet.swift"))).normalized
+        let labels = SetupFlow.Screen.allCases.map { screen in
+            (screen, CodeText("case .\(screen.rawValue):").normalized)
+        }
+        for (screen, label) in labels {
+            let caseStart = try #require(body.range(of: label),
                                          "the sheet has no case for \(screen.displayName)")
-            let rest = String(switchBody[caseStart.upperBound...])
-            // Up to the next case, or the end of the switch.
-            let arm = rest.range(of: "\n        case .").map { String(rest[..<$0.lowerBound]) } ?? rest
-            let drawsPanel = arm.contains("why: {")
+            let next = labels.compactMap { body[caseStart.upperBound...].range(of: $0.1)?.lowerBound }.min()
+            let arm = String(body[caseStart.upperBound..<(next ?? body.endIndex)])
+            let drawsPanel = CodeText(arm).contains("why: {")
             #expect(drawsPanel == screen.hasWhyPanel,
                     "\(screen.displayName) says hasWhyPanel == \(screen.hasWhyPanel) and the sheet draws \(drawsPanel ? "one" : "none")")
         }

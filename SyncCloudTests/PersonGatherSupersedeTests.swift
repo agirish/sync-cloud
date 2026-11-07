@@ -129,15 +129,7 @@ import Sync
     static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// `MacApp/ContentView.swift`, failing loudly rather than handing on an empty haystack.
-    static func contentView() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                   "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(content.count > 500, "ContentView.swift is implausibly short")
-        return content
-    }
+    static func contentView() throws -> String { try macAppFile("ContentView.swift") }
 
     /// Every `.onChange(of: <property>) { … }` body in `source`, comment-stripped, in order. A
     /// property can have several handlers, and which one clears the gather decides whether a swap

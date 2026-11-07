@@ -10,12 +10,7 @@ import Foundation
     /// stays green while a refused delete silently loses its second attempt. The two confirmers
     /// beside it are wired the same way for the same reason.
     @Test func theAppWiresTheOutOfProcessTrash() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SyncCloudApp.swift — this check would be vacuous")
-        try #require(source.count > 500, "SyncCloudApp.swift is implausibly short")
+        let source = try macAppFile("SyncCloudApp.swift")
         #expect(source.contains("manager.trashViaWorkspace = "), """
                 the app no longer wires `trashViaWorkspace`, so its default — do nothing — stands,                 and a Trash refused in-process gets no second attempt
                 """)

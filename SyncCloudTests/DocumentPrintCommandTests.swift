@@ -15,16 +15,11 @@ import Foundation
 @MainActor
 @Suite struct DocumentPrintCommandTests {
 
-    private func fileMenu() throws -> NSMenu {
-        try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
-                     "the app has no File menu — this check would be vacuous")
-    }
-
     // MARK: Where the two items are
 
     /// Both items are in File, below Save, in the mockup's order.
     @Test func thePrintPairSitsUnderSave() throws {
-        let titles = try fileMenu().items.map(\.title).filter { !$0.isEmpty }
+        let titles = try appMenu("File").items.map(\.title).filter { !$0.isEmpty }
         let save = try #require(titles.firstIndex(of: "Save"), "File ▸ Save is gone")
         let export = try #require(titles.firstIndex(of: "Export as PDF…"),
                                   "File ▸ Export as PDF… is gone")
@@ -36,7 +31,7 @@ import Foundation
     /// Exactly one item claims ⌘P, and it is Print. Two would leave one dead, and AppKit, not the
     /// app, picks which: the rule `theFileMenuIsInTheRoadmapsOrder` holds ⌘W to.
     @Test func onlyPrintRegistersTheChord() throws {
-        let menu = try fileMenu()
+        let menu = try appMenu("File")
         let claimants = menu.items.filter { $0.keyEquivalent == "p" }
         #expect(claimants.count == 1, "\(claimants.count) File items register ⌘P")
         #expect(claimants.first?.title == "Print…")
@@ -46,14 +41,14 @@ import Foundation
 
     /// Export deliberately has no key equivalent; see `AppChord.printDocument`.
     @Test func exportHasNoChord() throws {
-        let export = try #require(try fileMenu().items.first { $0.title == "Export as PDF…" })
+        let export = try #require(try appMenu("File").items.first { $0.title == "Export as PDF…" })
         #expect(export.keyEquivalent.isEmpty, "Export as PDF… has acquired a chord")
     }
 
     /// Both titles end in an ellipsis, because both open a dialog before anything happens, as
     /// `New Text File…` and `Move Selection to Trash…` do.
     @Test func bothTitlesPromiseTheDialogTheyOpen() throws {
-        let titles = try fileMenu().items.map(\.title)
+        let titles = try appMenu("File").items.map(\.title)
         #expect(titles.contains("Print…") && !titles.contains("Print"))
         #expect(titles.contains("Export as PDF…") && !titles.contains("Export as PDF"))
     }
@@ -103,15 +98,15 @@ import Foundation
     /// The rule is the verbs' rule, not a copy. Two rules that agree today are two rules to keep
     /// agreeing; this pins that there is one.
     @Test func theRuleIsTheEditorVerbsOwn() throws {
-        let source = try Self.source("EditorPrinting.swift")
-        #expect(Self.codeOnly(source).contains("EditorVerbs.isOffered("),
+        let source = try macAppFile("EditorPrinting.swift")
+        #expect(sourceCodeOnly(source).contains("EditorVerbs.isOffered("),
                 "the print items have grown a second copy of the offered rule")
     }
 
     /// The call site actually consults the rule; a rule nothing calls can't fail.
     @Test func theActionsAreResolvedThroughTheRule() throws {
-        let body = try Self.memberBody("var shortcutDocumentPrint: DocumentPrintActions?",
-                                       in: Self.source("EditorPrinting.swift"))
+        let body = try declarationBody(of: "var shortcutDocumentPrint: DocumentPrintActions?",
+                                       in: macAppFile("EditorPrinting.swift"))
         #expect(body.contains("DocumentPrintActions.isOffered("),
                 "shortcutDocumentPrint decides availability without the rule")
     }
@@ -122,8 +117,8 @@ import Foundation
     /// printing the saved version while a newer one is on screen is a mistake nobody sees until it
     /// is printed.
     @Test func theJobCarriesTheBufferRatherThanTheSavedText() throws {
-        let body = try Self.memberBody("var editorPrintJob: DocumentPDF.Job?",
-                                       in: Self.source("EditorPrinting.swift"))
+        let body = try declarationBody(of: "var editorPrintJob: DocumentPDF.Job?",
+                                       in: macAppFile("EditorPrinting.swift"))
         #expect(body.contains("text: editorDocument.text"),
                 "the print job no longer reads the buffer")
         #expect(!body.contains("savedText"),
@@ -133,8 +128,8 @@ import Foundation
     /// The export goes through the atomic write path, not `Data.write(to:)`: a half-written PDF
     /// over a good one is the same loss as a half-written note.
     @Test func theExportWritesThroughTheStore() throws {
-        let body = Self.codeOnly(try Self.memberBody("func exportEditorDocumentAsPDF()",
-                                                     in: Self.source("EditorPrinting.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
+                                                     in: macAppFile("EditorPrinting.swift")))
         #expect(body.contains("EditorFileStore.write("),
                 "the export writes bytes without the staging, flush and read-back every other write here gets")
         #expect(!body.contains("data.write(to:"), "the export bypasses the store")
@@ -143,8 +138,8 @@ import Foundation
     /// The panel opens on the folder the rail is reading, with the document's own name, offered
     /// rather than imposed.
     @Test func theExportPanelStartsInTheRailsFolder() throws {
-        let body = Self.codeOnly(try Self.memberBody("func exportEditorDocumentAsPDF()",
-                                                     in: Self.source("EditorPrinting.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
+                                                     in: macAppFile("EditorPrinting.swift")))
         #expect(body.contains("panel.directoryURL = URL(fileURLWithPath: editorFolder)"),
                 "the save panel no longer opens on the folder the rail is reading")
         #expect(body.contains("panel.nameFieldStringValue = job.exportName"),
@@ -154,54 +149,11 @@ import Foundation
     /// Rendered after the panel is answered, so a cancel doesn't cost the render, which on a long
     /// document is seconds.
     @Test func theRenderHappensAfterThePanelIsAnswered() throws {
-        let body = Self.codeOnly(try Self.memberBody("func exportEditorDocumentAsPDF()",
-                                                     in: Self.source("EditorPrinting.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
+                                                     in: macAppFile("EditorPrinting.swift")))
         let panel = try #require(body.range(of: "panel.runModal()"))
         let render = try #require(body.range(of: "DocumentPDF.data("))
         #expect(panel.lowerBound < render.lowerBound,
                 "the document is rendered before the panel opens — a cancel pays for it anyway")
-    }
-
-    // MARK: Source helpers
-
-    /// The positive control: every scan above asserts a presence in one file, so a reader that
-    /// silently returned the wrong text would make them all pass.
-    @Test func theScanCanActuallyFail() throws {
-        let source = try Self.source("EditorPrinting.swift")
-        #expect(!source.contains("theTextThisFileDoesNotContain"))
-        #expect(source.contains("exportEditorDocumentAsPDF"),
-                "the scan is not reading EditorPrinting.swift at all")
-    }
-
-    private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    /// Lines with their comments removed, so a scan can't be satisfied by prose describing what it
-    /// looks for (the decoy `ShortcutCommandsTests` documents).
-    private static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                guard let comment = line.range(of: "//") else { return String(line) }
-                return String(line[..<comment.lowerBound])
-            }
-            .joined(separator: "\n")
-    }
-
-    /// One member's body: its declaration to the first closing brace at member indentation, as the
-    /// other wiring suites slice, so a growing file can't make a fixed window answer with a
-    /// neighbour's text.
-    private static func memberBody(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    }")
-        return String(rest[..<(end?.upperBound ?? rest.endIndex)])
     }
 }

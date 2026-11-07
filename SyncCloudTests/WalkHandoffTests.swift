@@ -118,42 +118,19 @@ import Testing
     /// stays nil for the life of the view.
     @Test func theFormReadsItsRosterLive() throws {
         let source = try Self.setupSheetSource()
-        let body = try #require(source.range(of: "private let draftURL"))
         // Comments stripped first: a comment naming `peopleStore` is documentation, not a read.
-        let afterInit = String(source[body.lowerBound...])
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let code = sourceCodeOnly(source)
+        let body = try #require(code.range(of: "private let draftURL"))
+        let afterInit = String(code[body.lowerBound...])
         #expect(!afterInit.contains("peopleStore"),
                 "the form is reading the captured store again — it goes stale the moment a walk lands")
         #expect(afterInit.contains("roster"))
     }
 
-    /// The positive control: the scan can see a read when there is one. Without it, a stripper
-    /// that removed everything would pass the check above on any file.
-    @Test func theRosterScanCanActuallyFail() {
-        let sample = ["        // peopleStore in a comment is not a read",
-                      "        let a = roster?.people",
-                      "        let b = peopleStore?.people"].joined(separator: "\n")
-        let stripped = sample.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-        #expect(stripped.contains("peopleStore"), "the stripper removed a real read")
-        #expect(!stripped.contains("not a read"), "the stripper is keeping comments")
-    }
-
     /// `SetupModel.swift`, where the roster is read and the walk is called, so where the two
     /// failures this suite guards would recur. The size floor makes a scan of an emptied file fail
     /// instead of passing vacuously.
-    private static func setupSheetSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/Setup/SetupModel.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read SetupModel.swift — this scan would be vacuous")
-        try #require(source.count > 5000, "SetupModel.swift is implausibly short")
-        return source
-    }
+    private static func setupSheetSource() throws -> String { try macAppFile("Setup/SetupModel.swift") }
 
     /// Seeding the root does not walk the tree. A source scan, because the cost is invisible in a
     /// test: the root is seeded from the primary source, which `reconcilePrimary` moves on every
@@ -161,29 +138,10 @@ import Testing
     /// Each step asks when it is reached instead.
     @Test func seedingTheRootDoesNotStartAWalk() throws {
         let source = try Self.setupSheetSource()
-        let body = try #require(Self.bodyOf("func seedWalkRoot()", in: source))
+        let body = try declarationBody(of: "func seedWalkRoot()", in: source)
         #expect(!body.contains("startWalk()"), "seeding reads the tree again")
         #expect(!body.contains("walkForSetup"), "seeding reads the tree again")
         #expect(body.contains("invalidateProposals()"), "seeding no longer drops the old tree's work")
-    }
-
-    /// A function's body, brace-matched from its declaration, not a fixed-length window, which
-    /// could miss a call added at the end of a grown function and let the negative checks pass.
-    /// Nil when the braces do not balance, so a body it cannot find fails rather than reads empty.
-    static func bodyOf(_ declaration: String, in source: String) -> String? {
-        guard let decl = source.range(of: declaration),
-              let open = source[decl.upperBound...].firstIndex(of: "{") else { return nil }
-        var depth = 0
-        var index = open
-        while index < source.endIndex {
-            if source[index] == "{" { depth += 1 }
-            if source[index] == "}" {
-                depth -= 1
-                if depth == 0 { return String(source[source.index(after: open)..<index]) }
-            }
-            index = source.index(after: index)
-        }
-        return nil
     }
 
     /// The control: with no household handed over, the axis really is absent. Without it, the

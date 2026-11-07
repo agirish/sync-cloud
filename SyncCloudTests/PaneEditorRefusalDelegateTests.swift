@@ -14,14 +14,7 @@ import FileExplorer
 
     private func delegate(servesEditor: Bool,
                           syncManager: FileSyncManager, settings: SettingsManager) -> PaneActionDelegate {
-        PaneActionDelegate(
-            handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: true, ownsOrganizeScope: false,
-            servesEditor: servesEditor,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        paneDelegate(syncManager: syncManager, settings: settings, isSingleSource: true, servesEditor: servesEditor)
     }
 
     /// The same rows against both delegates: only (Edit, a file, a kind Edit doesn't open)

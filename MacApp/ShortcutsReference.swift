@@ -16,24 +16,6 @@ enum ShortcutsReference {
         let items: [Item]
     }
 
-    /// Where to split `groups` into two columns so their row counts come out closest. A header
-    /// counts as a row. Never returns 0 or `count`, so both columns hold something. The two-column
-    /// case of ``balancedColumns(_:count:)``, kept because its tests check the general form.
-    static func balancedSplit(_ groups: [Group]) -> Int {
-        guard groups.count > 1 else { return groups.count }
-        let weights = groups.map { $0.items.count + 1 }
-        let total = weights.reduce(0, +)
-        var running = 0
-        var best = 1
-        var bestGap = Int.max
-        for index in 1..<groups.count {
-            running += weights[index - 1]
-            let gap = abs(running - (total - running))
-            if gap < bestGap { bestGap = gap; best = index }
-        }
-        return best
-    }
-
     /// `groups` dealt into `count` columns, in reading order, so the tallest column is as short as
     /// it can be (a header counts as a row). Exhaustive, not greedy: greedy would put the two
     /// biggest groups in one column and leave the third nearly empty. Six groups into three

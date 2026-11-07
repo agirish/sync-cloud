@@ -15,17 +15,8 @@ import Testing
 @MainActor
 @Suite struct TextMarkupMenuTests {
 
-    static func menu(_ title: String) throws -> NSMenu {
-        try #require(NSApp.mainMenu?.items.first { $0.title == title }?.submenu,
-                     "the app has no \(title) menu — this check would be vacuous")
-    }
-
-    static func titles(_ menu: NSMenu) -> [String] {
-        menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-    }
-
     static func item(_ title: String, in menu: String) throws -> NSMenuItem {
-        try #require(try Self.menu(menu).items.first { $0.title == title }, "\(menu) has no \(title)")
+        try #require(try appMenu(menu).items.first { $0.title == title }, "\(menu) has no \(title)")
     }
 
     // MARK: The two menus, where they landed
@@ -63,7 +54,7 @@ import Testing
     /// switches, Continue Lists and the autosave switch. Neither Find… nor Save, which stay in Edit
     /// and File: one action, one item, so no chord is registered twice.
     @Test func theTextMenuIsInTheRoadmapsOrder() throws {
-        let text = Self.titles(try Self.menu("Text"))
+        let text = menuTitles(try appMenu("Text"))
         #expect(text == ["Source", "Preview", "Split", "Expand", "Edit in Preview (Experimental)",
                          "Find Next", "Find Previous", "Use Selection for Find", "Go to Line…",
                          "Wrap Lines", "Readable Line Length", "Paper Background", "Typewriter Scrolling",
@@ -72,7 +63,7 @@ import Testing
                          "Autosave This File"],
                 "the Text menu reads \(text)")
         // Expand sits with the modes, before the first divider, not in a group of its own.
-        let items = try Self.menu("Text").items
+        let items = try appMenu("Text").items
         let expand = try #require(items.firstIndex { $0.title == "Expand" })
         let firstDivider = try #require(items.firstIndex { $0.isSeparatorItem })
         #expect(expand < firstDivider, "Expand is not in the modes' group")
@@ -84,7 +75,7 @@ import Testing
     /// The Markup menu is the context menu's list, in its order: derived from the same `menuOrder`,
     /// and asserted against it rather than a copy.
     @Test func theMarkupMenuIsTheContextMenusListInItsOrder() throws {
-        let markup = Self.titles(try Self.menu("Markup"))
+        let markup = menuTitles(try appMenu("Markup"))
         // The table verbs are one Table submenu where their run starts, between Link and Divider,
         // as the context menu draws them.
         var expected: [String] = []
@@ -94,10 +85,10 @@ import Testing
         #expect(markup == expected, "the Markup menu reads \(markup)")
         #expect(markup.suffix(3) == ["Link", "Table", "Divider"], "the Markup menu ends \(markup.suffix(3))")
         let table = try #require(try Self.item("Table", in: "Markup").submenu, "Markup ▸ Table is not a submenu")
-        #expect(Self.titles(table) == MarkupVerb.tableSections.joined().map(\.title), "Markup ▸ Table reads \(Self.titles(table))")
+        #expect(menuTitles(table) == MarkupVerb.tableSections.joined().map(\.title), "Markup ▸ Table reads \(menuTitles(table))")
         #expect(table.items.filter(\.isSeparatorItem).count == MarkupVerb.tableSections.count - 1)
         // …and it is divided where the context menu is.
-        #expect(try Self.menu("Markup").items.filter(\.isSeparatorItem).count
+        #expect(try appMenu("Markup").items.filter(\.isSeparatorItem).count
                 == MarkupVerb.menuOrder.filter { $0 == nil }.count)
     }
 
@@ -119,17 +110,7 @@ import Testing
         let item = try Self.item("Expand", in: "Text")
         #expect(item.keyEquivalent == AppChord.editorExpand.appKitKeyEquivalent && item.keyEquivalent == "e")
         #expect(item.keyEquivalentModifierMask == [.control, .command], "Expand registers the wrong modifiers")
-        var claimants: [String] = []
-        func walk(_ menu: NSMenu) {
-            for entry in menu.items {
-                if entry.keyEquivalent.lowercased() == "e",
-                   entry.keyEquivalentModifierMask.intersection([.control, .command, .option, .shift]) == [.control, .command] {
-                    claimants.append(entry.title)
-                }
-                if let sub = entry.submenu { walk(sub) }
-            }
-        }
-        walk(try #require(NSApp.mainMenu))
+        let claimants = try menuItems(claiming: "e", modifiers: [.control, .command]).map(\.title)
         #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
         // Format Bar is a switch with no key: the bar's buttons carry the Markup chords already.
         #expect(try Self.item("Format Bar", in: "View").keyEquivalent.isEmpty, "Format Bar has acquired a key")
@@ -155,19 +136,9 @@ import Testing
         let item = try Self.item("Go to Line…", in: "Text")
         #expect(item.keyEquivalent == AppChord.goToLine.appKitKeyEquivalent && item.keyEquivalent == "l")
         #expect(item.keyEquivalentModifierMask == [.control, .command], "Go to Line registers the wrong modifiers")
-        var claimants: [String] = []
-        func walk(_ menu: NSMenu) {
-            for entry in menu.items {
-                if entry.keyEquivalent.lowercased() == "l",
-                   entry.keyEquivalentModifierMask.intersection([.control, .command, .option, .shift]) == [.control, .command] {
-                    claimants.append(entry.title)
-                }
-                if let sub = entry.submenu { walk(sub) }
-            }
-        }
-        walk(try #require(NSApp.mainMenu))
+        let claimants = try menuItems(claiming: "l", modifiers: [.control, .command]).map(\.title)
         #expect(claimants == ["Go to Line…"], "⌃⌘L is claimed by \(claimants)")
-        let items = try Self.menu("Text").items
+        let items = try appMenu("Text").items
         let go = try #require(items.firstIndex { $0.title == "Go to Line…" })
         let use = try #require(items.firstIndex { $0.title == "Use Selection for Find" })
         #expect(go == use + 1, "Go to Line… is not with the find verbs")
@@ -192,7 +163,7 @@ import Testing
     /// The five inline verbs carry a chord and the menu-only verbs carry none, read off the built
     /// items against `MarkupVerb.chord`, so the menu and the registry cannot drift.
     @Test func eachMarkupItemCarriesItsVerbsChordAndNoOther() throws {
-        let markup = try Self.menu("Markup")
+        let markup = try appMenu("Markup")
         var chorded = 0
         let table = try #require(markup.items.first { $0.title == "Table" }?.submenu, "Markup has no Table submenu")
         for verb in MarkupVerb.menuOrder.compactMap({ $0 }) {
@@ -224,16 +195,7 @@ import Testing
         #expect(inspector.keyEquivalent == "i" && inspector.keyEquivalentModifierMask == .command)
         #expect(italic.keyEquivalent == "i" && italic.keyEquivalentModifierMask == .command)
         // …and nothing else in the bar claims it.
-        var claimants: [String] = []
-        func walk(_ menu: NSMenu) {
-            for item in menu.items {
-                if item.keyEquivalent == "i", item.keyEquivalentModifierMask == .command {
-                    claimants.append(item.title)
-                }
-                if let sub = item.submenu { walk(sub) }
-            }
-        }
-        walk(try #require(NSApp.mainMenu))
+        let claimants = try menuItems(claiming: "i", modifiers: .command).map(\.title)
         #expect(claimants == ["Info Inspector", "Italic"], "⌘I is claimed by \(claimants)")
     }
 
@@ -247,11 +209,11 @@ import Testing
             menu.items.filter { !$0.isSeparatorItem }.flatMap { $0.submenu.map(actions) ?? [$0] }
         }
         for name in ["Text", "Markup"] {
-            for item in actions(try Self.menu(name)) {
+            for item in actions(try appMenu(name)) {
                 #expect(!item.isEnabled, "\(name) ▸ \(item.title) is live with no document open")
             }
         }
-        #expect(actions(try Self.menu("Markup")).contains { $0.title == "Format Table" },
+        #expect(actions(try appMenu("Markup")).contains { $0.title == "Format Table" },
                 "the walk did not reach the Table submenu")
         #expect(try Self.item("Copy", in: "Edit").isEnabled,
                 "Edit ▸ Copy is disabled too — the host's items are all grey, so the check above proves nothing")
@@ -262,7 +224,7 @@ import Testing
     @Test func viewCarriesATextSizeSubmenuOnThePlatformsChords() throws {
         let host = try Self.item("Text Size", in: "View")
         let submenu = try #require(host.submenu, "View ▸ Text Size is not a submenu")
-        #expect(Self.titles(submenu) == ["Bigger", "Smaller", "Default Size"])
+        #expect(menuTitles(submenu) == ["Bigger", "Smaller", "Default Size"])
         for (title, key) in [("Bigger", "+"), ("Smaller", "-"), ("Default Size", "0")] {
             let item = try #require(submenu.items.first { $0.title == title })
             #expect(item.keyEquivalent == key, "\(title) registers \(item.keyEquivalent)")
@@ -289,8 +251,8 @@ import Testing
         let expected = try #require(FontSize.medium.bigger, "medium is the top stop — the item would do nothing")
         let menu = NSHostingMenu(rootView: TextSizeCommands().defaultAppStorage(defaults))
         menu.update()
-        #expect(Self.titles(menu) == Self.titles(bar), "the hosted content is not the bar's: \(Self.titles(menu)) vs \(Self.titles(bar))")
-        let item = try #require(menu.items.first { $0.title == "Bigger" }, "no Bigger in \(Self.titles(menu))")
+        #expect(menuTitles(menu) == menuTitles(bar), "the hosted content is not the bar's: \(menuTitles(menu)) vs \(menuTitles(bar))")
+        let item = try #require(menu.items.first { $0.title == "Bigger" }, "no Bigger in \(menuTitles(menu))")
 
         // Straight through the item's target/action, which is what a key equivalent or a click
         // ends in.
@@ -324,7 +286,7 @@ import Testing
             }
             let menu = NSHostingMenu(rootView: EditorTextSettingItems(verbs: verbs))
             menu.update()
-            return try #require(menu.items.first { $0.title == title }, "no \(title) in \(Self.titles(menu))").isEnabled
+            return try #require(menu.items.first { $0.title == title }, "no \(title) in \(menuTitles(menu))").isEnabled
         }
         for mode: EditorMode in [.edit, .split] {
             #expect(try enabled("Paper Background", mode: mode), "Text ▸ Paper Background is greyed in \(mode)")
@@ -461,10 +423,7 @@ import Testing
         #expect(!EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: false, hasTextView: true))
         #expect(!EditorVerbs.canMarkUp(isReadOnly: true, isMarkdown: true, hasTextView: true))
         #expect(!EditorVerbs.canMarkUp(isReadOnly: false, isMarkdown: true, hasTextView: false))
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+Editor.swift")
-        let flat = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
+        let flat = sourceCodeOnly(try macAppFile("ContentView+Editor.swift"))
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(flat.contains("canMarkUp: EditorVerbs.canMarkUp(isReadOnly: editorDocument.isReadOnly, isMarkdown: isMarkdown,"),
                 "the menu's Markup items are not greyed by the rule")
@@ -480,10 +439,7 @@ import Testing
     /// The call-site half: `shortcutEditorVerbs` resolves through the rule rather than a workspace
     /// test of its own, and feeds the drawn mode to the text-view gate.
     @Test func theEditorVerbsAreResolvedThroughTheRule() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+Editor.swift")
-        let source = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
+        let source = sourceCodeOnly(try macAppFile("ContentView+Editor.swift"))
         let start = try #require(source.range(of: "var shortcutEditorVerbs: EditorVerbs? {"),
                                  "shortcutEditorVerbs is gone — this scan would be vacuous")
         let rest = source[start.upperBound...]
@@ -503,14 +459,12 @@ import Testing
                 "the menus gate on the live length, or ask for the decision under a key the workspace never holds it by")
         #expect(flat.contains("guard let path = editorDocument.path,"), "the key's path is not the open document's")
         #expect(flat.contains("let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)"), "the key's mode is not the one drawn")
-        let workspace = sourceCodeOnly(try String(contentsOf: url.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift"), encoding: .utf8))
+        let workspace = sourceCodeOnly(try repoFile("Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift"))
         #expect(workspace.contains("PreviewLengthHold.Key(path: document.path, mode: resolvedMode, editing: editsInPreviewPreference)"),
                 "the workspace holds the decision under another key")
         #expect(workspace.contains("EditorMode.resolved(mode, isMarkdown: document.isMarkdown)"), "the workspace's mode is not the one drawn")
         #expect(workspace.contains("@AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreviewPreference"))
-        let content = sourceCodeOnly(try String(contentsOf: url.deletingLastPathComponent()
-            .appendingPathComponent("ContentView.swift"), encoding: .utf8))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(content.contains("@AppStorage(EditorTextSettings.editsInPreviewKey) var editsInPreviewSetting"),
                 "the menus' setting is not the workspace's")
         #expect(!body.contains("selectedWorkspace == .editor"),

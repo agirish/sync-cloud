@@ -105,15 +105,6 @@ import Sync
 
     // MARK: The tool, turned on (step 4)
 
-    private func realPDF(_ name: String, pages: Int) -> String {
-        let path = (folder as NSString).appendingPathComponent(name)
-        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let context = CGContext(URL(fileURLWithPath: path) as CFURL, mediaBox: &box, nil)!
-        for _ in 0..<pages { context.beginPDFPage(nil); context.endPDFPage() }
-        context.closePDF()
-        return path
-    }
-
     private func run(_ input: [String: JSONFragment], paths: [String],
                      openForFill: @escaping (String) async -> AskClaudeBrowseTools.FillOutcome = { _ in .notNow })
     async -> AskClaudeToolOutcome {
@@ -129,7 +120,7 @@ import Sync
 
     /// The `pdf` name reaches the runner: a card action offers a card, `info` reads the file.
     @Test func thePDFToolRunsThroughTheRunner() async throws {
-        let statement = realPDF("Statement.pdf", pages: 8)
+        let statement = blankPDF("Statement.pdf", pages: 8, in: folder)
         let card = await run(["action": .string("extract"), "pages": .string("3-5")], paths: [statement])
         #expect(card.pdf?.action == .extract, "\(card.result)")
         let info = await run(["action": .string("info")], paths: [statement])
@@ -140,7 +131,7 @@ import Sync
 
     /// `fill` opens the form and says so, in each way it can end, moved to Edit when it opened.
     @Test func fillSaysHowOpeningTheFormWent() async throws {
-        let form = realPDF("W-9.pdf", pages: 1)
+        let form = blankPDF("W-9.pdf", pages: 1, in: folder)
         let opened = await run(["action": .string("fill")], paths: [form], openForFill: { _ in .opened(fields: 11) })
         #expect(opened.result.contains("Fill & Sign on. It has 11 form fields."), "\(opened.result)")
         #expect(opened.movedView == "Moved you to Edit")

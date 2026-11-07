@@ -58,7 +58,7 @@ import Sync
         // The window posts it on every new message, with the button's Undo rule, and no Undo while
         // a long run greys it.
         let window = (try? macAppFile("ContentView+ResultMessage.swift")) ?? ""
-        #expect(window.contains("OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)\n                                     && runWriteLockReason == nil)"),
+        #expect(CodeText(window).contains("OperationBannerView.announce(banner, offersUndo: banner.isUndoable && (undoManager?.canUndo ?? false)\n && runWriteLockReason == nil)"),
                 "no announcement is posted when a message appears, or it offers an Undo a run has greyed")
     }
 

@@ -50,16 +50,6 @@ import Testing
         #expect(DisplayCycleAssert.isArmed(in: StubDefaults(stored: true)))
     }
 
-    /// The three states are three answers, which is why the order matters: either half of the
-    /// expression on its own collapses two of them.
-    @Test func theThreeStatesAreToldApart() {
-        let armedAbsent = DisplayCycleAssert.isArmed(in: StubDefaults(stored: nil))
-        let suppressed = DisplayCycleAssert.isArmed(in: StubDefaults(stored: false))
-        let armedExplicit = DisplayCycleAssert.isArmed(in: StubDefaults(stored: true))
-        #expect(armedAbsent != suppressed, "an absent key and an explicit false report the same state — a boolForKey:-only read")
-        #expect(armedExplicit != suppressed, "an explicit true and an explicit false report the same state — an objectForKey:-only read")
-    }
-
     /// The one constant both sites use is AppKit's own spelling, since agreeing on the wrong string
     /// would be worthless.
     @Test func theKeyIsAppKitsOwnSpelling() {

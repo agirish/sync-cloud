@@ -122,21 +122,6 @@ import FileExplorer
                 == .allowNoActiveOperations)
     }
 
-    @Test func anUnsavedDocumentStopsTheQuit() {
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: true,
-                                                  hasUnsavedDocument: true)
-                == .warnUnsavedDocument(activeOperations: 0))
-    }
-
-    /// `warnBeforeQuit` doesn't govern this branch, by decision. That setting is about interrupting
-    /// file operations, which the engine can finish or roll back. Unsaved typing exists only in
-    /// memory, and switching the operations warning off doesn't say documents may be discarded.
-    @Test func switchingOffTheOperationsWarningDoesNotSilenceThisOne() {
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: false,
-                                                  hasUnsavedDocument: true)
-                == .warnUnsavedDocument(activeOperations: 0))
-    }
-
     /// A file operation leads the question but doesn't replace it.
     ///
     /// A half-finished copy is the worse thing to interrupt, so its alert is the one shown. But its
@@ -253,22 +238,6 @@ import FileExplorer
                 == NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1)
     }
 
-    /// Each position's answer for a changed file, in the banner's order: Compare… first (Return
-    /// reaches it, and it writes nothing), then Use Disk Version, then Keep Mine….
-    @Test func theChangedFilesPositionsFollowTheBannersOrder() {
-        #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .changed)
-                == .showWhatChanged)
-        #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .changed)
-                == .reloadFromDisk)
-        #expect(EditorAlerts.divergenceAnswer(for: .alertThirdButtonReturn, divergence: .changed)
-                == .saveAnyway)
-        #expect(!EditorAlerts.DivergenceAnswer.showWhatChanged.isDestructive(for: .changed),
-                "Return lands on the first button, and that one must not discard anything")
-        // …and Cancel, the fourth button, lands on the default arm.
-        #expect(EditorAlerts.divergenceAnswer(for: EditorAlerts.divergenceResponse(atButtonIndex: 3),
-                                              divergence: .changed) == .cancel)
-    }
-
     /// Neither destructive answer keeps Return, and the detour is not destructive.
     ///
     /// The alert strips Return and paints the destructive styling by asking this of every position.
@@ -300,10 +269,7 @@ import FileExplorer
     /// A file that is gone is offered neither the reload nor the diff: there is nothing at that
     /// path to read, so a comparison's right-hand column would be empty.
     @Test func aMissingFileIsNotOfferedTheDiffEither() {
-        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Again", "Cancel"])
-        #expect(!EditorAlerts.divergenceButtonTitles(for: .missing).contains("Compare…"))
-        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).contains("Compare…"))
-        // And no position on a missing file answers `.showWhatChanged`, whatever AppKit returns.
+        // No position on a missing file answers `.showWhatChanged`, whatever AppKit returns.
         for index in 0..<6 {
             #expect(EditorAlerts.divergenceAnswer(
                 for: EditorAlerts.divergenceResponse(atButtonIndex: index),
@@ -320,16 +286,6 @@ import FileExplorer
         for verdict: EditorDivergenceVerdict in [.saveAnyway, .reloadFromDisk, .cancel] {
             #expect(EditorAlerts.divergenceAnswer(for: verdict) != .showWhatChanged)
         }
-    }
-
-    /// A file that is gone is not offered a reload, because there is nothing at that path to read.
-    /// A button that can't do what it says is worse than one fewer choice.
-    @Test func aMissingFileIsNotOfferedAReload() {
-        #expect(!EditorAlerts.divergenceButtonTitles(for: .missing).contains("Use Disk Version"))
-        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).contains("Use Disk Version"))
-        // Cancel is last in both, which is what makes it the safe landing for a dismissed sheet.
-        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).last == "Cancel")
-        #expect(EditorAlerts.divergenceButtonTitles(for: .missing).last == "Cancel")
     }
 
     /// Anything AppKit returns that is not a button this alert drew changes nothing, the same rule

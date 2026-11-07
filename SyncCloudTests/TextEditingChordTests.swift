@@ -226,13 +226,7 @@ import Design
     /// split. Modifiers are normalized so a `private struct` does not merge into the preceding
     /// block, where that block's route call would vouch for a command that lost its own.
     private static func registrationBlocks(of source: String) -> [String] {
-        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                if let slash = line.range(of: "//") { return line[line.startIndex..<slash.lowerBound] }
-                return line
-            }
-            .joined(separator: "\n")
-        let normalized = code.replacing(
+        let normalized = sourceCodeOnly(source).replacing(
             #/\n(?:@[A-Za-z]+ )*(?:(?:private|fileprivate|internal|public) )?struct /#,
             with: "\nstruct ")
         return normalized.components(separatedBy: "\nstruct ")

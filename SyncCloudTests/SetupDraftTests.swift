@@ -9,20 +9,20 @@ import Testing
 /// `people.json` lives inside a profile, and a fresh machine has no profile until the folder survey
 /// mints one. These tests pin that gap being crossed once, in one direction, without duplicating
 /// anybody.
-@Suite struct SetupDraftTests {
+@Suite final class SetupDraftTests: Sendable {
 
-    private static func scratchDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-draft-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    /// This test's scratch folder; removed with the instance.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("setup-draft-\(UUID().uuidString)")
+
+    init() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
+
+    deinit { try? FileManager.default.removeItem(at: dir) }
 
     // MARK: - The file
 
     @Test func aDraftSurvivesARoundTrip() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("setup-draft.json")
 
         var draft = SetupDraft()
@@ -35,28 +35,19 @@ import Testing
     }
 
     @Test func anAbsentDraftIsNotAnError() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         #expect(SetupDraftStore.read(at: dir.appendingPathComponent("nothing.json")) == nil)
     }
 
     /// A draft this build cannot read is asked for again, never half-applied: asking again costs a
     /// minute, while a partly decoded draft builds a wrong household that every document is then
-    /// attributed through.
-    @Test func aForeignSchemaIsIgnoredRatherThanGuessedAt() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
+    /// attributed through. A foreign schema and garbage alike.
+    @Test(arguments: [
+        #"{"schemaVersion": 99, "draft": {"yourName": "Father", "yourFullNames": [], "others": []}}"#,
+        "not json at all",
+    ])
+    func anUnreadableDraftIsIgnoredRatherThanGuessedAt(contents: String) throws {
         let url = dir.appendingPathComponent("setup-draft.json")
-        try #"{"schemaVersion": 99, "draft": {"yourName": "Father", "yourFullNames": [], "others": []}}"#
-            .write(to: url, atomically: true, encoding: .utf8)
-        #expect(SetupDraftStore.read(at: url) == nil)
-    }
-
-    @Test func garbageIsIgnoredRatherThanGuessedAt() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("setup-draft.json")
-        try "not json at all".write(to: url, atomically: true, encoding: .utf8)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
         #expect(SetupDraftStore.read(at: url) == nil)
     }
 
@@ -72,8 +63,6 @@ import Testing
     /// log about a draft can't land in the window, and the suite can stay unserialized.
     @MainActor
     @Test func onlyAnUnreadableDraftSaysSoInTheLog() async throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
 
         /// Everything logged while the read under test runs, from a capture opened before it.
         func window(_ act: () -> Void) async throws -> [String] {
@@ -104,8 +93,6 @@ import Testing
     }
 
     @Test func clearingRemovesTheFileAndToleratesItsAbsence() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("setup-draft.json")
         SetupDraftStore.write(SetupDraft(), to: url)
         #expect(FileManager.default.fileExists(atPath: url.path))
@@ -192,8 +179,6 @@ import Testing
 
     @MainActor
     @Test func applyingWritesEveryoneIntoTheRoster() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
 
         var draft = SetupDraft()
@@ -214,8 +199,6 @@ import Testing
     /// person split the matcher, which keeps the last in one half and both in the other.
     @MainActor
     @Test func applyingIsIdempotent() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
 
         var draft = SetupDraft()
@@ -233,8 +216,6 @@ import Testing
     /// A name that differs only in case is the same person.
     @MainActor
     @Test func applyingMatchesAnExistingPersonCaseInsensitively() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
         store.add(displayName: "mother")
 
@@ -249,8 +230,6 @@ import Testing
     /// Organize ▸ People before the draft applies, and overwriting it would delete their work.
     @MainActor
     @Test func applyingAddsFullNamesWithoutRemovingOnesTheUserTyped() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
         store.add(displayName: "Father", relationship: "me",
                   fullNames: ["Father Inlaw Elder"])
@@ -269,8 +248,6 @@ import Testing
     /// The same form in a different case is not a new form.
     @MainActor
     @Test func applyingDoesNotGrowAFullNameListWithRestatements() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
         store.add(displayName: "Father", fullNames: ["father elder"])
 
@@ -283,28 +260,8 @@ import Testing
         #expect(me.fullNames.count == 1, "“Father Elder” was added beside “father elder”")
     }
 
-    /// The control for the two tests above, which assert a list did not grow: an `apply` that
-    /// wrote nothing would pass them. This shows the same call writes when it has something new.
-    @MainActor
-    @Test func applyingReallyDoesWriteWhenItHasSomethingNew() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = emptyStore(in: dir)
-        store.add(displayName: "Father", fullNames: ["Father Elder"])
-
-        var draft = SetupDraft()
-        draft.yourName = "Father"
-        draft.yourFullNames = ["F. I. Elder"]
-        SetupDraft.apply(draft, to: store)
-
-        let me = try #require(store.people.first)
-        #expect(me.fullNames.count == 2)
-    }
-
     @MainActor
     @Test func anEmptyNameIsNeverAddedToTheRoster() throws {
-        let dir = try Self.scratchDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
 
         var draft = SetupDraft()

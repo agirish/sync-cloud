@@ -804,7 +804,7 @@ struct TabBarSwitch {
     /// The rule, as a value: a second tab forces the switch on and freezes it there.
     ///
     /// Pure because `ContentView` can't be built in a test, and pinned at its call site by
-    /// `PaneTabWiringTests.theTabBarSwitchIsResolvedThroughTheRule`.
+    /// `PaneTabWiringTests.theTabBarSwitchGoesThroughThatRule`.
     static func resolve(hasSecondTab: Bool, preference: Bool,
                         set: @escaping (Bool) -> Void) -> TabBarSwitch {
         TabBarSwitch(isOn: hasSecondTab || preference, isForced: hasSecondTab, set: set)

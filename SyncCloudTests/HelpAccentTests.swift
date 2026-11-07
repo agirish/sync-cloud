@@ -12,38 +12,11 @@ import Testing
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct HelpAccentTests {
 
     private func render(hue: LiquidGlassHue, scheme: ColorScheme) throws -> NSBitmapImageRep {
-        let store = TestDefaults()
-        store.defaults.set(hue.rawValue, forKey: LiquidGlass.hueKey)
         let size = CGSize(width: 820, height: 600)
-        let host = NSHostingView(rootView: AnyView(
-            HelpView(available: size, openAt: "browse-workspace", onClose: {})
-                .frame(width: size.width, height: size.height)
-                .background(scheme == .dark ? Color.black : Color.white)
-                .environment(\.colorScheme, scheme)
-                .defaultAppStorage(store.defaults)))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
-    }
-
-    private func pixels(near color: Color, in rep: NSBitmapImageRep) throws -> Int {
-        let target = try #require(NSColor(color).usingColorSpace(.sRGB))
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
-                       abs(c.blueComponent - target.blueComponent)) < 0.02 { n += 1 }
-            }
-        }
-        return n
+        return try renderInSRGBWindow(HelpView(available: size, openAt: "browse-workspace", onClose: {})
+                                          .frame(width: size.width, height: size.height)
+                                          .background(scheme == .dark ? Color.black : Color.white),
+                                      size: size, scheme: scheme, hue: hue)
     }
 
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])

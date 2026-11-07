@@ -8,35 +8,9 @@ import Foundation
 ///
 /// Checked in source, as `BrowseWorkspaceCallSiteTests` does: `.onKeyPress` can't be fired, and the
 /// failure is which subtree a modifier is attached to. Readers fail loudly on a missing or short
-/// file, `testTheScanCanActuallyFail` proves they read real text, and the premise (the search field
-/// is inside the pane column) is asserted. Column checks read all of `MacApp/` (`macAppSources`);
+/// file, and the premise (the search field is inside the pane column) is asserted. Column checks read all of `MacApp/` (`macAppSources`);
 /// the split-layout check names its file, since that layout draws nothing smaller than a column.
 @Suite struct PaneQuickLookScopeTests {
-
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/<this>.swift
-            .deletingLastPathComponent()                   // …/SyncCloudTests
-            .deletingLastPathComponent()                   // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        // `#require`, not `#expect`: on a truncated file every `!contains` below would pass, so
-        // stop instead of reporting one issue in front of a page of green.
-        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
-
-    /// The positive control: a reader that silently returned the wrong text would make every
-    /// absence check below pass.
-    @Test func testTheScanCanActuallyFail() throws {
-        #expect(try Self.source("ContentView.swift").contains("func paneColumn(isLeft: Bool)"),
-                "this is not ContentView")
-        #expect(try Self.source("ContentView+SplitLayout.swift").contains("var panesSplit: some View"),
-                "this is not the split layout")
-        #expect(try Self.source("ContentView+PaneSearch.swift").contains("func paneQuickLook()"),
-                "this is not the pane-search file")
-        #expect(try !Self.source("ContentView.swift").contains("a string that is definitely not in ContentView"))
-    }
 
     // MARK: The premise
 
@@ -61,7 +35,7 @@ import Foundation
     /// No key handler in the split layout: `ContentView+SplitLayout.swift` lays out whole pane
     /// columns and nothing smaller, so any Space handler in it swallows the search field's spaces.
     @Test func testTheSplitLayoutListensForNoKeysAtAll() throws {
-        let split = try Self.source("ContentView+SplitLayout.swift")
+        let split = try macAppFile("ContentView+SplitLayout.swift")
         #expect(!split.contains(".onKeyPress(.space)"),
                 "a Space handler on a pane column eats spaces typed into that pane's search field")
         // Not just Space: every subject here is a whole column, so any key handler reaches the
@@ -121,7 +95,7 @@ import Foundation
     /// must not hijack the preview. The one handler reads this from the layout; read wrong, the
     /// preview silently shows the wrong file.
     @Test func testTheTargetIsResolvedFromTheLayout() throws {
-        let search = try Self.source("ContentView+PaneSearch.swift")
+        let search = try macAppFile("ContentView+PaneSearch.swift")
         let start = try #require(search.range(of: "func paneQuickLook()"))
         // Wide enough for the whole body, including its suspension guard: a window tighter than
         // the body fails for the wrong reason.

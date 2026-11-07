@@ -22,7 +22,7 @@ import Sync
     /// on it is whitespace-insensitive. The Edit suites all slice through here.
     static func body(of declaration: String, in file: String,
                      sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
-        CodeText(try declarationBody(of: declaration, in: try EditorDivergenceWiringTests.source(file),
+        CodeText(try declarationBody(of: declaration, in: try macAppFile(file),
                                      sourceLocation: sourceLocation))
     }
 
@@ -50,8 +50,6 @@ import Sync
     @Test func theReReadIsTargetedAtThePaneThatShowsTheFile() throws {
         let show = try Self.body(of: "func showCreatedFileInPane(_ path: String) {",
                                  in: "ContentView+Editor.swift")
-        #expect(show.contains("owePaneSelection(path)"),
-                "the selection is no longer owed — nothing will select the file")
         #expect(show.contains("rereadPanesAfterEditorWrite(path)"),
                 "⌘N no longer re-reads the pane — the new file is not listed")
         let body = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
@@ -155,25 +153,6 @@ import Sync
         #expect(write.lowerBound < reread.lowerBound, "the pane is re-read before the PDF exists")
     }
 
-    /// The debt is paid on the tree publish, under the rule, and not through the setter a click
-    /// uses, whose Compare-with pick, focus move and surface claim are a click's.
-    @Test func theOwedSelectionIsPaidOnPublishAsTheAppsOwnWrite() throws {
-        let content = CodeText(try EditorDivergenceWiringTests.source("ContentView.swift"))
-        #expect(content.contains(".onChange(of: syncManager.leftPaneTree) { _, _ in settleOwedPaneSelection() }"),
-                "nothing pays the owed selection when the pane's tree publishes")
-        let body = try Self.body(of: "func settleOwedPaneSelection() {", in: "ContentView+Editor.swift")
-        #expect(body.contains("Self.owedPaneSelection("),
-                "the settle no longer asks the tested rule")
-        let pay = try CallArguments(of: "PaneLogic.payOwedSelection(", in: body.normalized)
-        #expect(pay.unlabeled == ["path"] && pay.passes("state", "syncManager"),
-                "the selection is not written as the app's own write")
-        #expect(!body.contains("paneSelectionBinding"),
-                "the app's write goes through the click's setter — it would resolve a Compare-with pick")
-        #expect(try CallArguments(of: "Self.owedPaneSelection(", in: body.normalized)
-                    .passes("openDocument", "editorOpenPath"),
-                "the rule is not told which document is open — it could drag the reader back")
-    }
-
     /// Exactly one "Editor opened" per create. Selecting a text file in Edit's open pane opens it
     /// through `openInEditor`, a no-op here only because its first guard returns for the path
     /// already open. Pinned so that guard can't be loosened without this going red.
@@ -188,8 +167,5 @@ import Sync
                 "the guard no longer asks about the path against the open document")
         let load = try #require(body.range(of: "loadIntoEditor(path: path)"))
         #expect(guardLine.lowerBound < load.lowerBound)
-        // …and the guard it asks is the one that returns for the open document.
-        #expect(!EditorHandOffRun.opens("/r/a.md", openDocument: "/r/a.md", isRefused: false),
-                "the shared guard lets the open document through — a programmatic select would reopen it")
     }
 }

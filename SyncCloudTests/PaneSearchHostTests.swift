@@ -10,45 +10,34 @@ import Sync
 
     // MARK: - Which pane ⌘F opens
 
-    /// The pane holding the selection is where every pane-scoped affordance points (the action
-    /// bar, the strong wash), so Find lands there too.
-    @Test func testFindFollowsTheSelectedPane() {
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: .left))
-        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: .right))
-    }
-
-    /// `activePane` is nil whenever nothing is selected, which is most of the time, so Find needs
-    /// a floor; without one ⌘F would do nothing on a fresh window.
-    @Test func testFindFallsBackToTheLeftPaneWithNoSelection() {
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: nil))
-    }
-
-    /// The rail is the left pane and the only one on screen: a right answer would open a field
-    /// nobody can see, even when the hidden right pane holds a selection.
-    @Test func testTheSingleSourceRailAlwaysSearchesItself() {
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: nil, activePane: .right))
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: nil, activePane: nil))
-    }
-
-    // MARK: - Explicit focus (⌃⇥)
-
-    /// The explicit side outranks the selection fallback. Both fixtures put the two inputs in
-    /// disagreement, since agreeing inputs can't tell which one the rule read.
-    @Test func testExplicitFocusOutranksTheSelectedPane() {
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .left, activePane: .right))
-        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .right, activePane: .left))
-    }
-
-    /// Nothing selected anywhere: the fallback floors at the left pane, so explicit focus is the
-    /// only way to reach the right one.
-    @Test func testExplicitFocusAnswersWhenNothingIsSelected() {
-        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .right, activePane: nil))
-    }
-
-    /// A `focusedSide` left over from Compare must not survive into the rail, the only pane on
-    /// screen: the rail's guard comes before the focus is consulted.
-    @Test func testTheRailIgnoresAStaleRightFocus() {
-        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: .right, activePane: nil))
+    /// `(single source, explicit focus, the selected pane, ⌘F searches the left pane)`.
+    @Test(arguments: [
+        // The pane holding the selection is where every pane-scoped affordance points (the action
+        // bar, the strong wash), so Find lands there too.
+        (false, nil, .left, true),
+        (false, nil, .right, false),
+        // `activePane` is nil whenever nothing is selected, which is most of the time, so Find
+        // needs a floor; without one ⌘F would do nothing on a fresh window.
+        (false, nil, nil, true),
+        // The rail is the left pane and the only one on screen: a right answer would open a field
+        // nobody can see, even when the hidden right pane holds a selection.
+        (true, nil, .right, true),
+        (true, nil, nil, true),
+        // Explicit focus (⌃⇥) outranks the selection fallback; the inputs disagree, since agreeing
+        // inputs can't tell which one the rule read.
+        (false, .left, .right, true),
+        (false, .right, .left, false),
+        // Nothing selected anywhere: the fallback floors at the left pane, so explicit focus is
+        // the only way to reach the right one.
+        (false, .right, nil, false),
+        // A `focusedSide` left over from Compare must not survive into the rail, the only pane on
+        // screen: the rail's guard comes before the focus is consulted.
+        (true, .right, nil, true),
+    ] as [(Bool, PaneTree.Side?, PaneLogic.ActivePane?, Bool)])
+    func testFindSearchesThePaneInEffect(isSingleSource: Bool, focusedSide: PaneTree.Side?,
+                                         activePane: PaneLogic.ActivePane?, searchesLeft: Bool) {
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: isSingleSource, focusedSide: focusedSide,
+                                            activePane: activePane) == searchesLeft)
     }
 
     /// ⌃⇥ flips the pane in effect, not the stored value. With focus implicit (nil) the first press
@@ -170,11 +159,7 @@ import Sync
     /// written. `recomputeSearch` is on `ContentView`, which a test can't mount, so its order is
     /// read from source.
     @Test func testTheIdleCheckRunsBeforeAnythingIsPublished() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+PaneSearch.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read ContentView+PaneSearch.swift — this check is vacuous")
+        let source = try macAppFile("ContentView+PaneSearch.swift")
         let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
                                  "`recomputeSearch` is gone or renamed — re-aim this check")
         let body = source[start.upperBound...]
@@ -195,11 +180,7 @@ import Sync
     /// The side annotation reads the other pane's tree before its type filter: a file that filter
     /// hides is still on that side. Read from source for the same reason as above.
     @Test func testTheSideAnnotationReadsTheOtherPanesWholeFolder() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+PaneSearch.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read ContentView+PaneSearch.swift — this check is vacuous")
+        let source = try macAppFile("ContentView+PaneSearch.swift")
         let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
                                  "`recomputeSearch` is gone or renamed — re-aim this check")
         let body = source[start.upperBound...]
@@ -211,33 +192,19 @@ import Sync
     // MARK: - When the search re-runs
 
     /// `.task(id:)` restarts exactly when this compares unequal, so this `==` is the definition of
-    /// "when does the search re-run".
-    @Test func testTypingRestartsTheSearch() {
-        #expect(PaneSearchRecomputeKey(isLeft: true, query: "ta", treeVersion: 1, otherTreeVersion: 1)
-                != PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 1))
-    }
-
-    /// The field easy to leave out. Results name paths in the tree published when they ran; a
-    /// scan, delete or hidden-files toggle rebuilds it, and stale hits point at rows that no longer
-    /// exist, so the walk reveals nothing and selects a ghost.
-    @Test func testARepublishRestartsTheSearch() {
-        #expect(PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 1)
-                != PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 2, otherTreeVersion: 1))
-    }
-
-    /// The other pane's republish matters too, because the side annotation is read from it: a
-    /// copy across or a rescan there would leave every "left only" describing a tree that no longer
-    /// exists.
-    @Test func testTheOtherPanesRepublishRestartsTheSearch() {
-        #expect(PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 1)
-                != PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 2))
-    }
-
-    /// The two panes keep independent queries and independent counters, so their keys must never
-    /// collide — one pane's recomputation must not stand in for the other's.
-    @Test func testTheTwoPanesRecomputeSeparately() {
-        #expect(PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 1)
-                != PaneSearchRecomputeKey(isLeft: false, query: "tax", treeVersion: 1, otherTreeVersion: 1))
+    /// "when does the search re-run". Each row changes one field from the first key: typing; a
+    /// republish (the field easy to leave out: results name paths in the tree published when they
+    /// ran, and a scan, delete or hidden-files toggle rebuilds it, so stale hits select a ghost);
+    /// the other pane's republish, since the side annotation is read from it; and the other pane,
+    /// whose query and counters are its own, so one pane's recomputation can't stand in for it.
+    @Test(arguments: [
+        PaneSearchRecomputeKey(isLeft: true, query: "ta", treeVersion: 1, otherTreeVersion: 1),
+        PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 2, otherTreeVersion: 1),
+        PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 2),
+        PaneSearchRecomputeKey(isLeft: false, query: "tax", treeVersion: 1, otherTreeVersion: 1),
+    ])
+    func testAChangedKeyRestartsTheSearch(changed: PaneSearchRecomputeKey) {
+        #expect(PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 1, otherTreeVersion: 1) != changed)
     }
 
     /// An unchanged key doesn't restart it, or the debounce would re-run on every `ContentView`

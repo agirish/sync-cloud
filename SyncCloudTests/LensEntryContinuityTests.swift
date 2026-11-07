@@ -11,16 +11,7 @@ import Foundation
 /// comments stripped, each check anchored on something that must be present.
 @Suite struct LensEntryContinuityTests {
 
-    private static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(file)")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read \(file) — this scan would be vacuous")
-        try #require(raw.count > 5000, "\(file) is implausibly short — the scan is vacuous")
-        // The shared lexer, which leaves a `//` inside a string alone.
-        return sourceCodeOnly(raw)
-    }
+    private static func source(_ file: String) throws -> String { sourceCodeOnly(try macAppFile(file)) }
 
     /// One member's body, to its own closing brace: the shared
     /// ``declarationBody(of:in:sourceLocation:)``, asked whitespace-insensitively (``CodeText``).
@@ -53,8 +44,6 @@ import Foundation
                 "the refresh handler moved — the check below is aimed at nothing")
         #expect(code.contains("refreshAction(reloading: scope)"),
                 "the refreshSubject handler no longer reloads the scope it was sent")
-        #expect(!code.contains("isReHomingForLensEntry"),
-                "the lens-entry flag is back, with no move left for it to describe")
         #expect(code.contains("reloading: reloading, comparing: comparing)"),
                 "refreshAction no longer passes the decision through to the manager")
     }

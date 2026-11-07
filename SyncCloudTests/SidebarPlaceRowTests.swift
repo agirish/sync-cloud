@@ -13,25 +13,7 @@ import Foundation
 /// itself while disagreeing with the app.
 @Suite struct SidebarPlaceRowTests {
 
-    static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    /// The scan reads something: a symbol that is definitely there must be found.
-    @Test func theScanCanSeeAKnownSymbol() throws {
-        #expect(try Self.source().contains("buildFolderSidebarPlaceRows"))
-    }
+    static func source() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
 
     /// Places are built before providers: the claimed-by-a-provider check runs against a place,
     /// which needs the places to exist first.
@@ -332,8 +314,8 @@ import Foundation
     /// land in one synchronous turn and the handler finds the navigation done. Asserted as
     /// positions, since merely reordering these three lines would break it with every symbol intact.
     @Test func theNavigationIsAppliedBeforeTheProviderIsAdopted() throws {
-        let code = try Self.source()
-        let focus = try #require(code.range(of: "syncManager.focusOn(relativePath: relative, isLeft: isLeft)\n        adoptProviderForTab"),
+        let code = CodeText(try Self.source())
+        let focus = try #require(code.range(of: "syncManager.focusOn(relativePath: relative, isLeft: isLeft)\n adoptProviderForTab"),
                                  "focusOn no longer immediately precedes adoptProviderForTab — the handler will not find the navigation done")
         let adopt = try #require(code.range(of: "adoptProviderForTab(provider.id"))
         let reload = try #require(code.range(of: "refreshForTabSwitch(movedPane: isLeft)"))

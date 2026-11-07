@@ -11,14 +11,9 @@ import Sync
 
     // MARK: Harness
 
-    /// A scratch UserDefaults suite unique to one test (tests run in parallel), removed on
-    /// teardown — the domain *and* its backing plist, via `wipeDefaultsSuite`.
-    private final class ClassifierScratch {
-        let suiteName = "CloudFilingClassifierTests." + UUID().uuidString
-        let defaults: UserDefaults
-        init() { defaults = UserDefaults(suiteName: suiteName)! }
-        deinit { wipeDefaultsSuite(suiteName) }
-    }
+    /// A scratch UserDefaults suite unique to one test (tests run in parallel), removed with its
+    /// plist when the test lets go of it.
+    private typealias ClassifierScratch = TestDefaults
 
     /// Thread-safe capture of the requests the classifier hands the transport.
     private final class RequestBox: @unchecked Sendable {

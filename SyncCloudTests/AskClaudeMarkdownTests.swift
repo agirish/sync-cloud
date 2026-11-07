@@ -214,37 +214,6 @@ import Testing
         }
     }
 
-    /// The whole sample, written where a person can look at it.
-    @Test func theSampleAnswerIsWrittenOutToLookAt() throws {
-        let sample = """
-            Four, all from January:
-
-            | File | Kind | Size |
-            |---|---|---:|
-            | 1099-B Schwab.pdf | 1099-B | 1.4 MB |
-            | W-2 Acme 2025.pdf | W-2 | 212 KB |
-
-            ### Next
-
-            1. Open **Taxes/2025**
-            2. Check the `W-2`
-               - against last year
-            - Then file them
-
-            ```
-            mv "W-2 Acme 2025.pdf" Taxes/2025
-            ```
-
-            > Moving is undone with ⌘Z.
-            """
-        let rep = try Self.render(AskClaudeAnswerView(blocks: AskClaudeMarkdown.linked(
-            AskClaudeMarkdown.blocks(sample), targets: ["W-2 Acme 2025.pdf": "/a/W-2 Acme 2025.pdf"],
-            scheme: "synccloud-askclaude", underline: .blue)).padding(.horizontal, 11).padding(.vertical, 7), width: 348)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeAnswer-TE298.png")
-        try #require(rep.representation(using: .png, properties: [:])).write(to: url)
-        print("TE298 sample render: \(url.path)")
-    }
-
     /// Every row of a table and every column draws: a row more is a row taller, and a cell's
     /// text in the second column changes pixels right of the first column only.
     @Test func everyTableRowAndColumnPaints() throws {
@@ -285,24 +254,8 @@ import Testing
 
         func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
             let escaped = String(data: try JSONEncoder().encode(text), encoding: .utf8)!
-            let lines = [
-                #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
-                #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-                #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":\#(escaped)}}"#,
-                #"data: {"type":"content_block_stop","index":0}"#,
-                #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":20}}"#,
-                #"data: {"type":"message_stop"}"#,
-            ]
-            return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-                lines.forEach { c.yield($0) }
-                c.finish()
-            })
-        }
-    }
-
-    private final class NoTools: AskClaudeToolRunning {
-        func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-            AskClaudeToolOutcome(result: "", step: "")
+            // The encoder's own quotes off: `textBlock` puts the string between its own.
+            return SSE.response(SSE.text(String(escaped.dropFirst().dropLast()), outputTokens: 20))
         }
     }
 
@@ -324,14 +277,6 @@ import Testing
             .frame(width: container.width, height: container.height, alignment: .topLeading), width: container.width)
     }
 
-    private static func differ(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var count = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
-        }
-        return count
-    }
 
     /// The thread's own answer bubble draws a heading as the bold line `**Title**` draws, not as
     /// "# Title". "Title" in plain weight shows the comparison can see the difference.
@@ -339,7 +284,7 @@ import Testing
         let heading = try await panel(answering: "# Title")
         let bold = try await panel(answering: "**Title**")
         let regular = try await panel(answering: "Title")
-        #expect(Self.differ(heading, bold) == 0)
-        #expect(Self.differ(regular, bold) > 50)
+        #expect(differingPixels(heading, bold) == 0)
+        #expect(differingPixels(regular, bold) > 50)
     }
 }

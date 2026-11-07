@@ -26,15 +26,7 @@ import FileExplorer
     /// question.
     @Test func testBrowseIsSingleSourceLikeTheLenses() {
         #expect(TopPaneVisibility.mode(for: .browse) == .singleSource)
-        #expect(TopPaneVisibility.paneCount(for: .browse) == 1)
         #expect(!Workspace.lensWorkspaces.contains(.browse), "Browse has no lens — this loop cannot cover it")
-    }
-
-    @Test func testPaneCountPerWorkspace() {
-        #expect(TopPaneVisibility.paneCount(for: .compare) == 2)
-        for workspace in Workspace.lensWorkspaces {
-            #expect(TopPaneVisibility.paneCount(for: workspace) == 1)
-        }
     }
 
     // MARK: Defaults
@@ -61,21 +53,6 @@ import FileExplorer
 
     // MARK: The editor's file rail
 
-    /// The quiet state: pane collapsed, nothing asked of the rail, so the rail is the file list.
-    @Test func theRailIsDrawnInTheQuietState() {
-        #expect(TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: false, railFolded: false))
-    }
-
-    /// An open pane is the file list, so the rail steps aside rather than listing the folder twice.
-    @Test func theRailYieldsToAnOpenPane() {
-        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false))
-    }
-
-    /// "Just the text": the pane is collapsed and the rail bit is set, so neither list is drawn.
-    @Test func justTheTextHidesTheRail() {
-        #expect(!TopPaneVisibility.editorRailIsDrawn(paneHidden: true, railHidden: true, railFolded: false))
-    }
-
     /// Folded by hand withholds the list as Expand does, through its own bit, so a hand fold does
     /// not read as Expand and light Files in the header. Every combination: drawn only with the
     /// pane folded and both rail bits clear. Dropping `!railFolded` from the rule must fail the
@@ -98,16 +75,6 @@ import FileExplorer
         #expect(TopPaneVisibility.editorRailFoldedDefault)
         #expect(TopPaneVisibility.editorRailFoldedKey != TopPaneVisibility.editorRailHiddenKey,
                 "the hand fold shares Expand's key — folding the list would light Expand")
-    }
-
-    /// With the pane open the bit is not consulted (both values answer the same), which lets it
-    /// survive a trip into the pane and back. The rule takes the bit by value and has nowhere to
-    /// write, so "ignored" is the whole claim.
-    @Test func anOpenPaneIgnoresTheRailBitRatherThanClearingIt() {
-        let withBitClear = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: false, railFolded: false)
-        let withBitSet = TopPaneVisibility.editorRailIsDrawn(paneHidden: false, railHidden: true, railFolded: true)
-        #expect(withBitClear == withBitSet, "an open pane answers differently depending on the rail bit")
-        #expect(!withBitSet)
     }
 
     // MARK: The sidebar beside Edit's folded pane, and Expand

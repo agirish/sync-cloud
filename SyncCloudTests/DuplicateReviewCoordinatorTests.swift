@@ -695,29 +695,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// The trash goes to a `ScratchTrash` folder beside the fixture, not `~/.Trash`, so the
     /// system's privacy checks can't decide the verdict and no copy lands in the runner's Trash.
     @Test func confirmingTrashesTheRightCopyAndReturnsToDuplicates() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-\(UUID().uuidString)")
-        let trash = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-trash-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: trash)
-        }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
         // A folder review carries the scan's per-entry baselines; the directory half of the gate
         // re-walks against them, and nil would (correctly) refuse the trash.
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
         // The Duplicates list still holds the group this review came from.
         harness.syncManager.duplicateGroups = [
@@ -761,29 +748,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// baselines: the refusal comes before the confirmation, names the file, points to Merge, and
     /// leaves both copies, the review and the tab as they were.
     @Test func aRightCopyHoldingWhatTheLeftLacksIsRefusedBeforeAsking() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-unique-\(UUID().uuidString)")
         // A stand-in Trash, so a regression that did trash never reaches the real one.
-        let trash = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-unique-trash-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: trash)
-        }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("unique")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
         try Data("only here".utf8).write(to: copy.appendingPathComponent("only-here.txt"))
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
@@ -807,19 +781,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// the bytes. Real folders, real baselines: refused before asking, naming the file. The
     /// control: the same pair dated alike is not a difference.
     @Test func aSameSizedFileWithAnotherDateIsRefusedBeforeAsking() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-dated-\(UUID().uuidString)")
-        let trash = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-dated-trash-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: trash)
-        }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("dated")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
         try Data("tax 2025".utf8).write(to: keep.appendingPathComponent("summary.txt"))
         try Data("tax 2026".utf8).write(to: copy.appendingPathComponent("summary.txt"))
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)],
@@ -829,11 +793,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
                                            matchKind: .overlapping)
         #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(review) == ["summary.txt"],
@@ -887,18 +848,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// found the same content, so dates are not evidence. Real folders, the same bytes dated a year
     /// apart, run to the end: the right copy leaves the disk.
     @Test func anIdenticalGroupsCopyWithOtherDatesIsTrashed() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-cp-\(UUID().uuidString)")
-        let trash = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-cp-trash-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: trash)
-        }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        let folders = try ReviewFolders("cp", twins: false)
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
         for (folder, date) in [(keep, 1_700_000_000.0), (copy, 1_730_000_000.0)] {
             let file = folder.appendingPathComponent("a.txt")
             try Data("same bytes".utf8).write(to: file)
@@ -908,11 +860,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         let harness = Harness(fileManager: ScratchTrash(folder: trash))
         harness.lensProviderRoot = root.path
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
                                            matchKind: .identical)
         harness.syncManager.duplicateGroups = [
@@ -979,30 +928,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     private func heldReviewFixture(
         _ groups: (_ keep: URL, _ copy: URL, _ root: URL) -> [DuplicateGroup]
     ) async throws -> (harness: Harness, review: DuplicateCompareContext, copy: URL, cleanup: () -> Void) {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-held-\(UUID().uuidString)")
-        let trash = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-held-trash-\(UUID().uuidString)")
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
-        let harness = Harness(fileManager: ScratchTrash(folder: trash))
-        harness.lensProviderRoot = root.path
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let folders = try ReviewFolders("held")
+        let harness = Harness(fileManager: ScratchTrash(folder: folders.trash))
+        harness.lensProviderRoot = folders.root.path
+        let keepSnapshot = await ReviewFolders.baseline(folders.keep)
+        let deleteSnapshot = await ReviewFolders.baseline(folders.copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
-        harness.syncManager.duplicateGroups = groups(keep, copy, root)
+        harness.syncManager.duplicateGroups = groups(folders.keep, folders.copy, folders.root)
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
-        return (harness, review, copy, {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: trash)
-        })
+        return (harness, review, folders.copy, folders.remove)
     }
 
     /// A right copy inside a folder another group keeps is refused, as the Compare Copies pair
@@ -1149,22 +1084,14 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// removal measured different filesystems (and the copy reached the user's real Trash). The
     /// double refuses the trash outright, so this test never touches the real Trash.
     @Test func aPermanentlyDeletedRightCopyIsConfirmedAgainstTheManagersOwnFilesystem() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-perm-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("perm")
+        defer { folders.remove() }
+        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
 
         let harness = Harness(fileManager: TrashlessVolume())
         harness.lensProviderRoot = root.path
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
         harness.trashConfirmAnswer = true
 
@@ -1197,24 +1124,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// copy is kept. Stat facts can't catch this (a folder's stat size is not its contents), so
     /// the directory verdict comes from the engine's shared re-walk against the scan's baseline.
     @Test func aRightFolderThatGainedAFileDuringTheReviewIsRefused() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-drift-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("drift")
+        defer { folders.remove() }
+        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
 
         // The right copy gains a file after the scan's baseline, during the open review.
@@ -1237,24 +1156,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// during the open review: trashing the right copy would destroy the last instance of the
     /// scanned content. Only the directory verdict from the shared re-walk can refuse this.
     @Test func aKeepFolderWhoseContentsDriftedDuringTheReviewIsRefused() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-keep-drift-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("keep-drift")
+        defer { folders.remove() }
+        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
 
         // The keeper loses its file after the scan's baseline, during the open review.
@@ -1277,14 +1188,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// folder with an unreadable descendant, and a rescan reproduces nil, so claiming a change and
     /// pointing at a rescan would be wrong twice.
     @Test func aFolderReviewWithNoBaselineRefusesWithoutClaimingDrift() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-nil-baseline-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("nil-baseline")
+        defer { folders.remove() }
+        let (root, copy) = (folders.root, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1414,24 +1320,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// A keep-side refusal reaches the log, not just the banner, like the delete side's: a refusal
     /// visible on screen must also be in ~/sync-cloud.log, which he audits.
     @Test func aKeepSideRefusalIsLoggedLikeTheDeleteSide() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-keep-log-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("keep-log")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
         // The keeper's contents drift during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
@@ -1454,14 +1352,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// wording and the "unreadable, or nested too deep" phrasing, because the walk's depth cap and
     /// symlink-cycle guard record a nil baseline just like an unreadable descendant.
     @Test func aDeleteFolderWithNoBaselineRefusesWithTheRightCopyWording() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-delete-nil-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("delete-nil")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
@@ -1497,24 +1390,16 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// pre-trash verdict and the removal. A file landing in the right copy then must not be trashed
     /// on the stale verdict, destroying its only instance.
     @Test func aRightCopyThatGainsAFileDuringTheQueueWaitIsRefused() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dup-review-queue-drift-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let keep = root.appendingPathComponent("Docs")
-        let copy = root.appendingPathComponent("Backup/Docs")
-        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
-        try writeTwins("a.txt", in: keep, and: copy)
+        let folders = try ReviewFolders("queue-drift")
+        defer { folders.remove() }
+        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
         harness.trashConfirmAnswer = true
-        let ignored = DuplicateFinderOptions.defaultIgnoredNames
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
-        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let keepSnapshot = await ReviewFolders.baseline(keep)
+        let deleteSnapshot = await ReviewFolders.baseline(copy)
         let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
 
         // A long operation is already on the queue when the trash is requested.
@@ -1569,6 +1454,39 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 /// duplicate pins the date. An identical group's review ignores dates
 /// (`anIdenticalGroupsCopyWithOtherDatesIsTrashed`). A whole second on both, because
 /// `setAttributes` may round below a microsecond.
+/// A folder review's two copies under a scratch root: `Docs`, the keeper, and `Backup/Docs`, the
+/// right copy, each holding the twin `a.txt` unless `twins` is false, and a stand-in Trash folder
+/// beside them, so a regression that did trash never reaches the real one. `remove()` it in a
+/// `defer`.
+private struct ReviewFolders {
+    let root: URL
+    let trash: URL
+    var keep: URL { root.appendingPathComponent("Docs") }
+    var copy: URL { root.appendingPathComponent("Backup/Docs") }
+
+    init(_ tag: String, twins: Bool = true) throws {
+        let scratch = FileManager.default.temporaryDirectory
+        root = scratch.appendingPathComponent("dup-review-\(tag)-\(UUID().uuidString)")
+        trash = scratch.appendingPathComponent("dup-review-\(tag)-trash-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Docs"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Backup/Docs"),
+                                                withIntermediateDirectories: true)
+        if twins { try writeTwins("a.txt", in: keep, and: copy) }
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: trash)
+    }
+
+    /// The scan's per-entry baseline of `folder`, as a folder review carries it.
+    static func baseline(_ folder: URL) async -> FolderContentSnapshot? {
+        await FileSyncManager.folderContentSnapshot(ofPath: folder.path,
+                                                    ignoredNames: DuplicateFinderOptions.defaultIgnoredNames,
+                                                    fileManager: FileManager.default)
+    }
+}
+
 private func writeTwins(_ name: String, in keep: URL, and copy: URL, _ text: String = "x") throws {
     let date = Date(timeIntervalSince1970: 1_760_000_000)
     for folder in [keep, copy] {

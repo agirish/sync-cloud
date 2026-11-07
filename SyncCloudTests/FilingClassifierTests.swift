@@ -131,13 +131,6 @@ import Sync
         #expect(result.isEmpty)
     }
 
-    /// `prewarm` is safe to call repeatedly: a silent no-op when the model isn't available, and only
-    /// a queued background warm-up when it is. Either way it returns at once without crashing.
-    @Test func prewarmIsSafeToCallRepeatedly() {
-        OnDeviceFilingClassifier.prewarm()
-        OnDeviceFilingClassifier.prewarm()
-    }
-
     // MARK: Hybrid backend routing (cloud vs. on-device)
 
     /// Runs the router with a recording sink in place of `Logger.shared`, so a test can assert the
@@ -172,20 +165,17 @@ import Sync
         #expect(keyQueries == 1)
     }
 
-    @Test func cloudFilingOffRunsOnDeviceWithNothingToReport() {
-        // Cloud off is not a downgrade: it's what the user asked for, key or no key.
-        let noKey = routed(cloudEnabled: false, hasCloudKey: false)
-        #expect(noKey.route == .onDevice)
-        #expect(noKey.reported.isEmpty)
-
-        let staleKey = routed(cloudEnabled: false, hasCloudKey: true)
-        #expect(staleKey.route == .onDevice)
-        #expect(staleKey.reported.isEmpty)
-    }
-
-    @Test func cloudFilingOnWithAKeyRunsInTheCloudSilently() {
-        let result = routed(cloudEnabled: true, hasCloudKey: true)
-        #expect(result.route == .cloud)
+    /// Cloud off is not a downgrade: it's what the user asked for, key or no key. Cloud on with a
+    /// key runs in the cloud. Neither has anything to report.
+    @Test(arguments: [
+        (false, false, FilingBackendRoute.onDevice),
+        (false, true, .onDevice),
+        (true, true, .cloud),
+    ])
+    func aRouteThatIsNotADowngradeReportsNothing(cloudEnabled: Bool, hasCloudKey: Bool,
+                                                  expected: FilingBackendRoute) {
+        let result = routed(cloudEnabled: cloudEnabled, hasCloudKey: hasCloudKey)
+        #expect(result.route == expected)
         #expect(result.reported.isEmpty)
     }
 

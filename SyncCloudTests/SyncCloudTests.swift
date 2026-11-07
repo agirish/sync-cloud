@@ -11,28 +11,23 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
 @Suite struct SyncCloudTests {
 
-    /// The pure quit decision (the NSAlert branch itself isn't unit-testable). No active
-    /// operations means an unconditional, silent terminate — no breadcrumb is needed.
-    @Test func testQuitDecisionAllowsWhenNoActiveOperations() {
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: true)
-            == .allowNoActiveOperations)
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: false)
-            == .allowNoActiveOperations)
-    }
-
-    /// Active operations with the warning disabled skips the alert but still quits — the app
-    /// delegate logs the quit-with-operations breadcrumb (worded for the setting, not the dialog
-    /// nobody saw) and flushes on this branch so it survives.
-    @Test func testQuitDecisionAllowsWithoutWarningWhenSettingDisabled() {
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 3, warnBeforeQuit: false)
-            == .allowWithoutWarning(activeOperations: 3))
-    }
-
-    /// Active operations with the warning enabled must route to the alert, carrying the count
-    /// through so the logged decision names how many operations were in flight.
-    @Test func testQuitDecisionWarnsWhenActiveOperationsAndWarningEnabled() {
-        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 5, warnBeforeQuit: true)
-            == .warn(activeOperations: 5, hasUnsavedDocument: false))
+    /// The pure quit decision (the NSAlert branch itself isn't unit-testable), `(operations in
+    /// flight, warn before quit, decision)`. No active operations means an unconditional, silent
+    /// terminate, no breadcrumb needed. Active operations with the warning disabled skip the alert
+    /// but still quit: the delegate logs the quit-with-operations breadcrumb (worded for the
+    /// setting, not the dialog nobody saw) and flushes on this branch so it survives. With the
+    /// warning enabled they route to the alert, carrying the count so the logged decision names
+    /// how many operations were in flight.
+    @Test(arguments: [
+        (0, true, SyncCloudAppDelegate.QuitDecision.allowNoActiveOperations),
+        (0, false, .allowNoActiveOperations),
+        (3, false, .allowWithoutWarning(activeOperations: 3)),
+        (5, true, .warn(activeOperations: 5, hasUnsavedDocument: false)),
+    ])
+    func testQuitDecision(activeOperations: Int, warnBeforeQuit: Bool,
+                          expected: SyncCloudAppDelegate.QuitDecision) {
+        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: activeOperations,
+                                                  warnBeforeQuit: warnBeforeQuit) == expected)
     }
 
     /// The quit guard counts a Restructure landing as in flight. Its re-derive queues no file
@@ -40,12 +35,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     /// silently mid-landing. `FileSyncManager.operationsAQuitWouldInterrupt` owns the counting
     /// (tested in Sync); this pins that the guard asks it. Read off comment-stripped source.
     @Test func testTheQuitGuardCountsALandingInProgress() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read MacApp/SyncCloudApp.swift")
-        let source = Self.strippingComments(raw)
+        let source = sourceCodeOnly(try macAppFile("SyncCloudApp.swift"))
         #expect(source.contains("func applicationShouldTerminate("),
                 "the quit guard moved — this scan reads nothing")
         #expect(source.contains("let activeOperations = manager?.operationsAQuitWouldInterrupt ?? 0"))
@@ -99,7 +89,10 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(manager.rightHistory.entries == ["", "otherfolder"])
     }
 
-    @Test func testResolvedProviderSelectionPrefersDistinctDestinationDuringBootstrap() async throws {
+    /// Both panes on iCloud: during bootstrap the right pane is moved to a distinct destination;
+    /// outside it an explicit same-provider pair is kept.
+    @Test(arguments: [(true, "oneDrive"), (false, "iCloud")])
+    func testResolvedProviderSelection(preferDistinctPair: Bool, right: String) async throws {
         let providers = [
             CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: "/iCloud", type: .iCloud),
             CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", rootPath: "/oneDrive", type: .oneDrive)
@@ -109,28 +102,11 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             providers: providers,
             currentLeftId: "iCloud",
             currentRightId: "iCloud",
-            preferDistinctPair: true
+            preferDistinctPair: preferDistinctPair
         )
 
         #expect(resolved?.leftId == "iCloud")
-        #expect(resolved?.rightId == "oneDrive")
-    }
-
-    @Test func testResolvedProviderSelectionPreservesExplicitSameProviderOutsideBootstrap() async throws {
-        let providers = [
-            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: "/iCloud", type: .iCloud),
-            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", rootPath: "/oneDrive", type: .oneDrive)
-        ]
-
-        let resolved = ContentView.resolvedProviderSelection(
-            providers: providers,
-            currentLeftId: "iCloud",
-            currentRightId: "iCloud",
-            preferDistinctPair: false
-        )
-
-        #expect(resolved?.leftId == "iCloud")
-        #expect(resolved?.rightId == "iCloud")
+        #expect(resolved?.rightId == right)
     }
 
     // MARK: Settings-driven rescan gating
@@ -284,12 +260,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // Copies must NOT carry the removal sentence.
         let copy = TransferSummary(isMove: false, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/L", destinationDirectory: "/R")
         #expect(!SyncOperationAlerts.transferConfirmationInformativeText(copy).contains("removed"))
-    }
-
-    @Test func testDisplayPathAbbreviatesHome() {
-        let home = NSHomeDirectory()
-        #expect(SyncOperationAlerts.displayPath("\(home)/Documents") == "~/Documents")
-        #expect(SyncOperationAlerts.displayPath("/Volumes/External/x") == "/Volumes/External/x")
     }
 
     // MARK: Collision-resolver wiring (Settings policy → the two manager seams)

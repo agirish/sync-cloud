@@ -42,7 +42,7 @@ import Testing
                 rest = rest[end...]
             }
         }
-        try #require(constructions >= 10, "found \(constructions) SetupModel constructions — the scan is reading the wrong folder")
+        try #require(constructions >= 4, "found \(constructions) SetupModel constructions — the scan is reading the wrong folder")
         #expect(unnamed.isEmpty, "built on the owner's real setup draft: \(unnamed)")
     }
 }

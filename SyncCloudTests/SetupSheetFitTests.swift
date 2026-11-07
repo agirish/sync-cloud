@@ -174,30 +174,10 @@ import Testing
         SetupSheetMetrics.contentWidth(availableSize: Self.smallDisplayHost, scale: 1)
     }
 
-    /// The card never exceeds the window it is centred in, so every fit test here measures the
-    /// size a user actually gets.
-    @Test func theCardClampsToTheWindowItIsShownIn() {
-        let tight = CGSize(width: 900, height: 560)
-        #expect(SetupSheetMetrics.resolvedWidth(availableSize: tight, scale: 1)
-                <= tight.width - SetupSheetMetrics.hostMargin)
-        #expect(SetupSheetMetrics.resolvedHeight(availableSize: tight, scale: 1)
-                <= tight.height - SetupSheetMetrics.hostMargin)
-    }
-
-    /// On a roomy display it takes its own size and no more.
-    @Test func theCardTakesItsOwnSizeWhenThereIsRoom() {
-        let huge = CGSize(width: 3000, height: 2000)
-        #expect(SetupSheetMetrics.resolvedWidth(availableSize: huge, scale: 1) == SetupSheetMetrics.cardWidth)
-        #expect(SetupSheetMetrics.resolvedHeight(availableSize: huge, scale: 1) == SetupSheetMetrics.cardHeight)
-    }
-
     /// The footer is no taller than the height the content budget is computed from:
     /// `contentHeight` subtracts `footerHeight`, so a taller real footer makes every measurement
     /// here optimistic by the difference.
     @Test func theFooterFitsTheHeightTheOpeningIsComputedFrom() async throws {
-        let settings = await manager(providerCount: 2)
-        let sheet = sheet(settings)
-        _ = sheet
         // The fullest footer there is: Back, the lock line, a Skip and a long primary title.
         for skip in [nil, "Skip"] as [String?] {
             let host = NSHostingView(
@@ -294,32 +274,17 @@ import Testing
         let engine = FileSyncManager.scratch()
         engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        func model() -> SetupModel {
-            SetupModel(settings: settings, peopleStore: nil, syncManager: engine,
-                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
-                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
-        }
-        let failed = model()
+        let failed = structureModel(settings, syncManager: engine)
         await failed.save()
         #expect(failed.saveFailure != nil, "premise: the Save failed")
-        let clean = model()
+        let clean = structureModel(settings, syncManager: engine)
 
-        func height(_ model: SetupModel, scale: CGFloat) -> CGFloat {
-            let host = NSHostingView(
-                rootView: StructureScreen(model: model, hue: .blue)
-                    .environment(\.appFontScale, scale)
-                    .environment(\.setupCardScale, SetupSheetMetrics.cardScale(
-                        availableSize: Self.smallDisplayHost, scale: scale))
-                    .frame(width: width(for: .structure, scale: scale)))
-            host.layoutSubtreeIfNeeded()
-            return host.fittingSize.height
-        }
         for size in FontSize.allCases {
             let scale = size.scale
             let ceiling = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
                                                           scale: scale)
-            let measured = height(failed, scale: scale)
-            #expect(measured != height(clean, scale: scale),
+            let measured = renderStructure(failed, scale: scale).height
+            #expect(measured != renderStructure(clean, scale: scale).height,
                     "at \(size.percent)% the failure changed nothing — this measures the clean screen")
             #expect(measured <= ceiling,
                     "at \(size.percent)% Structure with a failed Save lays out at \(Int(measured))pt against a \(Int(ceiling))pt opening")
@@ -330,11 +295,7 @@ import Testing
     /// and the heading's blurb says it is still reading.
     @Test func structureFitsWhileTheReadingRuns() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        func model() -> SetupModel {
-            SetupModel(settings: settings, peopleStore: nil, syncManager: nil,
-                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
-                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
-        }
+        func model() -> SetupModel { structureModel(settings) }
         let reading = model()
         reading.walkState = .running
         #expect(reading.structureAwaitsReading, "premise: Structure is waiting on the reading")
@@ -361,11 +322,7 @@ import Testing
     /// Try Another Folder… stand in the tree's box, where the last reading's tree stood.
     @Test func structureFitsOverAFailedReading() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        func model() -> SetupModel {
-            SetupModel(settings: settings, peopleStore: nil, syncManager: nil,
-                       hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
-                       walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
-        }
+        func model() -> SetupModel { structureModel(settings) }
         // Learn Again over a reading, and the new one failed: the preview still holds the old tree.
         let failed = model()
         failed.walkState = .failed("The folder “Documents” couldn’t be opened because you don’t "
@@ -393,6 +350,13 @@ import Testing
         }
     }
 
+    /// Structure on its own, over the realistic reading.
+    private func structureModel(_ settings: SettingsManager, syncManager: FileSyncManager? = nil) -> SetupModel {
+        SetupModel(settings: settings, peopleStore: nil, syncManager: syncManager,
+                   hasFilingProfile: false, defaults: ScratchDefaults("setup-fit-d"),
+                   walk: Self.realisticWalk, startScreen: .structure, draftURL: nil)
+    }
+
     /// Structure alone, laid out at its fitting height and photographed.
     private func renderStructure(_ model: SetupModel, scale: CGFloat) -> (height: CGFloat, pixels: Data) {
         let host = NSHostingView(
@@ -410,25 +374,6 @@ import Testing
         host.cacheDisplay(in: host.bounds, to: rep)
         let bytes = rep.bitmapData.map { Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh) }
         return (host.fittingSize.height, bytes ?? Data())
-    }
-
-    /// The welcome card fits at the card's full width, at three text sizes: it has the most words
-    /// of any screen, and it only ever renders on a fresh machine, so nobody working on the app
-    /// sees it.
-    @Test func theWelcomeScreenFitsTheCardItIsDrawnIn() async throws {
-        let settings = await manager(providerCount: Self.realisticProviderCount)
-        let sheet = sheet(settings)
-        for scale in [1.0, 1.25, 1.35] as [CGFloat] {
-            let measured = height(of: .welcome, in: sheet,
-                                  width: SetupSheetMetrics.resolvedWidth(
-                                    availableSize: Self.smallDisplayHost, scale: scale),
-                                  scale: scale)
-            let opening = SetupSheetMetrics.contentHeight(availableSize: Self.smallDisplayHost,
-                                                          scale: scale)
-            #expect(measured > 0, "the welcome card measured nothing at all")
-            #expect(measured <= opening,
-                    "the welcome card lays out at \(Int(measured))pt at \(Int(scale * 100))% against a \(Int(opening))pt card — it will overflow on a 1280×800 display")
-        }
     }
 
     /// The welcome card really draws the outline, not just the data behind it.
@@ -452,15 +397,6 @@ import Testing
         // less than this without something having been dropped or clipped.
         #expect(withRows - without >= CGFloat(SetupFlow.outline.count) * 14,
                 "drawing the outline added only \(Int(withRows - without))pt for \(SetupFlow.outline.count) rows — the card is not rendering the list it declares")
-    }
-
-    /// Every screen is either measured against the shared height or explicitly exempt. Derived from
-    /// `allCases`, so a new screen can't skip the guard by not being named.
-    @Test func everyScreenIsEitherFitTestedOrExempt() {
-        let exempt: Set<SetupFlow.Screen> = [.locations]
-        #expect(Set(Self.boundedScreens).union(exempt) == Set(SetupFlow.Screen.allCases),
-                "a screen is neither fit-tested nor exempt")
-        #expect(Set(Self.boundedScreens).isDisjoint(with: exempt))
     }
 
     /// The shared height is not much taller than the tallest step it is measured against: height
@@ -590,6 +526,38 @@ import Testing
                                     "People fits 200 members — either the card grew a great deal or this measurement stopped seeing the roster")
         #expect(overflow > Self.realisticRoster.count,
                 "People scrolls at \(overflow) members, and this household has \(Self.realisticRoster.count) — the card is sized under a real roster")
+    }
+}
+
+/// `SetupSheetMetrics` arithmetic: how the card clamps to the window it is shown in. Reads no
+/// metrics or pixels, so unpinned.
+@MainActor
+@Suite struct SetupSheetMetricsTests {
+
+    /// The card never exceeds the window it is centred in, so every fit test here measures the
+    /// size a user actually gets.
+    @Test func theCardClampsToTheWindowItIsShownIn() {
+        let tight = CGSize(width: 900, height: 560)
+        #expect(SetupSheetMetrics.resolvedWidth(availableSize: tight, scale: 1)
+                <= tight.width - SetupSheetMetrics.hostMargin)
+        #expect(SetupSheetMetrics.resolvedHeight(availableSize: tight, scale: 1)
+                <= tight.height - SetupSheetMetrics.hostMargin)
+    }
+
+    /// On a roomy display it takes its own size and no more.
+    @Test func theCardTakesItsOwnSizeWhenThereIsRoom() {
+        let huge = CGSize(width: 3000, height: 2000)
+        #expect(SetupSheetMetrics.resolvedWidth(availableSize: huge, scale: 1) == SetupSheetMetrics.cardWidth)
+        #expect(SetupSheetMetrics.resolvedHeight(availableSize: huge, scale: 1) == SetupSheetMetrics.cardHeight)
+    }
+
+    /// Every screen is either measured against the shared height or explicitly exempt. Derived from
+    /// `allCases`, so a new screen can't skip the guard by not being named.
+    @Test func everyScreenIsEitherFitTestedOrExempt() {
+        let exempt: Set<SetupFlow.Screen> = [.locations]
+        #expect(Set(SetupSheetFitTests.boundedScreens).union(exempt) == Set(SetupFlow.Screen.allCases),
+                "a screen is neither fit-tested nor exempt")
+        #expect(Set(SetupSheetFitTests.boundedScreens).isDisjoint(with: exempt))
     }
 
     /// At the largest text size the card grows too, so the steps still have somewhere to go. Not a

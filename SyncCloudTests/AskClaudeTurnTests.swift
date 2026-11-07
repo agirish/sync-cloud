@@ -199,33 +199,16 @@ private final class TurnTransport: AskClaudeTransport, @unchecked Sendable {
             _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self))
             return replies.isEmpty ? Reply.status(500) : replies.removeFirst()
         }
-        let start = #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#
-        let lines: [String]
         switch reply {
         case .status(let status):
-            return AskClaudeTransportResponse(status: status, retryAfter: nil, lines: AsyncThrowingStream { $0.finish() })
+            return SSE.response([], status: status)
         case .text(let text):
-            lines = [start,
-                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\#(text)"}}"#,
-                     #"data: {"type":"content_block_stop","index":0}"#,
-                     #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
-                     #"data: {"type":"message_stop"}"#]
+            return SSE.response(SSE.text(text, outputTokens: 5))
         case .tool:
-            lines = [start,
-                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Looking."}}"#,
-                     #"data: {"type":"content_block_stop","index":0}"#,
-                     #"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_t","name":"list_folder","input":{}}}"#,
-                     #"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"folder\":\"\"}"}}"#,
-                     #"data: {"type":"content_block_stop","index":1}"#,
-                     #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
-                     #"data: {"type":"message_stop"}"#]
+            return SSE.response([SSE.start()] + SSE.textBlock("Looking.")
+                                + SSE.toolBlock(id: "toolu_t", name: "list_folder", input: #"{\"folder\":\"\"}"#, index: 1)
+                                + SSE.end("tool_use", outputTokens: 20))
         }
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
     }
 }
 

@@ -13,26 +13,17 @@ import AppKit
 @MainActor
 @Suite struct WindowMenuTests {
 
-    static func menu(_ title: String) throws -> NSMenu {
-        try #require(NSApp.mainMenu?.items.first { $0.title == title }?.submenu,
-                     "the app has no \(title) menu — this check would be vacuous")
-    }
-
-    static func titles(_ menu: NSMenu) -> [String] {
-        menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-    }
-
     /// Each auxiliary window is reachable, and reachable once. Sync History is Activity's History
     /// tab, and keeps its item under the name people know.
     @Test(arguments: ["Activity", "Sync History", "Keyboard Shortcuts"])
     func eachAuxiliaryWindowAppearsExactlyOnceInTheWholeMenuBar(window: String) throws {
         let everywhere = try (NSApp.mainMenu?.items ?? []).flatMap { top -> [String] in
             guard let sub = top.submenu else { return [] }
-            return Self.titles(sub)
+            return menuTitles(sub)
         }
         #expect(everywhere.filter { $0 == window }.count == 1,
                 "\(window) appears \(everywhere.filter { $0 == window }.count) times across the menu bar")
-        #expect(Self.titles(try Self.menu("Window")).contains(window),
+        #expect(menuTitles(try appMenu("Window")).contains(window),
                 "\(window) is not in the Window menu, which is where a Mac user looks for a window")
     }
 
@@ -41,7 +32,7 @@ import AppKit
     /// opener too, leaving no menu route back after closing it. Only Keyboard Shortcuts' is
     /// suppressed, for ⌘/; Activity's ⌘L goes on its automatic entry instead (`ActivityMenuKey`).
     @Test func theMainWindowKeepsItsOpener() throws {
-        #expect(Self.titles(try Self.menu("Window")).contains("SyncCloud"),
+        #expect(menuTitles(try appMenu("Window")).contains("SyncCloud"),
                 "the Window menu lost the main window's own entry — closing it would strand the user")
     }
 
@@ -49,11 +40,11 @@ import AppKit
     /// entry is SwiftUI's automatic one, which a scene's own `.keyboardShortcut` does not reach, so
     /// `ActivityMenuKey` puts ⌘L on it. No item for the retired Activity Log window remains.
     @Test func activityKeepsTheLogsChord() throws {
-        let window = try Self.menu("Window")
+        let window = try appMenu("Window")
         let item = try #require(window.items.first { $0.title == "Activity" })
         #expect(item.keyEquivalent == "l")
         #expect(item.keyEquivalentModifierMask == .command)
-        #expect(!Self.titles(window).contains("Activity Log"), "the retired Activity Log window still has an item")
+        #expect(!menuTitles(window).contains("Activity Log"), "the retired Activity Log window still has an item")
     }
 
     /// Every chord the app declares is actually on a menu item. `AppChordTests` and
@@ -147,7 +138,7 @@ import AppKit
 
     /// Help keeps what is genuinely help, and nothing that is a window.
     @Test func helpCarriesNoWindowsAndNoSecondAbout() throws {
-        let help = Self.titles(try Self.menu("Help"))
+        let help = menuTitles(try appMenu("Help"))
         #expect(!help.contains("About SyncCloud"),
                 "Help still has an About — the application menu's own is supplied by AppKit and was never replaced, so this is the second one")
         for window in ["Activity", "Activity Log", "Sync History", "Keyboard Shortcuts",
@@ -161,7 +152,7 @@ import AppKit
 
     /// About is in the application menu, where AppKit puts it, and only there.
     @Test func aboutIsInTheApplicationMenu() throws {
-        #expect(Self.titles(try Self.menu("SyncCloud")).contains("About SyncCloud"))
+        #expect(menuTitles(try appMenu("SyncCloud")).contains("About SyncCloud"))
     }
 }
 
@@ -170,17 +161,8 @@ import AppKit
 @MainActor
 @Suite struct OrganizeMenuTests {
 
-    static func menu(_ title: String) throws -> NSMenu {
-        try #require(NSApp.mainMenu?.items.first { $0.title == title }?.submenu,
-                     "no \(title) menu — this check would be vacuous")
-    }
-
-    static func titles(_ menu: NSMenu) -> [String] {
-        menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-    }
-
     @Test func organizeIsItsOwnMenuOpeningWithTheFiveSections() throws {
-        let organize = Self.titles(try Self.menu("Organize"))
+        let organize = menuTitles(try appMenu("Organize"))
         #expect(organize.prefix(5) == ["To File", "Duplicates", "Renames", "Restructure", "Rules"],
                 "the Organize menu opens with \(organize.prefix(5))")
     }
@@ -189,7 +171,7 @@ import AppKit
     /// surface, then the ledger undo, which is about a landing that already happened, not a thing
     /// to do with a selection.
     @Test func theVerbsFollowTheSections() throws {
-        let organize = Self.titles(try Self.menu("Organize"))
+        let organize = menuTitles(try appMenu("Organize"))
         #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
                                        "Fix Name", "Always Allow This Name",
                                        "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
@@ -200,7 +182,7 @@ import AppKit
     /// The ledger undo must never sit beside ⌘Z's Undo, where the two would be confused, so Edit
     /// is asserted clean of it.
     @Test func editNeverCarriesTheReorganisationUndo() throws {
-        let edit = Self.titles(try Self.menu("Edit"))
+        let edit = menuTitles(try appMenu("Edit"))
         #expect(!edit.contains("Undo This Reorganization…"),
                 "the ledger undo sat down beside ⌘Z — exactly the confusion §11 forbids")
     }
@@ -209,7 +191,7 @@ import AppKit
     /// "Compare ⌘2" beside a separate Compare menu. A sections submenu there would give one word two
     /// meanings in one menu.
     @Test func viewCarriesTheWorkspaceItemAndNothingElseCalledOrganize() throws {
-        let organizeItems = try Self.menu("View").items.filter { $0.title == "Organize" }
+        let organizeItems = try appMenu("View").items.filter { $0.title == "Organize" }
         #expect(organizeItems.count == 1,
                 "View has \(organizeItems.count) items called Organize — it should have only the workspace")
         #expect(organizeItems.first?.keyEquivalent == "3")
@@ -218,7 +200,7 @@ import AppKit
 
     /// The verbs left File when they gained a menu; File must not keep a stale copy.
     @Test func fileNoLongerCarriesTheVerbs() throws {
-        let file = Self.titles(try Self.menu("File"))
+        let file = menuTitles(try appMenu("File"))
         for verb in ["Organize This Folder…", "Find Duplicates of This", "Fix Name",
                      "Always Allow This Name"] {
             #expect(!file.contains(verb), "File still carries \(verb)")
@@ -228,7 +210,7 @@ import AppKit
     /// No verb or section takes a chord: every free one is spent, and ⌘3 already reaches the
     /// workspace these all live inside.
     @Test func theOrganizeMenuRegistersNoChords() throws {
-        #expect(try Self.menu("Organize").items.allSatisfy { $0.keyEquivalent.isEmpty },
+        #expect(try appMenu("Organize").items.allSatisfy { $0.keyEquivalent.isEmpty },
                 "something in the Organize menu claimed a chord")
     }
 }
@@ -275,13 +257,8 @@ import AppKit
 @MainActor
 @Suite struct EditMenuTests {
 
-    static func edit() throws -> NSMenu {
-        try #require(NSApp.mainMenu?.items.first { $0.title == "Edit" }?.submenu,
-                     "no Edit menu — this check would be vacuous")
-    }
-
     static func item(_ title: String) throws -> NSMenuItem {
-        try #require(try Self.edit().items.first { $0.title == title }, "Edit has no \(title)")
+        try #require(try appMenu("Edit").items.first { $0.title == title }, "Edit has no \(title)")
     }
 
     @Test(arguments: [("Select All", "a"), ("Cut", "x"), ("Copy", "c"), ("Paste", "v")])
@@ -304,7 +281,7 @@ import AppKit
 
     /// Exactly one item claims each of the four chords. Two would leave one dead and AppKit picks.
     @Test func noChordIsClaimedTwiceInEdit() throws {
-        let chords = try Self.edit().items
+        let chords = try appMenu("Edit").items
             .filter { !$0.keyEquivalent.isEmpty && $0.keyEquivalentModifierMask == .command }
             .map(\.keyEquivalent)
         for key in ["a", "x", "c", "v"] {

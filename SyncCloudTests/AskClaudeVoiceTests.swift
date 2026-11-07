@@ -155,37 +155,31 @@ private final class Heard {
                               settledLimit: .seconds(3), tentativeLimit: .seconds(10), firstWordLimit: .seconds(8))
     }
 
-    @Test func aPauseMidQuestionGoesOnThoughWordsHaveSettled() {
-        #expect(ending(quiet: 1.0, sinceWords: 0.2) == .goOn)
-        #expect(ending(quiet: 1.7, sinceWords: 1.5) == .goOn)
-    }
-
-    @Test func quietAfterSettledWordsSends() {
-        #expect(ending(quiet: 1.8, sinceWords: 1.0) == .send)
-    }
-
-    @Test func wordsStillTentativeKeepItListening() {
-        #expect(ending(tentative: "tax form", quiet: 5, sinceWords: 5) == .goOn)
-        #expect(ending(settled: "", tentative: "Find", quiet: 9, sinceWords: 9) == .goOn)
-    }
-
-    /// Ten seconds with nothing new ends a turn whose words are still tentative, in a quiet room or
-    /// a loud one, or a stalled transcriber would keep it listening for good.
-    @Test func wordsTentativeForTenSecondsSend() {
-        #expect(ending(tentative: "tax form", quiet: 10, sinceWords: 10) == .send)
-        #expect(ending(settled: "", tentative: "Find", quiet: 0, sinceWords: 10) == .send)
-        #expect(ending(settled: "", tentative: "Find", quiet: 0, sinceWords: 9.9) == .goOn)
-    }
-
-    /// A room never quiet enough for the meter: settled words still send once nothing new comes.
-    @Test func aLoudRoomSendsOnceNothingNewComes() {
-        #expect(ending(quiet: 0, sinceWords: 2.9) == .goOn)
-        #expect(ending(quiet: 0, sinceWords: 3.0) == .send)
-    }
-
-    @Test func noWordsAtAllGivesUpAfterTheFirstWordLimit() {
-        #expect(ending(settled: "", quiet: 7.9) == .goOn)
-        #expect(ending(settled: "", quiet: 8.0) == .heardNothing)
+    /// `(settled, tentative, quiet, sinceWords, ending)`, seconds.
+    @Test(arguments: [
+        // A pause mid-question goes on though words have settled.
+        ("Find my latest", "", 1.0, 0.2, AskClaudeVoice.Ending.goOn),
+        ("Find my latest", "", 1.7, 1.5, .goOn),
+        // Quiet after settled words sends.
+        ("Find my latest", "", 1.8, 1.0, .send),
+        // Words still tentative keep it listening.
+        ("Find my latest", "tax form", 5, 5, .goOn),
+        ("", "Find", 9, 9, .goOn),
+        // Ten seconds with nothing new ends a turn whose words are still tentative, in a quiet
+        // room or a loud one, or a stalled transcriber would keep it listening for good.
+        ("Find my latest", "tax form", 10, 10, .send),
+        ("", "Find", 0, 10, .send),
+        ("", "Find", 0, 9.9, .goOn),
+        // A room never quiet enough for the meter: settled words still send once nothing new comes.
+        ("Find my latest", "", 0, 2.9, .goOn),
+        ("Find my latest", "", 0, 3.0, .send),
+        // No words at all gives up after the first-word limit.
+        ("", "", 7.9, 0, .goOn),
+        ("", "", 8.0, 0, .heardNothing),
+    ] as [(String, String, Double, Double, AskClaudeVoice.Ending)])
+    func aTurnEndsWhenItsWordsAndItsQuietSay(settled: String, tentative: String, quiet: Double, sinceWords: Double,
+                                             expected: AskClaudeVoice.Ending) {
+        #expect(ending(settled: settled, tentative: tentative, quiet: quiet, sinceWords: sinceWords) == expected)
     }
 }
 
@@ -201,9 +195,9 @@ private final class Heard {
                                  readKey: { "k" }, keyChanges: NotificationCenter())
         let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [], selection: [],
                                      toolsAvailable: true)
-        chat.ask("Open Receipts", spoken: true, screen: screen, tools: AnswersNothing())
+        chat.ask("Open Receipts", spoken: true, screen: screen, tools: NoTools())
         await waitUntil("the spoken question is answered", timeout: 60) { !chat.isRunning }
-        chat.ask("Open Taxes", screen: screen, tools: AnswersNothing())
+        chat.ask("Open Taxes", screen: screen, tools: NoTools())
         await waitUntil("the typed question is answered", timeout: 60) { !chat.isRunning }
         let questions = chat.items.filter { if case .user = $0.kind { true } else { false } }
         #expect(questions.map(\.kind) == [.user("Open Receipts"), .user("Open Taxes")])
@@ -428,7 +422,7 @@ private final class Heard {
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: NeverAnswers(), defaults: d) },
                                  readKey: { "k" }, keyChanges: NotificationCenter())
         chat.ask("Which are big?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
-                                                          selection: [], toolsAvailable: true), tools: AnswersNothing())
+                                                          selection: [], toolsAvailable: true), tools: NoTools())
         #expect(chat.isRunning)
         let source = AskClaudeClipSource(try AskClaudeVoiceClips.receipts)
         let panel = Panel(chat: chat, source: source)
@@ -448,18 +442,7 @@ private final class Heard {
 /// Answers every request with one line of text.
 private struct AnswersAtOnce: AskClaudeTransport {
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        let lines = [
-            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Opened."}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        SSE.response(SSE.text("Opened.", outputTokens: 5))
     }
 }
 
@@ -468,12 +451,5 @@ private struct NeverAnswers: AskClaudeTransport {
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
         try await Task.sleep(for: .seconds(600))
         throw CancellationError()
-    }
-}
-
-@MainActor
-private final class AnswersNothing: AskClaudeToolRunning {
-    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-        AskClaudeToolOutcome(result: "", step: "")
     }
 }

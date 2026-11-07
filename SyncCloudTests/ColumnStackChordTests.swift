@@ -150,7 +150,7 @@ import FileExplorer
     /// rescan behind a chord that must never move the scope. The `#require`s are positive controls.
     @Test func theEnclosingFolderChordIsNotWiredToTheFocusHistory() throws {
         let source = try ShortcutCommandsTests.publisherSource()
-        let body = ShortcutCommandsTests.codeOnly(
+        let body = sourceCodeOnly(
             try ShortcutCommandsTests.memberBody("var shortcutEnclosingFolder", in: source))
         try #require(body.count > 40, "shortcutEnclosingFolder read as near-empty — the scan would be vacuous")
         #expect(body.contains("PaneLogic.enclosingFolderStack"),
@@ -163,7 +163,7 @@ import FileExplorer
     /// than writing the binding, so the seam link mirrors it exactly as it mirrors a column click.
     @Test func theOpenChordGoesThroughTheSameDoorAColumnClickUses() throws {
         let source = try ShortcutCommandsTests.publisherSource()
-        let body = ShortcutCommandsTests.codeOnly(
+        let body = sourceCodeOnly(
             try ShortcutCommandsTests.memberBody("var shortcutOpenSelectedFolder", in: source))
         try #require(body.count > 40, "shortcutOpenSelectedFolder read as near-empty — the scan would be vacuous")
         #expect(body.contains("PaneLogic.openSelectedFolderStack"),

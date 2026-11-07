@@ -24,15 +24,6 @@ import Sync
 
     deinit { try? FileManager.default.removeItem(atPath: folder) }
 
-    private func realPDF(_ name: String, pages: Int) -> String {
-        let path = (folder as NSString).appendingPathComponent(name)
-        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let context = CGContext(URL(fileURLWithPath: path) as CFURL, mediaBox: &box, nil)!
-        for _ in 0..<pages { context.beginPDFPage(nil); context.endPDFPage() }
-        context.closePDF()
-        return path
-    }
-
     /// What the window would have done: the panes told of each write, by path and writer.
     final class Window {
         var rereads: [(path: String, writer: String)] = []
@@ -109,7 +100,7 @@ import Sync
     /// Claude its name, pages and mark, and the card's Undo moves it out and takes the Edit ▸ Undo
     /// step off with it.
     @Test func aDeleteCardWritesOnTheClickAndItsUndoTakesItBack() async throws {
-        let statement = realPDF("Statement.pdf", pages: 3)
+        let statement = blankPDF("Statement.pdf", pages: 3, in: folder)
         let original = try Data(contentsOf: URL(fileURLWithPath: statement))
         let chat = chat("delete", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#)
         let sync = FileSyncManager.scratch()
@@ -159,7 +150,7 @@ import Sync
 
     /// Extract, taken back by Edit ▸ Undo: the menu's step does what the card's button does.
     @Test func editUndoTakesAnExtractCardBack() async throws {
-        let statement = realPDF("Statement.pdf", pages: 5)
+        let statement = blankPDF("Statement.pdf", pages: 5, in: folder)
         let chat = chat("extract", calling: #"{\"action\":\"extract\",\"handles\":[\"r1\"],\"pages\":\"2-3\"}"#)
         let sync = FileSyncManager.scratch()
         let undo = undoStack()
@@ -187,7 +178,7 @@ import Sync
 
     /// A file changed after the card read it is not run: the click reads it again and says why.
     @Test func aFileChangedSinceTheCardReadItIsNotRun() async throws {
-        let statement = realPDF("Statement.pdf", pages: 3)
+        let statement = blankPDF("Statement.pdf", pages: 3, in: folder)
         let chat = chat("changed", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"2\"}"#)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
@@ -195,7 +186,7 @@ import Sync
         await ask(chat, "delete page 2", about: statement)
         let (id, _) = try onlyCard(chat)
         await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
-        _ = realPDF("Statement.pdf", pages: 4)
+        _ = blankPDF("Statement.pdf", pages: 4, in: folder)
         cards.askClaudePDFRun(id, password: nil)
         #expect(chat.pdfCard(id)?.message == "A file changed since the card was made. Check it and click again.")
         #expect(chat.pdfCard(id)?.written.isEmpty == true)
@@ -208,7 +199,7 @@ import Sync
     /// "Compress while a duplicate scan holds the PDF reader": while another job holds the PDF
     /// lane, the card says it is checking and its click runs nothing; let go, it fills in.
     @Test func aCardWaitsOutAHeldPDFReaderThenFillsIn() async throws {
-        let scan = realPDF("Scan.pdf", pages: 2)
+        let scan = blankPDF("Scan.pdf", pages: 2, in: folder)
         let chat = chat("held", calling: #"{\"action\":\"compress\",\"handles\":[\"r1\"]}"#)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
         chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
@@ -246,7 +237,7 @@ import Sync
     /// "Click while Claude is answering": the card waits, saying so, and runs nothing; once the
     /// answer is in, the same click runs it.
     @Test func aClickWhileClaudeAnswersWaits() async throws {
-        let statement = realPDF("Statement.pdf", pages: 3)
+        let statement = blankPDF("Statement.pdf", pages: 3, in: folder)
         let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#], holding: 3)
         let chat = chat("answering", transport: transport)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
@@ -275,7 +266,7 @@ import Sync
     /// "Undo, on two cards": Edit ▸ Undo takes back the latest card and leaves the first; the
     /// first card's own Undo then takes back its own.
     @Test func twoCardsEachUndoTheirOwn() async throws {
-        let a = realPDF("A.pdf", pages: 3), b = realPDF("B.pdf", pages: 4)
+        let a = blankPDF("A.pdf", pages: 3, in: folder), b = blankPDF("B.pdf", pages: 4, in: folder)
         // r2 is the first card's new file: its report line is minted a handle as the second
         // question is sent, before the screen's B.pdf, which is r3.
         let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#,
@@ -320,7 +311,7 @@ import Sync
     /// "Protect": the password typed on the card locks the new file and goes nowhere else: not
     /// the saved chat, not what Claude is told, not the log.
     @Test func aPasswordLocksTheCopyAndGoesNowhereElse() async throws {
-        let notice = realPDF("Notice.pdf", pages: 1)
+        let notice = blankPDF("Notice.pdf", pages: 1, in: folder)
         let store = URL(fileURLWithPath: (folder as NSString).appendingPathComponent("chat.json"))
         let chat = chat("protect", transport: PDFCallTransport(inputs: [#"{\"action\":\"protect\",\"handles\":[\"r1\"]}"#]),
                         store: store)
@@ -380,25 +371,9 @@ private final class PDFCallTransport: AskClaudeTransport, @unchecked Sendable {
         }
         // Questions alternate a call and its line, as long as there are calls to make.
         let call = n % 2 == 1 ? inputs.dropFirst((n - 1) / 2).first : nil
-        let start = #"data: {"type":"message_start","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":300}}}"#
-        let lines = call.map { input in [
-            start,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_pdf\#(n)","name":"pdf","input":{}}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\#(input)"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ] } ?? [
-            start,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The card is ready."}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        let start = SSE.start(model: "claude-haiku-5-5")
+        return SSE.response(call.map { input in
+            [start] + SSE.toolBlock(id: "toolu_pdf\(n)", name: "pdf", input: input) + SSE.end("tool_use", outputTokens: 20)
+        } ?? SSE.text("The card is ready.", model: "claude-haiku-5-5", outputTokens: 10))
     }
 }

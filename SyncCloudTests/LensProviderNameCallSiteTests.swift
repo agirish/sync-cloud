@@ -8,17 +8,7 @@ import Foundation
 /// pins the whole expression, not its ingredients.
 @Suite struct LensProviderNameCallSiteTests {
 
-    private static func contentView() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)      // …/SyncCloudTests/<this>.swift
-            .deletingLastPathComponent()               // …/SyncCloudTests
-            .deletingLastPathComponent()               // repo root
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read ContentView.swift — every check below would be vacuous")
-        try #require(text.count > 500,
-                     "ContentView.swift is implausibly short — the checks would be near-vacuous")
-        return text
-    }
+    private static func contentView() throws -> String { try macAppFile("ContentView.swift") }
 
     /// One declaration's body, bounded by its closing brace rather than a character count, which
     /// would run past a short body into the next member.

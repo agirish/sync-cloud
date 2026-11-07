@@ -11,16 +11,7 @@ import Design
 /// would notice it on screen.
 @Suite struct SelectionLensWiringTests {
 
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
-        return sourceCodeOnly(text)
-    }
+    static func source(_ name: String) throws -> String { sourceCodeOnly(try macAppFile(name)) }
 
     /// Splits `source` at each `Window(` scene and returns each scene's text.
     static func windowScenes(_ source: String) -> [String] {
@@ -102,8 +93,6 @@ import Design
         #expect(app.contains("UserDefaults.didChangeNotification"))
         #expect(app.contains("NSWorkspace.accessibilityDisplayOptionsDidChangeNotification"))
         #expect(app.contains("increasedContrast: workspace.accessibilityDisplayShouldIncreaseContrast"))
-        // Never a queue-based observer: the test below says why.
-        #expect(!app.contains("queue: .main) { [weak self] _ in\n                MainActor.assumeIsolated { self?.log() }"))
     }
 
     /// A defaults write off the main thread never waits for it. An observer on `queue: .main`

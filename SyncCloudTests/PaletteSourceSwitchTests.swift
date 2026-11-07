@@ -15,7 +15,7 @@ import FileExplorer
 ///    not that the pane lands on the folder in a running app.
 @Suite struct PaletteSourceSwitchTests {
 
-    private static let dropbox = "/Users/x/Dropbox"
+    static let dropbox = "/Users/x/Dropbox"
 
     /// A probe that records whether it was asked: the laziness below is a claim that the disk is
     /// not touched, which a `PathKind` passed by value can't express.
@@ -28,76 +28,38 @@ import FileExplorer
 
     // MARK: The decision
 
-    @Test func aFolderInsideTheNamedSourceBecomesTheRelativeFocus() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Clients/Legal",
-                                                namedRoot: Self.dropbox, kind: .directory)
-                == .switchAndFocus(relativePath: "Clients/Legal"))
-    }
-
-    /// The source's own root is the pane's top, `focusOn("")`, as `revealOutcome` answers for its
-    /// root.
-    @Test func theNamedSourcesRootIsTheEmptyRelativePath() {
-        #expect(ContentView.sourceSwitchOutcome(path: Self.dropbox, namedRoot: Self.dropbox,
-                                                kind: .directory)
-                == .switchAndFocus(relativePath: ""))
-    }
-
-    /// A pasted path is usually a file's, so the enclosing folder is the destination, as
-    /// `PaletteRouter.pathRow` does inside the aimed source. It lives here because the router
-    /// doesn't `stat` a path outside the aimed source, so it can't tell a file from a folder.
-    @Test func aFilePathLandsOnItsEnclosingFolder() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Clients/invoice.pdf",
-                                                namedRoot: Self.dropbox, kind: .file)
-                == .switchAndFocus(relativePath: "Clients"))
-    }
-
-    /// A file at the source root lands on `""`, the pane's own top.
-    @Test func aFileAtTheSourceRootLandsOnTheRoot() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/invoice.pdf",
-                                                namedRoot: Self.dropbox, kind: .file)
-                == .switchAndFocus(relativePath: ""))
-    }
-
-    /// Nothing there is refused rather than half delivered. The router can't probe a source the
-    /// pane isn't showing (the stall `PalettePath`'s ordering forbids), so ↩ is the first moment to
-    /// ask, and switching to the parent of a folder that is gone would be a silent drop.
-    @Test func aPathWithNothingAtItSwitchesNothing() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Gone",
-                                                namedRoot: Self.dropbox, kind: .missing)
-                == .nothingAtThatPath)
-    }
-
-    /// The `.person` hazard, one route over: the index is a snapshot taken when the palette opened
-    /// and the sources are live, so an id that no longer names an enabled source arrives here.
-    @Test func aSourceThatIsGoneIsRefusedRatherThanSwitchedTo() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Legal", namedRoot: nil,
-                                                kind: .directory)
-                == .noSuchSource)
-    }
-
-    /// An empty root must never claim a path: an empty base prefixes every absolute path (the
-    /// hazard `PathBoundary.relativize` guards), so a source with no path would claim anything and
-    /// the pane would be switched onto it.
-    @Test func aSourceWithNoPathClaimsNothing() {
-        #expect(ContentView.sourceSwitchOutcome(path: "\(Self.dropbox)/Legal", namedRoot: "",
-                                                kind: .directory)
-                == .noSuchSource)
-    }
-
-    /// The source moved under an open palette: the row was built against the root it had then.
-    @Test func aPathOutsideTheNamedSourceNamesTheRootItIsNotIn() {
-        #expect(ContentView.sourceSwitchOutcome(path: "/Users/x/Documents/Legal",
-                                                namedRoot: Self.dropbox, kind: .directory)
-                == .outsideNamedSource(root: Self.dropbox))
-    }
-
-    /// A sibling whose name merely starts with the root isn't inside it: the prefix trap
-    /// `PathBoundary` closes. Wrong, it would switch the pane to Dropbox with a garbage relative
-    /// path.
-    @Test func aSiblingSharingThePrefixIsNotInside() {
-        #expect(ContentView.sourceSwitchOutcome(path: "/Users/x/DropboxOld/Legal",
-                                                namedRoot: Self.dropbox, kind: .directory)
-                == .outsideNamedSource(root: Self.dropbox))
+    /// `(path, namedRoot, kind, outcome)`, one row per case.
+    @Test(arguments: [
+        ("\(PaletteSourceSwitchTests.dropbox)/Clients/Legal", PaletteSourceSwitchTests.dropbox, PathKind.directory,
+         ContentView.SourceSwitchOutcome.switchAndFocus(relativePath: "Clients/Legal")),
+        // The source's own root is the pane's top, `focusOn("")`, as `revealOutcome` answers for
+        // its root.
+        (PaletteSourceSwitchTests.dropbox, PaletteSourceSwitchTests.dropbox, .directory, .switchAndFocus(relativePath: "")),
+        // A pasted path is usually a file's, so the enclosing folder is the destination, as
+        // `PaletteRouter.pathRow` does inside the aimed source. It lives here because the router
+        // doesn't `stat` a path outside the aimed source, so it can't tell a file from a folder.
+        ("\(PaletteSourceSwitchTests.dropbox)/Clients/invoice.pdf", PaletteSourceSwitchTests.dropbox, .file, .switchAndFocus(relativePath: "Clients")),
+        // A file at the source root lands on `""`, the pane's own top.
+        ("\(PaletteSourceSwitchTests.dropbox)/invoice.pdf", PaletteSourceSwitchTests.dropbox, .file, .switchAndFocus(relativePath: "")),
+        // Nothing there is refused rather than half delivered. The router can't probe a source the
+        // pane isn't showing (the stall `PalettePath`'s ordering forbids), so ↩ is the first moment
+        // to ask, and switching to the parent of a folder that is gone would be a silent drop.
+        ("\(PaletteSourceSwitchTests.dropbox)/Gone", PaletteSourceSwitchTests.dropbox, .missing, .nothingAtThatPath),
+        // The `.person` hazard, one route over: the index is a snapshot taken when the palette
+        // opened and the sources are live, so an id that no longer names an enabled source arrives.
+        ("\(PaletteSourceSwitchTests.dropbox)/Legal", nil, .directory, .noSuchSource),
+        // An empty root must never claim a path: an empty base prefixes every absolute path (the
+        // hazard `PathBoundary.relativize` guards), so a source with no path would claim anything.
+        ("\(PaletteSourceSwitchTests.dropbox)/Legal", "", .directory, .noSuchSource),
+        // The source moved under an open palette: the row was built against the root it had then.
+        ("/Users/x/Documents/Legal", PaletteSourceSwitchTests.dropbox, .directory, .outsideNamedSource(root: PaletteSourceSwitchTests.dropbox)),
+        // A sibling whose name merely starts with the root isn't inside it: the prefix trap
+        // `PathBoundary` closes. Wrong, it would switch the pane to Dropbox with a garbage path.
+        ("/Users/x/DropboxOld/Legal", PaletteSourceSwitchTests.dropbox, .directory, .outsideNamedSource(root: PaletteSourceSwitchTests.dropbox)),
+    ] as [(String, String?, PathKind, ContentView.SourceSwitchOutcome)])
+    func theOutcomeFollowsWhereThePathIs(path: String, namedRoot: String?, kind: PathKind,
+                                         expected: ContentView.SourceSwitchOutcome) {
+        #expect(ContentView.sourceSwitchOutcome(path: path, namedRoot: namedRoot, kind: kind) == expected)
     }
 
     // MARK: The disk is asked once, and only when the answer can matter
@@ -139,7 +101,7 @@ import FileExplorer
     @Test func theSwitchNavigatesFirstThenAdoptsUnderSuppressionThenReloads() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
-            in: try Self.source("CommandPaletteHost.swift"))
+            in: try macAppFile("CommandPaletteHost.swift"))
         let focus = try #require(body.range(of: "syncManager.focusOn(relativePath: relative"),
                                  "the switch no longer focuses the pane on the typed folder at all")
         let adopt = try #require(body.range(of: "adoptProviderForTab(providerId, isLeft: isLeft"),
@@ -166,7 +128,7 @@ import FileExplorer
     @Test func everyRefusalIsLoggedRatherThanReturningSilently() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
-            in: try Self.source("CommandPaletteHost.swift"))
+            in: try macAppFile("CommandPaletteHost.swift"))
         for branch in ["case .noSuchSource:", "case .outsideNamedSource(let root):",
                        "case .nothingAtThatPath:"] {
             let start = try #require(body.range(of: branch),
@@ -183,7 +145,7 @@ import FileExplorer
     @Test func bothWritesNameTheSameCapturedPane() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
-            in: try Self.source("CommandPaletteHost.swift"))
+            in: try macAppFile("CommandPaletteHost.swift"))
         let code = Self.codeOnly(body)
         // A caller may name its pane (Ask Claude setting one side of Compare); otherwise the aim.
         #expect(code.contains("let isLeft = paneIsLeft ?? !aimedAtRight"),
@@ -205,7 +167,7 @@ import FileExplorer
     @Test func theSwitchMovesOnePaneAndNeverFollowsTheLink() throws {
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
-            in: try Self.source("CommandPaletteHost.swift"))
+            in: try macAppFile("CommandPaletteHost.swift"))
         let code = Self.codeOnly(body)
         for both in ["focusBoth", "PaneLinkPreference", "isLinked", "PaneSideChoice.sibling"] {
             #expect(!code.contains(both),
@@ -215,14 +177,4 @@ import FileExplorer
 
     private static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
-    private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check here would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scans would be near-vacuous")
-        return text
-    }
 }

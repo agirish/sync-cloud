@@ -175,8 +175,7 @@ import Sync
     }
 
     @Test func newChatClearsTheStepsAndKeepsTheChanges() {
-        let d = UserDefaults(suiteName: "AskClaudeSettingsUndoTests.newChat")!
-        defer { wipeDefaultsSuite("AskClaudeSettingsUndoTests.newChat") }
+        let d = ScratchDefaults("AskClaudeSettingsUndoTests.newChat")
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(defaults: d) }, readKey: { "k" })
         let store = Store(); store.values["appearance.theme"] = .string("system")
         chat.settingsUndo.read = { store.values[$0.id] }

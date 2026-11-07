@@ -18,12 +18,6 @@ import Settings
             + topic.article.blocks.map(\.searchableText)).joined(separator: "\n")
     }
 
-    @Test func theSettingsPointerResolves() {
-        let ids = HelpBook.allTopics.map(\.id)
-        #expect(ids.contains(SettingsHelpTopics.onDeviceReading),
-                "Settings points at \(SettingsHelpTopics.onDeviceReading), which the book does not have")
-    }
-
     /// The page is still the one about reading files, not a neighbour that inherited the id.
     @Test func theTopicIsTheOneAboutReading() throws {
         let topic = try #require(Self.topic)
@@ -61,14 +55,5 @@ import Settings
         let text = try #require(Self.topic.map(Self.copy))
         #expect(text.contains("Application Support/SyncCloud/profiles"),
                 "the article no longer names the folder that holds what was learned")
-    }
-
-    /// The positive control: these checks can fail.
-    @Test func theScanIsNotVacuous() throws {
-        let text = try #require(Self.topic.map(Self.copy))
-        #expect(!text.contains("Firebase"),
-                "the article's text is not being read — this phrase cannot be in it")
-        #expect(text.count > 800,
-                "the article read as \(text.count) characters; the phrase checks above are near-vacuous")
     }
 }

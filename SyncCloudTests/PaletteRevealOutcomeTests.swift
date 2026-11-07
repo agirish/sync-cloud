@@ -48,11 +48,7 @@ import FileExplorer
     /// The call site goes through the rule and logs on both refusals. `MacApp/` is in no SPM
     /// package, so this half is read as text.
     @Test func theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/CommandPaletteHost.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read CommandPaletteHost.swift — the checks below would be vacuous")
+        let text = try macAppFile("CommandPaletteHost.swift")
         #expect(text.contains("switch Self.revealOutcome(for: absolutePath, under: root ?? lensProviderRootExpanded)"),
                 "the reveal carries its own copy of the rule again — the branches this suite pins are not the ones that run")
         for branch in ["case .noSource:", "case .outsideSource(let root):"] {

@@ -6,16 +6,6 @@ import AppKit
 @MainActor
 @Suite struct PaneRenameChordTests {
 
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp").appendingPathComponent(name)
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — this scan would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short")
-        return text
-    }
-
     /// **Never** register ↩ as a menu key equivalent: it outranks the field editor and every
     /// default button, so it would take the key that commits the destination picker, the ⌘K field
     /// and every sheet. Finder doesn't register it either. Scans all of `MacApp/`, since the damage
@@ -47,7 +37,7 @@ import AppKit
     /// These call-site scans run only in the app target, so a change checked with
     /// `xcodebuild build` instead of `xcodebuild test` can break them unseen.
     @Test func returnIsWiredOnTheFileListBesideSpace() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains(".onKeyPress(.space) { paneQuickLook() }"),
                 "Space has moved — this check has stopped covering the list it is scoped to")
 
@@ -74,7 +64,7 @@ import AppKit
     /// `shortcutPaneRowVerbs.rename`, as File ▸ Rename does, so they can't disagree about when a
     /// rename is possible or what it renames.
     @Test func theChordRunsTheMenuItemsOwnAction() throws {
-        let search = try Self.source("ContentView+PaneSearch.swift")
+        let search = try macAppFile("ContentView+PaneSearch.swift")
         let handler = try #require(search.range(of: "func paneRename()"),
                                    "the ↩ handler is gone or has moved out of this file")
         // Wide enough to hold the handler with its suspension guard and comments: a window tighter
@@ -95,7 +85,7 @@ import AppKit
     /// `NSViewRepresentable` tables under it (why ⌘K is a window, `CommandPalettePanel.swift`).
     /// Scanned at source, since both handlers are `ContentView` extension methods.
     @Test func bothPaneKeyHandlersAskTheSuspensionRule() throws {
-        let search = try Self.source("ContentView+PaneSearch.swift")
+        let search = try macAppFile("ContentView+PaneSearch.swift")
         for handler in ["func paneRename()", "func paneQuickLook()"] {
             let body = try #require(search.range(of: handler).map { String(search[$0.upperBound...].prefix(600)) },
                                     "\(handler) is gone — this check would be vacuous")
@@ -106,7 +96,7 @@ import AppKit
 
     /// The rule itself, and that the publication reads the same one, not a second copy.
     @Test func theSuspensionRuleIsOneExpression() throws {
-        let commands = try Self.source("ShortcutCommands.swift")
+        let commands = try macAppFile("ShortcutCommands.swift")
         #expect(commands.contains("var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }"),
                 "the suspension rule moved or changed shape — the two key handlers name it by hand")
         #expect(commands.contains("suspended: paneChordsSuspended"),

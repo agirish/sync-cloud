@@ -117,7 +117,7 @@ import Foundation
     /// The lock's expression at the call site — what `aLongRunSilencesTheWritingChordsAndOnlyThose`
     /// injects and cannot see.
     @Test func theRunLockIsFedFromTheWindowsRun() throws {
-        let source = Self.codeOnly(try Self.publisherSource())
+        let source = sourceCodeOnly(try Self.publisherSource())
         #expect(source.contains("writesLocked: runWriteLockReason != nil"),
                 "the chord publisher is no longer told when a run is going")
     }
@@ -131,7 +131,7 @@ import Foundation
         let names = Self.effectiveValueNames(in: source)
         #expect(names.count >= 12,
                 "found only \(names.count) effective values — this scan would be near-vacuous")
-        let body = Self.codeOnly(source)
+        let body = sourceCodeOnly(source)
         for name in names {
             #expect(body.contains(".focusedSceneValue(") && body.contains(", \(name))"),
                     "\(name) is computed and never published — its menu item is permanently disabled")
@@ -143,7 +143,7 @@ import Foundation
     /// `showCommandPalette` from the expression would pass them all. Both terms are checked by
     /// name, so reordering them or adding a third reason is not a failure.
     @Test func bothReasonsToSuspendTheChordsSurviveInTheExpression() throws {
-        let source = Self.codeOnly(try Self.publisherSource())
+        let source = sourceCodeOnly(try Self.publisherSource())
         // Every `suspended:` line, not the first, which is the parameter declaration
         // (`suspended: Bool`). Trailing comments are cut and the line must start with `suspended:`,
         // so a decoy like `suspended: false  // pendingDestination != nil` can't satisfy the checks.
@@ -170,22 +170,7 @@ import Foundation
     }
 
     /// The publisher's own source, named so a rename fails loudly rather than emptying the scan.
-    nonisolated static func publisherSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ShortcutCommands.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read ShortcutCommands.swift — the scan would be vacuous")
-        // `#require`, not `#expect`: a truncated file makes every `contains` false and every
-        // `!contains` true, so one quiet issue would hide behind a page of green.
-        try #require(text.count > 500, "ShortcutCommands.swift is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
-
-    /// Comments removed, so a scan for what the code does doesn't read the prose that describes
-    /// it. The shared stripper, ``sourceCodeOnly(_:)``.
-    nonisolated static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
+    nonisolated static func publisherSource() throws -> String { try macAppFile("ShortcutCommands.swift") }
 
     /// While the destination picker is up its overlay blocks the mouse from every control these
     /// chords mirror; the keyboard must not tunnel under it. One flag silences all twelve.
@@ -310,8 +295,8 @@ import Foundation
         // search would accept both forms sitting in the unsuspended test, or a comment naming the
         // value.
         let own = try Self.ownSource()
-        let silenced = Self.codeOnly(try Self.memberBody("func suspensionSilencesEveryPublishedValue", in: own))
-        let live = Self.codeOnly(try Self.memberBody("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))
+        let silenced = sourceCodeOnly(try Self.ownMember("func suspensionSilencesEveryPublishedValue", in: own))
+        let live = sourceCodeOnly(try Self.ownMember("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))
         for name in names {
             #expect(silenced.contains("#expect(publisher.\(name) == nil)"),
                     "\(name) is never asserted to fall silent while the chords are suspended")
@@ -321,10 +306,15 @@ import Foundation
     }
 
 
-    /// One member's body: its declaration to the first closing brace at member indentation. Like
-    /// `PaneTabWiringTests`' slicer, it avoids a fixed window that would read a neighbour's text as
-    /// the file grows.
+    /// One member's body, to its own closing brace: ``declarationBody(of:in:sourceLocation:)``.
     nonisolated static func memberBody(_ declaration: String, in source: String) throws -> String {
+        try declarationBody(of: declaration, in: source)
+    }
+
+    /// One member of this file, from its first mention to its closing brace at member indentation.
+    /// Not ``declarationBody(of:in:sourceLocation:)``: the declarations it reads also appear in the
+    /// coverage scan's own string literals, so that reader's uniqueness check refuses them.
+    static func ownMember(_ declaration: String, in source: String) throws -> String {
         let start = try #require(source.range(of: declaration),
                                  "\(declaration) is gone — this scan would be vacuous")
         let rest = source[start.upperBound...]
@@ -371,17 +361,12 @@ import Foundation
     /// takes the typing, ↩ and Esc meant for the pick. Both halves are asserted, since a second
     /// publication could sit beside the right one.
     @Test func findInPaneIsPublishedOnlyThroughTheSuspendablePublisher() throws {
-        let publisher = Self.codeOnly(try Self.publisherSource())
+        let publisher = sourceCodeOnly(try Self.publisherSource())
         #expect(publisher.contains(".focusedSceneValue(\\.beginPaneSearch, effectiveBeginPaneSearch)"),
                 "⌘F is not published through the publisher, so nothing suspends it")
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                   "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(content.count > 500, "ContentView.swift is implausibly short")
-        #expect(!Self.codeOnly(content).contains(".focusedSceneValue(\\.beginPaneSearch"),
+        let content = try macAppFile("ContentView.swift")
+        #expect(!sourceCodeOnly(content).contains(".focusedSceneValue(\\.beginPaneSearch"),
                 "ContentView still publishes ⌘F on its own, outside the suspension")
     }
 
@@ -440,7 +425,7 @@ import Foundation
     /// `everyEffectiveValueIsHandedToAFocusedSceneValue` can't cover it either: `effectiveCloseTab`
     /// reaches the scene through `closeTabAction`, so the resolver's own line satisfies that scan.
     @Test func theCloseTabValueIsPublishedThroughItsThreeStateForm() throws {
-        let code = Self.codeOnly(try Self.publisherSource())
+        let code = sourceCodeOnly(try Self.publisherSource())
         #expect(code.contains(".focusedSceneValue(\\.closeTab, closeTabAction)"),
                 "⌘W is not published through `closeTabAction`, so the suspended state cannot reach the item")
         #expect(code.contains("CloseTabAction.resolve(suspended: suspended, effectiveCloseTab)"),
@@ -466,11 +451,11 @@ import Foundation
     /// Source-level because a `Commands` body can't be mounted in a unit test: `CloseTabCommand`
     /// reads a `@FocusedValue`, which needs a scene, a key window and a focus update.
     @Test func theCloseItemIsDisabledWhileSuspendedAndOnlyThen() throws {
-        let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
+        let body = sourceCodeOnly(try Self.typeBody("struct CloseTabCommand: View {",
                                                    in: try Self.publisherSource()))
         #expect(body.contains(".disabled(close?.isSuspended == true)"),
                 "⌘W stays black in a File menu whose every other item has greyed — a control that silently does nothing")
-        for deadening in [".disabled(close == nil)", ".disabled(close != nil)"] {
+        for deadening in [".disabled(close == nil", ".disabled(close != nil)"] {
             #expect(!body.contains(deadening),
                     "\(deadening) makes ⌘W dead on the auxiliary windows whose File ▸ Close this item replaced")
         }
@@ -514,15 +499,9 @@ import Foundation
                 "the line has to say WHY ⌘W did nothing, or it is a refusal with no cause")
     }
 
-    /// One type's body: its declaration to the first closing brace at file scope. ``memberBody``
-    /// stops at the first `\n    }`, so it would hand back a type's first method.
+    /// One type's body, to its own closing brace, required to hold a menu item.
     static func typeBody(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n}\n"),
-                               "\(declaration) never closes at file scope")
-        let body = String(rest[..<end.lowerBound])
+        let body = try declarationBody(of: declaration, in: source)
         try #require(body.contains("keyboardShortcut"),
                      "the slice of \(declaration) holds no menu item — it stopped short")
         return body
@@ -536,13 +515,8 @@ import Foundation
     /// Source-level because `ContentView`'s overlays need a live manager and a render pass; pinned
     /// is that each latch has a guard that reads the picker.
     @Test func theAmbientPanelsRefuseToOpenDuringADestinationPick() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let content = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                   "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(content.count > 500, "ContentView.swift is implausibly short")
-        let code = Self.codeOnly(content)
+        let content = try macAppFile("ContentView.swift")
+        let code = sourceCodeOnly(content)
 
         // The setup form is the third member of the chain; its `showSetup` latch refuses exactly
         // like the other two.
@@ -572,10 +546,8 @@ import Foundation
                 "the refusal does not restore the tab the deep link displaced, so a panel the user never saw still moves Settings to another page")
 
         // And the mouse half says so rather than no-opping silently.
-        let toolbar = try #require(try? String(contentsOf: url.deletingLastPathComponent()
-                                                  .appendingPathComponent("ContentView+Toolbar.swift"),
-                                               encoding: .utf8))
-        #expect(Self.codeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 4,
+        let toolbar = try macAppFile("ContentView+Toolbar.swift")
+        #expect(sourceCodeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 4,
                 "a toolbar control that cannot act during a pick still looks like it can")
     }
 
@@ -599,9 +571,6 @@ import Foundation
         let dealt = ShortcutsReference.balancedColumns(synthetic, count: 3)
         #expect(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) } == [10, 10, 8],
                 "the deal weighed the columns as \(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) })")
-        // The two-way form still agrees with `balancedSplit`.
-        let pair = ShortcutsReference.balancedColumns(groups, count: 2)
-        #expect(pair.first?.count == ShortcutsReference.balancedSplit(groups))
         // Fewer groups than columns: one per column, never an empty column or one holding all.
         let few = ShortcutsReference.balancedColumns(Array(groups.prefix(2)), count: 3)
         #expect(few.map(\.count) == [1, 1])
@@ -696,9 +665,7 @@ import Foundation
         try await Task.sleep(for: .milliseconds(100))
         #expect(reports.count == 2)
 
-        let source = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ShortcutsReference.swift"), encoding: .utf8))
+        let source = try macAppFile("ShortcutsReference.swift")
         #expect(source.contains(".background(WindowScreenReader { windowScreen = $0 })"))
         #expect(source.contains("to: Self.screenToFit(window: windowScreen, main: NSScreen.main?.visibleFrame.size)"))
     }

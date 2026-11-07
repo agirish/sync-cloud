@@ -36,12 +36,8 @@ import AppKit
         #expect(laidOut(true) == laidOut(false),
                 "the destination mark changed the pane's size — it must be decoration, or it will burst a header rung that is pinned by measurement")
         #expect(laidOut(true) == Self.subject)
-    }
-
-    /// A pane that is not the destination gets nothing at all, not even a transparent or
-    /// zero-height bar. Half of "which pane" is the pane that is silent.
-    @Test func anUnmarkedPaneIsUntouched() {
-        #expect(laidOut(false) == Self.subject)
+        // In both styles: `.unified` has no per-pane card, so the column ring is its only mark.
+        #expect(laidOut(true, style: .cards) == Self.subject)
     }
 
     /// The border has a floor and a ceiling. Thicker than the `.quaternary` hairline it replaces,
@@ -101,36 +97,12 @@ import AppKit
                     "a non-destination pane took a border in \(style)")
         }
     }
-
-    /// The mark stays free in both styles. `.unified` has no per-pane card, so the column ring is
-    /// its only mark.
-    @Test func unifiedIsStillMarkedAndStillFree() {
-        #expect(laidOut(true, style: .unified) == Self.subject)
-        #expect(laidOut(true, style: .cards) == Self.subject)
-    }
 }
 
 /// Which pane wears the mark, read from the app source with comments stripped.
 @Suite struct PaneIsDestinationTests {
 
-    static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    @Test func theScanCanSeeAKnownSymbol() throws {
-        #expect(try Self.source().contains("func paneIsFocusedPane"))
-    }
+    static func source() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
 
     /// The mark shows only in Compare (a one-pane workspace needs no answer), and its side comes
     /// from the same rule as the click, or the border and the click disagree. It must not be gated

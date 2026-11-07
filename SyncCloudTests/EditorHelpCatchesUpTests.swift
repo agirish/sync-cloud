@@ -10,15 +10,7 @@ import Testing
     /// Edit's article, or with `pdf` the PDF's, which carries the PDF lines.
     private static func editText(pdf: Bool = false) throws -> String {
         let topic = try #require(HelpBook.topic(id: pdf ? "pdf-workspace" : "editor-workspace"))
-        var out = [topic.title, topic.article.intro]
-        for block in topic.article.blocks {
-            switch block {
-            case .paragraph(let text), .tip(let text): out.append(text)
-            case .bullets(let items): out.append(contentsOf: items)
-            case .legend(let items): out.append(contentsOf: items.flatMap { [$0.title, $0.detail] })
-            }
-        }
-        return out.joined(separator: " ")
+        return HelpBookTests.copy(of: topic).joined(separator: " ")
     }
 
     @Test func editsArticleNeverSaysRail() throws {
@@ -32,13 +24,18 @@ import Testing
         #expect(text.contains("Show Outline in File List"), "the status line's menu item, by its new name")
     }
 
+    @MainActor
     @Test func editsArticleCatchesUp() throws {
         let text = try Self.editText()
         let pdf = try Self.editText(pdf: true)
         #expect(pdf.contains("press Delete to remove it — the arrow keys nudge it a point, ⇧ by ten —"),
                 "the PDF's article no longer says how to move a placed item")
+        // The menu phrase is read off the menu bar the app built, title and chord.
+        let findPrevious = try #require(try appMenu("Text").items.first { $0.title == "Find Previous" },
+                                        "Text ▸ Find Previous is not in the menu bar")
+        #expect(text.contains("Text ▸ \(findPrevious.title) (\(chordGlyphs(findPrevious)))"),
+                "Help does not name Text ▸ Find Previous by its menu title and chord")
         for phrase in [
-            "Text ▸ Find Previous (⇧⌘G)",
             "the Markup verbs and the find items are grayed",
             "The filter button, beside the ＋ at the end of the folder’s row,",
             "Click the folder’s name for a menu of the folders above it and inside it",

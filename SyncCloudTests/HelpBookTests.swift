@@ -167,7 +167,7 @@ import Testing
     }
 
     /// Every string a topic shows the reader.
-    private static func copy(of topic: HelpBook.Topic) -> [String] {
+    static func copy(of topic: HelpBook.Topic) -> [String] {
         var out = [topic.title, topic.article.intro]
         for block in topic.article.blocks {
             switch block {
@@ -185,7 +185,7 @@ import Testing
     /// The tab names in every "Settings ▸ X" in a string. Scanning stops at the first character
     /// that is neither a letter nor a space (a bracket, full stop or comma), and only the leading
     /// capitalised words are kept, so "Settings ▸ Sources and it appears…" yields `Sources`.
-    private static func settingsDestinations(in text: String) -> [String] {
+    static func settingsDestinations(in text: String) -> [String] {
         var out: [String] = []
         var rest = Substring(text)
         while let marker = rest.range(of: "Settings ▸ ") {
@@ -220,7 +220,7 @@ import Testing
             #expect(HelpBook.topicID(for: workspace) == id, "⌘? in \(workspace.title) opens somewhere else")
         }
         let overlay = try CodeText(declarationBody(of: "private var helpOverlay: some View",
-                                                   in: OpenInEditorMenuTests.macApp("ContentView.swift")))
+                                                   in: macAppFile("ContentView.swift")))
         #expect(overlay.contains("openAt: helpTopic ?? HelpBook.topicID(for: selectedWorkspace, pdfIsOpen: editorPDF.path != nil)"),
                 "⌘? no longer opens at the workspace's page, or the PDF's with one open")
         #expect(HelpBook.topicID(for: .editor, pdfIsOpen: true) == "pdf-workspace")
@@ -245,30 +245,38 @@ import Testing
     /// number in prose, which doesn't move on its own, so each door is looked for by what the article
     /// must say to name it, and any other count anywhere in the book fails. A stale count, a dropped
     /// door's clause, or "they all do the same thing" must each fail it.
+    @MainActor
     @Test func editsArticleNamesEveryDoorIntoEdit() throws {
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
         let text = Self.copy(of: topic).joined(separator: " ")
+        // The menu's doors by the titles, and Open in Edit's chord, the File menu really has.
+        let file = try appMenu("File")
+        func item(_ title: String) throws -> NSMenuItem {
+            try #require(file.items.first { $0.title == title }, "File has no \(title)")
+        }
+        let openInEdit = try item("Open in Edit")
+        let menuDoors = ["File ▸ \(openInEdit.title) — \(chordGlyphs(openInEdit))",   // the menu and its chord
+                         "File ▸ \(try item("Open Recent").title)",                   // and the empty page's list
+                         "File ▸ \(try item("Close Document").title)"]                // the way out
         let doors = [
             "eight ways to bring a file here",
             "right-click a text file and choose Open in Edit",     // a file pane's row menu
             // The Info inspector's Open in Edit, the first of its buttons.
             "the first of the Info inspector’s buttons under the file’s name",   // ⌘I
-            "File ▸ Open in Edit — ⌘O",                             // the menu and its chord
             "Compare’s list of differences offers Open in Edit",   // per side
             "a copy in Organize’s duplicates offers it first",
             "in Finder, a text file’s Open With menu offers SyncCloud",   // ExternalOpen
-            "File ▸ Open Recent holds the same list",               // and the empty page's list
             "a file dragged from Finder onto Edit’s page",
             // What they do to the pane: all but one move it (Compare's list is `.staysPut`).
             "Every one but Compare’s list of differences also takes the file pane on the left",
         ]
         let backAndAround = [
             "Reveal in Browse", "Get Info, Reveal in Finder, Quick Look, Rename and Move to Trash",
-            "File ▸ Close Document", "New Text File, on the file name’s row",
+            "New Text File, on the file name’s row",
             "“in Finance”", "“iCloud › Documents › Finance”",                   // both readings
             "“No document open”",                                               // the empty page
         ]
-        for phrase in doors + backAndAround {
+        for phrase in menuDoors + doors + backAndAround {
             let said = text.contains(phrase)
             #expect(said, "Edit's article no longer says “\(phrase)”")
         }
@@ -282,7 +290,7 @@ import Testing
                 "Edit's article says the doors all do the same thing — the differences list leaves the pane put")
         // The release notes too, both copies: neither may say the doors all do the same thing.
         for notes in ["RELEASE_NOTES.md", "docs/releases.html"] {
-            let body = try LinkedMoveTranslationTests.repoFile(notes)
+            let body = try repoFile(notes)
             #expect(body.contains("Open in Edit"), "\(notes) does not mention Open in Edit — this check would be vacuous")
             for stale in ["all four do the same thing", "all do the same thing"] {
                 #expect(!body.contains(stale), "\(notes) still says “\(stale)” — the differences list leaves the pane put")
@@ -308,9 +316,9 @@ import Testing
         }
         #expect(book.contains("“Update the Survey”"))
         #expect(book.contains("then Move Selection to Trash…, then Close Document"))
-        let lens = try LinkedMoveTranslationTests.repoFile("Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift")
+        let lens = try repoFile("Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift")
         #expect(lens.contains(": \"Update the Survey\""), "Restructure's button no longer reads Update the Survey")
-        let commands = try LinkedMoveTranslationTests.repoFile("MacApp/ShortcutCommands.swift")
+        let commands = try repoFile("MacApp/ShortcutCommands.swift")
         #expect(commands.contains("Button(\"Move Selection to Trash…\")"), "File's trash item was renamed")
     }
 
@@ -331,7 +339,7 @@ import Testing
         let tabs = Self.copy(of: edit).joined(separator: " ").contains("Outline beside it while a Markdown file is open")
         #expect(tabs, "Help does not say when Outline is offered")
 
-        let readme = try LinkedMoveTranslationTests.repoFile("README.md")
+        let readme = try repoFile("README.md")
         let edits = try #require(readme.range(of: "### ✏️ Edit"))
         let section = readme[edits.lowerBound...].prefix(6_000)
         for stale in ["a rail lists", "The rail shows", "**＋** makes a new file", "**×** puts the open one away"] {
@@ -410,7 +418,7 @@ import Testing
     /// Help's File ▸ Fill & Sign Tool list names every tool the menu holds, read from the menu's
     /// `tool("…")` lines. Taking a tool, such as Replace, out of the Help sentence must fail it.
     @Test func fillSignToolHelpNamesEveryTool() throws {
-        let source = try LinkedMoveTranslationTests.repoFile(
+        let source = try repoFile(
             "Modules/FileExplorer/Sources/FileExplorer/EditorPDFFillSignMenuItems.swift")
         let tools = source.matches(of: /tool\("([A-Za-z ]+)", \./).map { String($0.output.1) }
         #expect(tools.contains("Replace") && tools.contains("Form Fields"),
@@ -487,12 +495,7 @@ import Testing
     /// not claims. Tied to the code: while `applyPlan` is in `Sync` the phrases are banned; if Apply
     /// is removed, the anchor fails first and the ban is reconsidered.
     @Test func noArticleCallsRestructureReadOnly() throws {
-        let sync = macAppDirectory().deletingLastPathComponent()
-            .appendingPathComponent("Modules/Sync/Sources/Sync")
-        let apply = try #require(
-            try? String(contentsOf: sync.appendingPathComponent("FileSyncManager+RestructureApply.swift"),
-                        encoding: .utf8),
-            "cannot read the Apply source — the ban below would rest on nothing")
+        let apply = try repoFile("Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
         try #require(apply.contains("func applyPlan("),
                      "applyPlan is gone from Sync — the claims banned below may be true again")
 
@@ -541,18 +544,10 @@ import Testing
     }
 
     /// Help may not send anyone to Help menu items the app no longer has (Keyboard Shortcuts,
-    /// Activity Log and Sync History live elsewhere). Only these phrasings are pinned; the general
-    /// form is ``everyMenuPathInHelpNamesARealMenuItem``.
+    /// Activity Log and Sync History live elsewhere): ``everyMenuPathInHelpNamesARealMenuItem``
+    /// checks every "Help ▸ X" against the menu. This is the other half: the Help entries that do
+    /// exist are still taught, so that check can't become a rule against naming the Help menu.
     @Test func noArticleSendsTheUserToARetiredHelpMenuItem() {
-        for phrase in ["Help ▸ Keyboard Shortcuts",
-                       "Help ▸ Open Activity Log",
-                       "Help ▸ Open Sync History",
-                       "Help ▸ About SyncCloud"] {
-            let hits = HelpBook.filteredSections(matching: phrase).flatMap(\.topics).map(\.id)
-            #expect(hits.isEmpty, "Help still sends the user to “\(phrase)”, which is not there: \(hits)")
-        }
-        // The other half: the Help entries that do exist are still taught, so the bans above can't
-        // become a rule against naming the Help menu at all.
         let reveal = HelpBook.filteredSections(matching: "Help ▸ Reveal Log File").flatMap(\.topics).map(\.id)
         #expect(reveal.contains("activity-log"))
         let setup = HelpBook.filteredSections(matching: "Help ▸ Set Up SyncCloud").flatMap(\.topics).map(\.id)
@@ -694,9 +689,7 @@ import Testing
     /// phrase isn't the failure. Scoped to `HelpBook.swift`, the one file where exactly one
     /// occurrence (the property's own interpolation) is expected.
     @Test func theRequirementIsNotWrittenOutAsALiteral() throws {
-        let path = macAppDirectory().appendingPathComponent("HelpBook.swift")
-        let source = sourceCodeOnly(try #require(try? String(contentsOf: path, encoding: .utf8),
-                                                 "cannot read HelpBook.swift — this scan would be vacuous"))
+        let source = sourceCodeOnly(try macAppFile("HelpBook.swift"))
         try #require(source.count > 10_000, "HelpBook.swift read as \(source.count) characters")
         // The one legitimate occurrence is the interpolation inside `minimumSystemRequirement`.
         let occurrences = source.components(separatedBy: "Requires macOS ").count - 1
@@ -740,30 +733,13 @@ import Testing
 /// a third copy. `declarationBody` is brace-bounded, so a neighbour can't answer for this struct.
 @Suite struct HelpChipRowTests {
 
-    static let source: String = {
-        let file = macAppDirectory().appendingPathComponent("HelpBook.swift")
-        return (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-    }()
-
-    @Test func theSourceIsActuallyReadable() {
-        #expect(Self.source.contains("private struct FlexibleChips"),
-                "HelpBook.swift could not be read from macAppDirectory() — every check below would be vacuous")
-    }
+    static func source() throws -> String { try macAppFile("HelpBook.swift") }
 
     @Test func theChipsUseTheSharedWrappingLayout() throws {
-        let body = try declarationBody(of: "private struct FlexibleChips", in: Self.source)
+        let body = try declarationBody(of: "private struct FlexibleChips", in: Self.source())
         #expect(body.contains("FileExplorer.FlowLayout"),
                 "the related chips no longer use the shared wrapping layout")
         #expect(!body.contains("HStack(spacing: 8)"),
                 "the chip row is an HStack again — it squeezes rather than wraps")
-    }
-
-    /// The bound really is the declaration's, not a character count: the body stops before whatever
-    /// is declared next, or the scan above could be reading its neighbour unnoticed.
-    @Test func theScanStopsAtTheDeclarationItIsAbout() throws {
-        let body = try declarationBody(of: "private struct FlexibleChips", in: Self.source)
-        #expect(!body.contains("struct ChipFlow"))
-        #expect(!body.contains("private var relatedChips"))
-        #expect(body.contains("let ids: [String]"), "the body no longer reaches its own members")
     }
 }

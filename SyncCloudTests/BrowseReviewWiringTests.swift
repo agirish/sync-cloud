@@ -12,11 +12,11 @@ import Foundation
     /// The closure is read whole (brace-matched) and must be the call itself: a fixed-length window
     /// would stop short of an added `return nil` and pass with the refusal dropped.
     @Test func syncHistoryGetsTheRefusalBack() throws {
-        let app = try LinkedMoveTranslationTests.repoFile("MacApp/SyncCloudApp.swift")
+        let app = try repoFile("MacApp/SyncCloudApp.swift")
         #expect(app.components(separatedBy: "onUndoLastSyncRun:").count == 2,
                 "Undo Last Run is wired in more than one place, or none — this reads the first")
         let action = try LinkedMoveTranslationTests.body(of: "onUndoLastSyncRun:", in: app)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "{")))
         #expect(action.hasPrefix("syncManager.undoLastSyncRunAskingFirst("),
                 "Undo Last Run's closure no longer hands back the refusal from the asking entry point")
         #expect(!action.contains("return"), "Undo Last Run's refusal is dropped before Sync History sees it")
@@ -25,7 +25,7 @@ import Foundation
     /// Crumbs drive the other pane only where there is one: a one-pane workspace passes nil, which
     /// is what `PaneBreadcrumb` reads as "no second pane" (`PaneBreadcrumbHelpTests`).
     @Test func onePaneWorkspacesPassNoSecondPane() throws {
-        let view = LinkedMoveTranslationTests.codeOnly(try LinkedMoveTranslationTests.repoFile("MacApp/ContentView.swift"))
+        let view = LinkedMoveTranslationTests.codeOnly(try repoFile("MacApp/ContentView.swift"))
         let argument = try #require(view.range(of: "onNavigateBoth:"),
                                     "ContentView no longer hands the crumbs onNavigateBoth")
         let value = view[argument.upperBound...].prefix(160)

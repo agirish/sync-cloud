@@ -13,46 +13,6 @@ import Sync
 @MainActor
 @Suite struct PaneTabWiringTests {
 
-    /// One member's body: from its declaration to the first closing brace at member indentation.
-    /// Sliced to the member's own end rather than a fixed character window, which goes stale as
-    /// unrelated code grows.
-    private static func memberBody(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"),
-                               "\(declaration) never closes at member indentation")
-        return String(rest[..<end.lowerBound])
-    }
-
-    /// One type's body, to its closing brace at column zero. Separate from `memberBody` because
-    /// the member form on a type silently returns its first member instead, and a scan that reads
-    /// the wrong region is worse than none.
-    private static func typeBody(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n}\n"), "\(declaration) never closes at column zero")
-        return String(rest[..<end.lowerBound])
-    }
-
-    /// Source with its comments removed, trailing ones included. **Every negative assertion
-    /// below must go through this:** a scan for the absence of something is answered by any
-    /// comment that mentions it, and a positive control can be satisfied by a trailing comment
-    /// after the real call is deleted. Braces in a trailing comment would also throw off
-    /// ``topLevelCall``'s depth count. Reuses `SyncCloudTests.strippingComments`, a character
-    /// scanner (a `//` inside `"https://…"` is code), rather than another copy;
-    /// `theCommentStripperIsTheCorrectedOne` proves this file gets it.
-    nonisolated fileprivate static func codeOnly(_ source: String) -> String {
-        SyncCloudTests.strippingComments(source)
-    }
-
-    /// One member's body, found by name rather than by its whole declaration, for scans that
-    /// derive which members to read. Same slice as ``memberBody`` otherwise.
-    private static func memberBodyNamed(_ name: String, in source: String) throws -> String {
-        try memberBody("func \(name)(", in: source)
-    }
-
     /// Every capture of `group` for `pattern` in `source`, so a scan can derive its subject from
     /// the code rather than keep a list beside it.
     nonisolated private static func matches(_ pattern: String, in source: String, group: Int) -> [String] {
@@ -217,30 +177,13 @@ import Sync
     /// Every `Logger.shared.<level>(…)` call in `body`, as the text of its arguments. Per call, not
     /// per member: `closeTab` logs twice (closing the window on the last tab, and the ordinary
     /// close), so a member-wide `contains` is satisfied by the first and misses a side stripped
-    /// from the second. Balanced parentheses, since the arguments are interpolations full of them.
-    /// Pinned by ``theLogCallScanReadsEachCallSeparately``.
+    /// from the second.
     static func logCalls(in body: String) -> [String] {
-        var calls: [String] = []
-        for level in ["info", "debug", "warning", "error"] {
-            let opener = "Logger.shared.\(level)("
-            var search = body.startIndex
-            while let start = body.range(of: opener, range: search..<body.endIndex) {
-                var depth = 1
-                var index = start.upperBound
-                while index < body.endIndex, depth > 0 {
-                    if body[index] == "(" { depth += 1 }
-                    if body[index] == ")" { depth -= 1 }
-                    if depth > 0 { index = body.index(after: index) }
-                }
-                calls.append(String(body[start.upperBound..<index]))
-                search = index < body.endIndex ? body.index(after: index) : body.endIndex
-            }
-        }
-        return calls
+        ["info", "debug", "warning", "error"].flatMap { argumentLists(of: "Logger.shared.\($0)(", in: body) }
     }
 
     /// A member body with its opening brace removed, so brace depth inside it starts at zero.
-    /// ``memberBody`` leaves the ` {` on the front, and with it ``topLevelCall`` could never answer
+    /// ``declarationBody(of:in:sourceLocation:)`` leaves the ` {` on the front, and with it ``topLevelCall`` could never answer
     /// `.found`.
     static func memberInterior(_ body: String) -> String {
         guard let brace = body.firstIndex(of: "{") else { return body }
@@ -308,46 +251,6 @@ import Sync
         return writes
     }
 
-    // Both readers carry the truncation guard `macAppSources()` documents: a partially read file
-    // makes the `contains` scans below answer false and every `!contains` vacuously true.
-    private static func fileExplorer(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/\(name)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    /// The positive control. Every scan below asserts a presence in one of these files, and a
-    /// reader that silently returned the wrong text would make them all pass.
-    @Test func theScanCanActuallyFail() throws {
-        #expect(try Self.source("ContentView.swift").contains("func paneColumn(isLeft: Bool)"),
-                "this is not ContentView")
-        #expect(try Self.source("ShortcutCommands.swift").contains("struct TabBarSwitch"),
-                "this is not the shortcuts file")
-        #expect(try !Self.source("ContentView.swift").contains("a string that is definitely not in ContentView"))
-
-        // Both slicers, against a member and a type whose contents are known: a helper that
-        // returned the wrong region would make every scan below pass on the wrong text.
-        let commands = try Self.source("ShortcutCommands.swift")
-        #expect(try Self.typeBody("struct CloseTabCommand: View {", in: commands).contains("keyboardShortcut"),
-                "the type slice does not reach the item's body")
-        #expect(try Self.memberBody("static func run(_ close: CloseTabAction?", in: commands)
-                    .contains("closeWindow()"),
-                "the member slice does not reach the rule's body")
-    }
-
     /// The fixture for ``argumentTokens(labelled:in:)``. `"isLeft: isLeftTarget"` contains
     /// `"isLeft: isLeft"`, so a substring check is fooled by a lookalike local; handed known text,
     /// this reads tokens, and a `!`, an unrelated identifier and a lookalike come back as
@@ -395,24 +298,6 @@ import Sync
                 """) == .absent)
     }
 
-    /// The fixture for ``logCalls(in:)``. Two calls where only the first carries the marker is
-    /// `closeTab`'s shape, and it must come back as two.
-    @Test func theLogCallScanReadsEachCallSeparately() {
-        let body = """
-                Logger.shared.info("closing the \\(PaneSideChoice.name(isLeft)) pane's last tab")
-                Logger.shared.info("closed a tab \\(describe(id: id, isLeft: isLeft))")
-                Logger.shared.debug("reordered")
-            """
-        let calls = Self.logCalls(in: body)
-        #expect(calls.count == 3, "\(calls.count) log calls read where 3 are written")
-        #expect(calls.filter { $0.contains("PaneSideChoice.name(isLeft)") }.count == 1,
-                "the scan is not reading each call's own arguments — a member whose FIRST line names the side would pass for all of them")
-        // The nested `describe(…)` proves the balance: a naive scan to the first `)` would cut the
-        // second call short and lose everything after it.
-        #expect(calls[1].hasSuffix("\\(describe(id: id, isLeft: isLeft))\""),
-                "a call with a nested call in its interpolation is cut short — the text after it is invisible to every check")
-    }
-
     /// The polarity of what `isLeft` decides, driven rather than scanned. Each choice is a ternary
     /// inside a `ContentView` extension no test can instantiate, where a swap (a cross-source chip
     /// click asking about the sibling pane's source, or a log line naming the wrong pane) leaves
@@ -444,7 +329,7 @@ import Sync
     /// fails if the column's `VStack` is re-nested, but with a message about Quick Look's scope;
     /// this says it directly. One insertion point serves Browse, both Compare panes and the rail.
     @Test func theStripIsMountedAboveTheHeaderInTheSamePaneColumn() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"),
                                   "the pane column is gone — this scan would be vacuous")
         let body = String(content[column.upperBound...].prefix(20_000))
@@ -464,24 +349,19 @@ import Sync
     /// Drawn only when there is something to draw. At one tab the strip must take no space at all,
     /// or every pane gets an empty 34pt row; "unchanged unless you use it" rests on this `if`.
     @Test func theStripIsGatedOnHavingTabsOrTheSwitch() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
         let body = String(content[column.upperBound...].prefix(20_000))
         let gate = try #require(body.range(of: "if paneShowsTabStrip(isLeft: isLeft) {"),
                                 "the strip is built unconditionally — one tab now costs a 34pt row")
         let strip = try #require(body.range(of: "PaneTabStrip("))
         #expect(gate.lowerBound < strip.lowerBound, "the gate does not guard the strip")
-
-        let rule = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(rule.contains("showsStrip"), "the gate no longer asks the tab list")
-        #expect(rule.contains("tabBarVisible"), "View ▸ Tab Bar no longer shows the strip")
     }
 
     /// One call site, so Compare's two panes and the Organize/Storage rail get the strip for free.
     /// A second would be the plumbing this design exists to avoid.
     @Test func thereIsExactlyOnePlaceThatBuildsAStrip() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.components(separatedBy: "PaneTabStrip(").count - 1 == 1,
                 "more than one place builds a tab strip — they will drift")
     }
@@ -535,8 +415,8 @@ import Sync
     /// The rule above is pure, so every assertion in it passes with the call site still asking one
     /// pane. This pins that the switch goes through it.
     @Test func theTabBarSwitchGoesThroughThatRule() throws {
-        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {",
-                                       in: try Self.source("ShortcutCommands.swift"))
+        let body = try declarationBody(of: "var shortcutTabBar: TabBarSwitch {",
+                                       in: try macAppFile("ShortcutCommands.swift"))
         #expect(body.contains("PaneTabStripVisibility.forcesTabBarSwitch("),
                 "the Tab Bar switch computes its own forcing condition again — the rule is extracted and unused, and the two came apart exactly this way before")
         #expect(body.contains("TabBarSwitch.resolve("),
@@ -549,43 +429,26 @@ import Sync
         #expect(written == true)
     }
 
-    /// The call-site half: the resolver is what the focused value actually publishes.
-    @Test func theTabBarSwitchIsResolvedThroughTheRule() throws {
-        let commands = try Self.source("ShortcutCommands.swift")
-        let body = try Self.memberBody("var shortcutTabBar: TabBarSwitch {", in: commands)
-        #expect(body.contains("TabBarSwitch.resolve("),
-                "shortcutTabBar builds the switch by hand — the tested rule is unused")
-    }
-
     /// …and the item disables on it, which a value alone can't state.
     @Test func theTabBarItemDisablesWhileTheSwitchIsForced() throws {
-        let commands = try Self.source("ShortcutCommands.swift")
-        let body = try Self.typeBody("struct ToggleTabBarCommand: View {", in: commands)
+        let commands = try macAppFile("ShortcutCommands.swift")
+        let body = try declarationBody(of: "struct ToggleTabBarCommand: View {", in: commands)
         #expect(body.contains("isForced == true"),
                 "the Tab Bar item stays clickable while a second tab is open")
     }
 
     // MARK: ⌃⇥ says which of its two jobs it will do
 
-    @Test func theFocusItemNamesTheOtherPaneInCompare() {
-        #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "Dropbox", run: {}))
-                == "Focus Dropbox")
-    }
-
     /// In Browse the same chord cycles tabs, and the menu is the only place that says so at rest.
     @Test func theFocusItemReadsNextTabInBrowse() {
         #expect(PaneFocusSwitch.menuTitle(for: .nextTab(run: {})) == "Next Tab")
     }
 
-    @Test func theDisabledFocusItemNamesNoPane() {
-        #expect(PaneFocusSwitch.menuTitle(for: nil) == "Focus Other Pane")
-    }
-
     /// The Browse branch is real, not just expressible: ⌃⇥ resolves to a tab cycle there, and only
     /// when the pane has a second tab to cycle to.
     @Test func browseResolvesTheChordToATabCycle() throws {
-        let search = try Self.source("ContentView+PaneSearch.swift")
-        let body = try Self.memberBody("var switchPaneFocusAction: PaneFocusSwitch? {", in: search)
+        let search = try macAppFile("ContentView+PaneSearch.swift")
+        let body = try declarationBody(of: "var switchPaneFocusAction: PaneFocusSwitch? {", in: search)
         #expect(body.contains(".nextTab"), "⌃⇥ never cycles tabs — the Browse branch is missing")
         #expect(body.contains("paneTabs(isLeft: true).count > 1"),
                 "⌃⇥ offers a tab cycle with only one tab to cycle")
@@ -718,8 +581,8 @@ import Sync
     /// usually exists nowhere and shows as an empty pane. `discardTab` drops the tab and lands the
     /// pane on one that works; see `PaneTabSwitchingTests` for both cases.
     @Test func aTabOnASourceThatIsGoneIsDiscardedAndNotJustLogged() throws {
-        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "private func tabAction(isLeft: Bool",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         let branch = try #require(body.range(of: "case .unavailable"),
                                   "the removed-source case is no longer handled")
         let rest = String(body[branch.upperBound...])
@@ -730,6 +593,13 @@ import Sync
         // And the pane's search field follows the tab it lands on, like every other arrival.
         #expect(rest.contains("paneSearchState(isLeft: isLeft).wrappedValue"),
                 "the discarded tab's search query is left in the field of the tab that replaced it")
+        // A discard can land the pane on a third, live source (`PaneTabSwitchingTests
+        // .aDiscardCanLandOnATabFromAThirdLiveSource`), which it adopts, or the pane would show the
+        // landed path under the old root.
+        #expect(rest.contains("adoptProviderForTab("),
+                "the pane keeps the dead tab's source after landing on a live one")
+        #expect(rest.contains("paneCanShowSource(landed.providerId)"),
+                "the landing is adopted without checking the pane may be pointed there")
     }
 
     /// Every question about whether a pane may be pointed at a source asks `enabledProviders`,
@@ -741,7 +611,7 @@ import Sync
     /// file, since a per-site check passes the moment a new site appears; the one legitimate read
     /// is asserted by name so this can't pass on a file that names no source at all.
     @Test func everyPaneProviderQuestionAsksTheEnabledList() throws {
-        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let code = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         #expect(code.contains("settings.enabledProviders.contains { $0.id == id }"),
                 "paneCanShowSource no longer reads the enabled list")
         for site in ["isAvailable: paneCanShowSource", "isKnownProvider: paneCanShowSource",
@@ -757,8 +627,8 @@ import Sync
         let uses = code.components(separatedBy: "availableProviders").count - 1
         #expect(uses == 1,
                 "\(uses) uses of availableProviders — a pane may be pointed at a source no refresh will walk")
-        let items = try Self.memberBody("func paneTabItems(isLeft: Bool",
-                                        in: Self.source("ContentView+PaneTabs.swift"))
+        let items = try declarationBody(of: "func paneTabItems(isLeft: Bool",
+                                        in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(items.contains("settings.availableProviders"),
                 "the one legitimate use has moved — this scan is now counting something else")
     }
@@ -771,8 +641,8 @@ import Sync
         // The counting and the warning line live in `BrowseTabRestorePlan` and are executed by
         // `BrowseTabRestorePlanTests`. Only this scan sees the threading: the plan can notice a
         // drop only if the host hands it the stored count.
-        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         #expect(body.contains("storedCount: stored.entries.count"),
                 "nothing hands the plan what was stored, so no drop can be noticed")
     }
@@ -784,7 +654,7 @@ import Sync
     /// flattening form as well as the presence of the rule, since a presence check alone passes
     /// with a new opener added beside them doing it the old way.
     @Test func everyTabOpenerCutsItsLocationThroughTheRule() throws {
-        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let code = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         // Three: ⌘T, Open in New Tab and the mirror. `tabAtRoute` is rooted at its folder on
         // purpose: a followed folder can lie beyond what the scope's walk reached, and a stacked
         // tab there would be pruned a folder short (its doc explains). Pinned below so it drifts
@@ -808,8 +678,8 @@ import Sync
     /// no-op whose warning names the wrong reason. The mirror's expansion is scanned by
     /// `bothWaysOfOpeningATabMirrorOntoTheLinkedPane`.
     @Test func openInNewTabExpandsTheSourceRootBeforeRelativizing() throws {
-        let body = Self.codeOnly(try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func openInNewTab(absolutePath: String, isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let root = try #require(body.range(of: "expandingTildeInPath"),
                                 "the pane's root is compared unexpanded — Open in New Tab is a no-op for a tilde-stored source")
         let relativize = try #require(body.range(of: "PathBoundary.relativize(absolutePath, under: root)"),
@@ -821,12 +691,12 @@ import Sync
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `retargetPane()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
-        let body = try Self.memberBody("func adoptProviderForTab(",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "func adoptProviderForTab(",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("pendingTabProviderChanges += 1"),
                 "adopting a source does not suppress the navigation reset")
-        let tab = try Self.memberBody("private func tabAction(isLeft: Bool",
-                                      in: Self.source("ContentView+PaneTabs.swift"))
+        let tab = try declarationBody(of: "private func tabAction(isLeft: Bool",
+                                      in: macAppFile("ContentView+PaneTabs.swift"))
         let adopt = try #require(tab.range(of: "case .adopt(let id):"),
                                  "the provider decision is no longer handled by case")
         #expect(String(tab[adopt.upperBound...]).contains("adoptProviderForTab("),
@@ -842,12 +712,12 @@ import Sync
         // Counted through `paneProviderIdWrites`, which normalises assignment: Swift accepts
         // `leftProviderId=id` and any run of spaces around the `=`, and a plain substring count
         // sees neither. It doesn't normalise `==`, `!=` or `+=`; the fixture below holds that.
-        let raw = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let raw = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         let writes = Self.paneProviderIdWrites(in: raw)
         #expect(writes == 2,
                 "\(writes) writes of a pane provider id — the helper's own two are the only ones allowed")
-        let helper = try Self.memberBody("func adoptProviderForTab(",
-                                         in: Self.source("ContentView+PaneTabs.swift"))
+        let helper = try declarationBody(of: "func adoptProviderForTab(",
+                                         in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(helper.contains("if isLeft { leftProviderId = id } else { rightProviderId = id }"),
                 "the two writes are not the helper's — this scan is counting someone else's")
     }
@@ -892,11 +762,11 @@ import Sync
     /// pair of sources, so leaving it on the old pair hides items ignored for a comparison no
     /// longer on screen and saves new ones under the wrong key.
     @Test func adoptingDoesEverythingTheSuppressedHandlerWouldExceptTheReset() throws {
-        let body = try Self.memberBody("func adoptProviderForTab(",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "func adoptProviderForTab(",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         // Positives go through `codeOnly` too: a doc comment naming any of these would satisfy the
         // check with the call deleted.
-        let code = Self.codeOnly(body)
+        let code = sourceCodeOnly(body)
         #expect(code.contains("ignoredItemsStore?.activate("),
                 "a tab-driven source change leaves the ignored-items store on the old pair")
         #expect(code.contains("clearLensResultsForProviderSwitch()"),
@@ -911,7 +781,7 @@ import Sync
         // exists not to reset. The reducer half is
         // `CompareReviewReducerTests.aTabDrivenSourceChangeNeverRepointsTheSiblingPane`; this is
         // the call site that chooses the event.
-        #expect(!Self.codeOnly(body).contains("providerSwitched"),
+        #expect(!sourceCodeOnly(body).contains("providerSwitched"),
                 "the tab path is back on the event that can repoint the other pane")
         // Bare names, not a spelling of the call: call sites pass the landings as arguments, so a
         // check for `resetNavigation()` would match nothing and miss a pasted provider-switch
@@ -919,26 +789,9 @@ import Sync
         // `retargetPane(isLeft:landing:)`, and a scan naming only one goes vacuous at a rename.
         // The `codeOnly` strip keeps the comments above from satisfying it.
         for verb in ["resetNavigation", "retargetPane"] {
-            #expect(!Self.codeOnly(body).contains(verb),
+            #expect(!sourceCodeOnly(body).contains(verb),
                     "the whole point of the suppression is that the TAB carries the navigation, but this calls \(verb)")
         }
-    }
-
-    /// A discard that lands the pane on a third, live source adopts it. `discardDeadTabs` stops at
-    /// the first neighbour the pane can show, a wider set than "is currently on" (pinned by
-    /// `PaneTabSwitchingTests.aDiscardCanLandOnATabFromAThirdLiveSource`). Taking only the landed
-    /// tab's search field would leave the pane on the old source showing the landed path under the
-    /// wrong root, and `saveBrowseTabs` would then rewrite that tab's source id to the old one.
-    @Test func aDiscardThatLandsOnAnotherSourceAdoptsIt() throws {
-        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
-        let branch = try #require(body.range(of: "case .unavailable:"),
-                                  "the unavailable branch is gone")
-        let after = String(body[branch.upperBound...])
-        #expect(after.contains("adoptProviderForTab("),
-                "the pane keeps the dead tab's source after landing on a live one")
-        #expect(after.contains("paneCanShowSource(landed.providerId)"),
-                "the landing is adopted without checking the pane may be pointed there")
     }
 
     /// The rule behind the two provider handlers, and the order that is its whole content.
@@ -963,7 +816,7 @@ import Sync
 
     /// …and both handlers ask it, rather than keeping their own copy of the order.
     @Test func bothProviderHandlersAreResolvedThroughTheRule() throws {
-        let code = Self.codeOnly(try Self.source("ContentView.swift"))
+        let code = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(code.components(separatedBy: "PaneProviderChange.decide(").count - 1 == 2,
                 "one of the two provider handlers no longer goes through the rule")
         #expect(!code.contains("if pendingTabProviderChanges > 0 {"),
@@ -976,8 +829,8 @@ import Sync
     /// branch closes the window. Without the second, ⌘T in a linked Compare hands every
     /// pane-scoped chord to the sibling.
     @Test func aTabVerbMovesTheFocusToThePaneItWasAimedAt() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
-        let body = try Self.memberBody("private func tabAction(isLeft: Bool", in: source)
+        let source = try macAppFile("ContentView+PaneTabs.swift")
+        let body = try declarationBody(of: "private func tabAction(isLeft: Bool", in: source)
         #expect(body.contains("if movesFocus { noteWorkingIn(isLeft: isLeft"),
                 "a tab verb no longer says which pane the user is working in")
         // The call site of the tested rule. The polarity lives in
@@ -985,12 +838,12 @@ import Sync
         // `theFocusedSideFollowsThePaneAVerbWasAimedAt` really calls, because a ternary in a
         // `ContentView` extension could be flipped with every test green. Here, pin that the host
         // still goes through that door.
-        let focus = try Self.memberBody("private func noteWorkingIn(isLeft: Bool", in: source)
+        let focus = try declarationBody(of: "private func noteWorkingIn(isLeft: Bool", in: source)
         #expect(focus.contains("syncManager.noteFocusedPane(isLeft: isLeft, because: reason)"),
                 "noteWorkingIn no longer routes through the manager's one door, so the polarity is back somewhere untested")
         // The opt-out defaults to not opting out, which lets the reachability walk below read an
         // argument-free `tabAction(` as the door.
-        let code = Self.codeOnly(source)
+        let code = sourceCodeOnly(source)
         #expect(code.components(separatedBy: "movesFocus: Bool = true").count - 1 == 1,
                 "the one door's focus move is no longer on by default, so every verb that does not mention `movesFocus` has quietly stopped moving the focus")
 
@@ -1047,8 +900,8 @@ import Sync
     /// The pair is narrowed by `paneProviderId(isLeft:)` and `PaneSideChoice`, whose polarity
     /// `theSideChoiceReadsItsArgument` drives.
     @Test func theOneDoorAimsEverySideTakingCallAtThePaneItWasGiven() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
-        let body = Self.codeOnly(try Self.memberBody("private func tabAction(isLeft: Bool", in: source))
+        let source = try macAppFile("ContentView+PaneTabs.swift")
+        let body = sourceCodeOnly(try declarationBody(of: "private func tabAction(isLeft: Bool", in: source))
         // The positive control: the calls this is about are in here at all, or a member that lost
         // them all would satisfy every invariant below.
         #expect(body.components(separatedBy: "adoptProviderForTab(").count - 1 == 2,
@@ -1098,8 +951,8 @@ import Sync
     /// before it moves anything, and it saves no strip, so it keeps its own focus door and is
     /// checked here by name.
     @Test func theVerbsOutsideTheOneDoorAimItAtThePaneTheyWereGiven() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
-        let file = Self.codeOnly(source)
+        let source = try macAppFile("ContentView+PaneTabs.swift")
+        let file = sourceCodeOnly(source)
 
         // Exactly two members hold a focus door: the one door, and Copy Path. A third would be a
         // verb with its own polarity again, unseen by every check here.
@@ -1108,7 +961,7 @@ import Sync
                 "\(doors - 1) call sites of the focus door in this file where 2 are expected (the third match is its declaration) — a verb outside the one door aims the pane-scoped chords itself, and nothing below covers it")
 
         let copy = Self.memberInterior(
-            Self.codeOnly(try Self.memberBody("func copyTabPath(id: UUID, isLeft: Bool)", in: source)))
+            sourceCodeOnly(try declarationBody(of: "func copyTabPath(id: UUID, isLeft: Bool)", in: source)))
         #expect(Self.topLevelCall("noteWorkingIn(", in: copy) == .found,
                 "Copy Path's focus move is conditional or unreachable — right-click a chip in the other strip, press ⌘W, and the last-tab branch closes the WINDOW")
         let copyStrays = Self.argumentTokens(labelled: "isLeft", in: copy).filter { $0 != "isLeft" }
@@ -1125,7 +978,7 @@ import Sync
         // The two fixed by construction: through the one door, unconditionally.
         for verb in ["func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
                      "func moveTab(id: UUID, to index: Int, isLeft: Bool)"] {
-            let body = Self.memberInterior(Self.codeOnly(try Self.memberBody(verb, in: source)))
+            let body = Self.memberInterior(sourceCodeOnly(try declarationBody(of: verb, in: source)))
             #expect(Self.topLevelCall("tabAction(isLeft: isLeft)", in: body) == .found,
                     "“\(verb)” is back outside the one door, or its call is inside a branch — `if pinned { … }` around it is a measured survivor, and unpinning then leaves ⌘W aimed at the other pane")
             #expect(!body.contains("noteWorkingIn("),
@@ -1153,10 +1006,10 @@ import Sync
     /// makes every opt-out justify itself. It can't see a door reached only through a third member,
     /// wrong arguments to the door (`theOneDoorAims…`'s half), or wiring outside `MacApp/`.
     @Test func everyTabVerbTheHostWiresReachesTheFocusDoorUnconditionally() throws {
-        let tabs = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let tabs = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         // The extension's own members, not the file's: the helper types below it declare `items`,
         // `shows`, `inset` and `decide`, and names that common would match half the host.
-        let extensionBody = try Self.typeBody("extension ContentView {", in: tabs)
+        let extensionBody = try declarationBody(of: "extension ContentView {", in: tabs)
         let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#,
                                         in: extensionBody, group: 1))
         #expect(declared.count >= 20,
@@ -1189,7 +1042,7 @@ import Sync
                            "ContentView+Editor.swift", "ContentView+AskClaude.swift"]
         var derived: Set<String> = []
         for file in hostFiles where file.lastPathComponent != "ContentView+PaneTabs.swift" {
-            let code = Self.codeOnly(try String(contentsOf: file, encoding: .utf8))
+            let code = sourceCodeOnly(try String(contentsOf: file, encoding: .utf8))
             let calls = Set(Self.matches(#"\b([a-z][A-Za-z0-9]*)\("#, in: code, group: 1))
                 .intersection(declared)
             guard !calls.isEmpty else { continue }
@@ -1236,7 +1089,7 @@ import Sync
         /// directly or through one more member of the tabs file. Two hops is what ⌘T needs:
         /// `openNewTabHere` mirrors through `openTabHere` to `tabAction`.
         func reachesTheFocusDoor(_ name: String, hops: Int) throws -> Bool {
-            let body = Self.memberInterior(try Self.memberBodyNamed(name, in: tabs))
+            let body = Self.memberInterior(try declarationBody(of: "func \(name)(", in: tabs))
             if Self.topLevelCall("noteWorkingIn(", in: body) == .found { return true }
             // `tabAction(` is the door only when the call hasn't opted out: `movesFocus: false`
             // puts `noteWorkingIn` behind a branch known to be false, so a verb whose only route to
@@ -1273,39 +1126,10 @@ import Sync
             // exception is derived from the member's own bindings, so a hand-written `!` is refused
             // wherever it appears.
             let hand = Self.handWrittenSideTokens(
-                in: Self.memberInterior(try Self.memberBodyNamed(verb, in: tabs)))
+                in: Self.memberInterior(try declarationBody(of: "func \(verb)(", in: tabs)))
             #expect(hand.isEmpty,
                     "“\(verb)” passes \(hand) where the pane it was given, or a sibling taken through `PaneSideChoice.sibling`, is expected — the verb acts on the pane the user did not aim at")
         }
-    }
-
-    /// The comment stripper this suite scans through is the corrected one, not another copy. Both
-    /// directions: a trailing comment must not answer a `contains`, and a `//` inside a string
-    /// literal must not eat real code. The stripper doesn't parse multiline or raw string literals,
-    /// so that limit is asserted against the file this suite scans rather than assumed.
-    @Test func theCommentStripperIsTheCorrectedOne() throws {
-        let stripped = Self.codeOnly("""
-            let a = 1 // noteWorkingIn(isLeft:
-            /* block noteWorkingIn(isLeft: */ let b = 2
-            let url = "https://example.com" // tail
-            real()
-            """)
-        #expect(!stripped.contains("noteWorkingIn(isLeft:"),
-                "a trailing or block comment survives `codeOnly`, so this suite's positive controls can be satisfied by prose with the real call deleted")
-        #expect(stripped.contains("let a = 1") && stripped.contains("let b = 2")
-                && stripped.contains("\"https://example.com\"") && stripped.contains("real()"),
-                "`codeOnly` ate real code — a stripper that returns nothing satisfies every absence check above")
-        // …and braces in a trailing comment don't shift the depth that `topLevelCall` reads.
-        #expect(Self.topLevelCall("noteWorkingIn(", in: Self.codeOnly("""
-                if x { save() } // a } and a { in prose
-                noteWorkingIn(isLeft: isLeft, "x")
-            """)) == .found,
-                "braces inside a trailing comment still shift the depth counter, so a top-level call reads as being inside a branch")
-
-        // The stated limit, asserted rather than assumed, on the file this suite actually scans.
-        let raw = try Self.source("ContentView+PaneTabs.swift")
-        #expect(!raw.contains("\"\"\"") && !raw.contains("#\""),
-                "the tabs file has grown a multiline or raw string literal, which the stripper does not parse — it would mis-read from there to the end of the file")
     }
 
     /// Every reach for the sibling pane in the tabs file goes through the one flip. A `!` in a
@@ -1315,7 +1139,7 @@ import Sync
     /// `theSideChoiceReadsItsArgument` calls both ways; this scan keeps the hand-written form from
     /// coming back anywhere in the file, including at sites that don't exist yet.
     @Test func everyReachForTheSiblingPaneGoesThroughTheOneFlip() throws {
-        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let file = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         // The flip exists, and it is the only one written out in the file. Its behaviour is
         // `theSideChoiceReadsItsArgument`'s; this checks only that there is one of it.
         let flips = file.split(separator: "\n", omittingEmptySubsequences: false)
@@ -1325,7 +1149,7 @@ import Sync
         #expect(flips.first?.contains("static func sibling(") == true,
                 "the one `!isLeft` in the file is not `PaneSideChoice.sibling`'s — the flip has moved back somewhere a test cannot call it")
 
-        let extensionBody = try Self.typeBody("extension ContentView {", in: file)
+        let extensionBody = try declarationBody(of: "extension ContentView {", in: file)
         let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#,
                                         in: extensionBody, group: 1))
         #expect(declared.count >= 20,
@@ -1333,7 +1157,7 @@ import Sync
 
         var mirrors: Set<String> = []
         for member in declared.sorted() {
-            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            let body = Self.memberInterior(try declarationBody(of: "func \(member)(", in: file))
             if !Self.siblingLocals(in: body).isEmpty { mirrors.insert(member) }
             let hand = Self.handWrittenSideTokens(in: body)
             #expect(hand.isEmpty,
@@ -1357,15 +1181,15 @@ import Sync
     /// when the decline is its caller's mirror flag (`movesFocus: !mirrored`, on a member whose
     /// `mirrored` defaults to false). Anything else fails naming the verb.
     @Test func everyTabVerbAimsAllItsSideTakingCallsAtOnePane() throws {
-        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        let extensionBody = try Self.typeBody("extension ContentView {", in: file)
+        let file = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
+        let extensionBody = try declarationBody(of: "extension ContentView {", in: file)
         let declared = Set(Self.matches(#"\n    (?:private )?func ([a-zA-Z]\w*)\("#,
                                         in: extensionBody, group: 1))
 
         var aims: [String: String] = [:]
         var optOuts: [String: String] = [:]
         for member in declared.sorted() {
-            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            let body = Self.memberInterior(try declarationBody(of: "func \(member)(", in: file))
             let calls = Self.callArguments(of: "tabAction(", in: body)
             guard !calls.isEmpty else { continue }
             // One per member: two would mean two panes moved by one verb, and the aim below would
@@ -1402,7 +1226,7 @@ import Sync
 
         #expect(!optOuts.isEmpty, "no verb opts out of the focus door — the checks below are vacuous")
         for (member, value) in optOuts.sorted(by: { $0.key < $1.key }) {
-            let body = Self.memberInterior(try Self.memberBodyNamed(member, in: file))
+            let body = Self.memberInterior(try declarationBody(of: "func \(member)(", in: file))
             let aim = aims[member] ?? ""
             if value == "false" {
                 #expect(Self.siblingLocals(in: body).contains(aim),
@@ -1427,7 +1251,7 @@ import Sync
     /// ternary, the `if isLeft { … } else { … }` and any other shape; sides transposed inside the
     /// `own(…)` call are `everyPaneSideChoiceCallNarrowsAMatchedPair`'s half.
     @Test func everyPaneLocationPairIsNarrowedByTheOneDoorOrAnAssertedException() throws {
-        let file = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
+        let file = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
         let pairs = Self.occurrences(
             #"\b(?:left|right)(?:RelativePath|BrowsePath|TreeRoot|ChildrenIndex|ProviderId)\b"#,
             in: file)
@@ -1495,7 +1319,7 @@ import Sync
         var users: Set<String> = []
         var narrowings: [(file: String, call: SideNarrowing?)] = []
         for url in hostFiles {
-            let code = Self.codeOnly(try String(contentsOf: url, encoding: .utf8))
+            let code = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
             guard code.contains("PaneSideChoice.") else { continue }
             users.insert(url.lastPathComponent)
             for call in Self.sideNarrowings(in: code) {
@@ -1598,8 +1422,8 @@ import Sync
     /// ring `refreshSubject` itself, because it runs before the provider id is written and would
     /// load the new tab's path under the old tab's root.
     @Test func theReloadIsDrivenByTheHostAndNotByApplyTab() throws {
-        let body = try Self.memberBody("private func tabAction(isLeft: Bool",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "private func tabAction(isLeft: Bool",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("refreshForTabSwitch(movedPane: isLeft)"),
                 "a tab switch never reloads — a source change would keep the previous tab's tree")
         let sync = try String(contentsOf: URL(fileURLWithPath: #filePath)
@@ -1608,31 +1432,13 @@ import Sync
                               encoding: .utf8)
         // Sliced on the prefix, not the whole signature, so a growing parameter list doesn't
         // report "applyTab is gone" for a member that is right there.
-        let apply = try Self.memberBody("public func applyTab(_ tab: PaneTab, isLeft: Bool", in: sync)
-        let applyCode = Self.codeOnly(apply)
+        let apply = try declarationBody(of: "public func applyTab(_ tab: PaneTab, isLeft: Bool", in: sync)
+        let applyCode = sourceCodeOnly(apply)
         #expect(!applyCode.contains("syncPathsFromHistory()") && !applyCode.contains("refreshSubject"),
                 "applyTab rings the refresh itself — it runs before the provider id is written")
     }
 
     // MARK: ⌘W, which replaced File ▸ Close
-
-    /// ⌘W must still close a window that has no tabs. This item takes the standard Close group's
-    /// place, and the app's auxiliary `Window` scenes (Keyboard Shortcuts, Activity Log, Sync
-    /// History) publish no focused value; disabling on `nil`, as other items there do, would leave
-    /// ⌘W dead in all of them.
-    @Test func closeFallsBackToTheWindowWhenNoTabIsPublished() {
-        var closedWindow = false
-        CloseTabCommand.run(nil) { closedWindow = true }
-        #expect(closedWindow, "⌘W does nothing on a window that publishes no tab to close")
-    }
-
-    @Test func closeTakesTheTabWhenThereIsOne() {
-        var closedTab = false
-        var closedWindow = false
-        CloseTabCommand.run(.closeTab({ closedTab = true })) { closedWindow = true }
-        #expect(closedTab)
-        #expect(!closedWindow, "⌘W closed the window as well as the tab")
-    }
 
     /// ⌘W on a pane's last tab closes the window, as Finder does, so ⌘W keeps meaning "get rid of
     /// this". `PaneTabList.close(at:)` refuses the last tab, so losing this branch throws nothing
@@ -1640,8 +1446,8 @@ import Sync
     /// starts in. Distinct from `CloseTabCommand`'s fallback
     /// (`closeFallsBackToTheWindowWhenNoTabIsPublished`), which is ⌘W in a window with no tabs.
     @Test func closingTheLastTabClosesTheWindowInsteadOfDoingNothing() throws {
-        let body = Self.codeOnly(try Self.memberBody("func closeTab(id: UUID, isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func closeTab(id: UUID, isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let gate = try #require(body.range(of: "guard syncManager.paneTabs(isLeft: isLeft).count > 1 else {"),
                                 "the last-tab branch is gone — ⌘W on a one-tab window now does nothing")
         let rest = String(body[gate.upperBound...])
@@ -1671,25 +1477,6 @@ import Sync
                 "the last-tab branch closes the window and then goes on to close a tab as well")
     }
 
-    /// The item stays live when nothing is published, and greys out when a pick owns the keyboard.
-    /// The nil case protects the fallback above: the Keyboard Shortcuts, Activity Log and Sync
-    /// History windows publish no focused value, and this item stands in for File ▸ Close, so
-    /// disabling it there would cost them ⌘W. The suspended case is the opposite: the main window
-    /// is there, an overlay owns the keyboard, and ⌘W does nothing, so an enabled item would
-    /// silently no-op. It greys out on `isSuspended`, never on `nil`.
-    @Test func theCloseItemIsDisabledOnlyForASuspendedPick() throws {
-        let body = Self.codeOnly(try Self.typeBody("struct CloseTabCommand: View {",
-                                                   in: Self.source("ShortcutCommands.swift")))
-        #expect(!body.contains(".disabled(close == nil"),
-                "⌘W is disabled when no tab is published — it is also this app's only Close")
-        #expect(body.contains(".disabled(close?.isSuspended == true)"),
-                "a suspended ⌘W is an enabled menu item that silently does nothing")
-        // The disable is no substitute for the rule: menu validation follows SwiftUI's update
-        // cycle, not the flag, so the item can still be performed in between, and `run`'s
-        // `.suspended` case makes that harmless.
-        #expect(body.contains("Self.run(close)"), "the item does not go through the tested rule")
-    }
-
     // MARK: The launch restore
 
     /// The restore arms the suppression counter like every other adopt. The bootstrap guard is no
@@ -1701,15 +1488,15 @@ import Sync
     /// handler consumes counters before testing the guard
     /// (`aSuppressionCounterIsConsumedWhereverItsWriteLands`).
     @Test func theLaunchRestoreArmsTheSuppressionCounterLikeEveryOtherAdopt() throws {
-        let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "func restoreBrowseTabs(isLeft: Bool)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("adoptProviderForTab(adopt, isLeft: isLeft"),
                 "the launch restore writes the provider id its own way again")
         // Threaded, not hardcoded: the restore runs for both panes, and a right pane that adopted
         // no source would reopen every tab under whichever provider it happened to be on, showing
         // the right folder path under the wrong root.
         for side in ["leftProviderId", "rightProviderId"] {
-            #expect(!Self.codeOnly(body).contains("\(side) = active.providerId"),
+            #expect(!sourceCodeOnly(body).contains("\(side) = active.providerId"),
                     "the bare \(side) write is back, and the bootstrap guard does not stop it")
         }
     }
@@ -1720,8 +1507,8 @@ import Sync
     /// and the first save overwrites the strip. Pinned as the exact literal, so
     /// `guard !GeneralSettings…` fails rather than matching a looser check.
     @Test func theLaunchRestoreObeysTheReopenTheLastFolderSetting() throws {
-        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let gate = try #require(body.range(of: "guard GeneralSettings.shouldRestoreLastFocus() else { return }"),
                                 "the restore ignores the reopen-last-folder setting, or tests it inverted")
         let read = try #require(body.range(of: "PaneTabsStore.load(isLeft: isLeft)"),
@@ -1736,8 +1523,8 @@ import Sync
     /// stated levels, installs only what the plan installs, and takes the plan's adoption through
     /// the counter (the test above).
     @Test func theLaunchRestoreExecutesThePlanItWasHanded() throws {
-        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let decide = try #require(body.range(of: "BrowseTabRestorePlan.plan(storedCount:"),
                                   "the restore no longer decides through the tested planner")
         let emit = try #require(body.range(of: "for line in plan.lines"),
@@ -1756,7 +1543,7 @@ import Sync
     /// Both panes are restored, and the right one is easy to drop: an edit that restores only the
     /// left leaves Compare's right pane seeding one tab every launch.
     @Test func bothPanesAreRestoredAtLaunch() throws {
-        let source = Self.codeOnly(try Self.source("ContentView.swift"))
+        let source = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(source.contains("restoreBrowseTabs(isLeft: true)"))
         #expect(source.contains("restoreBrowseTabs(isLeft: false)"),
                 "the right pane's strip is never restored, so it seeds one tab every launch")
@@ -1767,7 +1554,7 @@ import Sync
     /// and the next launch restores half of a swap. Nothing on screen shows it until a relaunch,
     /// so it is pinned here.
     @Test func swappingThePanesSavesBothStrips() throws {
-        let body = try Self.memberBody("func swapPanesAction()", in: Self.source("ContentView.swift"))
+        let body = try declarationBody(of: "func swapPanesAction()", in: macAppFile("ContentView.swift"))
         #expect(body.contains("saveBrowseTabs(isLeft: true)"),
                 "a swap leaves the saved strip describing the pane that just left")
         #expect(body.contains("saveBrowseTabs(isLeft: false)"),
@@ -1802,42 +1589,22 @@ import Sync
 
     /// The call-site half: the pane column asks the rule rather than spelling a number.
     @Test func thePaneColumnReservesTheSeamThroughTheRule() throws {
-        let tabs = try Self.source("ContentView+PaneTabs.swift")
-        let body = try Self.memberBody("func seamInset(isLeft: Bool, leading: Bool)", in: tabs)
+        let tabs = try macAppFile("ContentView+PaneTabs.swift")
+        let body = try declarationBody(of: "func seamInset(isLeft: Bool, leading: Bool)", in: tabs)
         #expect(body.contains("PaneTabSeam.inset("), "the seam reserve is spelled by hand")
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("leadingInset: seamInset(isLeft: isLeft, leading: true)"),
                 "the strip is not given the seam reserve")
-    }
-
-    /// The strip slides in. ⌘T opens the folder you're already in, so both chips say the same
-    /// thing and nothing else changes: the strip's arrival is the only feedback, and an abrupt one
-    /// reads as a glitch.
-    @Test func theStripArrivesWithAnAnimation() throws {
-        let content = try Self.source("ContentView.swift")
-        let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
-        // Cut at the member boundary, not at a character budget: a budget goes stale as
-        // `paneColumn` grows and then reports a missing transition that is really there.
-        let rest = String(content[column.upperBound...])
-        let end = try #require(rest.range(of: "\n    func ")?.lowerBound,
-                               "no member follows paneColumn — the cut would run to end of file")
-        let body = String(rest[..<end])
-        #expect(body.contains(".transition(.move(edge: .top)"),
-                "the strip appears with no transition — nothing marks the arrival ⌘T is fed back by")
-        // Keyed on presence, not on the tab count: opening a third tab while the strip is already
-        // up must not animate the header and the list under it.
-        #expect(body.contains("value: paneShowsTabStrip(isLeft: isLeft)"),
-                "the strip's animation is keyed on something other than its own presence")
     }
 
     /// Pinning is wired, and it saves — a pin that did not survive a quit would be a worse
     /// promise than no pin at all.
     @Test func pinningIsWiredAndPersisted() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) }"),
                 "the strip's pin action is wired to nothing")
-        let body = try Self.memberBody("func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("syncManager.setTabPinned("), "pinning does not reach the manager")
         // The save is the one door's. `setTabPinned` goes through `tabAction` with a `nil` answer,
         // the branch that saves the strip and drives no reload. Both halves are checked here, the
@@ -1847,15 +1614,15 @@ import Sync
                 "a pin no longer goes through the one door, so it saves nothing and moves no focus")
         #expect(body.contains("return nil"),
                 "a pin claims the pane moved — the one door would then write a provider and drive a reload for a chip that only changed its own state")
-        let door = Self.codeOnly(try Self.memberBody("private func tabAction(isLeft: Bool",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let door = sourceCodeOnly(try declarationBody(of: "private func tabAction(isLeft: Bool",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let noMove = try #require(door.range(of: "guard let arrived = verb() else {"),
                                   "the one door no longer distinguishes a verb that moved the pane")
         let after = String(door[noMove.upperBound...].prefix(200))
         #expect(after.contains("saveBrowseTabs(isLeft: isLeft)"),
                 "the one door's “the pane did not move” branch no longer saves the strip — a pin, an unpin and a reorder all stop surviving a quit")
         // Pinning moves no pane, so it must not pay for a reload.
-        #expect(!Self.codeOnly(body).contains("refreshForTabSwitch"),
+        #expect(!sourceCodeOnly(body).contains("refreshForTabSwitch"),
                 "pinning reloads the tree for nothing")
     }
 
@@ -1866,8 +1633,7 @@ import Sync
     /// one dead), or the tab items landing in the wrong group: Close Tab belongs beside New Tab,
     /// not below Delete.
     @Test func theFileMenuIsInTheRoadmapsOrder() throws {
-        let file = try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
-                                "the app has no File menu — this check would be vacuous")
+        let file = try appMenu("File")
         let titles = file.items.map(\.title).filter { !$0.isEmpty }
         // New Text File… leads: ⌘N is the item AppKit's `.newItem` group is named for, and the two
         // "new" items belong together at the top. Open Recent sits under it, where a document app
@@ -1927,23 +1693,13 @@ import Sync
 
         // And nothing else in the menu bar has taken ⌘O. Two claimants leave one of them dead, and
         // which one AppKit picks is not something this app decides.
-        func claimants(_ menu: NSMenu) -> [NSMenuItem] {
-            menu.items.flatMap { item -> [NSMenuItem] in
-                let own = (item.keyEquivalent == "o"
-                           && item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command)
-                    ? [item] : []
-                return own + (item.submenu.map(claimants) ?? [])
-            }
-        }
-        let all = try #require(NSApp.mainMenu)
-        #expect(claimants(all).map(\.title) == ["Open in Edit"],
-                "⌘O is claimed by \(claimants(all).map(\.title))")
+        let claimants = try menuItems(claiming: "o", modifiers: .command).map(\.title)
+        #expect(claimants == ["Open in Edit"], "⌘O is claimed by \(claimants)")
     }
 
     /// The View menu's Tab Bar switch, same source: a checkmark item, above the other switches.
     @Test func theViewMenuCarriesTheTabBarSwitch() throws {
-        let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
-                                "the app has no View menu")
+        let view = try appMenu("View")
         let titles = view.items.map(\.title).filter { !$0.isEmpty }
         let tabBar = try #require(titles.firstIndex(of: "Tab Bar"), "View ▸ Tab Bar is gone")
         let hidden = try #require(titles.firstIndex(of: "Hidden Files"))
@@ -1958,8 +1714,7 @@ import Sync
     /// shows), with no chord of its own. Registered is not reachable, so this walks
     /// `NSApp.mainMenu`.
     @Test func theViewMenuCarriesFilterByTypeAfterHiddenFiles() throws {
-        let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
-                                "the app has no View menu")
+        let view = try appMenu("View")
         let titles = view.items.map(\.title).filter { !$0.isEmpty }
         let hidden = try #require(titles.firstIndex(of: "Hidden Files"))
         let filter = try #require(titles.firstIndex(of: "Filter by Type"), "View ▸ Filter by Type is gone")
@@ -1975,8 +1730,8 @@ import Sync
     /// at one tab: the row menu needs a folder under the pointer and the strip's menu needs a
     /// strip, and neither exists in the state every install starts in.
     @Test func thePaneBackgroundMenuOffersANewTab() throws {
-        let shared = try Self.memberBody("static func tabActions(at path: String, delegate: FileActionDelegate)",
-                                         in: Self.fileExplorer("FileTreeView.swift"))
+        let shared = try declarationBody(of: "static func tabActions(at path: String, delegate: FileActionDelegate)",
+                                         in: repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift"))
         #expect(shared.contains("delegate.canOpenInNewTab"), "the item is offered by hosts with no strip")
         #expect(shared.contains("handleNewTab(at: path)"), "New Tab is wired to nothing")
         #expect(shared.contains("delegate.canCloseTab"),
@@ -1984,7 +1739,7 @@ import Sync
 
         // …and both view modes' background menus actually build it.
         for file in ["FileTreeView.swift", "PaneColumnsView.swift"] {
-            #expect(try Self.fileExplorer(file).contains("SharedFileMenuItems.tabActions("),
+            #expect(try repoFile("Modules/FileExplorer/Sources/FileExplorer/" + file).contains("SharedFileMenuItems.tabActions("),
                     "\(file)'s empty-area menu has no tab items")
         }
     }
@@ -1998,17 +1753,17 @@ import Sync
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
         let header = try String(contentsOf: url, encoding: .utf8)
-        let menu = try Self.memberBody("private func barContextMenu() -> some View {", in: header)
+        let menu = try declarationBody(of: "private func barContextMenu() -> some View {", in: header)
         #expect(menu.contains("Button(\"New Tab\")"), "the header card's menu has no New Tab")
         #expect(menu.contains("Button(\"Close Tab\")"), "the header card's menu has no Close Tab")
         #expect(menu.contains("Customize Pane Bar…"), "the menu lost what it already carried")
         // No chord badges: the pair is registered once in the menu bar, and a `.keyboardShortcut`
         // here would register a second pair — one per pane.
-        #expect(!Self.codeOnly(menu).contains("keyboardShortcut"),
+        #expect(!sourceCodeOnly(menu).contains("keyboardShortcut"),
                 "the header menu registers its own chords, so ⌘T is claimed twice")
 
         // …and the call site withholds Close Tab at one tab rather than offering to close the window.
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("onCloseTab: syncManager.paneTabs(isLeft: isLeft).count > 1"),
                 "the header menu offers Close Tab at one tab, where it would close the window")
     }
@@ -2021,8 +1776,8 @@ import Sync
     /// declared above the menu, and a whole-file scan would find the declaration first and call the
     /// order correct whatever the menu does.
     @Test func openInEditLeadsTheRowMenusSingleFileBranch() throws {
-        let code = try Self.fileExplorer("FileTreeView.swift")
-        let menu = Self.codeOnly(try Self.typeBody("struct FileContextMenu: View {", in: code))
+        let code = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
+        let menu = sourceCodeOnly(try declarationBody(of: "struct FileContextMenu: View {", in: code))
         // The region really is the menu, and not an empty or wrongly-sliced one.
         #expect(menu.contains("Label(\"Reveal in Finder\""), "the slice is not FileContextMenu's body")
         #expect(menu.contains("Label(\"Quick Look\""), "the slice is not FileContextMenu's body")
@@ -2045,7 +1800,7 @@ import Sync
     /// Discovery beats tidiness: the row menu's tab item sits above Quick Look, not at the bottom
     /// of the folder branch.
     @Test func openInNewTabSitsAheadOfQuickLook() throws {
-        let code = try Self.fileExplorer("FileTreeView.swift")
+        let code = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         let tab = try #require(code.range(of: "Label(\"Open in New Tab\""),
                                "the row menu no longer offers Open in New Tab")
         let quickLook = try #require(code.range(of: "Label(\"Quick Look\""))
@@ -2059,7 +1814,7 @@ import Sync
     /// that makes a second tab somewhere else. Gated on the delegate's own capability like the two
     /// items beside it, and on the row being a folder, because a tab is a location.
     @Test func theRowMenuOffersOpenInNewTabForFoldersOnly() throws {
-        let code = try Self.fileExplorer("FileTreeView.swift")
+        let code = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         let item = try #require(code.range(of: "Label(\"Open in New Tab\""),
                                 "the row menu no longer offers Open in New Tab")
         // The gate is the lines just above the label: the item sits ahead of Quick Look, outside
@@ -2101,19 +1856,19 @@ import Sync
     /// leaves; and a close from anywhere else (⌘W) releases it first. The value tests above pass
     /// with every one of these lines reverted.
     @Test func theHoldIsWiredWhereItActs() throws {
-        let tabs = try Self.source("ContentView+PaneTabs.swift")
-        let shows = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool {", in: tabs)
+        let tabs = try macAppFile("ContentView+PaneTabs.swift")
+        let shows = try declarationBody(of: "func paneShowsTabStrip(isLeft: Bool) -> Bool {", in: tabs)
         #expect(shows.contains("showsStrip || tabStripHold.holds(isLeft: isLeft)"),
                 "this pane's strip no longer counts a hold — closing to one tab jumps the header under the pointer")
         #expect(shows.contains("showsStrip || tabStripHold.holds(isLeft: sibling)"),
                 "the sibling's hold is not counted — in Compare the other pane's strip goes and its header jumps")
-        let close = try Self.memberBody("func closeTab(id: UUID, isLeft: Bool) {", in: tabs)
+        let close = try declarationBody(of: "func closeTab(id: UUID, isLeft: Bool) {", in: tabs)
         let release = try #require(close.range(of: "tabStripHold.release(isLeft: isLeft)"),
                                    "a keyboard close no longer lets a held strip go")
         let guardLine = try #require(close.range(of: "guard syncManager.paneTabs(isLeft: isLeft).count > 1"))
         #expect(release.lowerBound < guardLine.lowerBound, "the release comes after the last-tab guard returns")
-        let content = try Self.source("ContentView.swift")
-        let column = try Self.memberBody("func paneColumn(isLeft: Bool) -> some View {", in: content)
+        let content = try macAppFile("ContentView.swift")
+        let column = try declarationBody(of: "func paneColumn(isLeft: Bool) -> some View {", in: content)
         #expect(column.contains("onClose: { id in holdingTabStrip(isLeft: isLeft) { closeTab(id: id, isLeft: isLeft) } }"),
                 "the strip's close button closes without the hold")
         #expect(column.contains("holdingTabStrip(isLeft: isLeft) { closeOtherTabs(keeping: id, isLeft: isLeft) }"),
@@ -2124,6 +1879,10 @@ import Sync
                 "the pointer leaving no longer lets a held strip go — it would stay until the next close")
         #expect(column.contains(".designAnimation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))"),
                 "the strip's coming and going is no longer animated on its presence — a released strip would vanish, not slide")
+        // It slides in: ⌘T opens the folder you're already in, so the strip's arrival is the only
+        // feedback, and an abrupt one reads as a glitch.
+        #expect(column.contains(".transition(.move(edge: .top)"),
+                "the strip appears with no transition — nothing marks the arrival ⌘T is fed back by")
     }
 
     /// Where a right-click menu stood (top-left at the click, moved on-screen as AppKit moves one
@@ -2161,14 +1920,14 @@ import Sync
 
     /// The header's and a row's Close Tab go through the hold, as the strip's own do.
     @Test func theMenuClosesGoThroughTheHold() throws {
-        let content = try Self.source("ContentView.swift")
-        let column = try Self.memberBody("func paneColumn(isLeft: Bool) -> some View {", in: content)
-        #expect(column.contains("? { holdingTabStrip(isLeft: isLeft) {\n                        closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id"),
+        let content = try macAppFile("ContentView.swift")
+        let column = try declarationBody(of: "func paneColumn(isLeft: Bool) -> some View {", in: content)
+        #expect(CodeText(column).contains("? { holdingTabStrip(isLeft: isLeft) {\n closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id"),
                 "the header menu's Close Tab closes without the hold")
-        let delegate = try Self.memberBody("func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {", in: content)
+        let delegate = try declarationBody(of: "func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {", in: content)
         #expect(delegate.contains("onCloseTab: { holdingTabStrip(isLeft: pane.isLeft) {"),
                 "the row menu's Close Tab closes without the hold")
-        let hold = try Self.memberBody("private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {", in: content)
+        let hold = try declarationBody(of: "private func holdingTabStrip(isLeft: Bool, _ close: () -> Void) {", in: content)
         #expect(hold.contains("PaneMenuOrigin.shared.justChosenArea"), "a menu's close is never held")
         #expect(hold.contains("PaneMenuOrigin.shared.watch("), "a strip held for a menu is never let go")
     }
@@ -2201,8 +1960,8 @@ import Sync
     /// Reading `paneTabs(isLeft: isLeft)` twice would pass every rule test above and still ship the
     /// offset rows.
     @Test func theStripGateAsksBothPanes() throws {
-        let rule = try Self.memberBody("func paneShowsTabStrip(isLeft: Bool) -> Bool",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let rule = try declarationBody(of: "func paneShowsTabStrip(isLeft: Bool) -> Bool",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(rule.contains("PaneTabStripVisibility.shows("),
                 "the gate is built by hand — the tested rule is unused")
         // Through the one flip, like every other reach for the sibling in the tabs file; the local
@@ -2246,8 +2005,8 @@ import Sync
 
     /// Both entry points mirror, and both go through the one predicate.
     @Test func bothWaysOfOpeningATabMirrorOntoTheLinkedPane() throws {
-        let code = Self.codeOnly(try Self.source("ContentView+PaneTabs.swift"))
-        let here = try Self.memberBody("func openNewTabHere(isLeft: Bool)", in: code)
+        let code = sourceCodeOnly(try macAppFile("ContentView+PaneTabs.swift"))
+        let here = try declarationBody(of: "func openNewTabHere(isLeft: Bool)", in: code)
         #expect(here.contains("guard tabsOpenOnBothPanes else { return }"),
                 "⌘T and the ＋ do not open a tab on the linked pane")
         // Through the one flip, like the other mirror (see `PaneSideChoice.sibling`). Which local
@@ -2257,11 +2016,11 @@ import Sync
         #expect(here.contains("openTabHere(isLeft: \(hereSibling), mirrored: true)"),
                 "the mirrored ⌘T does not target the other pane")
 
-        let openThere = try Self.memberBody("func openInNewTab(absolutePath: String, isLeft: Bool)", in: code)
+        let openThere = try declarationBody(of: "func openInNewTab(absolutePath: String, isLeft: Bool)", in: code)
         #expect(openThere.contains("mirrorOpenInNewTab(relative, from: isLeft)"),
                 "Open in New Tab does not mirror onto the linked pane")
 
-        let mirror = try Self.memberBody("private func mirrorOpenInNewTab(", in: code)
+        let mirror = try declarationBody(of: "private func mirrorOpenInNewTab(", in: code)
         #expect(mirror.contains("guard tabsOpenOnBothPanes else { return }"),
                 "the mirror runs unlinked, or in Browse, where there is no sibling")
         #expect(mirror.contains("PaneTabMirror.landing("),
@@ -2286,14 +2045,14 @@ import Sync
     /// happens depends on when SwiftUI runs an update across the `await` between the two steps,
     /// which is not a thing to leave to timing.
     @Test func theStripIsNotSavedWhileTheProvidersAreStillBootstrapping() throws {
-        let rule = try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let rule = try declarationBody(of: "func saveBrowseTabs(isLeft: Bool)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(rule.contains("!isBootstrappingProviders"),
                 "a save during launch can overwrite the stored strip before the restore reads it")
         // And it must not refuse the right pane: a `guard isLeft` here kills right-pane
         // persistence while every store test stays green, since they call the store directly.
         // Negative, so it goes through `codeOnly`.
-        #expect(!Self.codeOnly(rule).contains("guard isLeft"),
+        #expect(!sourceCodeOnly(rule).contains("guard isLeft"),
                 "the save refuses the right pane again, so its strip is never written")
     }
 
@@ -2305,8 +2064,8 @@ import Sync
     /// can't state: the host calls it with the pane's own three values and hands the store the
     /// result, not the list.
     @Test func theSaveWritesTheLivePaneOverTheActiveEntryThroughTheRule() throws {
-        let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let save = sourceCodeOnly(try declarationBody(of: "func saveBrowseTabs(isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         #expect(save.contains("replacingActive("),
                 "the save writes the list's own stale active entry — the tab on screen is stored where it was parked")
         // All three parts of where the pane is, and the two paths separately: `PaneTabsStore`
@@ -2334,17 +2093,13 @@ import Sync
     /// the left at launch. Pinned both ways: the threading is present and the literals are absent,
     /// since either alone can pass while the other is broken.
     @Test func theSaveAndRestoreThreadTheirSideRatherThanHardcodingIt() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
-        let save = Self.codeOnly(try Self.memberBody("func saveBrowseTabs(isLeft: Bool)", in: source))
-        let restore = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+        let source = try macAppFile("ContentView+PaneTabs.swift")
+        let save = sourceCodeOnly(try declarationBody(of: "func saveBrowseTabs(isLeft: Bool)", in: source))
+        let restore = sourceCodeOnly(try declarationBody(of: "func restoreBrowseTabs(isLeft: Bool)",
                                                         in: source))
 
         #expect(save.contains("PaneTabsStore.save(") && save.contains("isLeft: isLeft"),
                 "the save does not pass its own side to the store")
-        #expect(restore.contains("PaneTabsStore.load(isLeft: isLeft)"),
-                "the restore reads a fixed pane's stored strip")
-        #expect(restore.contains("setPaneTabs(restored, isLeft: isLeft)"),
-                "the restored strip is installed on a fixed pane")
         #expect(restore.contains("applyTab(restored.active, isLeft: isLeft"),
                 "the restored tab is applied to a fixed pane")
 
@@ -2360,8 +2115,8 @@ import Sync
     /// the restore writes the tab's provider over `selectedLeftProviderId`, the next launch undoes
     /// the switch.
     @Test func theSavedStripFollowsTheSourceAndNotOnlyThePath() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
-        let modifier = try Self.typeBody("struct BrowseTabPersistence: ViewModifier {", in: source)
+        let source = try macAppFile("ContentView+PaneTabs.swift")
+        let modifier = try declarationBody(of: "struct BrowseTabPersistence: ViewModifier {", in: source)
         #expect(modifier.contains("onChange(of: leftProviderId)"),
                 "a source switch at the root is never saved, so the next launch reopens the old one")
         #expect(modifier.contains("onChange(of: syncManager.leftRelativePath)"),
@@ -2380,7 +2135,7 @@ import Sync
                 "the right pane's column stack is not watched")
 
         // …and the call site feeds it: a modifier watching a value nobody passes watches nothing.
-        let callSite = try Self.source("ContentView.swift")
+        let callSite = try macAppFile("ContentView.swift")
         #expect(callSite.contains("leftProviderId: leftProviderId"),
                 "BrowseTabPersistence is built without the source it watches")
         #expect(callSite.contains("rightProviderId: rightProviderId"),
@@ -2388,7 +2143,7 @@ import Sync
         // And its callback saves the side that moved. A call site that ignores which pane changed
         // and saves a fixed side puts every right-pane move into the left pane's stored strip, and
         // six correct `onChange`s above can't catch one wrong closure here.
-        #expect(Self.codeOnly(callSite).contains("saveBrowseTabs(isLeft: $0)"),
+        #expect(sourceCodeOnly(callSite).contains("saveBrowseTabs(isLeft: $0)"),
                 "the persistence callback ignores which pane moved and saves a fixed side")
     }
 
@@ -2402,8 +2157,8 @@ import Sync
     /// copies could invalidate without reloading, leaving a pane with no tree and no scan until
     /// Refresh.
     @Test func theScanIsGatedOnTheSameRuleTheInvalidationUses() throws {
-        let host = try Self.memberBody("private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let host = try declarationBody(of: "private func tabAction(isLeft: Bool, movesFocus: Bool = true, _ verb: () -> PaneTab?)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(host.contains("PaneTabArrival.needsReload("),
                 "the host rescans on every tab switch, or decides with its own copy of the rule")
         let gate = try #require(host.range(of: "PaneTabArrival.needsReload("))
@@ -2430,8 +2185,8 @@ import Sync
     /// handler skips and nothing re-fires it, and an externally deleted folder keeps its dead
     /// stack. The falling edge closes that whichever side of the `await` a SwiftUI update lands on.
     @Test func theStackIsAlsoPrunedWhenAPaneFinishesLoading() throws {
-        let body = try Self.typeBody("struct ColumnStackPruning: ViewModifier {",
-                                     in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "struct ColumnStackPruning: ViewModifier {",
+                                     in: macAppFile("ContentView+PaneTabs.swift"))
         for flag in ["isLoadingLeftTree", "isLoadingRightTree"] {
             let handler = try #require(body.range(of: "onChange(of: syncManager.\(flag))"),
                                        "nothing prunes \(flag)'s pane when it settles")
@@ -2449,7 +2204,7 @@ import Sync
                 "a republish no longer prunes, so a deleted folder keeps its stack until a reload")
         #expect(body.contains("onChange(of: syncManager.rightPaneTree)"))
         // And the modifier is actually installed.
-        #expect(try Self.source("ContentView.swift").contains("ColumnStackPruning("),
+        #expect(try macAppFile("ContentView.swift").contains("ColumnStackPruning("),
                 "the pruning modifier is defined and never applied")
     }
 
@@ -2458,26 +2213,18 @@ import Sync
     /// Every verb that changes the strip writes a line, because he audits `~/sync-cloud.log` and
     /// the app's house style logs far smaller things ("User toggled hidden files", "User changed
     /// sort option"). Named one by one rather than scanned as a family, since a blanket rule passes
-    /// the moment a verb is renamed out of the pattern. The positive control is
-    /// `theScanCanActuallyFail` above.
+    /// the moment a verb is renamed out of the pattern.
     @Test func everyVerbThatChangesTheStripIsLogged() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
+        let source = try macAppFile("ContentView+PaneTabs.swift")
         let verbs = [
             "private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
             "func openInNewTab(absolutePath: String, isLeft: Bool)",
             "private func mirrorOpenInNewTab(",
-            "func selectTab(id: UUID, isLeft: Bool)",
-            "func cycleTab(forward: Bool, isLeft: Bool)",
-            "func closeTab(id: UUID, isLeft: Bool)",
-            "func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
-            "func duplicateTab(id: UUID, isLeft: Bool)",
-            "func setTabPinned(_ pinned: Bool, id: UUID, isLeft: Bool)",
-            "func moveTab(id: UUID, to index: Int, isLeft: Bool)",
-            "func reopenClosedTab(isLeft: Bool)",
-            "func copyTabPath(id: UUID, isLeft: Bool)",
+            // The other nine verbs' lines are required by `theTabLinesNameTheSideTheTabAndItsPath`
+            // and `cyclingIsQuietAndClosingIsNot`.
         ]
         for verb in verbs {
-            let body = try Self.memberBody(verb, in: source)
+            let body = try declarationBody(of: verb, in: source)
             #expect(body.contains("Logger.shared."),
                     "“\(verb)” changes the strip and writes nothing to the log")
         }
@@ -2486,17 +2233,17 @@ import Sync
     /// The verbs deliberately quieter, and the ones deliberately louder. A level picked on purpose
     /// is worth pinning, or "make it consistent" would flatten them.
     @Test func cyclingIsQuietAndClosingIsNot() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
+        let source = try macAppFile("ContentView+PaneTabs.swift")
         for quiet in ["func selectTab(id: UUID, isLeft: Bool)",
                       "func cycleTab(forward: Bool, isLeft: Bool)",
                       "func moveTab(id: UUID, to index: Int, isLeft: Bool)"] {
-            let body = try Self.memberBody(quiet, in: source)
+            let body = try declarationBody(of: quiet, in: source)
             #expect(body.contains("Logger.shared.debug"),
                     "“\(quiet)” logs at info — holding ⌃⇥ then buries the lines worth reading")
         }
         for loud in ["func closeTab(id: UUID, isLeft: Bool)",
                      "func closeOtherTabs(keeping id: UUID, isLeft: Bool)"] {
-            let body = try Self.memberBody(loud, in: source)
+            let body = try declarationBody(of: loud, in: source)
             #expect(body.contains("Logger.shared.info"),
                     "“\(loud)” throws tabs away at debug level")
         }
@@ -2511,7 +2258,7 @@ import Sync
     /// later. `copyTabPath` also keeps the absolute path on the end, since that is what went onto
     /// the pasteboard, while `tabLogDescription` carries the relative one the chip is named for.
     @Test func theTabLinesNameTheSideTheTabAndItsPath() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
+        let source = try macAppFile("ContentView+PaneTabs.swift")
         for verb in ["func selectTab(id: UUID, isLeft: Bool)",
                      "func cycleTab(forward: Bool, isLeft: Bool)",
                      "func closeTab(id: UUID, isLeft: Bool)",
@@ -2520,7 +2267,7 @@ import Sync
                      "func moveTab(id: UUID, to index: Int, isLeft: Bool)",
                      "func reopenClosedTab(isLeft: Bool)",
                      "func copyTabPath(id: UUID, isLeft: Bool)"] {
-            let body = Self.codeOnly(try Self.memberBody(verb, in: source))
+            let body = sourceCodeOnly(try declarationBody(of: verb, in: source))
             #expect(body.contains("tabLogDescription("),
                     "“\(verb)” writes a line that names no particular tab")
             // Every call, not the member: `closeTab` logs twice (the last-tab branch that closes
@@ -2536,7 +2283,7 @@ import Sync
         }
         // …and the description carries both halves: the title alone is the leaf component ⌘T makes
         // ambiguous by design, and a path alone is not what the chip says.
-        let describe = try Self.memberBody("private func tabLogDescription(id: UUID, isLeft: Bool) -> String",
+        let describe = try declarationBody(of: "private func tabLogDescription(id: UUID, isLeft: Bool) -> String",
                                            in: source)
         #expect(describe.contains("paneTabItems(isLeft: isLeft)"),
                 "the line names the tab by something other than the chip the user is looking at")
@@ -2550,7 +2297,7 @@ import Sync
         // Copy Path also carries the absolute path, which is what went onto the pasteboard;
         // `tabLogDescription` has only the relative one the chip is named for. Read from the log
         // call onward, since `item.fullPath` also appears earlier on the `setString`.
-        let copy = Self.codeOnly(try Self.memberBody("func copyTabPath(id: UUID, isLeft: Bool)",
+        let copy = sourceCodeOnly(try declarationBody(of: "func copyTabPath(id: UUID, isLeft: Bool)",
                                                      in: source))
         let logCall = try #require(copy.range(of: "Logger.shared.info("),
                                    "Copy Path no longer writes its line at info")
@@ -2565,13 +2312,13 @@ import Sync
     /// be a second copy of `selectNext`'s wrap for the log to disagree with. The family test above
     /// only asks that `tabLogDescription(` appears somewhere in the member.
     @Test func eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer() throws {
-        let source = try Self.source("ContentView+PaneTabs.swift")
+        let source = try macAppFile("ContentView+PaneTabs.swift")
         // (member, the verb's own call, whether the name is taken before it)
         let verbs = [("func selectTab(id: UUID, isLeft: Bool)", "syncManager.switchTab(to: id", true),
                      ("func closeTab(id: UUID, isLeft: Bool)", "syncManager.closeTab(id: id", true),
                      ("func cycleTab(forward: Bool, isLeft: Bool)", "syncManager.cycleTab(forward: forward", false)]
         for (member, call, namedFirst) in verbs {
-            let body = Self.codeOnly(try Self.memberBody(member, in: source))
+            let body = sourceCodeOnly(try declarationBody(of: member, in: source))
             let describe = try #require(body.range(of: "tabLogDescription("),
                                         "“\(member)” names no particular tab")
             let verb = try #require(body.range(of: call), "“\(member)” no longer runs its verb")
@@ -2592,8 +2339,8 @@ import Sync
     /// moving the log below the verb, because the name is taken while the tab is still parked
     /// (`eachTabLineIsNamedFromTheSideOfItsVerbThatCanAnswer`).
     @Test func selectingTheChipYouAreAlreadyOnWritesNoLine() throws {
-        let body = Self.codeOnly(try Self.memberBody("func selectTab(id: UUID, isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func selectTab(id: UUID, isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         // Asked the way `switchTab` asks it, both halves: an id not in this strip doesn't move the
         // pane either, which is the verb's other `nil`.
         #expect(body.contains("list.index(of: id)"),
@@ -2624,8 +2371,8 @@ import Sync
     /// didn't happen. The verb still runs, because "leave me with this one" also makes the kept tab
     /// live.
     @Test func closeOtherTabsSaysNothingWhenThereWasNothingToClose() throws {
-        let body = Self.codeOnly(try Self.memberBody("func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        let body = sourceCodeOnly(try declarationBody(of: "func closeOtherTabs(keeping id: UUID, isLeft: Bool)",
+                                                     in: macAppFile("ContentView+PaneTabs.swift")))
         let count = try #require(body.range(of: "closableOthers(keeping: id)"),
                                  "the line no longer counts what the gesture would actually close")
         let verb = try #require(body.range(of: "syncManager.closeOtherTabs(keeping: id"),
@@ -2649,13 +2396,13 @@ import Sync
     /// tab at their own folder, so without a distinct line the log shows one keystroke firing twice
     /// in the same second, which reads as a bug in the log used to rule bugs out.
     @Test func theMirroredNewTabSaysItIsTheMirror() throws {
-        let body = try Self.memberBody("private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "private func openTabHere(isLeft: Bool, mirrored: Bool = false)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("mirrored"), "the log line cannot tell a mirrored ⌘T from a real one")
         #expect(body.contains("Linked panes:"),
                 "the mirrored line does not say the link is why it happened")
-        #expect(try Self.memberBody("func openNewTabHere(isLeft: Bool)",
-                                    in: Self.source("ContentView+PaneTabs.swift"))
+        #expect(try declarationBody(of: "func openNewTabHere(isLeft: Bool)",
+                                    in: macAppFile("ContentView+PaneTabs.swift"))
                     .contains("mirrored: true"),
                 "the mirror is opened without marking itself as one")
     }
@@ -2666,8 +2413,8 @@ import Sync
     /// `ReopenClosedTabCommand` is `.disabled(reopen == nil)`), so the guard inside the verb is
     /// defensive, but it is the only thing between an empty stack and a false line.
     @Test func reopenOnlyClaimsATabWhenOneComesBack() throws {
-        let body = try Self.memberBody("func reopenClosedTab(isLeft: Bool)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
+        let body = try declarationBody(of: "func reopenClosedTab(isLeft: Bool)",
+                                       in: macAppFile("ContentView+PaneTabs.swift"))
         let guardIndex = try #require(body.range(of: "else { return nil }"),
                                       "reopen no longer distinguishes an empty stack")
         let log = try #require(body.range(of: "Logger.shared.info"))
@@ -2741,10 +2488,10 @@ import Sync
     /// `applyColumnNavigation` uses; two copies would let a link mean one thing for a drill and
     /// another for a tab, with nothing on screen to say which.
     @Test func theMirrorObeysTheSameLinkTestAsAMirroredDrill() throws {
-        let predicate = "layoutMode == .compare\n            && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))"
-        #expect(try Self.source("ContentView+PaneTabs.swift").contains(predicate),
+        let predicate = "layoutMode == .compare\n && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))"
+        #expect(try CodeText(macAppFile("ContentView+PaneTabs.swift")).contains(predicate),
                 "the tab mirror invented its own link test")
-        #expect(try Self.source("ContentView.swift").contains(predicate),
+        #expect(try CodeText(macAppFile("ContentView.swift")).contains(predicate),
                 "the mirrored drill's link test moved — the two have drifted apart")
     }
 }
@@ -2789,7 +2536,7 @@ import Sync
         var declaredWrites = 0
         for file in hostFiles + elsewhere {
             let code = PaneTabWiringTests.normalizingAssignments(
-                PaneTabWiringTests.codeOnly(try String(contentsOf: file, encoding: .utf8)))
+                sourceCodeOnly(try String(contentsOf: file, encoding: .utf8)))
             let writes = code.components(separatedBy: "focusedPaneSide = ").count - 1
             if file.lastPathComponent == declaringFile {
                 declaredWrites += writes

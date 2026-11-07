@@ -14,16 +14,6 @@ import Testing
 @MainActor
 @Suite struct SetupReadingHandOverTests {
 
-    /// Polls `condition` until it holds or `seconds` pass, and says which.
-    private func waitUntil(seconds: Double, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return condition()
-    }
-
     private final class Machine {
         var hot = true
         /// Hot once this many documents are read, when set — so a reading stands paused part-way.
@@ -95,6 +85,25 @@ import Testing
             })
         }
 
+        /// Setup's model over this engine, its Save attaching here and starting the reading here.
+        func model(settings: SettingsManager, hasFilingProfile: Bool = false) -> SetupModel {
+            SetupModel(settings: settings, peopleStore: nil, syncManager: engine,
+                       hasFilingProfile: hasFilingProfile,
+                       defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
+                       onProfileWritten: { self.attach() },
+                       onStartSurvey: { self.startReading($0) })
+        }
+
+        /// A folder `Elsewhere` beside Documents, holding one tax "document" of `text`.
+        func elsewhere(_ text: String) throws -> URL {
+            let folder = root.appendingPathComponent("Elsewhere")
+            let url = folder.appendingPathComponent("Taxes/2023/w2.pdf")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+            return folder
+        }
+
         func corpusExists(in profileId: String) -> Bool {
             FileManager.default.fileExists(
                 atPath: profiles.appendingPathComponent("\(profileId)/filing-corpus.json").path)
@@ -120,11 +129,7 @@ import Testing
     func aSecondSaveCarriesTheReadingIntoTheNewProfile() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let model = SetupModel(settings: await settings(), peopleStore: nil,
-                               syncManager: fixture.engine, hasFilingProfile: false,
-                               defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
-                               onProfileWritten: { fixture.attach() },
-                               onStartSurvey: { fixture.startReading($0) })
+        let model = fixture.model(settings: await settings())
         fixture.machine.hotAfter = 2
         model.changeWalkRoot(to: fixture.documents, thenLearn: true)
         await model.lastWalk?.value
@@ -135,9 +140,9 @@ import Testing
         #expect(await model.save(), "premise: the first Save wrote")
         let first = try #require(model.writtenReport?.profileId)
         #expect(fixture.starts.count == 1, "premise: the first Save started the reading")
-        #expect(await waitUntil(seconds: 90) {
+        await waitUntil("premise: the reading never got under way, so the rest proves nothing", timeout: 90) {
             fixture.engine.documentSurveyProgress?.pause == .thermal
-        }, "premise: the reading never got under way, so the rest proves nothing")
+        }
 
         model.toggleCountry("IN")
         #expect(await model.save(), "premise: the second Save wrote")
@@ -176,27 +181,19 @@ import Testing
     func aSaveOfAnotherFolderStartsNoReadingItWasNotAskedFor() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let elsewhere = fixture.root.appendingPathComponent("Elsewhere")
-        let url = elsewhere.appendingPathComponent("Taxes/2023/w2.pdf")
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data("Wage and tax statement for the year, from the employer to the employee, with "
-                 .appending("the amounts withheld for federal and state income tax.").utf8).write(to: url)
+        let elsewhere = try fixture.elsewhere("Wage and tax statement for the year, from the employer to the "
+                                              + "employee, with the amounts withheld for federal and state income tax.")
         _ = try FilingProfileStore.writeProfile(
             FolderProfile(profileId: "walk-elsewhere", root: elsewhere.path, folders: [:],
                           personTokens: []),
             in: fixture.profiles)
         fixture.attach()
         fixture.startReading(elsewhere)
-        #expect(await waitUntil(seconds: 90) {
+        await waitUntil("premise: the reading of Elsewhere never got under way", timeout: 90) {
             fixture.engine.documentSurveyProgress?.pause == .thermal
-        }, "premise: the reading of Elsewhere never got under way")
+        }
 
-        let model = SetupModel(settings: await settings(), peopleStore: nil,
-                               syncManager: fixture.engine, hasFilingProfile: true,
-                               defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
-                               onProfileWritten: { fixture.attach() },
-                               onStartSurvey: { fixture.startReading($0) })
+        let model = fixture.model(settings: await settings(), hasFilingProfile: true)
         model.changeWalkRoot(to: fixture.documents, thenLearn: true)
         await model.lastWalk?.value
         try #require(model.walkState.isDone, "premise: the folder was read")
@@ -292,12 +289,8 @@ import Testing
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         fixture.machine.hot = false
-        let elsewhere = fixture.root.appendingPathComponent("Elsewhere")
-        let url = elsewhere.appendingPathComponent("Taxes/2023/w2.pdf")
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data("Wage and tax statement for the year, from the employer to the employee, with the amounts withheld.".utf8)
-            .write(to: url)
+        let elsewhere = try fixture.elsewhere(
+            "Wage and tax statement for the year, from the employer to the employee, with the amounts withheld.")
         _ = try FilingProfileStore.writeProfile(
             FolderProfile(profileId: "walk-old", root: fixture.documents.path, folders: [:],
                           personTokens: []),
@@ -354,18 +347,14 @@ import Testing
             return try? String(contentsOfFile: path, encoding: .utf8)
         }
         fixture.engine.documentSurveyStopWait = .milliseconds(300)
-        let model = SetupModel(settings: await settings(), peopleStore: nil,
-                               syncManager: fixture.engine, hasFilingProfile: false,
-                               defaults: ScratchDefaults("setup-handover-d"), draftURL: nil,
-                               onProfileWritten: { fixture.attach() },
-                               onStartSurvey: { fixture.startReading($0) })
+        let model = fixture.model(settings: await settings())
         model.changeWalkRoot(to: fixture.documents, thenLearn: true)
         await model.lastWalk?.value
         try #require(model.walkState.isDone, "premise: the folder was read")
         model.confirmedCountries = ["US"]
         #expect(await model.save(), "premise: the first Save wrote")
         let first = try #require(model.writtenReport?.profileId)
-        #expect(await waitUntil(seconds: 90) { gate.entered }, "premise: no document read began")
+        await waitUntil("premise: no document read began", timeout: 90) { gate.entered }
 
         model.toggleCountry("IN")
         let wrote = await model.save()

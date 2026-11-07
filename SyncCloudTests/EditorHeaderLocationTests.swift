@@ -326,11 +326,11 @@ import FileExplorer
     /// animation. The animation is keyed on the strip alone: `sourcePaneShowsTabStrip` also flips
     /// on a fold, which must snap.
     @Test func theDocumentColumnIsToldAboutThePanesTabStrip() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         #expect(try CallArguments(of: "EditorWorkspaceView(", in: sourceCodeOnly(editor))
                     .passes("paneShowsTabStrip", "sourcePaneShowsTabStrip"),
                 "the workspace is not told whether the pane draws its tab strip")
-        let tabs = CodeText(try OpenInEditorMenuTests.macApp("ContentView+PaneTabs.swift"))
+        let tabs = CodeText(try macAppFile("ContentView+PaneTabs.swift"))
         #expect(tabs.contains("!panesHiddenForCurrentTab && paneShowsTabStrip(isLeft: true)"),
                 "the strip's presence is not the LEFT pane's own rule, gated on the pane being open")
         #expect(CodeText(editor).contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)"),
@@ -343,11 +343,11 @@ import FileExplorer
     /// predicate (so a collapsed rail leaves no slot), and the workspace moves with the strip's
     /// curve.
     @Test func theLensIsToldAboutThePanesTabStrip() throws {
-        let content = sourceCodeOnly(try OpenInEditorMenuTests.macApp("ContentView.swift"))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(try CallArguments(of: "LensWorkspaceView(", in: content)
                     .passes("paneShowsTabStrip", "sourcePaneShowsTabStrip"),
                 "the lens is not told whether the pane draws its tab strip")
-        let split = CodeText(try OpenInEditorMenuTests.macApp("ContentView+SplitLayout.swift"))
+        let split = CodeText(try macAppFile("ContentView+SplitLayout.swift"))
         #expect(split.contains(".designAnimation(.easeOut(duration: 0.18), value: sourcePaneStripIgnoringFold)"),
                 "the lens column does not move with the strip's own animation")
     }
@@ -364,7 +364,7 @@ import FileExplorer
     /// Each argument is read by its label on the call it belongs to (``CallArguments``), so an
     /// argument's position or a call's line breaks don't matter.
     @Test func theHeaderIsWiredToTheRealDoors() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         let code = sourceCodeOnly(editor)
         let workspace = try CallArguments(of: "EditorWorkspaceView(", in: code)
         #expect(workspace.passes("location", "editorDocumentLocation"),
@@ -398,7 +398,7 @@ import FileExplorer
         #expect(location.passes("paneFolder", "editorFolder"),
                 "the empty page's location is not the folder ⌘N creates in")
 
-        let doors = sourceCodeOnly(try OpenInEditorMenuTests.macApp("EditorLocationDoors.swift"))
+        let doors = sourceCodeOnly(try macAppFile("EditorLocationDoors.swift"))
         let start = try #require(doors.range(of: "struct EditorLocationDoors {"))
         // Comments stripped: the body's own comments explain why `openInEditor` is not reached,
         // and a scan matching them would report the explanation as the call. Read to the end of
@@ -418,7 +418,7 @@ import FileExplorer
     /// `goTo`, the crumbs' route. Fails with `onGoToFolder: nil`, or a trail built from another
     /// folder.
     @Test func theRailsFolderMenuIsWiredToTheRealPane() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         let code = sourceCodeOnly(editor)
         let workspace = try CallArguments(of: "EditorWorkspaceView(", in: code)
         #expect(workspace.passes("folderTrail", "editorFolderTrail"),

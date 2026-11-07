@@ -13,37 +13,11 @@ import Foundation
 /// instantiated here and a re-implementation could agree with itself while disagreeing with the app.
 @Suite struct FolderSidebarCardTests {
 
-    static func source(_ relative: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent(relative)
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read \(relative) — this scan would be vacuous")
-        try #require(raw.count > 3000, "\(relative) is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func source(_ relative: String) throws -> String { sourceCodeOnly(try repoFile(relative)) }
 
     static func sidebarSource() throws -> String { try source("MacApp/ContentView+FolderSidebar.swift") }
     static func hostSource() throws -> String { try source("MacApp/ContentView.swift") }
     static func layoutSource() throws -> String { try source("MacApp/ContentView+SplitLayout.swift") }
-
-    /// The scan reads something: symbols that are definitely there must be found.
-    @Test func theScansCanSeeKnownSymbols() throws {
-        #expect(try Self.sidebarSource().contains("func folderSidebar(width:"))
-        #expect(try Self.hostSource().contains("var infoInspector:"))
-        #expect(try Self.layoutSource().contains("func folderSidebarResizeHandle(displayedWidth:"))
-    }
-
-    /// The one line that makes it a card at all.
-    @Test func theSidebarIsFramedAsACard() throws {
-        #expect(try Self.sidebarSource().contains(".bottomSectionCard("),
-                "the sidebar is not framed as a card — it draws flush against the pane again")
-    }
 
     /// The same call, argument for argument, so a change of surface style, glass level, hue or tint
     /// reaches both panels or neither. Comparing the call text catches the half-edit: a hue passed to
@@ -72,7 +46,7 @@ import Foundation
     /// isn't a `Divider` either.
     @Test func theSeamIsAClearStripRatherThanADivider() throws {
         let code = try Self.layoutSource()
-        let handle = try #require(Self.declaration(of: "func folderSidebarResizeHandle(", in: code))
+        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: code)
         #expect(!handle.contains("Divider()"),
                 "the sidebar seam draws a rule again, inside the card gutter")
         // Matched on the named constant, `PaneLogic.sidebarSeamWidth`, which the lens and Compare
@@ -86,8 +60,7 @@ import Foundation
     /// `onHover` leaks a pushed cursor if the column hides mid-hover (⌃⌘S is one keystroke away), and
     /// a hand-picked pointer drifts from the `.columnResize` every other seam shows.
     @Test func theSeamUsesTheSharedResizeHandle() throws {
-        let handle = try #require(Self.declaration(of: "func folderSidebarResizeHandle(",
-                                                   in: try Self.layoutSource()))
+        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try Self.layoutSource())
         #expect(handle.contains("ResizeHandle("),
                 "the sidebar seam hand-rolls its resize gesture again")
         #expect(!handle.contains("NSCursor"),
@@ -98,22 +71,11 @@ import Foundation
 
     /// The drag clamps to the column's own bounds and never closes it.
     @Test func theDragStillClampsToTheColumnsBounds() throws {
-        let handle = try #require(Self.declaration(of: "func folderSidebarResizeHandle(",
-                                                   in: try Self.layoutSource()))
+        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try Self.layoutSource())
         #expect(handle.contains("FolderSidebarView.minWidth"))
         #expect(handle.contains("FolderSidebarView.maxWidth"))
         #expect(handle.contains("folderSidebarDragOrigin"),
                 "the drag reads the live width rather than the width it started from, so the column runs away from the pointer")
-    }
-
-    /// Text from the named declaration to the start of the next one, so an assertion about one
-    /// member can't match a neighbour's body.
-    static func declaration(of name: String, in code: String) -> String? {
-        guard let start = code.range(of: name) else { return nil }
-        let rest = code[start.upperBound...]
-        guard let next = rest.range(of: "\n    var ") ?? rest.range(of: "\n    func ")
-                ?? rest.range(of: "\n    private ") else { return String(rest) }
-        return String(rest[..<next.lowerBound])
     }
 
     // MARK: - Geometry

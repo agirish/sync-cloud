@@ -10,25 +10,7 @@ import Foundation
 /// built here.
 @Suite struct PartialComparisonBannerTests {
 
-    static func appSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(raw.count > 5000, "ContentView.swift is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    @Test func theScanCanSeeTheBottomPaneAtAll() throws {
-        #expect(try Self.appSource().contains("var bottomPaneView: some View"),
-                "the scan cannot see the host, so nothing below means anything")
-    }
+    static func appSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// The banner is mounted in the pane that holds the differences table, not somewhere the user has
     /// to go looking.

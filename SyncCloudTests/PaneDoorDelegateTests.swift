@@ -11,12 +11,7 @@ import Sync
 @Suite struct PaneDoorDelegateTests {
 
     private func delegate(syncManager: FileSyncManager, settings: SettingsManager) -> PaneActionDelegate {
-        PaneActionDelegate(
-            handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [], onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        paneDelegate(syncManager: syncManager, settings: settings)
     }
 
     /// The protocol's defaults offer nothing, so a conformer with no workspace behind it (every
@@ -69,14 +64,6 @@ import Sync
         #expect(asked.map(\.1) == [["/a/One.pdf", "/a/Two.pdf"], ["/a/One.pdf"]])
     }
 
-    /// A real pane does offer Find Duplicates and Organize, so the stub test above can't pass by
-    /// the items being gated off everywhere.
-    @Test func aRealPaneOffersTheDuplicatesDoor() {
-        let d = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
-        #expect(d.canFindDuplicates)
-        #expect(d.canOrganizeFolder)
-    }
-
     /// The dispatch trap, through an existential. Every caller reaches the delegate through
     /// `FileActionDelegate`, so a member declared only in the protocol extension dispatches
     /// statically to the default and the conformer's override is never reached; the menu just
@@ -86,6 +73,9 @@ import Sync
         let existential: FileActionDelegate = concrete
         #expect(existential.canOrganizeFolder,
                 "the real pane's answer did not survive the existential — the member is extension-only and dispatching to the default")
+        // A real pane does offer Find Duplicates too, so the stub test above can't pass by the
+        // items being gated off everywhere.
+        #expect(existential.canFindDuplicates)
     }
 
     /// Files never reach the Organize handoff: "where do the loose files in here belong" means
@@ -94,12 +84,8 @@ import Sync
     @Test func theOrganizeHandoffIgnoresFiles() {
         var asked: [String] = []
         let base = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
-        let d = PaneActionDelegate(
-            handler: nil, syncManager: base.syncManager, settings: base.settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        let d = paneDelegate(syncManager: base.syncManager, settings: base.settings,
+                             onOrganizeFolder: { asked.append($0.id) })
 
         d.handleOrganizeFolder(FileNode(id: "/Users/u/Projects/a.txt", name: "a.txt",
                                         isDirectory: false, children: nil))
@@ -116,12 +102,8 @@ import Sync
     @Test func theDuplicatesHandoffIgnoresFolders() {
         var asked: [String] = []
         var d = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
-        d = PaneActionDelegate(
-            handler: nil, syncManager: d.syncManager, settings: d.settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        d = paneDelegate(syncManager: d.syncManager, settings: d.settings,
+                         onFindDuplicatesOf: { asked.append($0.id) })
 
         d.handleFindDuplicates(FileNode(id: "/Users/u/Projects", name: "Projects",
                                         isDirectory: true, children: []))

@@ -11,21 +11,11 @@ import Sync
 /// so a Settings-side test can't see it.
 @Suite struct PeopleShowFilesWiringTests {
 
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scans would be near-vacuous")
-        return text
-    }
-
     /// The sheet hands People's button the gather, and closes itself first. Without `onShowPerson`
     /// the row has no button; without `showSettings = false` the gather lands behind the modal sheet
     /// and the click appears to do nothing.
     @Test func theSettingsSheetHandsPeopleTheGather() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         let code = sourceCodeOnly(content)
         #expect(code.contains("onShowPerson:"),
                 "SettingsView is built without onShowPerson — People's rows draw no Show Their Files button")
@@ -46,7 +36,7 @@ import Sync
     /// one in `recordPersonVerdict`, which rewrites a scope already on screen. A sixth must justify
     /// itself here.
     @Test func thereIsStillOnlyOneDoorOntoTheGather() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         let code = sourceCodeOnly(content)
         #expect(code.contains("func acceptPersonScope"),
                 "stripping comments emptied the file — the count below would be meaningless")

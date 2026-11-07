@@ -8,45 +8,25 @@ import Testing
 /// width" is wrong by a factor of two, and reads as lag rather than a bug: the grip drifts at half
 /// the pointer's speed. `HelpView` can't be built in a test, so the rule is a type of its own
 /// rather than an untestable clamp inline.
-@Suite(.machinePinned(.layoutMetrics)) struct HelpCardSizeTests {
+@Suite struct HelpCardSizeTests {
 
     static let room = CGSize(width: 2000, height: 1400)
 
     // MARK: The doubling
 
-    /// Dragging the trailing edge 10pt right moves that edge 10pt right, which on a centred card is
-    /// 20pt of width.
-    @Test func aDragMovesTheGripItHasHoldOf() {
-        let size = HelpCardSize.resized(from: CGSize(width: 760, height: 520),
-                                        by: CGSize(width: 10, height: 0),
-                                        grip: .trailing, within: Self.room)
-        #expect(size.width == 780)
-        #expect(size.height == 520, "a horizontal grip moved the height")
-    }
-
-    /// The leading edge is the mirror: dragging it right makes the card narrower.
-    @Test func theTwoSidesMoveInOppositeDirections() {
-        let start = CGSize(width: 760, height: 520)
-        let out = HelpCardSize.resized(from: start, by: CGSize(width: 10, height: 0),
-                                       grip: .leading, within: Self.room)
-        #expect(out.width == 740)
-    }
-
-    /// Same for top against bottom.
-    @Test func theTopAndBottomMoveInOppositeDirections() {
-        let start = CGSize(width: 760, height: 520)
-        let down = CGSize(width: 0, height: 10)
-        #expect(HelpCardSize.resized(from: start, by: down, grip: .bottom, within: Self.room).height == 540)
-        #expect(HelpCardSize.resized(from: start, by: down, grip: .top, within: Self.room).height == 500)
-    }
-
-    /// A corner moves both, and each axis by its own translation.
-    @Test func aCornerMovesBothAxes() {
-        let size = HelpCardSize.resized(from: CGSize(width: 760, height: 520),
-                                        by: CGSize(width: 10, height: 20),
-                                        grip: .bottomTrailing, within: Self.room)
-        #expect(size.width == 780)
-        #expect(size.height == 560)
+    /// `(grip, drag, size)` from 760×520. Dragging the trailing edge 10pt right moves that edge
+    /// 10pt right, which on a centred card is 20pt of width; the leading edge is the mirror, and
+    /// top against bottom the same; a corner moves both, each axis by its own translation.
+    @Test(arguments: [
+        (HelpCardGrip.trailing, CGSize(width: 10, height: 0), CGSize(width: 780, height: 520)),
+        (.leading, CGSize(width: 10, height: 0), CGSize(width: 740, height: 520)),
+        (.bottom, CGSize(width: 0, height: 10), CGSize(width: 760, height: 540)),
+        (.top, CGSize(width: 0, height: 10), CGSize(width: 760, height: 500)),
+        (.bottomTrailing, CGSize(width: 10, height: 20), CGSize(width: 780, height: 560)),
+    ])
+    func aDragMovesTheGripItHasHoldOf(grip: HelpCardGrip, by drag: CGSize, expected: CGSize) {
+        #expect(HelpCardSize.resized(from: CGSize(width: 760, height: 520), by: drag,
+                                     grip: grip, within: Self.room) == expected)
     }
 
     /// Every grip moves exactly the axes it names. A walk over `allCases`, not eight assertions, so
@@ -125,8 +105,7 @@ import Testing
     /// The rule is the one the card actually uses; uncalled, this file would go on passing. Scanned,
     /// because `HelpView` can't be constructed in a test.
     @Test func theCardResolvesItsSizeThroughTheRule() throws {
-        let source = try String(contentsOf: macAppDirectory().appendingPathComponent("HelpBook.swift"),
-                                encoding: .utf8)
+        let source = try macAppFile("HelpBook.swift")
         let body = try declarationBody(of: "private var baseSize: CGSize", in: source)
         #expect(body.contains("HelpCardSize.clamped"),
                 "the card no longer resolves its size through the clamp")
@@ -145,7 +124,7 @@ import Testing
     /// `defaultAppStorage` redirects the card's `@AppStorage` into a scratch suite: the test host is
     /// the app, and would otherwise read and write the real preference.
     @MainActor
-    @Test func theCardLaysOutAtTheSizeTheRuleGivesIt() {
+    @Test(.machinePinned(.layoutMetrics)) func theCardLaysOutAtTheSizeTheRuleGivesIt() {
         let store = TestDefaults()
         store.defaults.set(1200.0, forKey: HelpCardSize.widthDefaultsKey)
         store.defaults.set(900.0, forKey: HelpCardSize.heightDefaultsKey)
@@ -172,8 +151,7 @@ import Testing
     /// Every grip is wired, not just declared: a `HelpCardGrip` case with no handle is a side of the
     /// card that silently can't be dragged.
     @Test func everyGripHasAHandleOnTheCard() throws {
-        let source = try String(contentsOf: macAppDirectory().appendingPathComponent("HelpBook.swift"),
-                                encoding: .utf8)
+        let source = try macAppFile("HelpBook.swift")
         let handles = try declarationBody(of: "private var resizeHandles: some View", in: source)
         for grip in HelpCardGrip.allCases {
             #expect(handles.contains(".\(grip)"), "no handle draws the \(grip) grip")

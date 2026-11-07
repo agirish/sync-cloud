@@ -15,8 +15,7 @@ import Foundation
     /// Bar, and the two free alternatives both carry ⌥, which fires through the ⌥-hold reveal
     /// (`AppChordTests`). A chord added here later has to argue with this test.
     @Test func theViewMenuCarriesTheStatusBarSwitch() throws {
-        let view = try #require(NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu,
-                                "the app has no View menu")
+        let view = try appMenu("View")
         let titles = view.items.map(\.title).filter { !$0.isEmpty }
         let status = try #require(titles.firstIndex(of: "Status Bar"), "View ▸ Status Bar is gone")
         let tabBar = try #require(titles.firstIndex(of: "Tab Bar"))
@@ -41,7 +40,7 @@ import Foundation
     /// eleventh added loose would drop an item off the menu with nothing failing.
     @Test func theViewMenusBuilderStaysWithinItsTenChildren() throws {
         let group = try Self.slice(from: "CommandGroup(after: .sidebar) {", to: "\n            }\n",
-                                   in: try Self.source("SyncCloudApp.swift"))
+                                   in: try macAppFile("SyncCloudApp.swift"))
         let children = group.split(separator: "\n")
             .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -58,7 +57,7 @@ import Foundation
     /// appear on four surfaces, and Compare's two panes want two answers that one strip can't give.
     /// The scan reads structure because asking a rendered Compare needs the whole window.
     @Test func theBarIsBuiltForBrowseAndNotInTheSharedPaneColumn() throws {
-        let layout = try Self.source("ContentView+SplitLayout.swift")
+        let layout = try macAppFile("ContentView+SplitLayout.swift")
         let browse = try Self.slice(from: "func browseLayout(geo: GeometryProxy) -> some View {",
                                     to: "\n    }\n", in: layout)
         #expect(browse.contains("browseStatusBar"), "browseLayout no longer builds the status bar")
@@ -76,7 +75,7 @@ import Foundation
 
         // And it is not reached from the shared pane builder by another name.
         let column = try Self.slice(from: "func paneColumn(isLeft: Bool) -> some View {",
-                                    to: "\n    }\n", in: try Self.source("ContentView.swift"))
+                                    to: "\n    }\n", in: try macAppFile("ContentView.swift"))
         #expect(!column.contains("browseStatusBar") && !column.contains("StatusBar"),
                 "paneColumn draws a status bar — it is shared with Compare and the lens rail")
     }
@@ -85,7 +84,7 @@ import Foundation
     /// sidebar's rule: a ticked switch on Compare would describe a strip that surface does not draw.
     @Test func theSwitchIsLiveOnBrowseAndNowhereElse() throws {
         let body = try Self.slice(from: "var shortcutStatusBar: Binding<Bool>? {", to: "\n    }\n",
-                                  in: try Self.source("ShortcutCommands.swift"))
+                                  in: try macAppFile("ShortcutCommands.swift"))
         #expect(body.contains("selectedWorkspace == .browse"),
                 "the switch no longer gates on the one workspace that draws the bar")
     }
@@ -96,7 +95,7 @@ import Foundation
     /// else to put, where a tab bar restates a folder name the header already shows. The key is its
     /// own: reusing `browseTabBarVisible` would tie two switches together.
     @Test func theStatusBarPreferenceDefaultsOnAndKeepsItsOwnKey() throws {
-        let source = try Self.source("ContentView.swift")
+        let source = try macAppFile("ContentView.swift")
         #expect(source.contains(#"@AppStorage(BrowseWindowSettings.statusBarVisibleKey) var statusBarVisible: Bool = BrowseWindowSettings.statusBarVisibleDefault"#)
                 && BrowseWindowSettings.statusBarVisibleKey == "browseStatusBarVisible" && BrowseWindowSettings.statusBarVisibleDefault,
                 "the status bar preference is gone, renamed, or no longer defaults on")
@@ -106,16 +105,6 @@ import Foundation
     }
 
     // MARK: Helpers
-
-    private static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
-        return text
-    }
 
     /// Every Swift file directly in `MacApp`, by file name. Read from the tree rather than a list,
     /// so a status bar built in a file added later is still caught.

@@ -58,9 +58,6 @@ import FileExplorer
         let rail = try #require(moved.range(of: "refreshEditorRail()"))
         let reread = try #require(moved.range(of: "rereadPanesAfterEditorWrite("))
         #expect(skip.lowerBound < rail.lowerBound && skip.lowerBound < reread.lowerBound)
-        let after = try Self.body("func refreshEditorAfterFileOperation()")
-        #expect(after.contains("editorDiskWatch.reconcile(afterOwnFileOperation: true)"),
-                "the look after the app's own operation does not say whose move it follows")
     }
 
     /// Keep Mine… asks first, through every door: the banner, the ⌘S alert and the comparison

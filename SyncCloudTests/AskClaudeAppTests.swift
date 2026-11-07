@@ -8,6 +8,47 @@ import Settings
 import FileExplorer
 @testable import SyncCloud
 
+/// A Browse tools context built afresh on every call, as the app's is. Each named field is re-read
+/// on every call, so a captured `var` a test changes is seen; `configure` sets the rest.
+@MainActor
+private func browseContext(inBrowse: @autoclosure @escaping () -> Bool = true,
+                           sourceName: @autoclosure @escaping () -> String = "iCloud",
+                           root: @autoclosure @escaping () -> String,
+                           folder: @autoclosure @escaping () -> String = "",
+                           sort: SortOption = .name,
+                           items: @escaping (String) -> [FileNode]? = { _ in nil },
+                           node: @escaping (String) -> FileNode? = { _ in nil },
+                           selection: @autoclosure @escaping () -> Set<String> = [],
+                           busy: @autoclosure @escaping () -> String? = nil,
+                           goTo: @escaping (String) -> Void = { _ in },
+                           select: @escaping (Set<String>) -> Void = { _ in },
+                           configure: @escaping (inout AskClaudeBrowseTools.Context) -> Void = { _ in })
+    -> () -> AskClaudeBrowseTools.Context {
+    {
+        var ctx = AskClaudeBrowseTools.Context(
+            inBrowse: inBrowse(), sourceName: sourceName(), root: root(), folder: folder(), sort: sort,
+            items: items, node: node, selection: selection(), busyReason: busy(), goTo: goTo, select: select)
+        configure(&ctx)
+        return ctx
+    }
+}
+
+/// Browse tools over `context` whose disk, Spotlight and stat answer nothing.
+@MainActor
+private func browseTools(_ context: @escaping () -> AskClaudeBrowseTools.Context) -> AskClaudeBrowseTools {
+    AskClaudeBrowseTools(context: context, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+}
+
+/// A chat on `d` whose engine, made afresh each time the chat asks for one, talks to a transport
+/// made afresh from `transport`.
+@MainActor
+private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTransport, defaults d: UserDefaults,
+                      readKey: @escaping @Sendable () -> String? = { "k" }, now: @escaping () -> Date = Date.init,
+                      storeURL: URL? = nil, keyChanges: NotificationCenter = .default) -> AskClaudeChat {
+    AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport(), defaults: d) },
+                  readKey: readKey, now: now, storeURL: storeURL, keyChanges: keyChanges)
+}
+
 /// Ask Claude's app half: the Browse tools and the thread the panel draws.
 @MainActor
 @Suite struct AskClaudeBrowseToolsTests {
@@ -62,33 +103,33 @@ import FileExplorer
         Self.index(Self.tree + extra, into: &map)
         let scope = root
         if recorder.folder == nil { recorder.folder = folder }
-        return AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: inBrowse, sourceName: "iCloud Drive", root: root, folder: recorder.folder ?? folder, sort: .name,
-                items: { path in
-                    if path == scope { return Self.tree }
-                    guard let node = map[path], node.isDirectory, node.isUnexplored != true else { return nil }
-                    return node.children
-                },
-                node: { map[$0] },
-                selection: [],
-                busyReason: busy,
-                goTo: { path in
-                    recorder.wentTo.append(path)
-                    let relative = AskClaudeBrowseTools.relative(path, root: root)
-                    if let moveAfter {
-                        Task { @MainActor in try? await Task.sleep(for: moveAfter); recorder.folder = relative }
-                    } else {
-                        recorder.folder = relative
-                    }
-                },
-                select: { recorder.selected.append($0) },
-                settingsLookup: settingsLookup,
-                chatIsOpen: chatIsOpen,
-                setSetting: setSetting ?? { _, _, _ in .refused("Settings can’t be changed here.") })
+        return AskClaudeBrowseTools(context: browseContext(
+            inBrowse: inBrowse,
+            sourceName: "iCloud Drive",
+            root: root,
+            folder: recorder.folder ?? folder,
+            items: { path in
+                if path == scope { return Self.tree }
+                guard let node = map[path], node.isDirectory, node.isUnexplored != true else { return nil }
+                return node.children
+            },
+            node: { map[$0] },
+            busy: busy,
+            goTo: { path in
+                recorder.wentTo.append(path)
+                let relative = AskClaudeBrowseTools.relative(path, root: root)
+                if let moveAfter {
+                    Task { @MainActor in try? await Task.sleep(for: moveAfter); recorder.folder = relative }
+                } else {
+                    recorder.folder = relative
+                }
+            },
+            select: { recorder.selected.append($0) }) { ctx in
+            ctx.settingsLookup = settingsLookup
+            ctx.chatIsOpen = chatIsOpen
+            ctx.setSetting = setSetting ?? { _, _, _ in .refused("Settings can’t be changed here.") }
             ctx.sharesNames = lookupsGo
             ctx.shared = shared
-            return ctx
         }, listDisk: { disk[$0] }, searchNames: { _, _ in spotlight }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true })
     }
@@ -99,9 +140,7 @@ import FileExplorer
 
     /// The settings tool answers find, get and changed through the runner.
     @Test func theSettingsToolFindsReadsAndListsWhatChanged() async {
-        let suite = "AskClaudeSettingsTool.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("AskClaudeSettingsTool")
         defaults.set(AppearanceMode.dark.rawValue, forKey: LiquidGlass.appearanceModeKey)
         let lookup = SettingsLookup(defaults: defaults,
                                     settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
@@ -126,9 +165,7 @@ import FileExplorer
     /// Claude changes a setting itself only for look-and-feel, or to lower its own reach, never to
     /// a limit it has already spent, and never while the chat is hidden.
     @Test func setChangesOnlyWhatClaudeMayChangeItself() async throws {
-        let suite = "AskClaudeSettingsSet.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("AskClaudeSettingsSet")
         let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
         let lookup = SettingsLookup(defaults: defaults, settings: manager,
                                     keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
@@ -189,9 +226,7 @@ import FileExplorer
 
     /// `show` checks every item before a card appears.
     @Test func showPutsACardUpOnlyForWhatItsClickCouldDo() async throws {
-        let suite = "AskClaudeSettingsShow.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("AskClaudeSettingsShow")
         let lookup = SettingsLookup(defaults: defaults,
                                     settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
                                                               cloudStorageLister: { .read([]) }),
@@ -258,9 +293,8 @@ import FileExplorer
     /// A card's target: a source whose own folder is hidden is never listed by name, and can't be
     /// aimed at by name — only by its id.
     @Test func aCardNeverNamesOrFindsASourceHiddenFromClaudeByName() async {
-        let suite = "AskClaudeSettingsHiddenTarget.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("AskClaudeSettingsHiddenTarget")
+        let suite = defaults.scratchSuiteName
         let settings = SettingsManager(autoDiscover: false, userDefaults: defaults, overridesDomainName: suite,
                                        cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
         settings.availableProviders = [
@@ -383,14 +417,14 @@ import FileExplorer
         let target = dir.appendingPathComponent("Taxes/Receipt.pdf").path
         let receipt = FileNode(id: target, name: "Receipt.pdf", isDirectory: false)
         let recorder = Recorder()
-        let runner = AskClaudeBrowseTools(context: {
-            AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "Local", root: dir.path, folder: recorder.folder ?? "", sort: .name,
-                items: { $0 == (dir.path as NSString).appendingPathComponent("Taxes") && recorder.folder == "Taxes" ? [receipt] : nil },
-                node: { $0 == target ? receipt : nil }, selection: [], busyReason: nil,
-                goTo: { _ in Task { @MainActor in try? await Task.sleep(for: .milliseconds(150)); recorder.folder = "Taxes" } },
-                select: { recorder.selected.append($0) })
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        let runner = browseTools(browseContext(
+            sourceName: "Local",
+            root: dir.path,
+            folder: recorder.folder ?? "",
+            items: { $0 == (dir.path as NSString).appendingPathComponent("Taxes") && recorder.folder == "Taxes" ? [receipt] : nil },
+            node: { $0 == target ? receipt : nil },
+            goTo: { _ in Task { @MainActor in try? await Task.sleep(for: .milliseconds(150)); recorder.folder = "Taxes" } },
+            select: { recorder.selected.append($0) }))
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: target)
         _ = await runner.run(call("go_to", ["folder": .string("Taxes")]), handles: &handles)
@@ -485,17 +519,16 @@ import FileExplorer
         var folder = "Documents/Taxes"
         var switched: [(String, String?)] = []
         var workspaces: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: source == "iCloud" ? "iCloud" : "Dropbox", root: source == "iCloud" ? Self.root : dropbox.path,
-                folder: folder, sort: .name, items: { _ in [] }, node: { _ in nil }, selection: [], busyReason: nil,
-                goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(
+            sourceName: source == "iCloud" ? "iCloud" : "Dropbox",
+            root: source == "iCloud" ? Self.root : dropbox.path,
+            folder: folder,
+            items: { _ in [] }) { ctx in
             ctx.sourceID = source
             ctx.sources = [.init(id: "iCloud", name: "iCloud", root: Self.root), .init(id: "dropbox", name: "Dropbox", root: dropbox.path)]
             ctx.switchSource = { id, abs in switched.append((id, abs)); source = id; folder = abs.map { AskClaudeBrowseTools.relative($0, root: dropbox.path) } ?? "" }
             ctx.switchWorkspace = { workspaces.append($0); return ["browse", "edit"].contains($0.lowercased()) }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let moved = await runner.run(call("go_to", ["source": .string("dropbox"), "folder": .string("Documents/Immigration")]), handles: &handles)
         #expect(!moved.isError)
@@ -521,17 +554,13 @@ import FileExplorer
         #expect(sources.map(\.root) == [Self.root, medical])
         #expect(AskClaudeBrowseTools.spokenName(providers[1], isHidden: hidden) == "a source hidden from you")
         var switched: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "", sort: .name, items: { _ in [] },
-                node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(root: Self.root, items: { _ in [] }) { ctx in
             ctx.sourceID = "iCloud"
             ctx.sources = sources
             ctx.hidden = [medical]
             ctx.switchSource = { id, _ in switched.append(id) }
             ctx.movePane = { _, id, _ in switched.append(id ?? "") }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let unknown = await runner.run(call("go_to", ["source": .string("Box")]), handles: &handles)
         #expect(unknown.isError && unknown.result.hasSuffix("Sources: iCloud, a source hidden from you."))
@@ -558,13 +587,9 @@ import FileExplorer
     @Test func outsideBrowseAFolderMoveGoesToBrowseFirst() async {
         var handles = AskClaudeHandles()
         var switched: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud", root: Self.root, folder: "", sort: .name, items: { _ in nil },
-                node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.switchWorkspace = { switched.append($0); return true }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         let back = await runner.run(call("go_to", ["workspace": .string("Browse")]), handles: &handles)
         #expect(!back.isError)
         #expect(switched == ["Browse"])
@@ -581,12 +606,8 @@ import FileExplorer
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
             ctx.openInEdit = { edited.append($0); return .opened }
-            return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil }, openFile: { _ in Issue.record("opened in its app"); return true })
         let out = await runner.run(call("open", ["handle": .string(handles.handle(for: path)), "in": .string("edit")]), handles: &handles)
         #expect(!out.isError)
@@ -599,13 +620,13 @@ import FileExplorer
         let listed = await tools(inBrowse: false).run(call("list_folder", ["folder": .string("Documents/Taxes")]), handles: &handles)
         #expect(!listed.isError)
         var switched: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                items: { _ in [] }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(
+            inBrowse: false,
+            root: Self.root,
+            folder: "Documents/Taxes",
+            items: { _ in [] }) { ctx in
             ctx.switchWorkspace = { switched.append($0); return true }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         let selected = await runner.run(call("select", ["handles": .array([])]), handles: &handles)
         #expect(switched == ["Browse"])
         #expect(selected.movedView == "Moved you to Browse")
@@ -614,13 +635,11 @@ import FileExplorer
     @Test func aHiddenFolderIsNeverListedNamedOrRead() async {
         var handles = AskClaudeHandles()
         let hidden = [Self.root + "/Documents/Taxes"]
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents", sort: .name,
-                items: { $0 == Self.root + "/Documents" ? Self.tree.first?.children : nil },
-                node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = AskClaudeBrowseTools(context: browseContext(
+            root: Self.root,
+            folder: "Documents",
+            items: { $0 == Self.root + "/Documents" ? Self.tree.first?.children : nil }) { ctx in
             ctx.hidden = hidden
-            return ctx
         }, listDisk: { _ in Issue.record("read a hidden folder"); return nil },
            searchNames: { _, _ in [Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"] },
            // A real candidate, so only the hidden filter can keep it out of the result.
@@ -653,10 +672,12 @@ import FileExplorer
         var panes: [Bool: AskClaudeBrowseTools.Pane] = [true: .init(sourceID: "db", root: dropbox, folder: "Documents/Work"),
                                                         false: .init(sourceID: "db", root: dropbox, folder: "Documents/Finance")]
         var workspaces: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "Dropbox", root: dropbox, folder: "Documents/Work", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in Issue.record("moved the Browse pane") }, select: { _ in })
+        let runner = browseTools(browseContext(
+            inBrowse: false,
+            sourceName: "Dropbox",
+            root: dropbox,
+            folder: "Documents/Work",
+            goTo: { _ in Issue.record("moved the Browse pane") }) { ctx in
             ctx.sources = [.init(id: "ic", name: "iCloud", root: icloud), .init(id: "db", name: "Dropbox", root: dropbox)]
             ctx.switchWorkspace = { workspaces.append($0); return true }
             ctx.pane = { panes[$0]! }
@@ -666,8 +687,7 @@ import FileExplorer
                 panes[isLeft] = .init(sourceID: source ?? old.sourceID, root: root,
                                       folder: folder.map { AskClaudeBrowseTools.relative($0, root: root) } ?? old.folder)
             }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let left = await runner.run(call("go_to", ["pane": .string("left"), "source": .string("iCloud"), "folder": .string("Documents")]), handles: &handles)
         let right = await runner.run(call("go_to", ["pane": .string("right"), "folder": .string("Documents")]), handles: &handles)
@@ -707,15 +727,11 @@ import FileExplorer
 
     @Test func aRefusalFromAnotherWorkspaceDoesntTakeThemToBrowse() async {
         var switched: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.switchWorkspace = { switched.append($0); return true }
             ctx.sources = [.init(id: "ic", name: "iCloud", root: Self.root)]
             ctx.tabs = [.init(id: UUID(), title: "Work"), .init(id: UUID(), title: "(hidden)", isHidden: true)]
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         for input: [String: JSONFragment] in [["source": .string("Nope")], ["tab": .string("Nope")], ["tab": .string("(hidden)")],
                                               ["history": .string("sideways")]] {
@@ -772,10 +788,7 @@ import FileExplorer
     }
 
     private func differencesTools(_ fake: CompareFake, busy: String? = nil, heldBy: String? = nil) -> AskClaudeBrowseTools {
-        AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: "/i", folder: "Documents", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: busy, goTo: { _ in }, select: { _ in })
+        browseTools(browseContext(root: "/i", folder: "Documents", busy: busy) { ctx in
             ctx.hidden = ["/d/Documents/Private"]
             ctx.differences = { fake.rows }
             ctx.differencesHeldBy = { heldBy }
@@ -789,8 +802,7 @@ import FileExplorer
             }
             ctx.switchWorkspace = { fake.workspaces.append($0); return true }
             ctx.showDifferences = { fake.shown.append(($0, $1)); return true }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
     }
 
     @Test func aStaleComparisonIsScannedAgainBeforeItsRowsAreRead() async {
@@ -880,14 +892,10 @@ import FileExplorer
     @Test func closingEveryTabButThisOneKeepsPinnedTabsAndCountsEachTabOnce() async {
         let work = UUID(), taxes = UUID(), pinned = UUID()
         var closed: [[UUID]] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "Dropbox", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(sourceName: "Dropbox", root: Self.root) { ctx in
             ctx.tabs = [.init(id: work, title: "Work"), .init(id: taxes, title: "Taxes"), .init(id: pinned, title: "Home", isPinned: true)]
             ctx.closeTabs = { closed.append($0) }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         _ = await runner.run(call("close_tabs", ["all_but_current": .bool(true)]), handles: &handles)
         #expect(closed.last == [taxes])
@@ -897,12 +905,8 @@ import FileExplorer
     }
 
     @Test func aSearchWhereTheyAreIsRefusedInAHiddenFolderWithoutNamingIt() async {
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes") { ctx in
             ctx.hidden = [Self.root + "/Documents/Taxes"]
-            return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in Issue.record("searched a hidden folder"); return [] }, statDisk: { _ in nil },
            searchContents: { _, _ in Issue.record("searched a hidden folder"); return [] })
         var handles = AskClaudeHandles()
@@ -921,12 +925,8 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + [Self.file("Documents/Taxes/Biopsy results.txt", kind: "Plain Text")], into: &map)
         func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                extract: { _ in ["The diagnosis is benign."] }, searchContents: { _, _ in [receipt, biopsy] })
         }
@@ -958,14 +958,10 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
         func runner(shared: [String], hidden: [String] = [], sharesAnswers: Bool = false) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = shared
                 ctx.hidden = hidden
                 ctx.sharesAnswers = sharesAnswers
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                extract: { _ in ["Total due: $84.10 for the tent"] },
                read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
@@ -1048,11 +1044,7 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
         func runner(hits: [String]) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }), listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
                answerOnDevice: { _, _, _ in .answer("The total is $84.10.") },
                searchContents: { _, _ in hits })
@@ -1092,15 +1084,11 @@ import FileExplorer
         var switched: [UUID] = []
         let tab = UUID()
         func runner(busy: String?) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "", sort: .name,
-                    items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: busy, goTo: { _ in }, select: { _ in })
+            browseTools(browseContext(root: Self.root, busy: busy) { ctx in
                 ctx.tabs = [.init(id: UUID(), title: "Work"), .init(id: tab, title: "Taxes")]
                 ctx.switchTab = { switched.append($0) }
                 ctx.sources = [.init(id: "db", name: "Dropbox", root: "/tmp/none")]
-                return ctx
-            }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+            })
         }
         var handles = AskClaudeHandles()
         let underSettings = await runner(busy: "Settings is open").run(call("go_to", ["tab": .string("Taxes")]), handles: &handles)
@@ -1114,14 +1102,10 @@ import FileExplorer
     @Test func tabsCloseByNameAndTheLastOneStays() async {
         let work = UUID(), approval = UUID(), finance = UUID()
         var closed: [[UUID]] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "Dropbox", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(sourceName: "Dropbox", root: Self.root) { ctx in
             ctx.tabs = [.init(id: work, title: "Work"), .init(id: approval, title: "Approval"), .init(id: finance, title: "Finance")]
             ctx.closeTabs = { closed.append($0) }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let all = await runner.run(call("close_tabs", ["tabs": .array([.string("Work"), .string("Approval"), .string("fin")])]), handles: &handles)
         #expect(closed.last == [approval, finance])
@@ -1142,12 +1126,10 @@ import FileExplorer
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Documents"), withDestinationURL: real)
         let row = FileNode(id: root.path + "/Documents", name: "Documents", isDirectory: true, children: [])
         var selected: [Set<String>] = []
-        let runner = AskClaudeBrowseTools(context: {
-            AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: root.path, folder: "", sort: .name,
-                items: { $0 == root.path ? [row] : nil }, node: { _ in nil }, selection: [], busyReason: nil,
-                goTo: { _ in }, select: { selected.append($0) })
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        let runner = browseTools(browseContext(
+            root: root.path,
+            items: { $0 == root.path ? [row] : nil },
+            select: { selected.append($0) }))
         var handles = AskClaudeHandles()
         let handle = handles.handle(for: AskClaudePaths.canonical(real.path))
         let out = await runner.run(call("select", ["handles": .array([.string(handle)])]), handles: &handles)
@@ -1206,12 +1188,8 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
         func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
                answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
@@ -1242,12 +1220,8 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree, into: &map)
         func runner(sharesRoot: Bool, _ read: AskClaudeReading.Read?) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in read }, answerOnDevice: { _, _, _ in .answer("The total is $84.10.") })
         }
@@ -1293,12 +1267,8 @@ import FileExplorer
         let sent = Box<[Int]>([])
         func runner(_ read: @escaping (String) async -> AskClaudeReading.Read?,
                     fitsUnder: Int = .max, stopWhileAnswering: Bool = false) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot.value ? [Self.root] : []
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: read, answerOnDevice: { _, text, _ in
                 sent.value.append(text.count)
@@ -1362,13 +1332,9 @@ import FileExplorer
         let hidden = Box<[String]>([])
         let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
         func runner(sharesRoot: Bool, hideWhileReading: Bool) -> AskClaudeBrowseTools {
-            AskClaudeBrowseTools(context: {
-                var ctx = AskClaudeBrowseTools.Context(
-                    inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                    items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
                 ctx.hidden = hidden.value
-                return ctx
             }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in
                 if hideWhileReading { hidden.value = [Self.root + "/Documents/Taxes"] }
@@ -1461,17 +1427,13 @@ import FileExplorer
 
     @Test func showInAppOpensSettingsActivityHelpAndTrash() async {
         var opened: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.showPlace = { place, tab, _ in
                 guard ["settings", "activity", "help", "trash"].contains(place) else { return false }
                 opened.append(place + (tab.map { ":" + $0 } ?? ""))
                 return true
             }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let settings = await runner.run(call("show_in_app", ["place": .string("Settings"), "tab": .string("intelligence")]), handles: &handles)
         #expect(settings.step == "Opened Settings ▸ Ask Claude")
@@ -1483,17 +1445,13 @@ import FileExplorer
 
     @Test func showInAppShowsAndHidesTheInfoInspectorAndSidebar() async {
         var toggled: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(inBrowse: false, root: Self.root) { ctx in
             ctx.showPlace = { place, _, visible in
                 guard ["info", "sidebar"].contains(place) else { return false }
                 toggled.append("\(place):\(visible)")
                 return true
             }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let info = await runner.run(call("show_in_app", ["place": .string("info")]), handles: &handles)
         #expect(info.step == "Showed the Info inspector")
@@ -1505,15 +1463,11 @@ import FileExplorer
 
     @Test func viewChangesSortHiddenFilesAndMode() async {
         var sorts: [String] = []; var hiddenShown: [Bool] = []; var modes: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        let runner = browseTools(browseContext(root: Self.root) { ctx in
             ctx.setSort = { sorts.append($0); return $0 == "size" }
             ctx.setHiddenFiles = { hiddenShown.append($0) }
             ctx.setMode = { modes.append($0); return true }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
         var handles = AskClaudeHandles()
         let out = await runner.run(call("view", ["sort": .string("size"), "hidden_files": .bool(true), "mode": .string("list")]), handles: &handles)
         #expect(!out.isError)
@@ -1532,11 +1486,11 @@ import FileExplorer
                             extracted: Box<Int>, opened: Box<[URL]>) -> AskClaudeBrowseTools {
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + extra, into: &map)
-        return AskClaudeBrowseTools(context: {
-            AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud Drive", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: statDisk,
+        return AskClaudeBrowseTools(context: browseContext(
+            sourceName: "iCloud Drive",
+            root: Self.root,
+            folder: "Documents/Taxes",
+            node: { map[$0] }), listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: statDisk,
            openFile: { opened.value.append($0); return true },
            read: { _ in extracted.value += 1; return AskClaudeReading.Read(pages: ["Rent is $2,400."], pageCount: 1) },
            answerOnDevice: { _, _, _ in .answer("$2,400.") }, isCloudOnly: cloudOnly)
@@ -1566,12 +1520,14 @@ import FileExplorer
         var map: [String: FileNode] = [:]
         Self.index(Self.tree + [Self.lease], into: &map)
         var switched: [String] = []
-        let runner = AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: false, sourceName: "iCloud Drive", root: Self.root, folder: "Documents/Taxes", sort: .name,
-                items: { _ in nil }, node: { map[$0] }, selection: [], busyReason: nil, goTo: { recorder.wentTo.append($0) }, select: { _ in })
+        let runner = AskClaudeBrowseTools(context: browseContext(
+            inBrowse: false,
+            sourceName: "iCloud Drive",
+            root: Self.root,
+            folder: "Documents/Taxes",
+            node: { map[$0] },
+            goTo: { recorder.wentTo.append($0) }) { ctx in
             ctx.switchWorkspace = { switched.append($0); return true }
-            return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
            openFile: { recorder.opened.append($0); return true }, isCloudOnly: { _ in true })
         var handles = AskClaudeHandles()
@@ -1631,18 +1587,7 @@ private struct OneLineTransport: AskClaudeTransport {
     let text: String
 
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        let lines = [
-            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300,"cache_read_input_tokens":4500}}}"#,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\#(text)"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":700}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        SSE.response(SSE.text(text, cacheRead: 4500, outputTokens: 700))
     }
 }
 
@@ -1659,26 +1604,11 @@ private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
         let reply = lock.withLock { replies.isEmpty ? Reply() : replies.removeFirst() }
         let asked = (try? JSONFragment.decode(request.httpBody ?? Data()))?["model"]?.stringValue ?? "?"
         let text = reply.stop == "refusal" ? "" : "ok"
-        let start = #"data: {"type":"message_start","message":{"model":"\#(reply.served ?? asked)","usage":{"input_tokens":300,"cache_read_input_tokens":4500}}}"#
-        let lines = reply.toolUse ? [
-            start,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_m","name":"list_folder","input":{}}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"folder\":\"\"}"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":50}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ] : [
-            start,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\#(text)"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"\#(reply.stop)"},"usage":{"output_tokens":700}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        let start = SSE.start(model: reply.served ?? asked, cacheRead: 4500)
+        return SSE.response(reply.toolUse
+            ? [start] + SSE.toolBlock(id: "toolu_m", name: "list_folder", input: #"{\"folder\":\"\"}"#)
+                + SSE.end("tool_use", outputTokens: 50)
+            : [start] + SSE.textBlock(text) + SSE.end(reply.stop, outputTokens: 700))
     }
 }
 
@@ -1719,7 +1649,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
             _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self))
             return replies.isEmpty ? Reply.status(500) : replies.removeFirst()
         }
-        let start = #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#
+        let start = SSE.start()
         let lines: [String]
         switch reply {
         case .text(let text):
@@ -1735,30 +1665,14 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
                      #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
                      #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Hm."}}"#,
                      #"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
-                     #"data: {"type":"content_block_stop","index":0}"#,
-                     #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}"#,
-                     #"data: {"type":"message_stop"}"#]
+                     #"data: {"type":"content_block_stop","index":0}"#] + SSE.end(outputTokens: 5)
         case .toolCall:
-            lines = [start,
-                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
-                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
-                     #"data: {"type":"content_block_stop","index":0}"#,
-                     #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
-                     #"data: {"type":"message_stop"}"#]
+            lines = [start] + SSE.toolBlock(id: "toolu_1", name: "read_text", input: #"{\"handle\":\"f1\"}"#)
+                + SSE.end("tool_use", outputTokens: 20)
         case .status(let status):
-            return AskClaudeTransportResponse(status: status, retryAfter: nil, lines: AsyncThrowingStream { $0.finish() })
+            return SSE.response([], status: status)
         }
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
-    }
-}
-
-@MainActor
-private final class NoTools: AskClaudeToolRunning {
-    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-        AskClaudeToolOutcome(result: "", step: "")
+        return SSE.response(lines)
     }
 }
 
@@ -1773,17 +1687,9 @@ private final class NoTools: AskClaudeToolRunning {
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
-    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump can
-    /// give up in silence under load and let the test change the model mid-question
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
-    private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
-        await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
-    }
-
     @Test func anAnswerLandsUnderTheQuestionWithItsReceipt() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "Two files."), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(OneLineTransport(text: "Two files."), defaults: d)
         chat.ask("Which are big?", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
         let kinds = chat.items.map(\.kind)
@@ -1798,8 +1704,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func withNoKeyThePanelSaysWhereToAddOne() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "x"), defaults: d) },
-                                 readKey: { nil })
+        let chat = makeChat(OneLineTransport(text: "x"), defaults: d, readKey: { nil })
         chat.ask("hi", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
         guard case .problem(let problem) = chat.items.last?.kind else { Issue.record("no problem shown"); return }
@@ -1810,8 +1715,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func anHourAwayStartsANewChat() async {
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" }, now: { clock })
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock })
         chat.ask("one", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
@@ -1823,8 +1727,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func anOldRunNewChatReplacedWritesNothingIntoTheNewChat() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: SlowTransport(text: "old"), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(SlowTransport(text: "old"), defaults: d)
         chat.ask("first", screen: screen, tools: NoTools())
         chat.startOver()
         chat.ask("second", screen: screen, tools: NoTools())
@@ -1840,8 +1743,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func changingTheModelCarriesOnInThisChatWithOneNote() async {
         // A change, from the menu or Settings (the same key), never starts a new chat.
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(ModelTransport(), defaults: d)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
@@ -1856,9 +1758,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func aSwitchThatNeverReachedClaudeIsNotedAtTheQuestionThatDid() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: {
-            AskClaudeEngine(transport: ModelTransport([.init(), .init(stop: "refusal")]), defaults: d)
-        }, readKey: { "k" })
+        let chat = makeChat(ModelTransport([.init(), .init(stop: "refusal")]), defaults: d)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
         d.set(AskClaudeDetail.detailed.rawValue, forKey: AskClaudeDetail.defaultsKey)
@@ -1872,9 +1772,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: {
-            AskClaudeEngine(transport: ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)
-        }, readKey: { "k" })
+        let chat = makeChat(ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
@@ -1888,14 +1786,12 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func aFallbackInAnyRoundIsMarkedAndSoIsEveryOneInARow() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: {
-            AskClaudeEngine(transport: ModelTransport([
-                // One question: the tool round from a fallback, the answer from the model asked.
-                .init(served: "claude-sonnet-5", toolUse: true), .init(),
-                // Two questions in a row that both fell back.
-                .init(served: "claude-sonnet-5"), .init(served: "claude-sonnet-5"),
-            ]), defaults: d)
-        }, readKey: { "k" })
+        let chat = makeChat(ModelTransport([
+            // One question: the tool round from a fallback, the answer from the model asked.
+            .init(served: "claude-sonnet-5", toolUse: true), .init(),
+            // Two questions in a row that both fell back.
+            .init(served: "claude-sonnet-5"), .init(served: "claude-sonnet-5"),
+        ]), defaults: d)
         for q in ["one", "two", "three"] { chat.ask(q, screen: screen, tools: NoTools()); await waitUntilIdle(chat) }
         let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
         #expect(receipts.map(\.rounds) == [2, 1, 1])
@@ -1905,9 +1801,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func aDeclinedAnswerIsNotTheModelTheChatWasLastAnsweredOn() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: {
-            AskClaudeEngine(transport: ModelTransport([.init(), .init(stop: "refusal"), .init()]), defaults: d)
-        }, readKey: { "k" })
+        let chat = makeChat(ModelTransport([.init(), .init(stop: "refusal"), .init()]), defaults: d)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
         chat.ask("declined", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
@@ -1940,8 +1834,7 @@ private final class NoTools: AskClaudeToolRunning {
         // A chat the next question replaces (an hour away) has nothing to catch up on.
         var clock = now
         let fresh = defaults("hourAway")
-        let chat = AskClaudeChat(defaults: fresh, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: fresh) },
-                                 readKey: { "k" }, now: { clock })
+        let chat = makeChat(ModelTransport(), defaults: fresh, now: { clock })
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         #expect(chat.chatModel == AskClaudeModels.sonnet.id && (chat.contextTokens ?? 0) > 0)
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
@@ -1953,8 +1846,7 @@ private final class NoTools: AskClaudeToolRunning {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeUpdate-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = dir.appendingPathComponent("chat.json")
-        let make = { AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ModelTransport(), defaults: d) },
-                                   readKey: { "k" }, storeURL: store) }
+        let make = { makeChat(ModelTransport(), defaults: d, storeURL: store) }
         let first = make()
         first.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(first)
         // As an older build saved it: model, style and that build's digest, and receipts without
@@ -2010,8 +1902,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let reads = Counter()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { reads.bump(); return "k" }, keyChanges: center)
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, readKey: { reads.bump(); return "k" }, keyChanges: center)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         center.post(name: AnthropicKeychain.didChange, object: nil)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
@@ -2027,8 +1918,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func aSettingsCardJoinsTheChatAndItsLinesMerge() async {
         let d = defaults()
         let card = AskClaudeSettingCard(rows: [.init(id: "appearance.theme", pick: "dark")])
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(ToolThenTextTransport(), defaults: d)
         chat.ask("go dark", screen: screen, tools: ShowsASettingCard(card))
         await waitUntilIdle(chat)
         let id = chat.items.first { if case .settings = $0.kind { true } else { false } }?.id
@@ -2050,8 +1940,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeRelaunchHide-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
-        let make = { AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
-                                   readKey: { "k" }, storeURL: store) }
+        let make = { makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: store) }
         let first = make()
         first.ask("what's in Medical?", screen: screen, tools: NoTools())
         await waitUntilIdle(first)
@@ -2065,8 +1954,7 @@ private final class NoTools: AskClaudeToolRunning {
     /// A setting's later line replaces its own earlier one, never another source's.
     @Test func aSettingsLineReplacesOnlyItsOwn() {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d)
         chat.tellClaude("They set Enable for Dropbox (Work) to Off on your card (was On).", replacing: "They set Enable for Dropbox (Work) ")
         chat.tellClaude("They set Enable for Dropbox to Off on your card (was On).", replacing: "They set Enable for Dropbox ")
         #expect(chat.sinceLastAnswer.count == 2)
@@ -2081,8 +1969,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeKeyCatch-\(UUID().uuidString)/chat.json")
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
-                                 readKey: { "k" }, storeURL: store)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: store)
         let key = "sk-ant-api03-" + String(repeating: "Zq9_", count: 6)
         let message = "here’s my new key \(key)"
         #expect(!chat.catchKey("keys start with sk-ant-, right?"))
@@ -2114,8 +2001,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         d.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
         AskClaudeSpend.record(6, in: d)
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "hi"), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d)
         chat.ask("which folders changed most?", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
         #expect(!chat.items.contains { if case .problem = $0.kind { true } else { false } })
@@ -2135,8 +2021,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let center = NotificationCenter()
         let line = ["line": "They put Theme back to System with Revert in Activity."]
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         center.post(name: SettingsRevert.didRevert, object: nil, userInfo: line)
         #expect(chat.sinceLastAnswer.isEmpty)
         chat.ask("go dark", screen: screen, tools: ShowsASettingCard(AskClaudeSettingCard(rows: [.init(id: "appearance.theme")])))
@@ -2150,8 +2035,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func hidingAndUnhidingBeforeTheNextQuestionStartsNothingNew() async {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2168,8 +2052,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let center = NotificationCenter()
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         AskClaudePrivacy.setHiddenFolders([], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2187,8 +2070,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func aPassageFromAFolderHiddenSinceIsNotSent() async throws {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
@@ -2204,8 +2086,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func aQuestionHoldingAPassageFromAFolderHiddenSinceIsNotAskedAgain() async throws {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         let sent = try #require(chat.takeOffer(offer))
@@ -2227,8 +2108,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func aHeldAnswerGoesOnlyByItsOwnSend() async throws {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         chat.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(chat)
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         let answer = try #require(chat.takeOffer(offer, .answer))
@@ -2248,8 +2128,7 @@ private final class NoTools: AskClaudeToolRunning {
         let masked = AskClaudeChat.answerQuestion(AskClaudePassage(fileName: ".env", whereInFile: "the start", text: "", answer: "The key is \(key)."))
         #expect(!masked.contains("aB3_") && masked.contains("The key is sk-ant-api03-••••••••••••."))
         // Hidden since: the card goes, and the note says what didn't go.
-        let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                  readKey: { "k" }, keyChanges: center)
+        let later = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         later.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(later)
         let second = try #require(later.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
@@ -2263,8 +2142,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func foundNamesGoOnlyByTheirOwnShare() async throws {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
         let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
         guard case .found(let found) = card.kind else { Issue.record("not a found card"); return }
@@ -2290,8 +2168,7 @@ private final class NoTools: AskClaudeToolRunning {
         chat.editFound(card.id, .customize(false))
         guard case .found(let still)? = chat.items.first(where: { $0.id == card.id })?.kind else { Issue.record("card gone"); return }
         #expect(still.customizing == true)
-        let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                  readKey: { "k" }, keyChanges: center)
+        let later = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         later.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(later)
         let second = try #require(later.items.first { if case .found = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
@@ -2307,8 +2184,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func customizeSendsOnlyTheTickedFilesAndDetails() async throws {
         let d = defaults()
         func card() async throws -> (AskClaudeChat, UUID, [AskClaudeFoundNames.File]) {
-            let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                     readKey: { "k" }, keyChanges: NotificationCenter())
+            let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: NotificationCenter())
             chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
             let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
             guard case .found(let found) = card.kind else { Issue.record("not a found card"); throw CancellationError() }
@@ -2372,16 +2248,13 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: store) }
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        let chat = makeChat(ToolThenTextTransport(), defaults: d, storeURL: store, keyChanges: NotificationCenter())
         chat.ask("a chat to keep", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         chat.setSharesAnswers(true)
-        let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                  readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        let again = makeChat(ToolThenTextTransport(), defaults: d, storeURL: store, keyChanges: NotificationCenter())
         #expect(again.sharesAnswers)
         again.setSharesNames(true)
-        let third = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                  readKey: { "k" }, storeURL: store, keyChanges: NotificationCenter())
+        let third = makeChat(ToolThenTextTransport(), defaults: d, storeURL: store, keyChanges: NotificationCenter())
         #expect(third.sharesNames)
         again.newChat()
         #expect(!again.sharesAnswers && !again.sharesNames)
@@ -2396,8 +2269,7 @@ private final class NoTools: AskClaudeToolRunning {
     /// starts a new card.
     @Test func aQuestionsReadsGatherOnOneCard() async throws {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: NotificationCenter())
+        let chat = makeChat(TwoReadsTransport(), defaults: d, keyChanges: NotificationCenter())
         chat.ask("what are my flights?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
         let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
         #expect(cards.count == 1)
@@ -2425,8 +2297,7 @@ private final class NoTools: AskClaudeToolRunning {
     /// One file read twice in a question is one row: both answers, one tick, its text once.
     @Test func aFileReadTwiceIsOneRow() async throws {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: TwoReadsTransport(), defaults: d) },
-                                 readKey: { "k" }, keyChanges: NotificationCenter())
+        let chat = makeChat(TwoReadsTransport(), defaults: d, keyChanges: NotificationCenter())
         chat.ask("what flight and seat?", screen: screen, tools: ReadsOneFileTwice()); await waitUntilIdle(chat)
         let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
         #expect(cards.count == 1)
@@ -2442,8 +2313,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let center = NotificationCenter()
         func chat() async throws -> (AskClaudeChat, UUID) {
-            let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                     readKey: { "k" }, keyChanges: center)
+            let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
             chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
             return (chat, try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id))
         }
@@ -2528,8 +2398,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let center = NotificationCenter()
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         AskClaudePrivacy.setHiddenFolders([], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2551,8 +2420,7 @@ private final class NoTools: AskClaudeToolRunning {
     @Test func hidingAFolderMidChatStartsTheNextQuestionFresh() async {
         let d = defaults()
         let center = NotificationCenter()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" }, keyChanges: center)
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2563,8 +2431,7 @@ private final class NoTools: AskClaudeToolRunning {
 
     @Test func stoppingWhileTheScreenIsReadEndsTheRun() async {
         let d = defaults()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "never"), defaults: d) },
-                                 readKey: { "k" }, keyChanges: NotificationCenter())
+        let chat = makeChat(OneLineTransport(text: "never"), defaults: d, keyChanges: NotificationCenter())
         chat.ask("x", preparing: {
             try? await Task.sleep(for: .milliseconds(200))
             return AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [], selection: [], toolsAvailable: true)
@@ -2579,8 +2446,7 @@ private final class NoTools: AskClaudeToolRunning {
         let d = defaults()
         let reads = Counter()
         // Its own center: a key change posted by any other test would otherwise reach this chat.
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { reads.bump(); return "k" }, keyChanges: NotificationCenter())
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, readKey: { reads.bump(); return "k" }, keyChanges: NotificationCenter())
         chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
         #expect(reads.value == 1)
@@ -2644,18 +2510,15 @@ private final class Counter: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
         let d = ScratchDefaults("AskClaudeChatStoreTests.aChatSurvivesQuitting")
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let first = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        let first = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
         first.ask("remember me", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                          rows: [], selection: [], toolsAvailable: true), tools: NoTools())
         await waitUntil("the chat finishes its question", timeout: 30) { !first.isRunning }
         clock = clock.addingTimeInterval(600)
-        let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        let again = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
         #expect(again.items.first?.kind == .user("remember me"))
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
-        let later = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        let later = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
         #expect(later.items.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.path))
     }
@@ -2667,8 +2530,7 @@ private final class Counter: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
         let d = ScratchDefaults("AskClaudeChatStoreTests.aCardThisBuildCantRead")
         let clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let first = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        let first = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
         first.ask("remember me", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                          rows: [], selection: [], toolsAvailable: true), tools: NoTools())
         await waitUntil("the chat finishes its question", timeout: 30) { !first.isRunning }
@@ -2684,8 +2546,7 @@ private final class Counter: @unchecked Sendable {
         json["items"] = items
         try JSONSerialization.data(withJSONObject: json).write(to: store)
 
-        let again = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                  readKey: { "k" }, now: { clock }, storeURL: store)
+        let again = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock }, storeURL: store)
         var expected = saved
         expected.insert(.note(AskClaudeChat.TolerantItems.unreadableNote), at: 1)
         #expect(again.items.map(\.kind) == expected)
@@ -2821,17 +2682,9 @@ private final class Counter: @unchecked Sendable {
 
     @Test func eachHandleTakesTheMouseAtItsEdge() throws {
         let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
-        let container = CGSize(width: 1000, height: 800)
-        let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
-                                   settingsBridge: .keySaved)
-            .frame(width: container.width, height: container.height, alignment: .topLeading)
-        let host = NSHostingView(rootView: panel)
-        host.frame = NSRect(origin: .zero, size: container)
         // Borderless and never ordered in: laid out and hit-tested, never on screen.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let rig = AskClaudePanelRig(chat: chat, topLeading: true)
+        let (window, host) = (rig.window, rig.host)
 
         func handles(in view: NSView) -> [AskClaudeResizeHandle.HandleView] {
             view.subviews.flatMap { ($0 as? AskClaudeResizeHandle.HandleView).map { [$0] } ?? handles(in: $0) }
@@ -2848,17 +2701,9 @@ private final class Counter: @unchecked Sendable {
 
     @Test func aClickOnTheComposerReachesItsField() throws {
         let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
-        let container = CGSize(width: 1000, height: 800)
-        let panel = AskClaudePanel(chat: chat, place: AskClaudePanelHandleTests.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container,
-                                   settingsBridge: .keySaved)
-        let host = NSHostingView(rootView: panel)
-        host.frame = NSRect(origin: .zero, size: container)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        func field(in view: NSView) -> NSTextField? { (view as? NSTextField) ?? view.subviews.lazy.compactMap(field).first }
-        let composer = try #require(field(in: host))
+        let rig = AskClaudePanelRig(chat: chat)
+        let window = rig.window
+        let composer = try #require(rig.field)
         let middle = composer.convert(NSPoint(x: composer.bounds.midX, y: composer.bounds.midY), to: nil)
         let hit = window.contentView?.hitTest(middle)
         #expect(hit === composer || hit?.isDescendant(of: composer) == true)
@@ -2920,23 +2765,13 @@ private final class Counter: @unchecked Sendable {
     /// there reads as black rather than as whatever the surface would have been.
     private func threadColor(hue: LiquidGlassHue, tint: Double, level: GlassLevel) throws -> (r: CGFloat, g: CGFloat, b: CGFloat) {
         let container = CGSize(width: 1000, height: 800)
-        let host = NSHostingView(rootView: AskClaudePanel(
+        let rep = try renderInSRGBWindow(AskClaudePanel(
             chat: AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil }), place: AskClaudePanelHandleTests.place,
             accent: hue.accentColor, accentFill: hue.accentFillColor, onAccent: hue.onAccentLabelColor,
             hue: hue, tint: tint, level: level,
             onAsk: { _ in }, onClose: {}, onOpenSettings: { _ in }, container: container, settingsBridge: .keySaved)
             .frame(width: container.width, height: container.height, alignment: .topLeading)
-            .background(Color.black)
-            .environment(\.colorScheme, .light))
-        host.frame = NSRect(origin: .zero, size: container)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+            .background(Color.black), size: container, scheme: .light)
         // The panel draws from its host's top-left (its window does the placing), 372 wide:
         // in the empty thread, below the opening note and its starters, and above the composer.
         let scale = CGFloat(rep.pixelsWide) / container.width
@@ -3080,18 +2915,8 @@ private final class ToolThenTextTransport: AskClaudeTransport, @unchecked Sendab
     func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
         sent += 1
         guard sent == 1 else { return try await OneLineTransport(text: "It’s offered.").send(request) }
-        let lines = [
-            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        return SSE.response([SSE.start()] + SSE.toolBlock(id: "toolu_1", name: "read_text", input: #"{\"handle\":\"f1\"}"#)
+                            + SSE.end("tool_use", outputTokens: 20))
     }
 }
 
@@ -3102,21 +2927,10 @@ private final class TwoReadsTransport: AskClaudeTransport, @unchecked Sendable {
         sent += 1
         // Reads on each question's first request, answers on its second.
         guard sent % 2 == 1 else { return try await OneLineTransport(text: "They’re on the card.").send(request) }
-        let lines = [
-            #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":300}}}"#,
-            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_text","input":{}}}"#,
-            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f1\"}"}}"#,
-            #"data: {"type":"content_block_stop","index":0}"#,
-            #"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_2","name":"read_text","input":{}}}"#,
-            #"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"handle\":\"f2\"}"}}"#,
-            #"data: {"type":"content_block_stop","index":1}"#,
-            #"data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#,
-            #"data: {"type":"message_stop"}"#,
-        ]
-        return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-            lines.forEach { c.yield($0) }
-            c.finish()
-        })
+        return SSE.response([SSE.start()]
+                            + SSE.toolBlock(id: "toolu_1", name: "read_text", input: #"{\"handle\":\"f1\"}"#)
+                            + SSE.toolBlock(id: "toolu_2", name: "read_text", input: #"{\"handle\":\"f2\"}"#, index: 1)
+                            + SSE.end("tool_use", outputTokens: 20))
     }
 }
 
@@ -3208,8 +3022,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     private func chatWithACard(_ test: String = #function) async -> (AskClaudeChat, UUID) {
         let d = ScratchDefaults("AskClaudeDownloadCardTests." + test.prefix { $0 != "(" })
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: ToolThenTextTransport(), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(ToolThenTextTransport(), defaults: d)
         chat.ask("What’s the rent?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name",
                                                             rows: [], selection: [], toolsAvailable: true), tools: OffersADownload())
         await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning }
@@ -3284,8 +3097,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     @Test func chipsAddOnceComeOffAndAreTakenBySend() {
         let d = ScratchDefaults("AskClaudeAttachmentTests.chips")
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "ok"), defaults: d) },
-                                 readKey: { "k" })
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d)
         typealias A = AskClaudeChat.Attachment
         chat.attach([A(path: "/c/a.pdf", name: "a.pdf", isDirectory: false), A(path: "/c/T", name: "T", isDirectory: true)])
         chat.attach([A(path: "/c/a.pdf", name: "a.pdf", isDirectory: false), A(path: "/c/b.pdf", name: "b.pdf", isDirectory: false)])
@@ -3334,11 +3146,10 @@ private final class OffersADownload: AskClaudeToolRunning {
     private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, sharesRoot: Bool = false,
                         asked: PlaceBox = PlaceBox()) -> AskClaudeBrowseTools {
         let file = self.file
-        return AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Downloads", sort: .name,
-                items: { _ in nil }, node: { $0 == file.id ? file : nil }, selection: [], busyReason: nil,
-                goTo: { _ in }, select: { _ in })
+        return browseTools(browseContext(
+            root: Self.root,
+            folder: "Downloads",
+            node: { $0 == file.id ? file : nil }) { ctx in
             ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root),
                            .init(id: "dropbox", name: "Dropbox", root: "/never-on-disk-dropbox")]
             ctx.whereToFile = { _, place in asked.places.append(place); return answer }
@@ -3347,8 +3158,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             ctx.canRefineFiling = canRefine
             ctx.shared = sharesRoot ? [Self.root] : []
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
     }
 
     final class PlaceBox: @unchecked Sendable { var places: [String?] = [] }
@@ -3437,7 +3247,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
 /// A folder's loose files on one card, asked where first, on a real folder.
 @MainActor
-@Suite struct AskClaudeLooseFilesToolTests {
+@Suite final class AskClaudeLooseFilesToolTests {
 
     private let dir: String
 
@@ -3453,6 +3263,8 @@ private final class OffersADownload: AskClaudeToolRunning {
             try Data(text.utf8).write(to: URL(fileURLWithPath: full))
         }
     }
+
+    deinit { try? FileManager.default.removeItem(atPath: dir) }
 
     private func s(_ rel: String, _ c: FilingConfidence, token: String? = nil) -> FilingHelpAnswer.Suggestion {
         FilingHelpAnswer.Suggestion(folder: dir + "/Documents/" + rel, relativePath: rel, confidence: c,
@@ -3472,10 +3284,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             "scan0042.pdf": [s("Health", .low), s("Insurance", .low)], "plan.pdf": [s("Travel/Trips", .high)],
         ].merging(extra) { _, new in new }
         let manager = FileSyncManager.scratch()
-        return AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        return browseTools(browseContext(sourceName: "Home", root: dir, folder: "Downloads") { ctx in
             ctx.sources = [.init(id: "home", name: "Home", root: dir), .init(id: "dropbox", name: "Dropbox", root: "/never-on-disk-dropbox")]
             ctx.surveyRoot = survey ? dir + "/Documents" : nil
             ctx.surveyFolder = { $0.lowercased() == "documents" ? dir + "/Documents" : nil }
@@ -3489,8 +3298,7 @@ private final class OffersADownload: AskClaudeToolRunning {
                 manager.planRefusal(change, creating: creating, isHidden: { _ in false }, protected: [])
             }
             configure(&ctx)
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
     }
 
     private func call(_ input: [String: JSONFragment], _ runner: AskClaudeBrowseTools) async -> AskClaudeToolOutcome {
@@ -3500,7 +3308,6 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     /// No place yet, so a count and two buttons, and no card.
     @Test func withoutAPlaceItCountsAndOffersButtons() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call([:], runner())
         #expect(out.plan == nil && !out.isError)
         #expect(out.choices == [AskClaudeChoice("Into Documents, by how I file", sends: "Into Documents, by how I file"),
@@ -3512,7 +3319,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// Claude gets the counts, not the names and homes: a home can be picked from a file's first
     /// page. A folder that shares freely sends the rows.
     @Test func theCardsNamesAndHomesStayOnTheCard() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let held = await call(["into": .string("Documents")], runner())
         #expect(held.plan != nil && held.result.contains("with a home") && held.result.contains("needing their pick"))
         #expect(!held.result.contains("JAL Ticket.pdf") && !held.result.contains("Taxes"))
@@ -3521,7 +3327,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 
     @Test func aPlaceOutsideTheSurveyOffersTheSurvey() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Dropbox")], runner())
         #expect(out.plan == nil && out.filing?.kind == .outside(surveyed: "Home › Documents"))
         #expect(out.choices?.map(\.label) == ["Into Documents, by how I file", "Name a Dropbox folder…"])
@@ -3532,7 +3337,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// The card: High ticked, a taken name said, a copy already filed as an unticked Trash row, the
     /// folder its files empty, installers and homeless files left here.
     @Test func theCardGroupsTicksAndChecksEachRow() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Documents")], runner())
         let plan = try #require(out.plan)
         func row(_ name: String) -> AskClaudePlan.Row? { plan.rows.first { $0.name == name } }
@@ -3552,7 +3356,6 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     /// 10 a card, and a Next button that asks for the next ones in their own words.
     @Test func aCardHoldsTenAndItsNextButtonAsksForMore() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         for i in 0..<55 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
         let first = await call(["into": .string("Documents")], runner())
         #expect(first.plan?.more == "1–10 of 62 · 52 more")
@@ -3574,7 +3377,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// not refused as outside the primary one, and filing help is handed the place, so the card's
     /// rows come from the survey its title names.
     @Test func aPlaceInASourceWithItsOwnSurveyIsFiledFromThatSurvey() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let google = dir + "/Google", googleSurvey = dir + "/Google/My Drive"
         try FileManager.default.createDirectory(atPath: googleSurvey + "/Finance", withIntermediateDirectories: true)
         let asked = Asked()
@@ -3598,7 +3400,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// Next after Apply: the files the first card moved are gone, and the next card is still the
     /// eleventh to twentieth, not three past them.
     @Test func nextAfterApplyShowsTheFilesNoCardShowed() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         for i in 0..<25 { try Data("\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/n\(i).txt")) }
         let order = AskClaudeLooseFiles.collect(in: dir + "/Downloads", isHidden: { _ in false }).files.map(\.path)
         let everywhere = s("Travel/Trips", .high)
@@ -3617,7 +3418,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// A home not made yet (a saved rule's month folder) gets the card's own new-folder rows, and
     /// Apply files into it.
     @Test func aHomeNotMadeYetIsMadeByTheCard() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         try Data("rule".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/Boarding.pdf"))
         let out = await call(["into": .string("Documents")], runner(extra: ["Boarding.pdf": [s("Travel/2026/Oct", .high)]]))
         let plan = try #require(out.plan)
@@ -3641,7 +3441,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// A file already in its home, through another spelling of its folder, is left out: never a
     /// copy of itself to trash.
     @Test func aFileAlreadyInItsHomeIsLeftHere() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         try FileManager.default.createSymbolicLink(atPath: dir + "/CloudDocs", withDestinationPath: dir + "/Downloads")
         let home = FilingHelpAnswer.Suggestion(folder: dir + "/CloudDocs", relativePath: "Downloads", confidence: .high,
                                                reason: "Fits how this folder is used", evidenceToken: nil)
@@ -3652,7 +3451,6 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     /// The card is on their Mac: a row says which word decided it and what the file is.
     @Test func aRowCarriesItsFileAndTheRealReason() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let out = await call(["into": .string("Documents")], runner(token: true))
         let row = try #require(out.plan?.rows.first { $0.name == "JAL Ticket.pdf" })
         #expect(row.reason == "Matched “Japan Airlines” read from the file — a word this folder’s documents use")
@@ -3663,7 +3461,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
 /// Claude proposes a card of changes; nothing runs from the tool.
 @MainActor
-@Suite struct AskClaudeProposeChangesTests {
+@Suite final class AskClaudeProposeChangesTests {
 
     private let dir: String
 
@@ -3676,20 +3474,18 @@ private final class OffersADownload: AskClaudeToolRunning {
         }
     }
 
+    deinit { try? FileManager.default.removeItem(atPath: dir) }
+
     private func runner() -> AskClaudeBrowseTools {
         let dir = self.dir
         let manager = FileSyncManager.scratch()
-        return AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "Home", root: dir, folder: "Downloads", sort: .name,
-                items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        return browseTools(browseContext(sourceName: "Home", root: dir, folder: "Downloads") { ctx in
             ctx.sources = [.init(id: "home", name: "Home", root: dir)]
             ctx.hidden = [dir + "/Documents/Private"]
             ctx.planRefusal = { change, creating in
                 manager.planRefusal(change, creating: creating, isHidden: { $0.hasPrefix(dir + "/Documents/Private") }, protected: [dir])
             }
-            return ctx
-        }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil })
+        })
     }
 
     private func propose(_ changes: [[String: String]], title: String? = nil) async -> (AskClaudeToolOutcome, AskClaudeHandles) {
@@ -3707,7 +3503,6 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     /// A new folder and a move into it on one card; the trash row starts unticked; nothing moved.
     @Test func aCardIsOfferedAndNothingRuns() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let (out, _) = await propose([
             ["action": "new_folder", "folder": "Documents/Travel/Trips", "name": "Japan 2026"],
             ["action": "move", "handle": "$jal", "folder": "Documents/Travel/Trips/Japan 2026"],
@@ -3726,7 +3521,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// would say what the hidden folder's parent holds, and a name made inside a hidden folder
     /// would say what it holds.
     @Test func aPlaceInAHiddenFolderIsRefusedBeforeTheDiskIsAsked() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let (out, _) = await propose([
             ["action": "new_folder", "folder": "Documents", "name": "Private"],
             ["action": "new_folder", "folder": "Documents/Private", "name": "Scans"],
@@ -3738,7 +3532,6 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     /// Checked when proposed: a row that can't run says why and has no tick, and Claude is told.
     @Test func aRowThatCantRunSaysWhyWhenProposed() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let (out, _) = await propose([
             ["action": "move", "handle": "$jal", "folder": "Documents/Private"],
             ["action": "rename", "handle": "$jal", "name": "old.dmg"],
@@ -3752,7 +3545,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 
     @Test func aBadEntryOrTooManyOffersNothing() async throws {
-        defer { try? FileManager.default.removeItem(atPath: dir) }
         let (bad, _) = await propose([["action": "copy", "handle": "$jal"]])
         #expect(bad.isError && bad.plan == nil)
         let many = Array(repeating: ["action": "trash", "handle": "$jal"], count: 51)
@@ -3806,17 +3598,10 @@ private final class OffersADownload: AskClaudeToolRunning {
     /// Wiped with its plist once the chat lets go: each question records its spend here.
     private func scratch() -> UserDefaults { ScratchDefaults("AskClaudeSinceLastAnswerTests") }
 
-    /// Waits for the question to finish, and fails at the call if it never does. A fixed pump can
-    /// give up in silence under load and let the test change the model mid-question
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
-    private func waitUntilIdle(_ chat: AskClaudeChat, sourceLocation: SourceLocation = #_sourceLocation) async {
-        await waitUntil("the chat finishes its question", timeout: 30, sourceLocation: sourceLocation) { !chat.isRunning }
-    }
-
     @Test func aCardsOutcomeGoesWithTheNextQuestionOnly() async {
         let d = scratch()
         let transport = RecordingTransport()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They applied your card “File 3 Loose Files”: Moved 3 files.")
         chat.ask("Where did they go?", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
@@ -3835,8 +3620,7 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     @Test func aQuestionThatNeverReachedClaudeKeepsThem() async {
         let d = scratch()
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: RecordingTransport(), defaults: d) },
-                                 readKey: { nil })
+        let chat = makeChat(RecordingTransport(), defaults: d, readKey: { nil })
         chat.tellClaude("They undid your card “T”.")
         chat.ask("hi", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
@@ -3852,7 +3636,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func aQuestionStoppedWhileItsAnswerStreamsKeepsThem() async {
         let d = scratch()
         let transport = ScriptedChatTransport([.hang, .text("ok")])
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
         chat.ask("one", screen: screen, tools: NoTools())
         for _ in 0..<300 where !chat.items.contains(where: { if case .assistant = $0.kind { true } else { false } }) {
@@ -3870,7 +3654,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func aQuestionWhoseAnswerWasEmptyKeepsThem() async {
         let d = scratch()
         let transport = ScriptedChatTransport([.onlyThinking, .text("ok")])
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
         chat.ask("one", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
@@ -3884,7 +3668,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func aQuestionThatFailedAfterReachingClaudeDoesntSendThemTwice() async {
         let d = scratch()
         let transport = ScriptedChatTransport([.toolCall, .status(500), .text("ok")])
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" })
+        let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
         chat.ask("one", screen: screen, tools: NoTools())
         await waitUntilIdle(chat)
@@ -3926,11 +3710,10 @@ private final class OffersADownload: AskClaudeToolRunning {
 
     private func runner(_ asked: Asked, rules: [AutomationRule] = [], sharesRoot: Bool = false) -> AskClaudeBrowseTools {
         let file = self.file
-        return AskClaudeBrowseTools(context: {
-            var ctx = AskClaudeBrowseTools.Context(
-                inBrowse: true, sourceName: "iCloud", root: Self.root, folder: "Downloads", sort: .name,
-                items: { _ in nil }, node: { $0 == file.id ? file : nil }, selection: [], busyReason: nil,
-                goTo: { _ in }, select: { _ in })
+        return AskClaudeBrowseTools(context: browseContext(
+            root: Self.root,
+            folder: "Downloads",
+            node: { $0 == file.id ? file : nil }) { ctx in
             ctx.sources = [.init(id: "icloud", name: "iCloud", root: Self.root)]
             let documents = Self.root + "/Documents"
             ctx.surveyFolder = { name in name.hasPrefix("Travel") ? documents + "/" + name : nil }
@@ -3943,7 +3726,6 @@ private final class OffersADownload: AskClaudeToolRunning {
                     fileName: (path as NSString).lastPathComponent, destinationRelativePath: String(folder.dropFirst(documents.count + 1)),
                     name: name, phrases: words, also: also, pageSample: page, modificationDate: nil, existingRules: rules)
             }
-            return ctx
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
            extract: { _ in [Self.page] }, isCloudOnly: { _ in false })
     }

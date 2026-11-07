@@ -12,27 +12,14 @@ import FileExplorer
 /// asserts a string whose absence is exactly the regression guarded.
 @Suite struct ToolbarPaletteBarCallSiteTests {
 
-    static func source(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)          // …/SyncCloudTests/<this>.swift
-            .deletingLastPathComponent()                   // …/SyncCloudTests
-            .deletingLastPathComponent()                   // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — every check below would be vacuous")
-        // `#require`, not `#expect`: a truncated file would make every `contains` answer false and
-        // every `!contains` true, so stop rather than report a page of green.
-        try #require(text.count > 500, "\(name) is implausibly short — the scans below would be near-vacuous")
-        return text
-    }
-
     @Test func theToolbarDrawsThePillAndOpensThePaletteWithIt() throws {
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        let toolbar = try macAppFile("ContentView+Toolbar.swift")
         // The pill and the field it becomes are one control, `GoToFieldBar`, which still renders
         // `CommandPaletteBar` closed. The toolbar draws it through `GoToFieldHost`, the field bound
         // to the query object.
         #expect(toolbar.contains("GoToFieldHost("),
                 "the toolbar no longer draws the Go-to control — the render tests are measuring a view nothing shows")
-        let host = try Self.source("CommandPaletteHost.swift")
+        let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("GoToFieldBar(mode: mode, query: $query.text"),
                 "`GoToFieldHost` no longer draws the Go-to control bound to the query it observes")
         // Every keystroke reaches the list, from the host, which is what observes the query.
@@ -60,7 +47,7 @@ import FileExplorer
     /// window's body would re-run the whole body on every key. A source check, because
     /// `ContentView` cannot be mounted in a test; it pins the two things that bring the redraw back.
     @Test func theWindowDoesNotObserveTheGoToQuery() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("@State var goToQuery = GoToQuery()"),
                 "the query is held some other way — check `ContentView` does not observe it")
         // Every file `ContentView`'s body is assembled from, not just the one that declares it.
@@ -70,7 +57,7 @@ import FileExplorer
             .filter { $0.hasPrefix("ContentView") && $0.hasSuffix(".swift") }
         #expect(parts.count > 5, "found \(parts.count) ContentView files — this check is aimed wrong")
         for part in parts {
-            let source = try Self.source(part)
+            let source = try macAppFile(part)
             #expect(!source.contains("@StateObject var goToQuery") && !source.contains("@ObservedObject var goToQuery"),
                     "`\(part)` observes the query, so every keystroke redraws the window")
             #expect(!source.contains("goToQuery.text") && !source.contains("of: goToQuery"),
@@ -78,13 +65,13 @@ import FileExplorer
         }
         // An `@Observable` class is tracked by any body that merely reads it; only an
         // `ObservableObject` held in `@State` keeps the window out of it.
-        let host = try Self.source("CommandPaletteHost.swift")
+        let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("final class GoToQuery: ObservableObject"))
         #expect(!host.contains("@Observable\nfinal class GoToQuery") && !host.contains("@Observable final class GoToQuery"))
     }
 
     @Test func thePillTakesTheResolvedRungRatherThanAFixedOne() throws {
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        let toolbar = try macAppFile("ContentView+Toolbar.swift")
         // A hard-coded `.full` is the failure with no symptom until the window is narrow, and then
         // the symptom is the whole toolbar behind macOS's overflow chevron.
         #expect(toolbar.contains("mode: goToFieldMode"),
@@ -97,7 +84,7 @@ import FileExplorer
     }
 
     @Test func bothRungsAreResolvedInOnePlaceFromTheWindowsWidth() throws {
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         // One `onGeometryChange`, one value. Two thresholds resolved separately would let each
         // control conclude it fits a width the other is also spending.
         #expect(content.contains("onGeometryChange(for: ToolbarBarStyleSet.self)"),
@@ -122,18 +109,18 @@ import FileExplorer
     /// workspace row would switch workspace under the pending pick. The workspace bar needs the
     /// same guard. Each guard is asserted where it lives, since no other test notices one removed.
     @Test func everyWayIntoTheAppIsSuspendedWhileADestinationPickIsPending() throws {
-        let host = try Self.source("CommandPaletteHost.swift")
+        let host = try macAppFile("CommandPaletteHost.swift")
         let toggle = try #require(host.range(of: "func toggleCommandPalette()"),
                                   "toggleCommandPalette is gone — this scan would be vacuous")
         let body = String(host[toggle.upperBound...].prefix(1200))
         #expect(body.contains("pendingDestination == nil"),
                 "toggleCommandPalette no longer refuses while a destination pick is pending — the pill and the armed-on-launch path raise the palette over it, and ↩ switches workspace mid-pick")
 
-        let toolbar = try Self.source("ContentView+Toolbar.swift")
+        let toolbar = try macAppFile("ContentView+Toolbar.swift")
         #expect(toolbar.components(separatedBy: "disabled(pendingDestination != nil)").count - 1 >= 2,
                 "the toolbar no longer dims both the ⌘K pill and the workspace bar during a pick — a control that silently does nothing, or one that switches workspace under the picker")
 
-        let content = try Self.source("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         #expect(content.contains("palettePanel.dismiss()"),
                 "presentDestination no longer lowers the palette, so the picker can be raised under a window that holds key and take neither a keystroke nor a click")
         #expect(content.contains("paletteOnLaunchArmed, pendingDestination == nil"),

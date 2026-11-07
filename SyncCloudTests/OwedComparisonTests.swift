@@ -260,8 +260,8 @@ import Sync
     /// Arriving in Compare pays it, once: the one call on the way in, plus the write that lands
     /// while Compare is on screen, and no other caller.
     @Test func arrivingInCompareIsTheOnePlaceItIsPaid() throws {
-        let content = try EditorDivergenceWiringTests.source("ContentView.swift")
-        let editor = try EditorDivergenceWiringTests.source("ContentView+Editor.swift")
+        let content = try macAppFile("ContentView.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         #expect(CodeText(content).contains("if workspace == .compare { payOwedComparisonIfNeeded() }"),
                 "nothing pays the debt on the way into Compare — the one workspace that displays a comparison")
         // Counted in code: a comment naming the payment is not a caller.

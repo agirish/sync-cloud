@@ -9,78 +9,35 @@ import Testing
 /// lens results the retarget is protecting).
 @Suite struct ProviderPinPlanTests {
 
-    // MARK: Both sides change — the distinct-provider pane swap
-
-    @Test func swappingDistinctProvidersChangesBothSides() {
-        let plan = ProviderPinPlan.make(
-            currentLeft: "icloud", currentRight: "dropbox",
-            targetLeft: "dropbox", targetRight: "icloud")
-        #expect(plan.assignments == [
-            ProviderPinPlan.Assignment(side: .left, providerId: "dropbox"),
-            ProviderPinPlan.Assignment(side: .right, providerId: "icloud"),
-        ])
-        #expect(plan.suppressCount == 2)
-    }
-
-    // MARK: Equal-provider swap — nothing changes, nothing to suppress
-
-    @Test func swappingASharedProviderIsANoOp() {
-        // Both panes on the same provider: the swapped ids equal the current ones, so no write
-        // happens and no onChange fires — the swap action must NOT seed the counter (a stranded
-        // unit would swallow the next real provider switch).
-        let plan = ProviderPinPlan.make(
-            currentLeft: "icloud", currentRight: "icloud",
-            targetLeft: "icloud", targetRight: "icloud")
-        #expect(plan.assignments.isEmpty)
-        #expect(plan.suppressCount == 0)
-    }
-
-    // MARK: One side changes — compareCopies pinning both panes to the lens provider
-
-    @Test func pinningWhenLeftAlreadyMatchesWritesOnlyRight() {
-        // compareCopies targets one provider for BOTH panes; the left pane is usually already
-        // showing it, so only the right id write fires an onChange.
-        let plan = ProviderPinPlan.make(
-            currentLeft: "icloud", currentRight: "dropbox",
-            targetLeft: "icloud", targetRight: "icloud")
-        #expect(plan.assignments == [
-            ProviderPinPlan.Assignment(side: .right, providerId: "icloud"),
-        ])
-        #expect(plan.suppressCount == 1)
-    }
-
-    @Test func pinningWhenRightAlreadyMatchesWritesOnlyLeft() {
-        let plan = ProviderPinPlan.make(
-            currentLeft: "dropbox", currentRight: "icloud",
-            targetLeft: "icloud", targetRight: "icloud")
-        #expect(plan.assignments == [
-            ProviderPinPlan.Assignment(side: .left, providerId: "icloud"),
-        ])
-        #expect(plan.suppressCount == 1)
-    }
-
-    // MARK: Full no-op — restoreCompareState when nothing moved
-
-    @Test func restoringAnUnchangedSetupChangesNothing() {
-        // Ending a duplicate review that never had to re-pin either pane: the saved ids equal
-        // the current ones, so the restore must not seed any suppression.
-        let plan = ProviderPinPlan.make(
-            currentLeft: "icloud", currentRight: "dropbox",
-            targetLeft: "icloud", targetRight: "dropbox")
-        #expect(plan.assignments.isEmpty)
-        #expect(plan.suppressCount == 0)
-    }
-
-    // MARK: Both sides to different targets — restoreCompareState after a cross-provider review
-
-    @Test func restoringTwoDifferentProvidersWritesBothSides() {
-        let plan = ProviderPinPlan.make(
-            currentLeft: "gdrive", currentRight: "gdrive",
-            targetLeft: "icloud", targetRight: "dropbox")
-        #expect(plan.assignments == [
-            ProviderPinPlan.Assignment(side: .left, providerId: "icloud"),
-            ProviderPinPlan.Assignment(side: .right, providerId: "dropbox"),
-        ])
-        #expect(plan.suppressCount == 2)
+    /// `(current left, current right, target left, target right, the writes)`; the suppression
+    /// count is the number of writes, every time.
+    @Test(arguments: [
+        // Both sides change: the distinct-provider pane swap.
+        ("icloud", "dropbox", "dropbox", "icloud", [PinAssignment(side: .left, providerId: "dropbox"),
+                                                    PinAssignment(side: .right, providerId: "icloud")]),
+        // An equal-provider swap: the swapped ids equal the current ones, so no write happens and
+        // no onChange fires, and the swap must NOT seed the counter (a stranded unit would swallow
+        // the next real provider switch).
+        ("icloud", "icloud", "icloud", "icloud", []),
+        // One side changes: compareCopies pins both panes to the lens provider, and the left pane
+        // is usually already showing it, so only the right id write fires an onChange.
+        ("icloud", "dropbox", "icloud", "icloud", [PinAssignment(side: .right, providerId: "icloud")]),
+        ("dropbox", "icloud", "icloud", "icloud", [PinAssignment(side: .left, providerId: "icloud")]),
+        // A full no-op: ending a duplicate review that never had to re-pin either pane, so the
+        // restore must not seed any suppression.
+        ("icloud", "dropbox", "icloud", "dropbox", []),
+        // restoreCompareState after a cross-provider review: both sides to different targets.
+        ("gdrive", "gdrive", "icloud", "dropbox", [PinAssignment(side: .left, providerId: "icloud"),
+                                                   PinAssignment(side: .right, providerId: "dropbox")]),
+    ] as [(String, String, String, String, [PinAssignment])])
+    func eachRealChangeIsOneWriteAndOneSuppressedOnChange(currentLeft: String, currentRight: String,
+                                                         targetLeft: String, targetRight: String,
+                                                         writes: [PinAssignment]) {
+        let plan = ProviderPinPlan.make(currentLeft: currentLeft, currentRight: currentRight,
+                                        targetLeft: targetLeft, targetRight: targetRight)
+        #expect(plan.assignments == writes)
+        #expect(plan.suppressCount == writes.count)
     }
 }
+
+typealias PinAssignment = ProviderPinPlan.Assignment

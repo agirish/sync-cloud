@@ -16,15 +16,7 @@ import Foundation
 ///   walked renders blank; walking a pane whose root didn't move is a needless re-walk.
 @Suite struct PaneRetargetWiringTests {
 
-    private static func contentViewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView.swift — this scan would be vacuous")
-        try #require(raw.count > 5000, "ContentView.swift is implausibly short — the scan is vacuous")
-        return SyncCloudTests.strippingComments(raw)
-    }
+    private static func contentViewSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// The source between two markers. Both are `#require`d, so a rename that moves the region
     /// fails the scan rather than silently narrowing it to nothing.

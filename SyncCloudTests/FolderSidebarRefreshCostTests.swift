@@ -98,24 +98,7 @@ import Foundation
     /// read off its source. Comments are stripped so prose explaining the mechanism can't stand in
     /// for it.
     private static func refreshBody() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 5000, "the file is implausibly short — the scan is vacuous")
-        let code = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-        let start = try #require(code.range(of: "func refreshFolderSidebarRows() {"),
-                                 "the refresh was renamed — this scan now reads nothing")
-        let rest = String(code[start.upperBound...])
-        let end = rest.range(of: #"\n {4}(nonisolated )?(private )?(static )?(func|var|struct) "#,
-                             options: .regularExpression)
-        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+        try declarationBody(of: "func refreshFolderSidebarRows() {", in: macAppFile("ContentView+FolderSidebar.swift"))
     }
 
     /// One refresh per turn, and the ticket is checked twice: after the hop, which collapses the

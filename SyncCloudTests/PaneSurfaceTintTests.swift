@@ -11,17 +11,8 @@ import Testing
 
     private static let wash = ".contentSurface(hue: glassHue, tint: surfaceTint)"
 
-    /// A file from the repo, comment-stripped, with the truncation guard every scan here carries:
-    /// a partly read file answers `contains` with false and makes an absence scan vacuous.
-    private static func repoFile(_ relativePath: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // SyncCloudTests
-            .deletingLastPathComponent()      // repo root
-            .appendingPathComponent(relativePath)
-        let text = try String(contentsOf: url, encoding: .utf8)
-        try #require(text.count > 500, "\(relativePath) read as \(text.count) characters — truncated?")
-        return SyncCloudTests.strippingComments(text)
-    }
+    /// A file from the repo, comment-stripped.
+    private static func codeFile(_ relativePath: String) throws -> String { sourceCodeOnly(try repoFile(relativePath)) }
 
     /// The modifier chain on the `PaneTabStrip(...)` call, from its balanced closing parenthesis
     /// to the next view in the stack. Bounded by `PaneHeader(`, the structural boundary, not a
@@ -38,31 +29,10 @@ import Testing
 
     // MARK: - The premise
 
-    @Test func theSliceIsTheStripsOwnModifierChain() throws {
-        let source = try Self.repoFile("MacApp/ContentView.swift")
-        let chain = try Self.stripModifiers(in: source)
-        // A modifier the strip always carries, so a slice that is empty or in the wrong region
-        // can't satisfy every assertion below.
-        #expect(chain.contains(".paneCardIfNeeded("),
-                "the slice does not contain the strip's own card modifier — it is not the right region")
-        // And it stops before the sibling: a slice running into the header would credit the
-        // header's wash to the strip.
-        #expect(!chain.contains("PaneHeader("))
-        #expect(chain.count < source.count)
-    }
-
-    @Test func theScanWouldNoticeTheWashGoing() throws {
-        // The negative control. `wash` is matched verbatim, so this asserts the file contains that
-        // spelling at all; a renamed modifier or label would otherwise fail silently.
-        let source = try Self.repoFile("MacApp/ContentView.swift")
-        #expect(source.contains(Self.wash), "the wash is spelled differently now — every scan here is vacuous")
-        #expect(!source.contains(".contentSurface(hue: glassHue, tint: surfaceTintt)"))
-    }
-
     // MARK: - The three surfaces
 
     @Test func theTabStripTakesTheWash() throws {
-        let chain = try Self.stripModifiers(in: try Self.repoFile("MacApp/ContentView.swift"))
+        let chain = try Self.stripModifiers(in: try Self.codeFile("MacApp/ContentView.swift"))
         #expect(chain.contains(Self.wash),
                 "the tab strip does not paint the tint — it will read as a pale stripe across the pane")
     }
@@ -71,7 +41,7 @@ import Testing
         // The wash must come before the card: applied after `surfaceCard` clips, it squares off
         // the rounded corners (as `bottomSectionCard` documents). `contains` can't see order, so
         // this compares positions.
-        let chain = try Self.stripModifiers(in: try Self.repoFile("MacApp/ContentView.swift"))
+        let chain = try Self.stripModifiers(in: try Self.codeFile("MacApp/ContentView.swift"))
         let wash = try #require(chain.range(of: Self.wash))
         let card = try #require(chain.range(of: ".paneCardIfNeeded("))
         #expect(wash.lowerBound < card.lowerBound,
@@ -93,7 +63,7 @@ import Testing
     }
 
     @Test func theHeaderTakesTheWash() throws {
-        let source = try Self.repoFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
+        let source = try Self.codeFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
         let header = try Self.paneHeaderSlice(in: source)
         // The slice is the header's own body, not the whole file: the header's height pin anchors
         // it, and the boundary really cut something.
@@ -108,7 +78,7 @@ import Testing
     @Test func theFileListTakesTheWash() throws {
         // Both presentations: Tree and Columns are separate branches, and washing only one would
         // change the pane's colour when the view mode switches.
-        let source = try Self.repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
+        let source = try Self.codeFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         let count = source.components(separatedBy: Self.wash).count - 1
         #expect(count >= 2, "expected the Tree and Columns branches to be washed, found \(count)")
     }

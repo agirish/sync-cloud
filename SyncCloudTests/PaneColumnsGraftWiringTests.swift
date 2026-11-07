@@ -9,27 +9,9 @@ import Foundation
 /// it. A source scan, as in `FolderSidebarWiringTests`: `ContentView` can't be instantiated here.
 @Suite struct PaneColumnsGraftWiringTests {
 
-    static func source(_ relative: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent(relative)
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read \(relative) — this scan would be vacuous")
-        try #require(raw.count > 3000, "\(relative) is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func source(_ relative: String) throws -> String { sourceCodeOnly(try repoFile(relative)) }
 
     static func appSource() throws -> String { try source("MacApp/ContentView.swift") }
-
-    @Test func theScanCanSeeAKnownSymbol() throws {
-        #expect(try Self.appSource().contains("onColumnNavigate:"),
-                "the scan cannot see the pane's own call site, so nothing below means anything")
-    }
 
     /// The app's `FileTreeView` must hand the request to the manager: the parameter is passed, and
     /// reaches `loadColumnChildren`, since a closure wired elsewhere would satisfy the first alone.

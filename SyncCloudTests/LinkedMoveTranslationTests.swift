@@ -15,57 +15,15 @@ import Sync
 /// stops the set's assertion passing on a coincidence.
 @Suite struct LinkedMoveTranslationTests {
 
-    static func repoFile(_ path: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SyncCloudTests
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent(path)
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read \(path) — every check below would be vacuous")
-    }
-
-    /// The body of the member whose declaration line contains `declaration`, brace-matched and with
-    /// its comments stripped. Brace-matched, not a fixed prefix, which would silently stop covering
-    /// whatever is added at the end. Comments stripped because each call site has a comment naming
-    /// its translator, and a raw scan would pass with the call deleted and the comment left.
+    /// The body of the member whose declaration line contains `declaration`, comment-stripped:
+    /// each call site has a comment naming its translator, and a raw scan would pass with the call
+    /// deleted and the comment left. ``declarationBody(of:in:sourceLocation:)``, kept by this name for
+    /// the suites that call it.
     static func body(of declaration: String, in source: String) throws -> String {
-        Self.codeOnly(try rawBody(of: declaration, in: source))
+        try declarationBody(of: declaration, in: source)
     }
 
-    /// Line and block comments removed. Not a Swift parser: a `"//"` inside a string literal would
-    /// truncate the line. None of these bodies contains one, and if one ever does the assertion goes
-    /// red rather than quiet.
-    static func codeOnly(_ source: String) -> String {
-        var out = source
-        while let start = out.range(of: "/*"), let end = out.range(of: "*/", range: start.upperBound..<out.endIndex) {
-            out.removeSubrange(start.lowerBound..<end.upperBound)
-        }
-        return out.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let slashes = line.range(of: "//") else { return line }
-                return line[..<slashes.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    private static func rawBody(of declaration: String, in source: String) throws -> String {
-        let declRange = try #require(source.range(of: declaration),
-                                     "cannot find `\(declaration)` — this test names something that no longer exists")
-        let after = source[declRange.upperBound...]
-        let open = try #require(after.firstIndex(of: "{"), "no body for `\(declaration)`")
-        var depth = 0
-        var index = open
-        while index < after.endIndex {
-            if after[index] == "{" { depth += 1 }
-            if after[index] == "}" {
-                depth -= 1
-                if depth == 0 { return String(after[after.index(after: open)..<index]) }
-            }
-            index = after.index(after: index)
-        }
-        Issue.record("unbalanced braces in `\(declaration)`")
-        return ""
-    }
+    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
 
     /// All three, named individually so a failure says which lost the translation. Two spellings:
     /// the app's pair go through `ContentView.relativePathForPane`, while `FileActionHandler`, in
@@ -84,14 +42,14 @@ import Sync
              "PathBoundary.reanchor", "a linked drill into a folder"),
         ]
         for site in sites {
-            let body = try Self.body(of: site.declaration, in: try Self.repoFile(site.file))
+            let body = try Self.body(of: site.declaration, in: try repoFile(site.file))
             #expect(body.contains(site.translator),
                     "\(site.what) drives the sibling with this pane's own root-relative path — on a pair whose sources land at different depths that names a different folder, or none")
         }
 
         // The seam the first two lean on actually translates.
         let seam = try Self.body(of: "func relativePathForPane(_ relative: String, isLeft: Bool)",
-                                 in: try Self.repoFile("MacApp/ContentView.swift"))
+                                 in: try repoFile("MacApp/ContentView.swift"))
         #expect(seam.contains("PathBoundary.reanchor"),
                 "relativePathForPane does not reanchor, so the two call sites above translate nothing")
         // Both anchors, from opposite panes: a seam reading one pane twice would compile, return
@@ -105,7 +63,7 @@ import Sync
     /// would be a no-op while the panes are in step and wrong once they drift. Without this control
     /// the test above could pass on "the file mentions reanchor somewhere".
     @Test func theMirrorThatDoesNotCrossPanesDoesNotTranslate() throws {
-        let source = try Self.repoFile("MacApp/ContentView+PaneTabs.swift")
+        let source = try repoFile("MacApp/ContentView+PaneTabs.swift")
         let body = try Self.body(of: "func openNewTabHere(isLeft: Bool)", in: source)
         // Both spellings: the app's sites reach the rule through `relativePathForPane`, so ruling
         // out only `PathBoundary.reanchor` would let this pass on a member translating that way.

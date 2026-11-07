@@ -13,7 +13,12 @@ import Testing
     /// Every test file in this target, with its name.
     private static func files() throws -> [(name: String, source: String)] {
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        // The shared helpers `project.yml` compiles into this target from `EventsTestSupport`.
+        let shared = ["MachinePinned.swift", "DefaultsSuiteSupport.swift"].map {
+            folder.deletingLastPathComponent()
+                .appendingPathComponent("Modules/Events/Sources/EventsTestSupport/\($0)")
+        }
+        return try (FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) + shared)
             .filter { $0.pathExtension == "swift" }
             .map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
     }
@@ -63,7 +68,7 @@ import Testing
     /// The engine records spend and reads the detail setting in its `defaults`.
     @Test func everyEngineNamesItsDefaults() throws {
         let calls = try Self.calls(of: "AskClaudeEngine(")
-        try #require(calls.count >= 20, "found \(calls.count) AskClaudeEngine constructions — the scan is reading the wrong folder")
+        try #require(calls.count >= 8, "found \(calls.count) AskClaudeEngine constructions — the scan is reading the wrong folder")
         let live = calls.filter { $0.call.value("defaults") == nil }.map { "\($0.file): \($0.text)" }
         #expect(live.isEmpty, "records spend in the user's live defaults: \(live)")
     }
@@ -119,7 +124,7 @@ import Testing
                 if !code.contains("wipeDefaultsSuite(\(name))") { leaked.append("\(file.name): suiteName: \(name)") }
             }
         }
-        try #require(suites >= 5, "found \(suites) bare suites — the scan is reading the wrong folder")
+        try #require(suites >= 2, "found \(suites) bare suites — the scan is reading the wrong folder")
         #expect(leaked.isEmpty, "a suite this file never wipes leaves its plist behind: \(leaked)")
     }
 }

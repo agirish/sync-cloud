@@ -48,7 +48,7 @@ import Design
     /// `.named` would fit the card. A fixed width truncates the tile labels ("Comfor…") without
     /// changing the row's height, so the row is never given one.
     @Test func theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth() throws {
-        let source = try Self.appSource("Setup/AppearanceScreen.swift")
+        let source = try macAppFile("Setup/AppearanceScreen.swift")
         let statement = try #require(Self.expression(containing: "SizePresetRow(fontSize: $fontSize",
                                                     in: source))
 
@@ -70,7 +70,7 @@ import Design
     /// var percent: Int` cannot see the legacy `String` value, so a user who chose Small, Large or
     /// Largest would open at 100% and the first write would make it permanent.
     @Test func theAppMigratesTheStoredTextSizeAtLaunch() throws {
-        let source = try Self.appSource("SyncCloudApp.swift")
+        let source = try macAppFile("SyncCloudApp.swift")
 
         #expect(source.contains("FontSize.migrateLegacyValue()"),
                 """
@@ -84,14 +84,6 @@ import Design
         let body = try #require(Self.body(ofFirst: "init() {", in: source))
         #expect(body.contains("FontSize.migrateLegacyValue()"),
                 "the migration call is no longer inside App.init — it must run before any read")
-    }
-
-    /// The scan can actually read the app: one that silently found nothing would pass the negative
-    /// assertions above.
-    @Test func theSourceScanCanActuallyReadTheApp() throws {
-        let source = try Self.appSource("SyncCloudApp.swift")
-        #expect(source.count > 1000, "SyncCloudApp.swift read as \(source.count) characters")
-        #expect(source.contains("struct SyncCloudApp"), "this is not SyncCloudApp.swift")
     }
 
     /// The whole SwiftUI expression a call belongs to: its own line, plus the modifier lines
@@ -133,14 +125,6 @@ import Design
         let host = NSHostingView(rootView: view.appFontSize(size))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.width
-    }
-
-    /// Reads a file out of `MacApp/`, resolved from this test file's own path so it does not
-    /// depend on the runner's working directory.
-    private static func appSource(_ name: String, file: StaticString = #filePath) throws -> String {
-        let testFile = URL(fileURLWithPath: "\(file)")
-        let repo = testFile.deletingLastPathComponent().deletingLastPathComponent()
-        return try String(contentsOf: repo.appendingPathComponent("MacApp/\(name)"), encoding: .utf8)
     }
 }
 

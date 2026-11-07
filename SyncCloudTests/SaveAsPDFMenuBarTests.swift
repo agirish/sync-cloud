@@ -18,9 +18,9 @@ import Testing
     /// At the end of File's print group, after Fill & Sign's Save Filled Copy: greyed with nothing
     /// selected, and with no chord.
     @Test func saveAsPDFEndsThePrintGroupGreyedWithNoSelection() throws {
-        let file = try TextMarkupMenuTests.menu("File")
+        let file = try appMenu("File")
         file.update()
-        let titles = TextMarkupMenuTests.titles(file)
+        let titles = menuTitles(file)
         let copy = try #require(titles.firstIndex(of: "Save Filled Copy"), "File ▸ Save Filled Copy is gone")
         let save = try #require(titles.firstIndex(of: "Save as PDF"), "File has no Save as PDF")
         #expect(save == copy + 1, "File reads \(titles[min(copy, save)...]) — Save as PDF belongs after Save Filled Copy")

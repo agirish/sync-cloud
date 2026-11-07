@@ -146,20 +146,7 @@ import SwiftUI
 /// feature fully built, fully tested and not connected.
 @Suite struct WindowSubtitleWiringTests {
 
-    static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent(file)
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read \(file) — this scan would be vacuous")
-        try #require(raw.count > 5000, "\(file) is implausibly short — the scan is vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
+    static func source(_ file: String) throws -> String { sourceCodeOnly(try repoFile(file)) }
 
     @Test func theBinderIsActuallyMounted() throws {
         let content = try Self.source("MacApp/ContentView.swift")

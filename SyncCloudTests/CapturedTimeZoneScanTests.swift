@@ -53,19 +53,12 @@ import Testing
         return found
     }
 
-    /// Lines with `//` comments stripped, so a constructor named in prose is not a hit.
-    private static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     /// Whether `source` constructs a bare `DateFormatter`. Matched on the identifier, not the
     /// substring: `ISO8601DateFormatter()` ends with `DateFormatter()` but is fixed to a stated zone
     /// (`SyncHistoryExporter` pins it to UTC), so it has nothing to capture. Allow-listing its file
     /// instead would also cover any real `DateFormatter` that file later grew.
     private static func constructsBareDateFormatter(_ source: String) -> Bool {
-        let text = codeOnly(source)
+        let text = sourceCodeOnly(source)
         var search = text.startIndex..<text.endIndex
         while let hit = text.range(of: "DateFormatter()", range: search) {
             let boundary: Bool

@@ -13,67 +13,37 @@ import FileExplorer
 /// worse than not moving it.
 @Suite struct EditorHandOffTests {
 
-    @Test func aFolderInsideTheRootComesBackRelativeToIt() {
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud/Notes", under: "/Users/me/iCloud")
-                == "Notes")
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud/Notes/2026/June",
-                                       under: "/Users/me/iCloud") == "Notes/2026/June")
-    }
-
-    /// The root is its own answer: `focusOn` takes `""` for the pane's resting position.
-    @Test func theRootItselfIsTheEmptyRelativePath() {
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud", under: "/Users/me/iCloud") == "")
-    }
-
-    /// A sibling that shares an opening is not inside. `/Users/me/iCloudArchive` begins with
-    /// `/Users/me/iCloud`, and a string-prefix test would put it under that root.
-    @Test func aSiblingSharingAPrefixIsNotInsideTheRoot() {
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloudArchive/Notes",
-                                       under: "/Users/me/iCloud") == nil)
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloudArchive",
-                                       under: "/Users/me/iCloud") == nil)
-    }
-
-    @Test func aFolderOutsideTheRootIsRefusedRatherThanGuessedAt() {
-        #expect(PaneLogic.relativePath(of: "/Volumes/Backup/Notes", under: "/Users/me/iCloud") == nil)
-        // A parent of the root is not inside it either.
-        #expect(PaneLogic.relativePath(of: "/Users/me", under: "/Users/me/iCloud") == nil)
-    }
-
-    /// Trailing slashes and doubled separators are the same folder, and the pane must not be
-    /// refused because a path arrived spelled differently.
-    @Test func spellingDifferencesDoNotChangeTheAnswer() {
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud/Notes/", under: "/Users/me/iCloud")
-                == "Notes")
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud/Notes", under: "/Users/me/iCloud/")
-                == "Notes")
-        #expect(PaneLogic.relativePath(of: "/Users/me//iCloud/Notes", under: "/Users/me/iCloud")
-                == "Notes")
-    }
-
-    /// The volumes this runs on are case-insensitive, so a path differing only in case is the same
-    /// folder and the pane has to follow it.
-    @Test func caseDoesNotDecideWhetherAFolderIsInsideTheRoot() {
-        #expect(PaneLogic.relativePath(of: "/Users/me/icloud/Notes", under: "/Users/me/iCloud")
-                == "Notes")
-        // The folder's own spelling comes back: this path goes to the filesystem, and correcting
-        // capitalisation is not this function's job.
-        #expect(PaneLogic.relativePath(of: "/Users/me/iCloud/notes", under: "/Users/me/iCloud")
-                == "notes")
-    }
-
-    /// A relative path is not "inside" anything. `split(separator:)` drops the leading empty
-    /// component, so without the absoluteness guard `Users/me/Docs` would match the root
-    /// `/Users/me`.
-    @Test func aRelativeInputIsRefusedRatherThanTreatedAsAbsolute() {
-        #expect(PaneLogic.relativePath(of: "Users/me/Docs", under: "/Users/me") == nil)
-        #expect(PaneLogic.relativePath(of: "/Users/me/Docs", under: "Users/me") == nil)
-    }
-
-    @Test func anEmptyRootTakesEverythingAndAnEmptyFolderIsTheRoot() {
+    /// `(folder, root, expected)`, one row per case.
+    @Test(arguments: [
+        ("/Users/me/iCloud/Notes", "/Users/me/iCloud", "Notes"),
+        ("/Users/me/iCloud/Notes/2026/June", "/Users/me/iCloud", "Notes/2026/June"),
+        // The root is its own answer: `focusOn` takes `""` for the pane's resting position.
+        ("/Users/me/iCloud", "/Users/me/iCloud", ""),
+        // A sibling that shares an opening is not inside. `/Users/me/iCloudArchive` begins with
+        // `/Users/me/iCloud`, and a string-prefix test would put it under that root.
+        ("/Users/me/iCloudArchive/Notes", "/Users/me/iCloud", nil),
+        ("/Users/me/iCloudArchive", "/Users/me/iCloud", nil),
+        // Outside the root is refused rather than guessed at; a parent of the root is not inside it.
+        ("/Volumes/Backup/Notes", "/Users/me/iCloud", nil),
+        ("/Users/me", "/Users/me/iCloud", nil),
+        // Trailing slashes and doubled separators are the same folder.
+        ("/Users/me/iCloud/Notes/", "/Users/me/iCloud", "Notes"),
+        ("/Users/me/iCloud/Notes", "/Users/me/iCloud/", "Notes"),
+        ("/Users/me//iCloud/Notes", "/Users/me/iCloud", "Notes"),
+        // The volumes are case-insensitive, so case doesn't decide; the folder's own spelling
+        // comes back, since this path goes to the filesystem.
+        ("/Users/me/icloud/Notes", "/Users/me/iCloud", "Notes"),
+        ("/Users/me/iCloud/notes", "/Users/me/iCloud", "notes"),
+        // A relative path is not "inside" anything: `split(separator:)` drops the leading empty
+        // component, so without the absoluteness guard `Users/me/Docs` would match `/Users/me`.
+        ("Users/me/Docs", "/Users/me", nil),
+        ("/Users/me/Docs", "Users/me", nil),
         // A root of "/" is every absolute path's root.
-        #expect(PaneLogic.relativePath(of: "/Users/me", under: "/") == "Users/me")
-        #expect(PaneLogic.relativePath(of: "/", under: "/") == "")
+        ("/Users/me", "/", "Users/me"),
+        ("/", "/", ""),
+    ] as [(String, String, String?)])
+    func relativePathUnderTheRoot(folder: String, root: String, expected: String?) {
+        #expect(PaneLogic.relativePath(of: folder, under: root) == expected)
     }
 }
 
@@ -88,7 +58,7 @@ import FileExplorer
     /// because their menu items are gated to hosts that implement them. This one is drawn on any
     /// text row, so a default would be a menu item that quietly does nothing.
     @Test func theHandOffIsARequirementRatherThanADefaultedMember() throws {
-        let source = try Self.source("FileActionDelegate.swift")
+        let source = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileActionDelegate.swift")
         let body = CodeText(try declarationBody(of: "public protocol FileActionDelegate", in: source))
         #expect(body.contains("func handleOpenInEditor(_ path: String)"),
                 "the hand-off is no longer a protocol requirement — a conformer can now inherit a no-op")
@@ -140,7 +110,7 @@ import FileExplorer
     /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
     /// resolver's own tests can't see it because they inject `opensInEdit` directly.
     @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
-        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         // The construction's own argument list, not a fixed-length window.
         let inspector = try #require(argumentLists(of: "EditorHandOff(", in: content).first,
                                      "the Info inspector is built without an editor hand-off")
@@ -152,7 +122,7 @@ import FileExplorer
         #expect(handOff.passes("open", "{ handOffToEditor($0) }"),
                 "the inspector's Open in Edit is not wired to handOffToEditor")
 
-        let shortcuts = try Self.macApp("ShortcutCommands.swift")
+        let shortcuts = try macAppFile("ShortcutCommands.swift")
         let resolverText = try declarationBody(of: "var shortcutPaneRowVerbs", in: shortcuts)
         let resolver = CodeText(resolverText)
         #expect(resolver.contains("return PaneRowVerbs("), "the slice is not the resolver's body")
@@ -174,7 +144,7 @@ import FileExplorer
     /// no editor items; `{ _ in }` draws items that do nothing. The drawn tests in
     /// `DifferenceRowMenuDrawnTests` inject their own closure and see neither.
     @Test func theDifferencesListIsWiredToTheRealHandOff() throws {
-        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         // The construction's own argument list, not the rest of its first line, so a call broken
         // over lines keeps every argument.
         let constructions = argumentLists(of: "DifferencesView(", in: content)
@@ -199,7 +169,7 @@ import FileExplorer
     /// read: the app hands the lens `handOffToEditor`, and the lens hands the card what it was
     /// given, deciding nothing on the way.
     @Test func theDuplicateRowMenuIsWiredToTheRealHandOff() throws {
-        let content = sourceCodeOnly(try Self.macApp("ContentView.swift"))
+        let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         // The construction's own argument list, read by label.
         let lens = try CallArguments(of: "LensWorkspaceView(", in: content)
         #expect(lens.passes("onCompareCopies", "reviewCoordinator.compareCopies"),
@@ -207,7 +177,7 @@ import FileExplorer
         #expect(lens.passes("onOpenInEditor", "{ handOffToEditor($0) }"),
                 "the duplicate row's Open in Edit is not wired to handOffToEditor")
 
-        let view = try Self.source("LensWorkspaceView.swift")
+        let view = try repoFile("Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift")
         #expect(CodeText(view).contains("self.onOpenInEditor = onOpenInEditor"),
                 "the lens drops the hand-off it is given")
         // The builder's own body, not a window up to a nearby marker.
@@ -218,32 +188,6 @@ import FileExplorer
                 "the lens builds its cards without forwarding the hand-off")
         #expect(!card.contains("EditableText") && !card.contains("PairContentKind"),
                 "the lens has started deciding for itself what the editor opens")
-    }
-
-    /// A file in `MacApp/`, read from disk.
-    static func macApp(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SyncCloudTests
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("MacApp")
-            .appendingPathComponent(name)
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — this scan would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
-        return text
-    }
-
-    /// The module's own source, read from disk. Mirrors the other call-site scans in this suite.
-    static func source(_ name: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SyncCloudTests
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer")
-            .appendingPathComponent(name)
-        let text = try #require(try? String(contentsOf: root, encoding: .utf8),
-                                "cannot read \(name) — this scan would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — the scan would be near-vacuous")
-        return text
     }
 }
 
@@ -257,7 +201,7 @@ import FileExplorer
 
     /// The app's one `EditorWorkspaceView` construction, read by label.
     static func workspaceConstruction() throws -> CallArguments {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         // The construction's own argument list inside the builder.
         let builder = try declarationBody(of: "func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {", in: editor)
         return try CallArguments(of: "EditorWorkspaceView(", in: builder)
@@ -307,7 +251,7 @@ import FileExplorer
     /// Download opens the file only while Edit still shows its refusal, and asks Browse's verb
     /// first so the pane's cloud badge clears as it does from Browse.
     @Test func downloadFromEditOpensOnlyTheStillRefusedFile() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         let body = CodeText(try declarationBody(of: "func downloadFromEdit(_ path: String) {", in: editor))
         #expect(body.contains("CloudDownloadRequest.requestDownload(path: path, name: name,"),
                 "Edit's Download no longer asks through Browse's verb")
@@ -329,7 +273,7 @@ import FileExplorer
     /// header. ⌘4 must come back to the document exactly as it was, unsaved edits and all, so the
     /// verb may move the pane and the workspace and nothing else.
     @Test func revealInBrowseMovesThePaneAndTheWorkspaceAndNotTheDocument() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         let text = try declarationBody(of: "func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],",
                                        in: editor)
         let body = CodeText(text)
@@ -345,7 +289,7 @@ import FileExplorer
 
     /// Get Info's destination: the inspector, on the path it was handed.
     @Test func showInfoOpensTheInspectorOnThePathItWasHanded() throws {
-        let content = try OpenInEditorMenuTests.macApp("ContentView.swift")
+        let content = try macAppFile("ContentView.swift")
         let body = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: content))
         #expect(body.contains("infoPath = path"), "Get Info no longer aims the inspector at its path")
         #expect(body.contains("showInspector = true"), "Get Info no longer opens the inspector")

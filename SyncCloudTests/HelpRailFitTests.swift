@@ -64,13 +64,17 @@ import Testing
         // And it really does distinguish one line from two.
         #expect(laidOutHeight("People and names", scale: 1.0) < one * 1.5)
     }
+}
+
+/// The rail `HelpRailFitTests` measures is the rail the card draws: a source scan, which reads no
+/// metrics, so unpinned.
+@Suite struct HelpRailSourceTests {
 
     /// The rail the measurement uses is the rail the card draws; a budget from constants nobody
     /// reads would measure an imaginary sidebar. A source scan, because `HelpView` can't be built in
     /// a test.
     @Test func theMeasuredRailIsTheOneTheCardDraws() throws {
-        let source = try String(contentsOf: macAppDirectory().appendingPathComponent("HelpBook.swift"),
-                                encoding: .utf8)
+        let source = try macAppFile("HelpBook.swift")
         let body = try declarationBody(of: "var body: some View", in: sourceOfHelpView(source))
         #expect(body.contains("HelpCardSize.sidebarWidth"),
                 "the rail no longer takes its width from the constant this test measures against")

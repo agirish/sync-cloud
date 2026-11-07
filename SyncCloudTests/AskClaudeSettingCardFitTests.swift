@@ -14,7 +14,10 @@ import Sync
 
     /// The width the card asks for when offered 240 pt, each layout measured on its own.
     private func fittingWidth(_ card: AskClaudeSettingCard, values: [String: SettingValue] = [:]) -> CGFloat {
-        let bridge = AskClaudeSettingsBridge(read: { entry, _ in values[entry.id] ?? entry.defaultValue })
+        fittingWidth(card, bridge: AskClaudeSettingsBridge(read: { entry, _ in values[entry.id] ?? entry.defaultValue }))
+    }
+
+    private func fittingWidth(_ card: AskClaudeSettingCard, bridge: AskClaudeSettingsBridge) -> CGFloat {
         // No frame of its own: a control too wide for the offer makes the card report its width.
         let view = AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge, accent: .blue, hue: .blue)
         let host = NSHostingController(rootView: view)
@@ -62,9 +65,7 @@ import Sync
         let card = AskClaudeSettingCard(rows: [.init(id: id, changedFrom: was, byClaude: true)])
         let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == id ? now : entry.defaultValue },
                                              offersUndo: { _, _ in true })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// The at-limit card, raised, with Ask Again and its badge line.
@@ -73,9 +74,7 @@ import Sync
         card.rows[0].changedFrom = "25.0"
         let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == "intelligence.monthlyLimit" ? .double(100) : entry.defaultValue },
                                              offersUndo: { _, _ in true }, canAskAgain: { true })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// The API key card, with a key saved, and a caught message with its buttons.
@@ -84,9 +83,7 @@ import Sync
         let message = "here’s my new key sk-ant-api03-" + String(repeating: "x", count: 30) + " for Refine and Ask Claude both"
         let card = caught ? AskClaudeSettingCard.caughtKey(in: message) : AskClaudeSettingCard(rows: [.init(id: "intelligence.apiKey")])
         let bridge = AskClaudeSettingsBridge(keyIsSaved: { true }, hasCaughtKey: { _ in caught })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// A full list (its first rows, the rest counted, Claude's pattern as a switch, the field), and
@@ -96,9 +93,7 @@ import Sync
         card.rows[0].listEdits = [.init(item: "Thumbs.db", present: false), .init(item: "*.photoslibrary/resources/derivatives", present: true)]
         let items = (1...12).map { "very-long-pattern-number-\($0)-*.tmp" }
         let bridge = AskClaudeSettingsBridge(offersUndo: { _, _ in true }, listItems: { _ in items })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// A text field, and a folder with a long path, Choose… and Reset.
@@ -109,9 +104,7 @@ import Sync
         let path = "Documents/Clients/Northwind Traders/2026/Contracts and Statements of Work"
         let bridge = AskClaudeSettingsBridge(read: { entry, _ in entry.id == id && id != "sources.addFolder" ? .string(path) : entry.defaultValue },
                                              targetName: { _ in "Dropbox (Northwind Traders)" })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// A person's fields and moves, Add Person, and a read-only roster.
@@ -124,18 +117,14 @@ import Sync
         let bridge = AskClaudeSettingsBridge(targetName: { _ in person.displayName }, offersUndo: { _, _ in true },
                                              peopleRefusal: { readOnly ? "Can’t change people: people.json repeats an ID." : nil },
                                              person: { _ in person })
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge,
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: bridge) <= 240)
     }
 
     /// A button card at rest, with its outcome, and Reset All's question open in it.
     @Test func buttonCardsAndTheirQuestionFit240() {
         var card = AskClaudeSettingCard(rows: [.init(id: "intelligence.savedSuggestionsClear")])
         card.rows[0].outcome = "Cleared 1,284 saved suggestions."
-        let host = NSHostingController(rootView: AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: AskClaudeSettingsBridge(),
-                                                                          accent: .blue, hue: .blue))
-        #expect(host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width <= 240)
+        #expect(fittingWidth(card, bridge: AskClaudeSettingsBridge()) <= 240)
         let question = SettingsActions(settings: nil, sync: nil, lookup: nil).prompt("advanced.resetAll", target: nil)!
         // Inside the card's 10 pt padding: 220 pt is what the question has.
         let open = NSHostingController(rootView: AskClaudeSettingConfirmation(prompt: question, cancel: {}, confirm: {}))

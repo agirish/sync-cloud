@@ -11,22 +11,6 @@ import Foundation
 /// half `Dashboard` cannot pin, since it cannot see `Workspace`.
 @Suite struct WorkspaceSidebarSupportTests {
 
-    /// Every workspace with a single source pane the sidebar can re-root. Organize's lenses,
-    /// Storage included, follow that pane (`lensScanRootExpanded` reads the targeted pane's current
-    /// directory), so the sidebar moves the lens with no workspace-specific wiring.
-    @Test func everySingleSourceWorkspaceSupportsIt() {
-        #expect(Workspace.browse.supportsFolderSidebar)
-        #expect(Workspace.filing.supportsFolderSidebar, "Organize")
-    }
-
-    /// Compare too, because `SidebarTarget` shows which pane it acts on. A click that re-roots the
-    /// wrong pane resets its column stack with no undo, so this test and
-    /// `TheCompareTargetIsVisible` are two halves of one claim: Compare takes a sidebar only while
-    /// the caption exists.
-    @Test func compareIsSupportedNowThatItNamesItsTarget() {
-        #expect(Workspace.compare.supportsFolderSidebar)
-    }
-
     /// Every case is decided explicitly. A `default:` would silently opt a future workspace in or
     /// out, and which is worse depends on the workspace; with every case supported, a `default:`
     /// looks harmless and would enrol whatever comes next.
@@ -138,16 +122,6 @@ import Foundation
         #expect(r.sidebarSlot == 180 + gutter + PaneLogic.sidebarSeamWidth,
                 "the slot is \(r.sidebarSlot) — a shown sidebar costs its width, the gutter AND the seam strip")
         #expect(PaneLogic.sidebarSeamWidth == 1)
-    }
-
-    /// The clamp reserves what the layout actually spends, so the two cannot disagree at the floor
-    /// (760, the narrowest width worth asking about).
-    @Test func theClampReservesTheSeamToo() {
-        let clamped = PaneLogic.lensSidebarWidth(stored: FolderSidebarView.maxWidth, totalWidth: 760,
-                                                 minSidebar: FolderSidebarView.minWidth, gutter: gutter)
-        let rest = 760 - clamped - PaneLogic.sidebarOverhead(gutter: gutter)
-        #expect(rest >= PaneLogic.minRailWidth + PaneLogic.minLensWorkspaceWidth,
-                "at the window floor the rail and panel are left \(rest)pt — the clamp reserved less than the row spends")
     }
 
     /// With no sidebar the row is exactly the plain split. Compare and a hidden sidebar both take

@@ -23,7 +23,7 @@ import Foundation
     /// another workspace, where the rail didn't exist). It clears the words and the field, then
     /// remembers the folder.
     @Test func theRailNotesItsFolderOnArrivalAndOnEveryChange() throws {
-        let editor = try OpenInEditorMenuTests.macApp("ContentView+Editor.swift")
+        let editor = try macAppFile("ContentView+Editor.swift")
         let builder = CodeText(try declarationBody(
             of: "func editorWorkspace(showsRail: Bool, railWidth: CGFloat = EditorLayoutMetrics.railWidth) -> some View {",
             in: editor))

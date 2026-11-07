@@ -19,16 +19,9 @@ import Sync
     private func delegate(isSingleSource: Bool,
                           ownsOrganizeScope: Bool? = nil,
                           scoped: @escaping (FileNode) -> Void) -> PaneActionDelegate {
-        PaneActionDelegate(
-            handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
-            isLeft: true, leftProviderId: "left", rightProviderId: "right",
-            isSingleSource: isSingleSource,
-            // Defaults to `isSingleSource`; the two Browse and diagonal cases pass it explicitly.
-            ownsOrganizeScope: ownsOrganizeScope ?? isSingleSource, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in },
-            onOrganizeScope: scoped, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        // `ownsOrganizeScope` defaults to `isSingleSource`; the Browse and diagonal cases pass it.
+        paneDelegate(isSingleSource: isSingleSource, ownsOrganizeScope: ownsOrganizeScope ?? isSingleSource,
+                     onOrganizeScope: scoped)
     }
 
     private static func folder(_ path: String) -> FileNode {
@@ -39,42 +32,27 @@ import Sync
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
     }
 
-    /// Browse looks like the rail to a layout question and isn't the rail.
-    /// `TopPaneVisibility.mode(for:)` calls Browse and Storage `.singleSource`, so gating on layout
-    /// would let Right-click ▸ Open in Browse re-aim every Organize lens at a folder Organize was
-    /// never told about, surviving relaunch, with nothing looking broken.
-    @Test func openInBrowseDoesNOTMoveTheScope() {
-        var scoped: [String] = []
-        let d = delegate(isSingleSource: true, ownsOrganizeScope: false) { scoped.append($0.id) }
-        d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
-        #expect(scoped.isEmpty)
-    }
-
-    /// Layout and ownership must be separately answerable: a delegate that read `isSingleSource`
-    /// instead of `ownsOrganizeScope` would pass the case above only by accident.
-    @Test func scopeOwnershipIsReadRatherThanInferredFromTheLayout() {
-        var scoped: [String] = []
+    /// `(single source, owns the scope, Open on a folder moves the scope)`.
+    @Test(arguments: [
+        // Open on the single-source rail moves the scope.
+        (true, true, true),
+        // Browse looks like the rail to a layout question and isn't the rail.
+        // `TopPaneVisibility.mode(for:)` calls Browse and Storage `.singleSource`, so gating on
+        // layout would let Right-click ▸ Open in Browse re-aim every Organize lens at a folder
+        // Organize was never told about, surviving relaunch, with nothing looking broken.
+        (true, false, false),
+        // "Compare only this folder", the same call on the comparison panes: they isolate a
+        // mapping; they don't choose what Organize answers about.
+        (false, false, false),
         // The other diagonal: a comparison layout that owns the scope. Not a shipping combination;
-        // it proves the flag is what is consulted.
-        let d = delegate(isSingleSource: false, ownsOrganizeScope: true) { scoped.append($0.id) }
-        d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
-        #expect(scoped == ["/Users/u/Documents/Legal"])
-    }
-
-    @Test func openOnTheSingleSourceRailMovesTheScope() {
+        // it proves the flag, not the layout, is what is consulted.
+        (false, true, true),
+    ])
+    func openMovesTheScopeOnlyWhereThePaneOwnsIt(isSingleSource: Bool, ownsOrganizeScope: Bool, moves: Bool) {
         var scoped: [String] = []
-        let d = delegate(isSingleSource: true) { scoped.append($0.id) }
+        let d = delegate(isSingleSource: isSingleSource, ownsOrganizeScope: ownsOrganizeScope) { scoped.append($0.id) }
         d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
-        #expect(scoped == ["/Users/u/Documents/Legal"])
-    }
-
-    @Test func compareOnlyThisFolderDoesNOTMoveTheScope() {
-        // Same call, different verb: the comparison panes isolate a mapping; they don't choose
-        // what Organize answers about.
-        var scoped: [String] = []
-        let d = delegate(isSingleSource: false) { scoped.append($0.id) }
-        d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
-        #expect(scoped.isEmpty)
+        #expect(scoped == (moves ? ["/Users/u/Documents/Legal"] : []))
     }
 
     @Test func focusingAFILEMovesNothing() {
@@ -92,14 +70,8 @@ import Sync
         // rather than rescans, so the lenses re-answer for free.
         var scanned: [String] = []
         var scoped: [String] = []
-        let d = PaneActionDelegate(
-            handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
-            isLeft: true, leftProviderId: "left", rightProviderId: "right", isSingleSource: true, ownsOrganizeScope: true, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: [],
-            onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { scanned.append($0.id) }, onCheckFolderShape: { _ in },
-            onOrganizeScope: { scoped.append($0.id) }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        let d = paneDelegate(isSingleSource: true, ownsOrganizeScope: true,
+                             onOrganizeFolder: { scanned.append($0.id) }, onOrganizeScope: { scoped.append($0.id) })
 
         d.handleFocus(Self.folder("/Users/u/Documents/Legal"))
         #expect(scoped == ["/Users/u/Documents/Legal"])

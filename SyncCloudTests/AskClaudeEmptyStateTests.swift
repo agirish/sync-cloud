@@ -21,25 +21,14 @@ import Testing
 
     private func host(_ key: KeyState, chat: AskClaudeChat? = nil,
                       onAsk: @escaping (String) -> Void = { _ in },
-                      saveSetupKey: @escaping (String) -> String? = { _ in nil }) -> (NSWindow, NSHostingView<some View>) {
+                      saveSetupKey: @escaping (String) -> String? = { _ in nil }) -> (NSWindow, NSView) {
         let chat = chat ?? AskClaudeChat(defaults: ScratchDefaults("AskClaudePanelTests"), readKey: { nil })
         var bridge = AskClaudeSettingsBridge()
         bridge.keyIsSaved = { key.saved }
         bridge.saveSetupKey = saveSetupKey
-        let container = CGSize(width: 1000, height: 800)
-        let panel = AskClaudePanel(chat: chat, place: Self.place, accent: .blue, accentFill: .blue, onAccent: .white,
-                                   onAsk: onAsk, onClose: {}, onOpenSettings: { _ in }, container: container, settingsBridge: bridge)
-            .frame(width: container.width, height: container.height, alignment: .topLeading)
-        let host = NSHostingView(rootView: panel)
-        host.frame = NSRect(origin: .zero, size: container)
-        // The panel's own kind of window, borderless and parked off every display: a click
-        // reaches a SwiftUI button only in a window that is ordered in.
-        let window = AskClaudePanelWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        host.layoutSubtreeIfNeeded()
-        return (window, host)
+        let rig = AskClaudePanelRig(chat: chat, bridge: bridge, place: Self.place, onAsk: onAsk,
+                                    topLeading: true, panelWindow: true)
+        return (rig.window, rig.host)
     }
 
     private func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
@@ -89,22 +78,6 @@ import Testing
         _ = window
     }
 
-    /// The panel drawn, to compare before and after.
-    private func snapshot(_ host: NSView) throws -> NSBitmapImageRep {
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
-    }
-
-    private func differing(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var count = 0
-        for y in 0..<a.pixelsHigh {
-            for x in 0..<a.pixelsWide where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) { count += 1 }
-        }
-        return count
-    }
-
     /// A save macOS refuses keeps the setup up and says why on its card. The key typed goes to
     /// the save and nowhere else. The panel's height is the test host's saved one, so the reason
     /// is found by drawing: before typing and after the save, with the caret in the field both
@@ -132,7 +105,7 @@ import Testing
         await settle(host)
         #expect(saved == ["sk-ant-api03-refused"])
         #expect(keyFields(in: host).count == 1, "the setup gave way after a refused save")
-        let changed = differing(before, try snapshot(host))
+        let changed = differingPixels(before, try snapshot(host))
         #expect(changed > 300, "no reason appeared on the card: \(changed) pixels changed")
     }
 

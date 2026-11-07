@@ -164,11 +164,7 @@ import AppKit
     /// stack, and Sync History's Undo Last Run greys too, in a window the main one's environment does
     /// not reach.
     @Test func everyUndoButtonIsWiredToTheLock() throws {
-        func source(_ name: String) throws -> String {
-            let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent(name)
-            return try String(contentsOf: url, encoding: .utf8)
-        }
+        func source(_ name: String) throws -> String { try repoFile(name) }
         let banner = try source("MacApp/OperationBannerView.swift")
         let lock = try #require(banner.range(of: ".lockedDuringRun()"), "the result message's Undo is not locked")
         let help = try #require(banner.range(of: ".help(ShortcutHint.tooltip(\"Undo this operation\""))

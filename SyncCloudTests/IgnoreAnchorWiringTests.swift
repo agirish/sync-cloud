@@ -11,14 +11,7 @@ import Sync
 /// behaviour is tested in `PersistentIgnoresTests`.
 @Suite struct IgnoreAnchorWiringTests {
 
-    static func contentViewSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // SyncCloudTests
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("MacApp/ContentView.swift")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read ContentView.swift — every check below would be vacuous")
-    }
+    static func contentViewSource() throws -> String { try macAppFile("ContentView.swift") }
 
     /// Both closures are assigned in the action that creates the handler, the one moment the manager
     /// exists and the view's own state is readable.

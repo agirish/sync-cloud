@@ -16,7 +16,7 @@ import Testing
 @Suite struct PDFMenuBarTests {
 
     private static func file() throws -> NSMenu {
-        try TextMarkupMenuTests.menu("File")
+        try appMenu("File")
     }
 
     private static func titles(_ menu: NSMenu) -> [String] {
@@ -95,25 +95,10 @@ import Testing
     /// lines and ticks are `EditorPDFFillKeyboardTests`'.
     @Test func theToolMenuChoosesWhatThePaletteDoes() async throws {
         let folder = NSTemporaryDirectory() + "pdf-fill-tools-" + UUID().uuidString
-        let suite = "PDFMenuBarTests-" + UUID().uuidString
+        let store = TestDefaults()
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(atPath: folder)
-            wipeDefaultsSuite(suite)
-        }
-        let file = (folder as NSString).appendingPathComponent("Lease.pdf")
-        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil))
-        context.beginPDFPage(nil)
-        context.endPDFPage()
-        context.closePDF()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: try #require(UserDefaults(suiteName: suite)))
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(pdf.phase == .open)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let pdf = try await openBlankPDF("Lease.pdf", pages: 1, in: folder, defaults: store.defaults)
         defer { pdf.close() }
         let fill = pdf.fill
         let saved = EditorPDFSignature(kind: .signature, look: .typed("Ada Quill"))
@@ -165,26 +150,10 @@ import Testing
     /// is the app, so its items fire. The lines' greying is `EditorPDFFillSignTests`'.
     @Test func fillAndSignsLinesDoWhatTheButtonAndTheSaveDo() async throws {
         let folder = NSTemporaryDirectory() + "pdf-fill-menu-" + UUID().uuidString
-        let suite = "PDFMenuBarTests-" + UUID().uuidString
+        let store = TestDefaults()
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(atPath: folder)
-            wipeDefaultsSuite(suite)
-        }
-        let file = (folder as NSString).appendingPathComponent("Lease.pdf")
-        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
-        let context = try #require(CGContext(URL(fileURLWithPath: file) as CFURL, mediaBox: &box, nil))
-        context.beginPDFPage(nil)
-        context.endPDFPage()
-        context.closePDF()
-
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: try #require(UserDefaults(suiteName: suite)))
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(pdf.phase == .open)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let pdf = try await openBlankPDF("Lease.pdf", pages: 1, in: folder, defaults: store.defaults)
         defer { pdf.close() }
 
         func choose(_ title: String) throws {

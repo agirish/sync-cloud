@@ -12,12 +12,7 @@ import Sync
 
     private func delegate(syncManager: FileSyncManager, settings: SettingsManager,
                           keptNames: Set<String> = []) -> PaneActionDelegate {
-        PaneActionDelegate(
-            handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
-            leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-            ignoreStateToken: [], keptNamesToken: keptNames,
-            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+        paneDelegate(syncManager: syncManager, settings: settings, keptNamesToken: keptNames)
     }
 
     /// The staleness hazard, and why `keptNamesToken` is a stored property. The pane skips

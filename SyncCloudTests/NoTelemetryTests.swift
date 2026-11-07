@@ -178,9 +178,5 @@ import Testing
             Self.shippedSources.first { $0.path == "MacApp/CloudFilingClassifier.swift" }?
                 .text.contains(symbol) == true
         }, "the network scan cannot even see the known network call — every result above is meaningless")
-
-        let text = "import Sentry\n"
-        #expect(["Sentry"].contains { text.contains("import \($0)") },
-                "the import scan's own matcher does not match an import")
     }
 }

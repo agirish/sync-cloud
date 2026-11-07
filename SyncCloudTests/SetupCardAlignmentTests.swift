@@ -33,9 +33,7 @@ import Testing
         let host = NSHostingView(rootView: card.frame(width: width, height: height))
         host.frame = CGRect(x: 0, y: 0, width: width, height: height)
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds),
-                               "the card would not render — every measurement below is vacuous")
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try snapshot(host)
         return Ink(rep: rep)
     }
 
@@ -204,8 +202,7 @@ import Testing
             .frame(width: box, height: box, alignment: .trailing))
         host.frame = CGRect(x: 0, y: 0, width: box, height: box)
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try snapshot(host)
         var ink = Ink(rep: rep)
         ink.threshold = 0.35
         let bounds = try #require(ink.bounds(rows: 0..<rep.pixelsHigh), "the close button drew nothing")
@@ -255,8 +252,7 @@ import Testing
             .frame(width: width, height: height))
         host.frame = CGRect(x: 0, y: 0, width: width, height: height)
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try snapshot(host)
         return rep
     }
 
@@ -332,8 +328,7 @@ import Testing
             let host = NSHostingView(rootView: bar)
             host.frame = CGRect(x: 0, y: 0, width: width, height: 400)
             host.layoutSubtreeIfNeeded()
-            var ink = Ink(rep: try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds)))
-            host.cacheDisplay(in: host.bounds, to: ink.rep)
+            var ink = Ink(rep: try snapshot(host))
             ink.threshold = 0.05
             let s = CGFloat(ink.rep.pixelsWide) / width
 
@@ -371,8 +366,7 @@ import Testing
             let host = NSHostingView(rootView: card)
             host.frame = CGRect(x: 0, y: 0, width: width, height: height)
             host.layoutSubtreeIfNeeded()
-            var ink = Ink(rep: try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds)))
-            host.cacheDisplay(in: host.bounds, to: ink.rep)
+            var ink = Ink(rep: try snapshot(host))
             ink.threshold = 0.15
             let s = CGFloat(ink.rep.pixelsWide) / width
             let pixelsHigh = ink.rep.pixelsHigh
@@ -408,8 +402,7 @@ import Testing
             .frame(width: width, height: 80, alignment: .topLeading))
         host.frame = CGRect(x: 0, y: 0, width: width, height: 80)
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = try snapshot(host)
         let ink = Ink(rep: rep)
         let s = CGFloat(rep.pixelsWide) / width
 

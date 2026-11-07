@@ -26,27 +26,15 @@ import Sync
                             onUndo: {}, onClose: {}, onHover: { _ in })
     }
 
-    private func fitted(_ banner: OperationBanner, width: CGFloat, name: String) -> CGSize {
-        let host = NSHostingController(rootView: view(banner).frame(width: width).background(Color.white))
-        let size = host.sizeThatFits(in: CGSize(width: width, height: 1_000))
-        let render = NSHostingView(rootView: view(banner).frame(width: width).padding(10).background(Color.white))
-        render.frame = CGRect(origin: .zero, size: CGSize(width: width + 20, height: size.height + 20))
-        let window = NSWindow(contentRect: render.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = render
-        render.layoutSubtreeIfNeeded()
-        if let rep = render.bitmapImageRepForCachingDisplay(in: render.bounds) {
-            render.cacheDisplay(in: render.bounds, to: rep)
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("result-message-\(name).png")
-            try? rep.representation(using: .png, properties: [:])?.write(to: url)
-        }
-        return size
+    private func fitted(_ banner: OperationBanner, width: CGFloat) -> CGSize {
+        NSHostingController(rootView: view(banner).frame(width: width).background(Color.white))
+            .sizeThatFits(in: CGSize(width: width, height: 1_000))
     }
 
     @Test(arguments: [250, 400, 560] as [CGFloat])
     func aLongMessageFitsTheNarrowestPane(width: CGFloat) {
         for (banner, name) in [(Self.deleted, "deleted"), (Self.wrote, "wrote")] {
-            let size = fitted(banner, width: width, name: "\(name)-\(Int(width))")
+            let size = fitted(banner, width: width)
             #expect(size.width <= width + 0.5, "\(name) at \(width)pt asks for \(size.width)pt — it runs past the pane")
             #expect(size.height > 30 && size.height < 220, "\(name) at \(width)pt is \(size.height)pt tall")
         }
@@ -54,8 +42,8 @@ import Sync
 
     /// Wide enough, it is one row; narrow, it takes more — the words wrap rather than truncate.
     @Test func narrowWrapsWideDoesNot() {
-        let narrow = fitted(Self.wrote, width: 250, name: "wrote-narrow")
-        let wide = fitted(Self.wrote, width: 900, name: "wrote-wide")
+        let narrow = fitted(Self.wrote, width: 250)
+        let wide = fitted(Self.wrote, width: 900)
         #expect(narrow.height > wide.height + 10, "narrow \(narrow.height) vs wide \(wide.height): no wrap at 250pt")
     }
 }

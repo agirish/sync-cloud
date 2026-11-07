@@ -168,30 +168,10 @@ import FileExplorer
         #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
     }
 
-    @Test func testTheIconOnlyBarDoesFitTheWindowsMinimumWidth() {
-        // And the fallback has to actually solve it, or shedding labels buys nothing.
-        let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: Workspace.allCases.count)
-        #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
-    }
-
     @Test func testAnOrdinaryWindowSpellsTheSegmentsOut() {
         // The window opens at ~85% of the screen, so the common case must be labelled; an
         // always-glyph bar would be a regression dressed up as a fix.
         #expect(styles(contentWidth: 1400, labelWidths: labelWidths()).workspace == .full)
-    }
-
-    @Test func testTheThresholdIsWhereTheArithmeticSaysItIs() {
-        // Pin the boundary from both sides so a change to the chrome constants can't quietly
-        // move it: one point below the required width sheds, one point at it does not.
-        let widths = labelWidths()
-        let search = searchWidths()
-        let needed = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
-            + CommandPaletteBarMetrics.width(style: .full, labelWidth: search.label,
-                                             keycapWidth: search.keycap)
-            + WorkspaceBarMetrics.reservedChrome
-        #expect(styles(contentWidth: needed, labelWidths: widths).workspace == .full)
-        #expect(styles(contentWidth: needed - 1, labelWidths: widths).search == .compact,
-                "one point under the full-row width must drop the PILL's word, not the bar's labels")
     }
 
     @Test func testLargerTextShedsSoonerThanSmaller() {

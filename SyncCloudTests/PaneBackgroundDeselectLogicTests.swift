@@ -17,34 +17,21 @@ import Sync
 
     // MARK: Letting the selection go
 
-    /// The common case, and why this clears both sides: a selection lives in at most one pane, so
-    /// the click usually lands in the other pane's empty space. Clearing only the clicked side
-    /// would leave the gesture dead exactly when the user expects it to work.
-    @Test func testClickingOnePanesEmptySpaceReleasesTheOtherPanesSelection() {
+    /// `(left, right)` before the click; both are empty after it. The common case is the first, and
+    /// why this clears both sides: a selection lives in at most one pane, so the click usually lands
+    /// in the other pane's empty space, and clearing only the clicked side would leave the gesture
+    /// dead exactly when the user expects it to work. The clicked pane clears too. Both populated
+    /// can exist for a single frame while a cross-pane clear is in flight (`applySelectionWrite`
+    /// defers the sibling half), so that must not leave one behind.
+    @Test(arguments: [
+        (["/left/a", "/left/b"], []),
+        ([], ["/right/a"]),
+        (["/left/a"], ["/right/b"]),
+    ] as [(Set<String>, Set<String>)])
+    func aBackgroundClickReleasesBothSelections(left: Set<String>, right: Set<String>) {
         let state = State()
-        state.selectedLeftPaths = ["/left/a", "/left/b"]
-
-        PaneLogic.clearBothSelections(state: state)
-
-        #expect(state.selectedLeftPaths.isEmpty)
-        #expect(state.selectedRightPaths.isEmpty)
-    }
-
-    @Test func testItClearsTheClickedPaneToo() {
-        let state = State()
-        state.selectedRightPaths = ["/right/a"]
-
-        PaneLogic.clearBothSelections(state: state)
-
-        #expect(state.selectedRightPaths.isEmpty)
-    }
-
-    /// A both-populated state can exist for a single frame while a cross-pane clear is in flight
-    /// (`applySelectionWrite` defers the sibling half), so this must not leave one behind.
-    @Test func testItClearsBothWhenBothAreSomehowPopulated() {
-        let state = State()
-        state.selectedLeftPaths = ["/left/a"]
-        state.selectedRightPaths = ["/right/b"]
+        state.selectedLeftPaths = left
+        state.selectedRightPaths = right
 
         PaneLogic.clearBothSelections(state: state)
 
@@ -54,48 +41,26 @@ import Sync
 
     // MARK: What the columns are left looking like
 
-    /// Finder-exact: clicking the empty space of column 0 while three are open closes the two to its
-    /// right.
-    @Test func testClickingAnOuterColumnClosesTheColumnsToItsRight() {
-        let path = PaneBrowsePath(components: ["Documents", "Invoices"])
-        let result = PaneLogic.backgroundDeselectPath(from: path, depth: 0)
-        #expect(result?.components == [])
-    }
-
-    @Test func testClickingTheMiddleColumnClosesOnlyWhatIsBeyondIt() {
-        let path = PaneBrowsePath(components: ["Documents", "Invoices", "2026"])
-        let result = PaneLogic.backgroundDeselectPath(from: path, depth: 1)
-        #expect(result?.components == ["Documents"])
-    }
-
-    /// The deepest column has nothing beyond it, so this only deselects. Reported as no change so
-    /// the caller skips `applyColumnNavigation` rather than re-applying (and, with the seam link
-    /// on, re-mirroring) the stack it already has.
-    @Test func testClickingTheDeepestColumnChangesNoColumns() {
-        let path = PaneBrowsePath(components: ["Documents", "Invoices"])
-        #expect(PaneLogic.backgroundDeselectPath(from: path, depth: 2) == nil)
-    }
-
-    /// A resting pane is one full-width column; there is nothing to close.
-    @Test func testClickingTheRestingColumnChangesNothing() {
-        #expect(PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(), depth: 0) == nil)
-    }
-
-    /// No depth means the dead space past the last column, Tree mode, or the single-source rail.
-    /// All deselect without navigating: closing the stack from a click past it would be a move the
-    /// user didn't ask for, and the other two have no stack.
-    @Test func testNoDepthNeverTouchesTheColumns() {
-        let path = PaneBrowsePath(components: ["Documents", "Invoices"])
-        #expect(PaneLogic.backgroundDeselectPath(from: path, depth: nil) == nil)
-        #expect(PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(), depth: nil) == nil)
-    }
-
-    /// A depth past the end of the stack can't lengthen it. `truncate` clamps, and this pins that
-    /// the clamp is relied on: a stale depth arriving after the stack shrank must not resurrect a
-    /// column.
-    @Test func testADepthBeyondTheStackCannotOpenColumns() {
-        let path = PaneBrowsePath(components: ["Documents"])
-        #expect(PaneLogic.backgroundDeselectPath(from: path, depth: 5) == nil)
+    /// `(stack, clicked column depth, the stack left, or nil for no change)`. Finder-exact: clicking
+    /// column 0's empty space with three open closes the two to its right; the middle column closes
+    /// only what is beyond it. The deepest column has nothing beyond it, so it only deselects,
+    /// reported as no change so the caller skips `applyColumnNavigation` rather than re-applying
+    /// (and, with the seam link on, re-mirroring) the stack it has. A resting pane has nothing to
+    /// close. No depth (the dead space past the last column, Tree mode, the single-source rail)
+    /// never navigates. A depth past the end can't lengthen the stack: `truncate` clamps, and a
+    /// stale depth arriving after the stack shrank must not resurrect a column.
+    @Test(arguments: [
+        (["Documents", "Invoices"], 0, []),
+        (["Documents", "Invoices", "2026"], 1, ["Documents"]),
+        (["Documents", "Invoices"], 2, nil),
+        ([], 0, nil),
+        (["Documents", "Invoices"], nil, nil),
+        ([], nil, nil),
+        (["Documents"], 5, nil),
+    ] as [([String], Int?, [String]?)])
+    func aBackgroundClickLeavesTheColumnsItShould(stack: [String], depth: Int?, expected: [String]?) {
+        let result = PaneLogic.backgroundDeselectPath(from: PaneBrowsePath(components: stack), depth: depth)
+        #expect(result?.components == expected)
     }
 
     /// Truncating discards the forward stack, so `›` can't walk back into a column the user just

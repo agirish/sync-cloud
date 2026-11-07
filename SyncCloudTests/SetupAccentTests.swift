@@ -16,41 +16,18 @@ import Testing
     /// colour, in an sRGB window of `scheme`, with `hue` stored.
     private func render(_ view: some View, size: CGSize, scale: CGFloat, hue: LiquidGlassHue,
                         scheme: ColorScheme) throws -> NSBitmapImageRep {
-        let store = TestDefaults()
-        store.defaults.set(hue.rawValue, forKey: LiquidGlass.hueKey)
         let scaled = CGSize(width: size.width * scale, height: size.height * scale)
-        let host = NSHostingView(rootView: AnyView(view
+        return try renderInSRGBWindow(view
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .scaleEffect(scale, anchor: .topLeading)
             .frame(width: scaled.width, height: scaled.height, alignment: .topLeading)
             .background(scheme == .dark ? Color.black : Color.white)
-            .environment(\.colorScheme, scheme)
-            .environment(\.setupArtReveals, false)
-            .defaultAppStorage(store.defaults)))
-        host.frame = CGRect(origin: .zero, size: scaled)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+            .environment(\.setupArtReveals, false), size: scaled, scheme: scheme, hue: hue)
     }
 
     /// Pixels within 0.02 of Coral's raw accent on every channel, read from `colorAt` as-is.
     private func coralPixels(in rep: NSBitmapImageRep) throws -> Int {
-        let target = try #require(NSColor(LiquidGlassHue.coral.accentColor).usingColorSpace(.sRGB))
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if max(abs(c.redComponent - target.redComponent), abs(c.greenComponent - target.greenComponent),
-                       abs(c.blueComponent - target.blueComponent)) < 0.02 { n += 1 }
-            }
-        }
-        return n
+        try pixels(near: LiquidGlassHue.coral.accentColor, in: rep)
     }
 
     /// Coral's pixels in `make(hue)` drawn with `hue` picked, under Coral and under Green.
