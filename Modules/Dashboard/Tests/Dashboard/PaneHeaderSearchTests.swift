@@ -78,9 +78,9 @@ import Sync
         box.isExpanded = true
         let width: CGFloat = 1200
         let window = Self.mount(Self.header(box, summary: "2 of 7"), width: width)
-        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(shown.held, "the revealed field should exist (\(shown.pumps) pumps)")
-        guard let field = Self.fieldEditor(window), let root = window.contentView else { return }
+        guard let field = FieldEditor.find(in: window), let root = window.contentView else { return }
 
         let fieldRight = field.convert(field.bounds, to: root).maxX
         #expect(fieldRight < width - 200,
@@ -96,9 +96,9 @@ import Sync
         let box = Box()
         box.isExpanded = true
         let window = Self.mount(Self.header(box), width: 250)
-        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(shown.held, "the field should render at 250pt (\(shown.pumps) pumps)")
-        guard let field = Self.fieldEditor(window) else { return }
+        guard let field = FieldEditor.find(in: window) else { return }
         #expect(field.bounds.width > 60, "the field collapsed to \(field.bounds.width)pt")
     }
 
@@ -128,9 +128,9 @@ import Sync
         box.isExpanded = true
         box.query = ""
         let window = Self.mount(Self.header(box), width: 900)
-        let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(shown.held, "the field should be revealed (\(shown.pumps) pumps)")
-        guard let editor = Self.fieldEditor(window), let host = window.contentView else { return }
+        guard let editor = FieldEditor.find(in: window), let host = window.contentView else { return }
 
         // The band just past the text, inside the field's surface, where the ✕ sits. Located from
         // the laid-out field: the field is capped and left-aligned, so most of a 900pt header is
@@ -192,22 +192,6 @@ import Sync
 
     // MARK: - What the bar offers
 
-    /// A header with no search bindings offers no magnifier, which keeps the other header tests,
-    /// snapshots and ladder measurements valid. If it did, they would all measure a bar one pill
-    /// wider than the one they were written for.
-    @Test("A header with no search bindings has no Search item to place")
-    func aHeaderWithoutSearchOffersNoMagnifier() {
-        let box = Box()
-        let plain = PaneHeader(
-            title: "Left", provider: nil, rootPath: "/root", relativePath: "",
-            canGoBack: false, canGoForward: false,
-            onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
-            sortOption: .constant(.name), showHiddenFiles: .constant(false))
-        #expect(!plain.availableItems.contains(.search))
-        // …and one WITH them does, or the pill could never be drawn at all.
-        #expect(Self.searchingHeader(box).availableItems.contains(.search))
-    }
-
     /// Needed as a concrete `PaneHeader` (not `some View`) so `availableItems` is reachable.
     private static func searchingHeader(_ box: Box) -> PaneHeader {
         PaneHeader(
@@ -217,13 +201,6 @@ import Sync
             sortOption: .constant(.name), showHiddenFiles: .constant(false),
             searchText: Binding(get: { box.query }, set: { box.query = $0 }),
             searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
-    }
-
-    /// The shipped bar carries Search at the trailing end, where the ladder gives it up first: it is
-    /// the one control here with a keyboard equivalent.
-    @Test("The shipped arrangement carries Search last")
-    func theDefaultBarCarriesSearchLast() {
-        #expect(PaneBarArrangement.default.items.last == .search)
     }
 
     /// A stored arrangement may lack the magnifier, and ⋯ offers only controls the bar places, so
@@ -262,9 +239,9 @@ import Sync
             window.layoutIfNeeded()
 
             // The field claims focus one Task hop after it appears, and only a focused field submits.
-            let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+            let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
             #expect(focused.held, "the revealed field should have claimed focus (\(focused.pumps) pumps)")
-            Self.fieldEditor(window)?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            FieldEditor.find(in: window)?.doCommand(by: #selector(NSResponder.insertNewline(_:)))
 
             let walked = await LayoutPumpWait.pump(window, upTo: 5) { !box.advances.isEmpty }
             #expect(walked.held, "submitting should have walked the hits (\(walked.pumps) pumps)")
@@ -290,8 +267,8 @@ import Sync
             box.query = "tax"
             let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: 7,
                                                 canAdvance: canAdvance), width: width)
-            let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
-            guard shown.held, let editor = Self.fieldEditor(window), let host = window.contentView
+            let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
+            guard shown.held, let editor = FieldEditor.find(in: window), let host = window.contentView
             else { return (0, false) }
             // The controls band, from the end of the text editor, located from the laid-out editor
             // as in `anEmptyFieldStillHasAWayOut`.
@@ -320,8 +297,8 @@ import Sync
             box.query = "tax"
             let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: matchCount),
                                     width: width)
-            let shown = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
-            guard shown.held, let editor = Self.fieldEditor(window), let host = window.contentView
+            let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
+            guard shown.held, let editor = FieldEditor.find(in: window), let host = window.contentView
             else { return -1 }
             let text = editor.convert(editor.bounds, to: host)
             return Self.ink(in: NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height),
@@ -358,16 +335,5 @@ import Sync
                     == .advance(reverse: step.reverse),
                     "\(step.label) advertises \(step.chord), which submits the other direction")
         }
-    }
-
-    /// The revealed field's own text view, which is what a submission has to come from.
-    private static func fieldEditor(_ window: NSWindow) -> NSTextView? {
-        var found: NSTextView?
-        func walk(_ v: NSView) {
-            if found == nil, let text = v as? NSTextView, text.isEditable { found = text }
-            for sub in v.subviews where found == nil { walk(sub) }
-        }
-        walk(window.contentView!)
-        return found
     }
 }

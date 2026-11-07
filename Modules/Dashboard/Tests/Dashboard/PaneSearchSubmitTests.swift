@@ -23,10 +23,4 @@ import AppKit
         #expect(PaneSearchSubmit.action(modifiers: [.command, .shift], hasOffer: false)
                 == .advance(reverse: true))
     }
-
-    @Test func plainSubmitIsUnchangedWithNoOffer() {
-        // With no offer, ↩ and ⇧↩ just walk the hits.
-        #expect(PaneSearchSubmit.action(modifiers: [], hasOffer: false) == .advance(reverse: false))
-        #expect(PaneSearchSubmit.action(modifiers: .shift, hasOffer: false) == .advance(reverse: true))
-    }
 }

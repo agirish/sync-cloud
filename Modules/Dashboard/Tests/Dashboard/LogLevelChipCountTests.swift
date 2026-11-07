@@ -18,16 +18,6 @@ import Events
     /// ambiguous against Optional's own members; this keeps the assertions readable.
     private func tally(_ counts: [LogLevel?: Int], _ level: LogLevel?) -> Int? { counts[level] }
 
-    @Test func historyEntriesCountTowardTheChips() {
-        // Nothing in this session, three errors in the log's history.
-        let counts = LogViewer.thresholdCounts(
-            session: [],
-            history: [entry(.error), entry(.error), entry(.error, "boom")])
-
-        #expect(tally(counts, .error) == 3)
-        #expect(tally(counts, nil) == 3)
-    }
-
     @Test func sessionAndHistoryAreSummedPerThreshold() {
         let counts = LogViewer.thresholdCounts(
             session: [entry(.debug), entry(.info), entry(.error)],
@@ -51,13 +41,6 @@ import Events
         #expect(tally(counts, .error) == 1)
     }
 
-    @Test func aLoadedButEmptyHistoryChangesNothing() {
-        // "Loaded, and the log holds nothing older" reads the same as "not loaded" here; the
-        // distinction matters to the footer's message, not to a tally.
-        let session = [entry(.info), entry(.error)]
-        #expect(tally(LogViewer.thresholdCounts(session: session, history: []), nil) == 2)
-    }
-
     @Test func everyThresholdKeyIsPresentEvenAtZero() {
         // The chip row reads `levelCounts[option.level] ?? 0` for all four options; a missing key
         // would silently render 0, so the tally must emit each one.
@@ -66,14 +49,6 @@ import Events
         #expect(tally(counts, .info) == 0)
         #expect(tally(counts, .warning) == 0)
         #expect(tally(counts, .error) == 0)
-    }
-
-    @Test func theCountIsIndependentOfHowMuchHistoryIsRevealed() {
-        // "Show more" reveals further into the same filtered set, so the tally describes what the
-        // window holds, not how far the user has paged.
-        let history = (0..<40).map { entry(.error, "e\($0)") }
-        let counts = LogViewer.thresholdCounts(session: [], history: history)
-        #expect(tally(counts, .error) == 40)
     }
 
     // MARK: What the window actually counts

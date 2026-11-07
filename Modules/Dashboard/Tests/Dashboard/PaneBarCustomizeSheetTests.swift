@@ -141,9 +141,7 @@ import Testing
     /// A drop can't be driven from a test, so this reads `track`: the zone must be inside the scroll
     /// view's content closure, and nowhere after it.
     @Test func theHeadZoneIsScrolledContent() throws {
-        let code = try Self.source().split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let code = try DashboardSource.read("PaneBarCustomizeSheet.swift", codeOnly: true)
         let start = try #require(code.range(of: "private var track: some View {"))
         let end = try #require(code.range(of: "private var trackRow: some View {", range: start.upperBound..<code.endIndex))
         let track = code[start.upperBound..<end.lowerBound]
@@ -232,7 +230,7 @@ import Testing
 
         // …and that one is inside `commit`, not merely somewhere in the file. The body ends at the
         // first closing brace at member indent.
-        let sheet = try Self.source()
+        let sheet = try DashboardSource.read("PaneBarCustomizeSheet.swift")
         let commitStart = try #require(sheet.range(of: "private func commit(_ next: PaneBarArrangement)"),
                                        "the funnel is gone or renamed; this scan is vacuous without it")
         let tail = sheet[commitStart.upperBound...]
@@ -337,15 +335,5 @@ import Testing
         return raw.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
-    }
-
-    private static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/Dashboard/<this>.swift
-            .deletingLastPathComponent()                          // …/Tests/Dashboard
-            .deletingLastPathComponent()                          // …/Tests
-            .deletingLastPathComponent()                          // …/Dashboard
-            .appendingPathComponent("Sources/Dashboard/PaneBarCustomizeSheet.swift")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read PaneBarCustomizeSheet.swift — this scan would be vacuous")
     }
 }

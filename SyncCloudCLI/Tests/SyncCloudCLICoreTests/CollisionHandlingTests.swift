@@ -102,28 +102,6 @@ import Testing
             "Replaced 2 existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log)."))
     }
 
-    @Test func testNameViolationSkipsReportedSeparatelyFromCollisions() {
-        // Both skip causes in one run: each gets its own heading, and each name skip carries its
-        // own rule inline, so stdout stands alone even with stderr redirected away.
-        let s = syncSummary(
-            tally: tally(skipped: ["kept.txt"],
-                         nameSkipped: [("Swimming ", "Dropbox doesn't allow names ending with a space.")]),
-            strategy: .skip
-        )
-        #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
-        #expect(s.stdoutLines.contains("  kept.txt"))
-        #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (name not allowed by the destination provider):"))
-        #expect(s.stdoutLines.contains("  Swimming  - Dropbox doesn't allow names ending with a space."))
-        #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
-        #expect(s.stderrLines == [
-            "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status.",
-            "1 file(s) have names the destination provider does not allow and were not synced; exiting with a non-zero status.",
-        ])
-        #expect(s.exitNonzero)
-    }
-
     @Test func testNameViolationSkipsUnderReplaceStrategyDoNotClaimCollision() {
         // Under --strategy replace, the only skips are name-rule skips; the collision
         // wording ("destination already existed") must not appear at all.

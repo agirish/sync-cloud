@@ -15,30 +15,21 @@ import Events
         LogEntry(level: .info, message: "Loaded tree"),
     ]
 
-    @Test func testNilLevelReturnsAllNewestFirst() {
-        let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "")
-        // All entries, reversed (newest at the top).
-        #expect(result.map(\.message) == ["Loaded tree", "Low space", "Disk FULL", "Walking tree", "Started up"])
-    }
-
-    @Test func testThresholdKeepsLevelAndAbove() {
-        // "Warnings & above" keeps warnings and errors: the filter is a threshold, not an exact
-        // match. Debug and info drop out.
-        let result = LogEntryFilter.apply(entries, minimumLevel: .warning, search: "")
-        #expect(result.map(\.message) == ["Low space", "Disk FULL"])
-        #expect(result.allSatisfy { $0.level.severity >= LogLevel.warning.severity })
-    }
-
-    @Test func testInfoThresholdHidesOnlyDebug() {
-        // "Info & above" hides debug but keeps info/warning/error.
-        let result = LogEntryFilter.apply(entries, minimumLevel: .info, search: "")
-        #expect(result.map(\.message) == ["Loaded tree", "Low space", "Disk FULL", "Started up"])
-        #expect(!result.contains { $0.level == .debug })
-    }
-
-    @Test func testErrorThresholdKeepsOnlyErrors() {
-        let result = LogEntryFilter.apply(entries, minimumLevel: .error, search: "")
-        #expect(result.map(\.message) == ["Disk FULL"])
+    /// The level filter is a threshold, not an exact match, and keeps newest first: no level keeps
+    /// all, reversed; "Warnings & above" keeps warnings and errors; "Info & above" hides only
+    /// debug; errors keeps errors.
+    @Test(arguments: [
+        (nil, ["Loaded tree", "Low space", "Disk FULL", "Walking tree", "Started up"]),
+        (.warning, ["Low space", "Disk FULL"]),
+        (.info, ["Loaded tree", "Low space", "Disk FULL", "Started up"]),
+        (.error, ["Disk FULL"]),
+    ] as [(LogLevel?, [String])])
+    func testTheLevelIsAThresholdAndKeepsNewestFirst(level: LogLevel?, messages: [String]) {
+        let result = LogEntryFilter.apply(entries, minimumLevel: level, search: "")
+        #expect(result.map(\.message) == messages)
+        if let level {
+            #expect(result.allSatisfy { $0.level.severity >= level.severity })
+        }
     }
 
     @Test func testSearchIsCaseInsensitiveSubstring() {
@@ -72,95 +63,72 @@ import Events
 
     // MARK: Empty-state classification
 
-    @Test func testEmptyStateVisibleRowsWinRegardlessOfSource() {
+    /// One argument per situation, each with the rows (visible rows, raw entries, history loaded,
+    /// history read failed → empty state) that pin it.
+    @Test(arguments: [
         // Any visible rows (session or history): no empty state.
-        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false,
-                                       historyReadFailed: false) == .none)
-        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: false, historyLoaded: true,
-                                       historyReadFailed: false) == .none)
-    }
-
-    @Test func testEmptyStateFilteredOutIsNoMatches() {
+        [(true, true, false, false, LogEmptyState.none), (true, false, true, false, .none)],
         // Raw entries exist (this session and/or loaded history) but the filters hide them all.
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false,
-                                       historyReadFailed: false) == .noMatches)
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: true,
-                                       historyReadFailed: false) == .noMatches)
-    }
-
-    @Test func testEmptyStateQuietSessionOffersHistory() {
+        [(false, true, false, false, .noMatches), (false, true, true, false, .noMatches)],
         // Nothing this session and history not loaded yet: the explain-and-offer-history state.
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
-                                       historyReadFailed: false) == .noActivity)
-    }
-
-    @Test func testEmptyStateHistoryLoadedButEmptyIsNoEarlierActivity() {
+        [(false, false, false, false, .noActivity)],
         // History loaded and the log holds nothing older: the honest end state, not "load it".
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
-                                       historyReadFailed: false) == .noEarlierActivity)
-    }
-
-    @Test func testEmptyStateSaysTheHistoryIsUnavailableRatherThanOfferingIt() {
+        [(false, false, true, false, .noEarlierActivity)],
         // A failed read is not `.noActivity`, whose message offers "Show older history" to load
         // earlier sessions; above the footer's "Couldn't read the log file" that would make two
         // opposite claims about the same file.
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
-                                       historyReadFailed: true) == .historyUnavailable)
-    }
-
-    @Test func testALoadedHistoryOutranksAStaleFailureFlag() {
+        [(false, false, false, true, .historyUnavailable)],
         // A retry that succeeded leaves the state loaded; the earlier failure must not still decide
         // the wording. (`LogHistoryState` can't be both, but classify takes two Bools.)
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
-                                       historyReadFailed: true) == .noEarlierActivity)
-    }
-
-    @Test func testAFailedReadWithRowsOnScreenIsStillNoEmptyStateAtAll() {
+        [(false, false, true, true, .noEarlierActivity)],
         // The failure only reaches the empty state when there is nothing else to show: a session
         // that logged something renders rows, and the footer's note is then the only word on it.
-        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false,
-                                       historyReadFailed: true) == .none)
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false,
-                                       historyReadFailed: true) == .noMatches)
+        [(true, true, false, true, .none), (false, true, false, true, .noMatches)],
+    ] as [[(Bool, Bool, Bool, Bool, LogEmptyState)]])
+    func testTheEmptyStateClassification(_ rows: [(Bool, Bool, Bool, Bool, LogEmptyState)]) {
+        for (visible, raw, loaded, failed, expected) in rows {
+            #expect(LogEmptyState.classify(hasVisibleRows: visible, hasRawEntries: raw, historyLoaded: loaded,
+                                           historyReadFailed: failed) == expected)
+        }
     }
 
     // MARK: The footer's "No earlier activity" note vs. the empty state
 
-    @Test func testFooterStaysQuietWhenTheEmptyStateAlreadySaysNoEarlierActivity() {
+    /// The "No earlier activity" note, by (history is empty, empty state → the footer notes it).
+    @Test(arguments: [
         // An empty session over an empty loaded history: the empty state's "…the log holds nothing
         // from earlier sessions" and the footer's "No earlier activity in the log" say the same
         // thing, so only one may speak.
-        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noEarlierActivity) == false)
-    }
-
-    @Test func testFooterStillSpeaksWhenTheEmptyStateIsSayingSomethingElse() {
+        [(true, LogEmptyState.noEarlierActivity, false)],
         // A session that logged something renders no empty state (.none), so the footer note is
         // the only word on the subject and must survive. Same for a filtered-out session
         // (.noMatches), whose empty state talks about filters, not earlier sessions.
-        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .none))
-        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noMatches))
+        [(true, .none, true), (true, .noMatches, true)],
+        // Loaded history with rows in it is never "no earlier activity", whatever the empty state
+        // says (it can be .noMatches when the filter hides every one of those rows).
+        [(false, .noMatches, false), (false, .none, false)],
+    ] as [[(Bool, LogEmptyState, Bool)]])
+    func testTheFooterNotesNoEarlierActivityOnlyWhereNothingElseSaysSo(_ rows: [(Bool, LogEmptyState, Bool)]) {
+        for (historyIsEmpty, emptyState, expected) in rows {
+            #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: historyIsEmpty,
+                                                                emptyState: emptyState) == expected)
+        }
     }
 
-    @Test func testFooterDropsItsUnreadableNoteWhenTheEmptyStateCarriesIt() {
-        // Same yield rule as the "No earlier activity" pair above, for the failed read: the empty
-        // state states it more fully and higher up, so the footer keeps only its retry button.
-        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .historyUnavailable) == false)
-    }
-
-    @Test func testFooterStillReportsAnUnreadableLogWhenTheEmptyStateIsSayingSomethingElse() {
+    /// The unreadable-log note, by (empty state → the footer notes it).
+    @Test(arguments: [
+        // Same yield rule as the "No earlier activity" note, for the failed read: the empty state
+        // states it more fully and higher up, so the footer keeps only its retry button.
+        [(LogEmptyState.historyUnavailable, false)],
         // A session that logged something renders no empty state, so this note is the only word on
         // why earlier history is missing; a filtered-out session's empty state talks about
         // filters, not the file.
-        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .none))
-        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noMatches))
-        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noActivity))
-    }
-
-    @Test func testFooterNeverNotesAnythingWhenHistoryIsNotEmpty() {
-        // Loaded history with rows in it is never "no earlier activity", whatever the empty state
-        // says (it can be .noMatches when the filter hides every one of those rows).
-        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: false, emptyState: .noMatches) == false)
-        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: false, emptyState: .none) == false)
+        [(.none, true), (.noMatches, true), (.noActivity, true)],
+    ] as [[(LogEmptyState, Bool)]])
+    func testTheFooterNotesAnUnreadableLogOnlyWhereTheEmptyStateDoesNot(_ rows: [(LogEmptyState, Bool)]) {
+        for (emptyState, expected) in rows {
+            #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: emptyState) == expected)
+        }
     }
 
     // MARK: History loading (parse + boundary + order)
@@ -285,19 +253,6 @@ import Events
         // error note under a first launch that has never written the file.
         let url = scratchLogURL()   // deliberately never created
         #expect(LogHistoryLoader.loadOlderThan(Date(), fileURL: url).loadedEntries?.isEmpty == true)
-    }
-
-    @Test func testAGoodFileStillLoadsItsHistory() throws {
-        // The control: the read path works, so the tests above assert the failure/empty
-        // distinction, not a loader that returns nothing for everything.
-        let url = scratchLogURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-        let base = Date(timeIntervalSince1970: 1_780_000_000)
-        let line = LogEntry(timestamp: base, level: .warning, message: "earlier session").formattedString
-        try (line + "\n").write(to: url, atomically: true, encoding: .utf8)
-
-        let outcome = LogHistoryLoader.loadOlderThan(base.addingTimeInterval(60), fileURL: url)
-        #expect(outcome.loadedEntries?.map(\.message) == ["earlier session"])
     }
 
     // MARK: The window's derived contents

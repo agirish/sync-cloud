@@ -113,15 +113,21 @@ import FileExplorerTestSupport
                 == [.quickLook, .revealInFinder, .copyPath])
     }
 
-    /// The button is drawn only with a hand-off, counted against the same mount without one so the
-    /// claim is about this button, not the panel's control count. Shows the view consults the rule.
-    @Test func aTextFileGainsOneButtonInTheRow() async throws {
+    /// A fresh temp directory holding `notes.md`, which the editor takes; removed by the caller.
+    private func notesFile() throws -> (dir: URL, file: URL) {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("details-editor-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("notes.md")
         try Data("hello".utf8).write(to: file)
+        return (dir, file)
+    }
+
+    /// The button is drawn only with a hand-off, counted against the same mount without one so the
+    /// claim is about this button, not the panel's control count. Shows the view consults the rule.
+    @Test func aTextFileGainsOneButtonInTheRow() async throws {
+        let (dir, file) = try notesFile()
+        defer { try? FileManager.default.removeItem(at: dir) }
 
         let asked = Asked()
         let without = await rings(over: file.path, handOff: nil)
@@ -135,12 +141,8 @@ import FileExplorerTestSupport
     /// The row fits on one line at the inspector's default width without squeezing: every icon
     /// button keeps the width it has at 700pt.
     @Test func theRowFitsOnOneLineAtTheInspectorsWidth() async throws {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("details-editor-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let (dir, file) = try notesFile()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appendingPathComponent("notes.md")
-        try Data("hello".utf8).write(to: file)
 
         let asked = Asked()
         let narrow = await rings(over: file.path, handOff: asked.handOff(),

@@ -13,11 +13,6 @@ import Settings
 
     private final class Asked { var count = 0 }
 
-    /// No discovery, isolated defaults, for `FileActionHandlerTests.scratchSettings`' reason.
-    private func scratchSettings() -> SettingsManager {
-        SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerRunLockTests"))
-    }
-
     private func handler(_ manager: FileSyncManager, asked: Asked) -> FileActionHandler {
         FileActionHandler(syncManager: manager, settings: scratchSettings(),
                           defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard(),

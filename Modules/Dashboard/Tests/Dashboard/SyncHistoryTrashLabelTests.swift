@@ -17,11 +17,7 @@ import Events
     /// The row's pill reads the record's label, not the action's, so a permanent delete still
     /// says "Delete". A row's body never runs offscreen in a test, so this reads the code.
     @Test func aRowsPillUsesTheRecordsOwnLabel() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/SyncHistoryView.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(url.path) — the scan would pass vacuously")
+        let code = try DashboardSource.read("SyncHistoryView.swift")
         #expect(code.contains("Pill(.mini, tint: actionColor, text: record.actionLabel)"))
         #expect(!code.contains("record.action.label"), "a row labels by the action, so a permanent delete reads Move to Trash")
     }

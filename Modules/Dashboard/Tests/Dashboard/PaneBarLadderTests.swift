@@ -15,7 +15,7 @@ import FileExplorerTestSupport
 /// custom-styled SwiftUI `Button` puts no `NSControl` in the AppKit tree, and an offscreen
 /// `NSHostingView` has an empty accessibility tree.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarLadderTests {
+@Suite(.serialized) struct PaneBarLadderTests {
 
     /// The pane's own trailing inset: `PaneHeader.body`'s `.padding(.horizontal, 14)`.
     private static let contentInset: CGFloat = 14
@@ -79,7 +79,7 @@ import FileExplorerTestSupport
     ///
     /// Asserted as balance, not just a floor: a bar pinned to the narrowest rung's height still
     /// clears the top padding, but its imbalance is what a person sees.
-    @Test func theHeaderIsBalancedTopToBottom() {
+    @Test(.machinePinned(.pixelSampling)) func theHeaderIsBalancedTopToBottom() {
         for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 330),
                                      ("iCloud Drive", 1.0, 660), ("iCloud Drive", 1.35, 660),
                                      ("Marketing Team Shared Archive Drive", 1.0, 660)] {
@@ -101,7 +101,7 @@ import FileExplorerTestSupport
     /// `VStack`'s 10pt spacing is real only if the bar's row contains the bar: pinned to the
     /// narrowest rung, a titled rung's words hang below their box and eat the gap. Measured as the
     /// tallest clear band between the first ink and the last, the only one inside the content.
-    @Test func theBarAndTheTrailKeepTheirGap() {
+    @Test(.machinePinned(.pixelSampling)) func theBarAndTheTrailKeepTheirGap() {
         for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 660),
                                      ("Marketing Team Shared Archive Drive", 1.0, 660)] {
             guard let gap = Self.clearBandInsideContent(
@@ -187,30 +187,12 @@ import FileExplorerTestSupport
 
     // MARK: - The arithmetic against the drawn bar
 
-    /// The core claim: the width `PaneBarLadder` computes for a rung is the width the bar drawn at
-    /// that rung occupies. Anchored at the ladder's two ends, where the rung isn't in doubt: a 250pt
-    /// pane (the split's clamp) can only take the narrowest, and a 900pt pane takes rung 0.
-    @Test(arguments: [(CGFloat(250), true), (CGFloat(900), false)])
-    func aRungOccupiesTheWidthTheLadderComputes(width: CGFloat, isNarrow: Bool) {
-        let view = Self.header("iCloud Drive")
-        let ladder = view.barLadder
-        let rung = isNarrow ? ladder.terminal : 0
-        #expect(!barRings(view, width: width).isEmpty, "the header drew no controls at all")
-
-        // Half a point of tolerance, and only that: `fittingSize` reports whole points while a
-        // titled rung's arithmetic lands on a half (`LabelMetrics.ceilToHalf`). A rung that drew a
-        // different bar misses by pills, not fractions.
-        let drawn = barWidth(view, rung: rung, ladder: ladder)
-        #expect(abs(drawn - ladder.width(forRung: rung)) <= 0.5,
-                "rung \(rung) drew \(drawn)pt, computed \(ladder.width(forRung: rung))pt")
-    }
-
     /// That `barWidth` measures the bar and not something next to it: a greedy child makes
     /// `fittingSize` report the offer, not the content. Checked against ring spans on the untitled
     /// rungs, where every item's box is its pill and the two must agree to the point. Swept across
     /// widths to find the untitled part of the ladder, and `matched` stops it passing by finding
     /// nowhere to look.
-    @Test func theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled() {
+    @Test(.machinePinned(.pixelSampling)) func theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
         var matched = 0
@@ -234,27 +216,34 @@ import FileExplorerTestSupport
     /// The failure the ladder exists to prevent, with no loud symptom: a bar running past the
     /// pane's trailing edge. Swept rather than spot-checked, because `PaneBarLadder` documents its
     /// widths as non-monotonic, which is why it is walked in order rather than sorted.
-    @Test func theBarNeverOverflowsThePane() {
-        for name in ["Box", "Dropbox", "iCloud Drive", "Marketing Team Shared Archive Drive"] {
+    ///
+    /// The header with no provider (`nil`) obeys the same rule. It draws a plain title instead of
+    /// the breadcrumb chip, and is reachable in the app: `ContentView` passes
+    /// `availableProviders.first(where:)`, nil whenever a pane's provider is disabled or not yet
+    /// loaded.
+    @Test(.machinePinned(.pixelSampling)) func theBarNeverOverflowsThePane() {
+        let names: [String?] = ["Box", "Dropbox", "iCloud Drive", "Marketing Team Shared Archive Drive", nil]
+        for name in names {
             for width in stride(from: CGFloat(250), through: 900, by: 25) {
                 let drawn = barRings(Self.header(name), width: width)
                 guard let trailing = drawn.map(\.maxX).max() else { continue }
                 #expect(trailing <= width - Self.contentInset + 0.5,
-                        "\(name) at \(width)pt: bar ends at \(trailing), pane content edge is \(width - Self.contentInset)")
+                        "\(name ?? "no-provider header") at \(width)pt: bar ends at \(trailing), pane content edge is \(width - Self.contentInset)")
             }
         }
     }
 
-    /// Every rung's arithmetic against the bar that rung draws. The comparison
-    /// `aRungOccupiesTheWidthTheLadderComputes` makes only at the two ends, so a middle rung can't
-    /// be mispriced unnoticed. `theDrawnBarIsAlwaysSomeRungOfTheLadder` can't see mispricing: both
-    /// its sides are drawn measurements.
-    @Test func everyRungIsPricedAsTheBarItDraws() {
+    /// The core claim: the width `PaneBarLadder` computes for a rung is the width the bar drawn at
+    /// that rung occupies, for every rung, so a middle one can't be mispriced unnoticed.
+    /// `theDrawnBarIsAlwaysSomeRungOfTheLadder` can't see mispricing: both its sides are drawn
+    /// measurements.
+    @Test(.machinePinned(.pixelSampling)) func everyRungIsPricedAsTheBarItDraws() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
         for rung in 0...ladder.terminal {
-            // Half a point, as in `aRungOccupiesTheWidthTheLadderComputes`: a titled rung's
-            // arithmetic lands on a half point where `fittingSize` reports whole ones.
+            // Half a point of tolerance, and only that: `fittingSize` reports whole points while a
+            // titled rung's arithmetic lands on a half (`LabelMetrics.ceilToHalf`). A rung that drew
+            // a different bar misses by pills, not fractions.
             #expect(abs(barWidth(view, rung: rung, ladder: ladder) - ladder.width(forRung: rung)) <= 0.5,
                     "rung \(rung) draws \(barWidth(view, rung: rung, ladder: ladder))pt where the ladder priced \(ladder.width(forRung: rung))pt")
         }
@@ -270,7 +259,7 @@ import FileExplorerTestSupport
     /// sizes are held by a chain: `LabelMetricsTests.lineHeightMatchesTheDrawnLineBox` checks
     /// `lineHeight` against a drawn `Text` at every slider scale, `rowHeight` is pill + gap + that,
     /// and `theTitledHeaderClearsBothEdges` renders every size and measures the result.
-    @Test func everyRungIsReservedAsTallAsTheBarItDraws() {
+    @Test(.machinePinned(.pixelSampling)) func everyRungIsReservedAsTallAsTheBarItDraws() {
         // The host's label-mode default, asserted as in `theTitledHeaderClearsBothEdges`: under
         // `iconOnly` no rung is titled and this would pass on untitled ones alone.
         let view = Self.header("iCloud Drive")
@@ -287,7 +276,7 @@ import FileExplorerTestSupport
     /// `@Environment` property, and `barVariant` is a method on the struct, so its bar draws at the
     /// default; an `.environment(_:_:)` on the returned view comes too late for the font
     /// `titledItem` already resolved. A sweep would report identical numbers and read as passes.
-    @Test func theEnvironmentDoesNotReachABarBuiltOffTheStruct() {
+    @Test(.machinePinned(.pixelSampling)) func theEnvironmentDoesNotReachABarBuiltOffTheStruct() {
         let view = Self.header("iCloud Drive")
         var drawn: [Int: CGFloat] = [:], reserved: [Int: CGFloat] = [:]
         for percent in FontSize.selectablePercents {
@@ -317,7 +306,7 @@ import FileExplorerTestSupport
     /// `PaneBarLayout.width` passes (`everyRungIsPricedAsTheBarItDraws` holds that). It is the only
     /// check that the selection lands on a real rung at every width, not on a bar built from
     /// another rung's parts.
-    @Test func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
+    @Test(.machinePinned(.pixelSampling)) func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
         // Rings against rings: each rung's own ring span, compared with the drawn bar's. Box widths
@@ -344,7 +333,7 @@ import FileExplorerTestSupport
     /// A gap widened for words must not be charged to a bar that has none. `itemGap` is 8 between
     /// titled items and 6 between untitled ones; charging 8 everywhere would make every untitled
     /// rung (all of Icon Only) wider, so the ladder would step down at a wider pane. The drawn half
-    /// is held by `theLadderRendersItsGolden` and the recorded snapshots.
+    /// is held by `theLadderRendersItsGolden`.
     @Test func theUntitledLadderIsPricedAsItWasBeforeTitles() {
         // The values, pinned.
         #expect(PaneNavMetrics.itemGap(titled: false) == 6,
@@ -443,23 +432,10 @@ import FileExplorerTestSupport
         #expect(PaneBarLayout.width(of: .sort, pill: pill, compactsViewMode: false) == pill.width)
     }
 
-    /// The header with no provider must obey the same trailing-edge rule. It draws a plain title
-    /// instead of the breadcrumb chip, and is reachable in the app: `ContentView` passes
-    /// `availableProviders.first(where:)`, nil whenever a pane's provider is disabled or not yet
-    /// loaded.
-    @Test func theHeaderWithNoProviderStillFitsItsPane() {
-        for width in stride(from: CGFloat(250), through: 900, by: 25) {
-            let drawn = barRings(Self.header(nil), width: width)
-            guard let trailing = drawn.map(\.maxX).max() else { continue }
-            #expect(trailing <= width - Self.contentInset + 0.5,
-                    "no-provider header at \(width)pt: bar ends at \(trailing)")
-        }
-    }
-
     /// The bar's container, pinned to `tallestRungHeight`, holds the tallest rung whole. Focus rings
     /// say nothing about paint, and a clipped overflow looks like a correct layout to every other
     /// assertion here, so this reads the bitmap.
-    @Test func theTallestRungIsNotClippedByThePinnedContainer() {
+    @Test(.machinePinned(.pixelSampling)) func theTallestRungIsNotClippedByThePinnedContainer() {
         let width: CGFloat = 900
         let view = Self.header("iCloud Drive")
             .frame(width: width, height: LiquidGlass.headerHeight)
@@ -534,7 +510,7 @@ import FileExplorerTestSupport
     /// keeps the floor honest: titled ink starts 9.0pt or less from the top, untitled 13.0pt or
     /// more. It reads the gate's verdict through the row's reservation, not the words themselves;
     /// ignoring `appFontScale` in `PaneHeader.barLadder` must fail here.
-    @Test(arguments: FontSize.selectablePercents)
+    @Test(.machinePinned(.pixelSampling), arguments: FontSize.selectablePercents)
     func theTitledHeaderClearsBothEdges(percent: Int) {
         let scale = FontSize(percent: percent).scale
         // Restates `PaneBarLadder.init`'s gate rather than asking a ladder: `PaneHeader.barLadder`
@@ -630,7 +606,7 @@ import FileExplorerTestSupport
     ///
     /// A rung whose band of widths is narrower than the sweep's stride would fall between samples,
     /// so the gap between consecutive reachable rungs is checked against the stride first.
-    @Test func theNoProviderHeaderReachesTheDeepRungs() {
+    @Test(.machinePinned(.pixelSampling)) func theNoProviderHeaderReachesTheDeepRungs() {
         let defaults = ScratchDefaults("PaneBarLadderTests-spacerHeavy")
         defaults.set(Self.spacerHeavy.encoded, forKey: PaneBar.arrangementKey)
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
@@ -677,7 +653,7 @@ import FileExplorerTestSupport
     /// is the ladder stepping, while shifted positions with the same count are the bar or the trail
     /// sliding. The first crumb is the source chip, a `Menu` with no focus ring, so this table pins
     /// it only through the trail's position; `MenuLabelMarkTests` in the app target measures it.
-    @Test func theLadderRendersItsGolden() {
+    @Test(.machinePinned(.pixelSampling)) func theLadderRendersItsGolden() {
         for row in Self.golden {
             let view = Self.header(row.name).environment(\.appFontScale, row.scale)
             #expect(fingerprint(view, width: row.width) == row.rings,

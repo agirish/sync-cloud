@@ -41,16 +41,6 @@ import SwiftUI
         }
     }
 
-    private static func fieldEditor(_ window: NSWindow) -> NSTextView? {
-        var found: NSTextView?
-        func walk(_ v: NSView) {
-            if found == nil, let text = v as? NSTextView, text.isEditable { found = text }
-            for sub in v.subviews where found == nil { walk(sub) }
-        }
-        walk(window.contentView!)
-        return found
-    }
-
     @Test("Escape closes the field, clears the query, and never reaches the pane's own handler")
     func escapeBelongsToTheField() async {
         let box = Box()
@@ -62,10 +52,10 @@ import SwiftUI
 
         // The field claims focus one Task hop after it appears. Without this the test would send
         // Escape to nothing and pass vacuously.
-        let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(focused.held, "the revealed field should exist and be editable (\(focused.pumps) pumps)")
 
-        Self.fieldEditor(window)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        FieldEditor.find(in: window)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
 
         let closed = await LayoutPumpWait.pump(window, upTo: 5) { !box.isExpanded }
         #expect(closed.held, "Escape should close the field (\(closed.pumps) pumps)")

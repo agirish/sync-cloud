@@ -7,24 +7,17 @@ import Design
 /// the views render, so a misspelled symbol name fails here instead of drawing a blank icon.
 @Suite struct PaneGlyphTests {
 
-    @Test func testLinkPanesGlyphIsAChainAndExistsInSFSymbols() {
-        // PaneBreadcrumb's link-both-panes toggle: a chain, never arrows.
-        #expect(PaneGlyph.linkBothPanes == "link")
-        #expect(NSImage(systemSymbolName: PaneGlyph.linkBothPanes, accessibilityDescription: nil) != nil,
-                "missing SF Symbol \(PaneGlyph.linkBothPanes)")
-    }
-
-    @Test func testCompareGlyphExistsInSFSymbols() {
-        // ContentView's pre-scan empty state + toolbar Compare button share this constant.
-        #expect(PaneGlyph.compare == "rectangle.split.2x1")
-        #expect(NSImage(systemSymbolName: PaneGlyph.compare, accessibilityDescription: nil) != nil,
-                "missing SF Symbol \(PaneGlyph.compare)")
-    }
-
-    @Test func testSwapPanesKeepsTheReservedArrows() {
-        // ProviderSidebar's swap button owns the ⇄ arrows.
-        #expect(PaneGlyph.swapPanes == "arrow.left.arrow.right.circle")
-        #expect(NSImage(systemSymbolName: PaneGlyph.swapPanes, accessibilityDescription: nil) != nil,
-                "missing SF Symbol \(PaneGlyph.swapPanes)")
+    /// PaneBreadcrumb's link-both-panes toggle: a chain, never arrows. ContentView's pre-scan empty
+    /// state and toolbar Compare button share the compare constant. ProviderSidebar's swap button
+    /// owns the ⇄ arrows.
+    @Test(arguments: [
+        (PaneGlyph.linkBothPanes, "link"),
+        (PaneGlyph.compare, "rectangle.split.2x1"),
+        (PaneGlyph.swapPanes, "arrow.left.arrow.right.circle"),
+    ])
+    func testEachPaneGlyphIsItsSymbolAndExistsInSFSymbols(glyph: String, symbol: String) {
+        #expect(glyph == symbol)
+        #expect(NSImage(systemSymbolName: glyph, accessibilityDescription: nil) != nil,
+                "missing SF Symbol \(glyph)")
     }
 }

@@ -15,7 +15,7 @@ import Design
 
     // MARK: - Availability
 
-    /// A header with no delete handler doesn't offer the item, so header tests, snapshots and ladder
+    /// A header with no delete handler doesn't offer the item, so header tests and ladder
     /// measurements that pass none build a bar without it.
     @Test func testAHeaderWithNoHandlerOffersNoDelete() {
         #expect(!Self.header(onDelete: nil).availableItems.contains(.delete))
@@ -140,13 +140,6 @@ import Design
     private static func redPixels(inBarOf header: PaneHeader) throws -> Int {
         try count(in: header) { px in
             px.redComponent - px.greenComponent > 0.25 && px.redComponent - px.blueComponent > 0.25
-        }
-    }
-
-    /// Pixels in the same crop that depart from the background at all: "something is drawn here".
-    private static func inkPixels(inBarOf header: PaneHeader) throws -> Int {
-        try count(in: header) { px in
-            px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72
         }
     }
 

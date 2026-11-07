@@ -8,6 +8,11 @@ import Foundation
     /// The arrangement a first run gets, in order: home first, where a path starts, then the three
     /// folders you file into. Pinned as a whole list, because `contains` checks would pass on any
     /// shuffle, and a shuffle is what a later edit to `favoriteShortcuts` would produce.
+    ///
+    /// The startup disk is not among them: a place's section is membership of this list, so
+    /// leaving the disk out is what draws it in Locations' device band. Every entry is absolute,
+    /// since the list is matched against a row's `absolutePath` through `resolved`, and a relative
+    /// one would resolve against the working directory and match nothing.
     @Test func theDefaultFavoritesAreHomeAndTheThreeFolders() {
         #expect(SidebarFavoritePlaces.standard == [
             NSHomeDirectory(),
@@ -15,21 +20,10 @@ import Foundation
             NSHomeDirectory() + "/Documents",
             NSHomeDirectory() + "/Downloads",
         ])
-    }
-
-    /// The startup disk is not a default favorite. A place's section is membership of this list,
-    /// so leaving the disk out is what draws it in Locations' device band. Separate from the test
-    /// above, which catches a reorder; this one catches the entry coming back.
-    @Test func theStartupDiskIsNotAFavoriteByDefault() {
         #expect(!SidebarFavoritePlaces.standard.contains(SidebarSourceModel.startupDiskPath),
                 "the startup disk is back in the default Favorites — it belongs in Locations' device band, above any card and the Trash")
         #expect(!SidebarFavoritePlaces.isMissingStandard(SidebarFavoritePlaces.standard),
                 "Restore Standard Places would be offered forever on an untouched install")
-    }
-
-    /// Every default entry is absolute: the list is matched against a row's `absolutePath` through
-    /// `resolved`, and a relative one would resolve against the working directory and match nothing.
-    @Test func everyDefaultPlaceIsAbsolute() {
         #expect(SidebarFavoritePlaces.standard.allSatisfy { $0.hasPrefix("/") })
         #expect(Set(SidebarFavoritePlaces.standard).count == SidebarFavoritePlaces.standard.count,
                 "a duplicate default would draw one row and leave a dead entry behind it")
@@ -47,13 +41,6 @@ import Foundation
     @Test func aPathHoldingASeparatorSurvivesARoundTrip() {
         let odd = ["/Volumes/Backup, 2026", "/Users/x/Notes\nDrafts"]
         #expect(SidebarFavoritePlaces.places(from: SidebarFavoritePlaces.encoded(odd)) == odd)
-    }
-
-    /// Unreadable falls back to the standard places, the answer a first run gets and a state the
-    /// user recognises. A column that has silently lost its Favorites is worse.
-    @Test func anUnreadableValueFallsBackRatherThanEmptying() {
-        #expect(SidebarFavoritePlaces.places(from: "{not json") == SidebarFavoritePlaces.standard)
-        #expect(SidebarFavoritePlaces.places(from: "[1,2,3]") == SidebarFavoritePlaces.standard)
     }
 
     @Test func togglingAddsAtTheEndAndRemovesInPlace() {
@@ -219,17 +206,6 @@ import Foundation
 
     // MARK: - Absent, empty and unreadable are three states
 
-    /// The state `places(from:)` can't express, and the write that would destroy it. An unreadable
-    /// value reads as the standard places, which is right to show, but encoding them back over the
-    /// key would lose the user's bytes: the loss happens on the write, not the read.
-    @Test func unreadableBytesAreNotMistakenForAnUntouchedKey() {
-        #expect(SidebarFavoritePlaces.isUnreadable("{not json"))
-        #expect(SidebarFavoritePlaces.isUnreadable("[1, 2, 3]"),
-                "valid JSON of the wrong shape is still bytes this build cannot use")
-        #expect(SidebarFavoritePlaces.isUnreadable("\"/Desktop\""),
-                "a bare string is not the list this key holds")
-    }
-
     /// The two states that are not unreadable, which a salvage must never fire for.
     @Test func absentAndEmptyAreBothReadable() {
         #expect(!SidebarFavoritePlaces.isUnreadable(""), "an untouched key has nothing to salvage")
@@ -239,19 +215,14 @@ import Foundation
     }
 
     /// Everything `isUnreadable` flags is a value `places(from:)` answers `standard` for, the
-    /// overlap that makes writing back dangerous.
+    /// overlap that makes writing back dangerous: the standard places are right to show, but
+    /// encoding them back over the key would lose the user's bytes.
     @Test func everyUnreadableValueReadsAsTheStandardThree() {
         for raw in ["{not json", "[1, 2, 3]", "\"/Desktop\""] {
             #expect(SidebarFavoritePlaces.isUnreadable(raw))
             #expect(SidebarFavoritePlaces.places(from: raw) == SidebarFavoritePlaces.standard,
                     "“\(raw)” reads as something other than the first-run answer")
         }
-    }
-
-    /// Round-tripping is what makes the salvage recoverable rather than merely preserved.
-    @Test func anEncodedListDecodesBackToItself() {
-        let places = ["/Users/x/Desktop", "/Volumes/Off/Notes"]
-        #expect(SidebarFavoritePlaces.places(from: SidebarFavoritePlaces.encoded(places)) == places)
     }
 }
 

@@ -67,6 +67,7 @@ import Events
         let token = state.beginLoading()!
         state.finishLoading([], token: token, pageSize: pageSize)
         #expect(state.isLoaded)
+        #expect(!state.readFailed, "an empty load is loaded, not failed")
         #expect(state.entries?.isEmpty == true)
     }
 
@@ -213,14 +214,6 @@ import Events
         #expect(state.beginLoading() != nil)
     }
 
-    @Test func successAndFailureAreMutuallyExclusive() {
-        var loaded = LogHistoryState.notLoaded
-        let token = loaded.beginLoading()!
-        loaded.finishLoading([], token: token, pageSize: pageSize)
-        // An empty load is loaded, not failed: the footer's wording rests on it.
-        #expect(loaded.isLoaded && !loaded.readFailed)
-    }
-
     // MARK: The "Show N more" count
 
     @Test func theRevealCountIsAFullPageWhileMoreThanAPageIsHidden() {
@@ -242,23 +235,5 @@ import Events
         #expect(LogHistoryState.nextRevealCount(matchCount: 25, revealed: 25, pageSize: 25) == 0)
         #expect(LogHistoryState.nextRevealCount(matchCount: 3, revealed: 75, pageSize: 25) == 0)
         #expect(LogHistoryState.nextRevealCount(matchCount: 0, revealed: 25, pageSize: 25) == 0)
-    }
-
-    // MARK: The combinations that are now unrepresentable
-
-    @Test func loadingAndLoadedAreMutuallyExclusive() {
-        // Every state answers exactly one of the two questions, so no consumer has to decide which
-        // wins.
-        var loading = LogHistoryState.notLoaded
-        _ = loading.beginLoading()
-        #expect(loading.isLoading && !loading.isLoaded)
-
-        var loaded = LogHistoryState.notLoaded
-        let token = loaded.beginLoading()!
-        loaded.finishLoading([entry("a")], token: token, pageSize: pageSize)
-        #expect(loaded.isLoaded && !loaded.isLoading)
-
-        let idle = LogHistoryState.notLoaded
-        #expect(!idle.isLoading && !idle.isLoaded)
     }
 }

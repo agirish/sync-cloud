@@ -7,8 +7,7 @@ import Foundation
 
     // `activePath` delegates the pane-selection rule to `CurrentSelection.primaryPanePath`, whose
     // branches CurrentSelectionTests (in Sync) pins; DetailsActivePathAgreementTests pins the
-    // delegation. Below, the leftPath-empty fallback and `pruneSelection` have no other coverage;
-    // the multi-selection walk is an end-to-end read through the sidebar.
+    // delegation. Below, the leftPath-empty fallback and `pruneSelection` have no other coverage.
 
     @MainActor
     @Test func testDetailsSidebarFallbackToDestIfSourceEmpty() async throws {
@@ -17,22 +16,6 @@ import Foundation
         let sidebar = DetailsSidebar(syncManager: manager, leftPath: "", rightPath: "/dst/fallback")
         
         #expect(sidebar.activePath == "/dst/fallback")
-    }
-    
-    @MainActor
-    @Test func testMultiSelectionAcrossPanes() async throws {
-        let manager = FileSyncManager()
-        let sidebar = DetailsSidebar(syncManager: manager, leftPath: "/src", rightPath: "/dst")
-        
-        manager.selectedLeftPaths = ["/src/a.txt", "/src/b.txt"]
-        manager.selectedRightPaths = ["/dst/c.txt"]
-        
-        // activePath favours the alphabetically first Source item.
-        #expect(sidebar.activePath == "/src/a.txt")
-        
-        // Source cleared: Dest wins.
-        manager.selectedLeftPaths = []
-        #expect(sidebar.activePath == "/dst/c.txt")
     }
     
     @MainActor

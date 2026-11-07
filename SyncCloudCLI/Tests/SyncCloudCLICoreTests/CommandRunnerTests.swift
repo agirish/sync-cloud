@@ -59,6 +59,20 @@ import Sync
         return URL(fileURLWithPath: canonical ?? raw.path, isDirectory: true)
     }
 
+    /// Two fresh temp roots, and a closure that removes both.
+    private func roots() throws -> (left: URL, right: URL, cleanup: () -> Void) {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        return (left, right, { for dir in [left, right] { try? FileManager.default.removeItem(at: dir) } })
+    }
+
+    /// `runSync` with no hidden files or ignores, and the flags most tests leave alone.
+    private func sync(_ runner: CommandRunner, _ left: String, _ right: String,
+                      strategy: CollisionStrategy = .replace, yes: Bool = true, failFast: Bool = false,
+                      verify: Bool = false, direction: Direction = .auto) async throws {
+        try await runner.runSync(left: left, right: right, direction: direction, showHidden: false, ignore: [],
+                                 strategy: strategy, yes: yes, failFast: failFast, verify: verify)
+    }
+
     private func write(_ url: URL, _ contents: String, mtime: Date? = nil) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(contents.utf8).write(to: url)
@@ -96,17 +110,14 @@ import Sync
         let rec = Recorder()
         let runner = makeRunner(rec)
         await #expect(throws: CLIValidationError(message: "Path or provider 'nope' for Right could not be found.")) {
-            try await runner.runSync(left: "/tmp", right: "nope",
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(runner, "/tmp", "nope")
         }
     }
 
     // MARK: scan output
 
     @Test func scanPrintsNoDifferencesForIdenticalTrees() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         let t = Date(timeIntervalSince1970: 1_700_000_000)
         try write(left.appendingPathComponent("same.txt"), "same", mtime: t)
         try write(right.appendingPathComponent("same.txt"), "same", mtime: t)
@@ -124,9 +135,8 @@ import Sync
         #expect(rec.err.isEmpty)
     }
 
-    @Test func scanPrintsEachDifferenceWithTypeAndAction() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+    @Test func scanPrintsEachDifferenceWithTypeAndActionInTextAndJSON() async throws {
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("only-left.txt"), "abc")
 
         let rec = Recorder()
@@ -141,19 +151,13 @@ import Sync
         - [missing-on-right] [copy-to-right] only-left.txt
         """))
         #expect(rec.err.isEmpty)
-    }
 
-    @Test func scanJSONEmitsTheMachineReadablePayload() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
-        try write(left.appendingPathComponent("only-left.txt"), "abc")
-
-        let rec = Recorder()
-        try await makeRunner(rec).runScan(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [], json: true)
+        let json = Recorder()
+        try await makeRunner(json).runScan(left: left.path, right: right.path,
+                                           direction: .auto, showHidden: false, ignore: [], json: true)
 
         let payload = try #require(
-            try JSONSerialization.jsonObject(with: Data(rec.out.utf8)) as? [[String: Any]])
+            try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]])
         #expect(payload.count == 1)
         #expect(payload.first?["relativePath"] as? String == "only-left.txt")
         #expect(payload.first?["type"] as? String == "missing-on-right")
@@ -165,8 +169,7 @@ import Sync
     /// plan in either form. The text marks it, and the JSON says so in a field a script can filter
     /// on, set on every row so the decided row beside it reads `false` rather than nothing.
     @Test func scanMarksTheRowsSyncLeavesForADecision() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         let t = Date(timeIntervalSince1970: 1_700_000_000)
         try write(left.appendingPathComponent("a-held.txt"), "left, longer", mtime: t)
         try write(right.appendingPathComponent("a-held.txt"), "right", mtime: t)
@@ -196,8 +199,7 @@ import Sync
     /// for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does not
     /// exist when pasted back into a shell. The names are curly so a fold would show.
     @Test func scanPrintsFileNamesVerbatimInTextAndJSON() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("Bob’s.txt"), "abc")
         try write(left.appendingPathComponent("“Report – Final”.pdf"), "def")
 
@@ -296,9 +298,7 @@ import Sync
             return false
         })
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: leftProvider.id, right: rightProvider.id,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: false, failFast: false, verify: false)
+            try await self.sync(runner, leftProvider.id, rightProvider.id, yes: false)
         }
         expectVerbatim(sync.out, "sync stdout")
         expectVerbatim(sync.err, "sync stderr")
@@ -370,8 +370,7 @@ import Sync
     }
 
     @Test func scanHonorsTheDirectionFilter() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("to-right.txt"), "abc")
         try write(right.appendingPathComponent("to-left.txt"), "def")
 
@@ -416,32 +415,26 @@ import Sync
     // MARK: sync — plan, prompt, copies
 
     @Test func syncReportsNothingToSyncForIdenticalTrees() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [],
-                                          strategy: .replace, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(rec), left.path, right.path)
 
         #expect(rec.out == "Nothing to sync - no differences found.\n")
         #expect(rec.copies.isEmpty)
     }
 
     /// A declined prompt exits non-zero: the README defines 0 as "every planned file was copied",
-    /// which a declined run never is.
+    /// which a declined run never is. The plan names both resolved roots before it asks, so a
+    /// `-L`/`-R` value that resolved to an unexpected tree is not confirmed blind.
     @Test func syncWithoutYesAbortsWhenThePromptIsDeclined() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("a.txt"), "abc")
 
         let rec = Recorder()
         let runner = makeRunner(rec, readLine: { "n" })
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(
-                left: left.path, right: right.path,
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.out.contains("Planned operations (1):"))
@@ -450,22 +443,21 @@ import Sync
         #expect(rec.out.hasSuffix("Aborted.\n"))
         #expect(rec.err == "Nothing was synced: the prompt was declined.\n")
         #expect(rec.copies.isEmpty, "a declined prompt must not copy anything")
+        let beforePrompt = try #require(rec.out.components(separatedBy: "Proceed with these operations?").first)
+        #expect(beforePrompt.contains("  Left : \(left.path) [Left]\n"))
+        #expect(beforePrompt.contains("  Right: \(right.path) [Right]\n"))
     }
 
     /// The other abort: stdin closed, so the prompt reads nothing at all — a script that forgot
     /// `--yes`. Same exit, its own stderr line naming the flag.
     @Test func syncWithoutYesAbortsWhenThePromptGetsNoAnswer() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("a.txt"), "abc")
 
         let rec = Recorder()
         let runner = makeRunner(rec, readLine: { nil })
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(
-                left: left.path, right: right.path,
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.out.hasSuffix("Aborted.\n"))
@@ -473,40 +465,12 @@ import Sync
         #expect(rec.copies.isEmpty)
     }
 
-    /// The plan names both resolved roots before it asks, so a `-L`/`-R` value that resolved to
-    /// an unexpected tree is not confirmed blind. Asserted on the text before the prompt, which is
-    /// the only part that can inform the answer.
-    @Test func syncPlanNamesBothResolvedRootsBeforeThePrompt() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
-        try write(left.appendingPathComponent("a.txt"), "abc")
-
-        let rec = Recorder()
-        let runner = makeRunner(rec, readLine: { "n" })
-        // Declined, so it exits non-zero; the text before the prompt is what this pins.
-        await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(
-                left: left.path, right: right.path,
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: false, failFast: false, verify: false)
-        }
-
-        let beforePrompt = try #require(rec.out.components(separatedBy: "Proceed with these operations?").first)
-        #expect(beforePrompt.contains("  Left : \(left.path) [Left]\n"))
-        #expect(beforePrompt.contains("  Right: \(right.path) [Right]\n"))
-        #expect(rec.copies.isEmpty)
-    }
-
     @Test func syncWithoutYesProceedsWhenThePromptIsAccepted() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("a.txt"), "abc")
 
         let rec = Recorder()
-        try await makeRunner(rec, readLine: { "yes" }).runSync(
-            left: left.path, right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: false, failFast: false, verify: false)
+        try await sync(makeRunner(rec, readLine: { "yes" }), left.path, right.path, yes: false)
 
         #expect(rec.copies.count == 1)
         #expect(rec.copies.first?.target.path == right.appendingPathComponent("a.txt").path)
@@ -517,8 +481,7 @@ import Sync
     // MARK: sync — failures
 
     @Test func syncPartialFailurePrintsTheSummaryThenSignalsANonzeroExit() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("bad.txt"), "abc")
         try write(left.appendingPathComponent("good.txt"), "def")
 
@@ -530,9 +493,7 @@ import Sync
         })
 
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path)
         }
 
         #expect(rec.copies.count == 1, "the failure must not stop the remaining copies")
@@ -544,8 +505,7 @@ import Sync
     }
 
     @Test func syncFailFastRethrowsTheCopyErrorBeforeAnySummary() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("a.txt"), "abc")
         try write(left.appendingPathComponent("b.txt"), "def")
 
@@ -553,9 +513,7 @@ import Sync
         let runner = makeRunner(rec, performFileSync: { _, _, _ in throw InjectedCopyError() })
 
         await #expect(throws: InjectedCopyError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: true, failFast: true, verify: false)
+            try await sync(runner, left.path, right.path, failFast: true)
         }
 
         #expect(rec.err.contains("Aborting due to --fail-fast.\n"))
@@ -565,8 +523,7 @@ import Sync
     // MARK: sync — the provider-name pre-write guard
 
     @Test func syncSkipsANameTheDestinationProviderForbidsButCopiesTheRest() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         // "Swimming " (trailing space) violates Dropbox's name rules; normal.txt does not.
         try write(left.appendingPathComponent("Swimming "), "splash")
         try write(left.appendingPathComponent("normal.txt"), "fine")
@@ -577,10 +534,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec, providers: [dropbox]).runSync(
-                left: left.path, right: "dropbox-test",
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec, providers: [dropbox]), left.path, "dropbox-test")
         }
 
         // Exactly one copy: the valid name. The violating one is skipped BEFORE any write.
@@ -602,14 +556,11 @@ import Sync
     // composed, not only one by one: a wiring mistake between them shows here.
 
     @Test func syncCopiesRightOnlyFilesLeftwardWithTheEndpointsSwapped() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(right.appendingPathComponent("only-right.txt"), "abc")
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .toLeft, showHidden: false, ignore: [],
-                                          strategy: .replace, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(rec), left.path, right.path, direction: .toLeft)
 
         #expect(rec.out.contains("- only-right.txt ← [missing-on-left]"),
                 "the plan must show the leftward arrow: \(rec.out)")
@@ -624,8 +575,7 @@ import Sync
     }
 
     @Test func syncSkipsANameTheLeftProviderForbidsWhenCopyingRightToLeft() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         // "CON" is reserved on OneDrive. The offending file sits on the RIGHT and would be
         // written into the LEFT (OneDrive) root, so it is the LEFT provider's rules that decide.
         try write(right.appendingPathComponent("CON.txt"), "reserved")
@@ -637,10 +587,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec, providers: [oneDrive]).runSync(
-                left: "onedrive-test", right: right.path,
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec, providers: [oneDrive]), "onedrive-test", right.path)
         }
 
         // Exactly one copy: the valid name. The reserved one is refused BEFORE any write, even
@@ -653,8 +600,7 @@ import Sync
     }
 
     @Test func syncLeftwardValidatesTheDestinationSpellingNotTheSourceOne() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         // A name-conflict pair: the LEFT (Dropbox) side already holds the provider-valid spelling,
         // the RIGHT holds the trailing-space doppelganger and is newer, so the row syncs right→left
         // ONTO the existing, valid left path. Validating the source spelling would wrongly skip a
@@ -669,10 +615,7 @@ import Sync
         #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
 
         let rec = Recorder()
-        try await makeRunner(rec, providers: [dropbox]).runSync(
-            left: "dropbox-test", right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(rec, providers: [dropbox]), "dropbox-test", right.path)
 
         #expect(rec.out.contains("- Swimming ← [name-conflict]"),
                 "expected one leftward name-conflict row: \(rec.out)")
@@ -689,8 +632,7 @@ import Sync
     // guards engage for a path-addressed root.
 
     @Test func syncSkipsAProviderInvalidNameForAPathAddressedOneDriveDestination() async throws {
-        let left = try makeTempRoot(), cloud = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: cloud) }
+        let (left, cloud, cleanup) = try roots(); defer { cleanup() }
         // A realistic CloudStorage layout: discovery found ".../OneDrive-Personal/Documents", and
         // the user points -R at its sibling ".../OneDrive-Personal/Photos" — a PATH that matches
         // no provider id or display name, but belongs to the same OneDrive account.
@@ -708,10 +650,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec, providers: [oneDrive]).runSync(
-                left: left.path, right: addressedRoot.path,
-                direction: .auto, showHidden: false, ignore: [],
-                strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec, providers: [oneDrive]), left.path, addressedRoot.path)
         }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["ok.txt"],
@@ -724,8 +663,7 @@ import Sync
     }
 
     @Test func syncAppliesTheDriveDateNoiseFilterToAPathAddressedGoogleDriveRight() async throws {
-        let left = try makeTempRoot(), cloud = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: cloud) }
+        let (left, cloud, cleanup) = try roots(); defer { cleanup() }
         let driveRoot = cloud.appendingPathComponent("Library/CloudStorage/GoogleDrive-me/My Drive/Documents")
         try FileManager.default.createDirectory(at: driveRoot, withIntermediateDirectories: true)
         // Same size, right newer — exactly the shape Drive manufactures by rewriting file dates.
@@ -739,19 +677,13 @@ import Sync
         // Control: with the setting off this is a real, syncable difference — so a later "nothing
         // to sync" can only come from the filter, never from the fixture failing to produce a row.
         let control = Recorder()
-        try await makeRunner(control, providers: [drive], ignoreDriveDateNoise: false).runSync(
-            left: left.path, right: driveRoot.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(control, providers: [drive], ignoreDriveDateNoise: false), left.path, driveRoot.path)
         #expect(control.out.contains("- notes.txt ← [different]"), "expected a date-only row: \(control.out)")
         #expect(control.copies.count == 1)
 
         // The copy primitive is injected, so the control run left the fixture untouched.
         let rec = Recorder()
-        try await makeRunner(rec, providers: [drive], ignoreDriveDateNoise: true).runSync(
-            left: left.path, right: driveRoot.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(rec, providers: [drive], ignoreDriveDateNoise: true), left.path, driveRoot.path)
 
         #expect(rec.out == "Nothing to sync - no differences found.\n",
                 "a path-addressed Drive root must be typed .googleDrive for the filter to engage")
@@ -761,8 +693,7 @@ import Sync
     // MARK: sync — collision strategies
 
     @Test func syncSkipStrategyLeavesExistingDestinationsUntouched() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("changed.txt"), "left version, longer",
                   mtime: Date(timeIntervalSince1970: 1_700_100_000))
         try write(right.appendingPathComponent("changed.txt"), "right",
@@ -770,9 +701,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                              direction: .auto, showHidden: false, ignore: [],
-                                              strategy: .skip, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec), left.path, right.path, strategy: .skip)
         }
 
         #expect(rec.copies.isEmpty)
@@ -782,17 +711,14 @@ import Sync
     }
 
     @Test func syncKeepBothStrategyCopiesToAUniqueName() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("changed.txt"), "left version, longer",
                   mtime: Date(timeIntervalSince1970: 1_700_100_000))
         try write(right.appendingPathComponent("changed.txt"), "right",
                   mtime: Date(timeIntervalSince1970: 1_700_000_000))
 
         let rec = Recorder()
-        try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                          direction: .auto, showHidden: false, ignore: [],
-                                          strategy: .keepBoth, yes: true, failFast: false, verify: false)
+        try await sync(makeRunner(rec), left.path, right.path, strategy: .keepBoth)
 
         #expect(rec.copies.count == 1)
         let target = try #require(rec.copies.first?.target)
@@ -803,8 +729,7 @@ import Sync
     // MARK: sync — --verify
 
     @Test func syncVerifyDropsSameSizeFilesThatVerifyIdentical() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         // Same bytes, different mtimes → a date-only, sizes-match difference.
         try write(left.appendingPathComponent("dated.txt"), "same bytes",
                   mtime: Date(timeIntervalSince1970: 1_700_100_000))
@@ -812,10 +737,7 @@ import Sync
                   mtime: Date(timeIntervalSince1970: 1_700_000_000))
 
         let rec = Recorder()
-        try await makeRunner(rec, verify: { _, _ in true }).runSync(
-            left: left.path, right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: true, failFast: false, verify: true)
+        try await sync(makeRunner(rec, verify: { _, _ in true }), left.path, right.path, verify: true)
 
         #expect(rec.out == """
         Verifying files with matching sizes...
@@ -834,8 +756,7 @@ import Sync
     /// the plan never mentioned. The mutation is a real write from inside the prompt closure,
     /// which is exactly where the window is.
     @Test func syncSkipsARowWhoseDestinationAppearedWhileThePromptWaited() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         try write(left.appendingPathComponent("a.txt"), "from-left")
 
         let rec = Recorder()
@@ -846,9 +767,7 @@ import Sync
         })
         // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.copies.isEmpty, "the plan said this destination was empty; it is not any more")
@@ -862,8 +781,7 @@ import Sync
     /// same shape — same type, same action, same two sizes — and the stale left copy would go
     /// straight over the new bytes.
     @Test func syncSkipsARowWhoseDestinationWasRewrittenUnderTheSamePlanShape() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         let base = Date(timeIntervalSince1970: 1_700_000_000)
         try write(left.appendingPathComponent("a.txt"), "LLLLLLLLL", mtime: base.addingTimeInterval(100))
         let target = right.appendingPathComponent("a.txt")
@@ -878,9 +796,7 @@ import Sync
         })
         // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.copies.isEmpty, "the destination is no longer the file the plan measured")
@@ -892,8 +808,7 @@ import Sync
     /// copied are not the bytes the plan (and `--verify`, which runs BEFORE the prompt) was
     /// drawn from — and a source caught mid-write copies a torn file.
     @Test func syncSkipsARowWhoseSourceChangedWhileThePromptWaited() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         let source = left.appendingPathComponent("a.txt")
         try write(source, "planned")
 
@@ -904,9 +819,7 @@ import Sync
         })
         // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.copies.isEmpty, "these are not the bytes the plan described")
@@ -917,8 +830,7 @@ import Sync
     /// synced cloud folder one moving file must not cost the rest: that would be a livelock, since
     /// the next run meets the next daemon write.
     @Test func syncCopiesTheUntouchedRowsAndNamesTheOneItSkipped() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         // The stale row sorts FIRST on purpose. With it last, a run that abandoned the whole
         // plan on the first stale row would produce exactly the same copies as one that skipped
         // just that row, and this test would be blind to the difference.
@@ -934,9 +846,7 @@ import Sync
         })
         // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
-            try await runner.runSync(left: left.path, right: right.path,
-                                     direction: .auto, showHidden: false, ignore: [],
-                                     strategy: .replace, yes: false, failFast: false, verify: false)
+            try await sync(runner, left.path, right.path, yes: false)
         }
 
         #expect(rec.copies.map(\.source.lastPathComponent).sorted() == ["b-keep.txt", "c-keep.txt"],
@@ -954,25 +864,6 @@ import Sync
             + "Re-run sync to see the current plan.\n"), "\(rec.err)")
     }
 
-    /// The control the four above need: with nothing touched during the prompt, every planned
-    /// row still copies. Without it they would pass just as well against a re-check that refuses
-    /// everything.
-    @Test func syncCopiesEverythingWhenNothingMovedDuringThePrompt() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
-        try write(left.appendingPathComponent("a.txt"), "one")
-        try write(left.appendingPathComponent("b.txt"), "two")
-
-        let rec = Recorder()
-        try await makeRunner(rec, readLine: { "y" }).runSync(
-            left: left.path, right: right.path,
-            direction: .auto, showHidden: false, ignore: [],
-            strategy: .replace, yes: false, failFast: false, verify: false)
-
-        #expect(rec.copies.count == 2)
-        #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 0, Failed: 0."), "\(rec.out)")
-    }
-
     // MARK: sync — rows whose direction is a guess (FileDifference.heldBack)
 
     /// A pair whose sizes differ at the same time is left out of the plan, not copied left-wins:
@@ -981,8 +872,7 @@ import Sync
     /// would leave `b-missing.txt` uncopied too. Asserted on the sections, not the whole stream,
     /// because the plan and the summary both name the file.
     @Test func syncLeavesASameTimeDifferentSizePairOutAndCopiesTheRest() async throws {
-        let left = try makeTempRoot(), right = try makeTempRoot()
-        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let (left, right, cleanup) = try roots(); defer { cleanup() }
         let t = Date(timeIntervalSince1970: 1_700_000_000)
         try write(left.appendingPathComponent("a-held.txt"), "left, longer", mtime: t)
         try write(right.appendingPathComponent("a-held.txt"), "right", mtime: t)
@@ -990,9 +880,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                              direction: .auto, showHidden: false, ignore: [],
-                                              strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec), left.path, right.path)
         }
 
         #expect(rec.copies.map(\.source.lastPathComponent) == ["b-missing.txt"])
@@ -1032,9 +920,7 @@ import Sync
 
         let rec = Recorder()
         await #expect(throws: CLISyncFailuresError()) {
-            try await makeRunner(rec).runSync(left: left.path, right: right.path,
-                                              direction: .auto, showHidden: false, ignore: [],
-                                              strategy: .replace, yes: true, failFast: false, verify: false)
+            try await sync(makeRunner(rec), left.path, right.path)
         }
 
         #expect(rec.copies.isEmpty, "the link was handed to the copy: \(rec.copies)")

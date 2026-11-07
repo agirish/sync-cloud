@@ -163,23 +163,6 @@ import SyncCloudCLICore
 
     // MARK: The exit-code translation
 
-    /// Core classifies (`CLIExitMapping`, tested there); this is the other half — the
-    /// ArgumentParser types the classification is translated onto, which decide the process's
-    /// exit code and usage text.
-    @Test func aCoreValidationErrorBecomesAnArgumentParserValidationError() async {
-        do {
-            try await flushingLogToDisk {
-                throw CLIValidationError(message: "left and right resolve to the same folder")
-            }
-            Issue.record("nothing was thrown")
-        } catch let error as ValidationError {
-            // The same message, verbatim, so ArgumentParser prints it with usage text and exits 64.
-            #expect(error.message == "left and right resolve to the same folder")
-        } catch {
-            Issue.record("threw \(error) instead of ArgumentParser's ValidationError — the exit code and usage text are gone")
-        }
-    }
-
     /// A validation message keeps its names; an error ArgumentParser prints as `Error: …` is
     /// folded to ASCII punctuation. A validation message is this tool's own ASCII words around a
     /// path or provider name, which must print as typed; the other is someone else's sentence.

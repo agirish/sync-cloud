@@ -25,6 +25,8 @@ import Testing
             .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
             .delete, .typeFilter, .search
         ])
+        #expect(PaneBarArrangement.default.items.last == .search,
+                "Search left the trailing end, so the ladder no longer gives it up first, though it is the one control here with a keyboard equivalent")
     }
 
     /// A stored bar that still lists the retired `preview` draws everything else. The token rides
@@ -42,14 +44,6 @@ import Testing
     @Test func testEncodingRoundTrips() {
         let arrangement = PaneBarArrangement([.backForward, .scan, .flexibleSpace, .sort])
         #expect(PaneBarArrangement(encoded: arrangement.encoded) == arrangement)
-    }
-
-    @Test func testUnknownTokensAreDroppedNotRejected() {
-        // A bar from a newer build on an older one: the unknown item leaves the bar and the rest
-        // survives, rather than resetting over one unrecognized word. The token still rides through
-        // `encoded` (`PaneBarArrangementWriteBackTests`).
-        let parsed = PaneBarArrangement(encoded: "backForward,teleport,scan,sort")
-        #expect(parsed.items == [.backForward, .scan, .sort])
     }
 
     @Test func testEmptyStringIsAnEmptyBarNotTheDefault() {
@@ -182,7 +176,8 @@ import Testing
 
     @Test func testTheDeepestRungIsTodaysNarrowBar() {
         // A 250pt comparison pane shows the view switch as one pill, back, forward, scan and ⋯. If
-        // this set grows, the bar's minimum width grows and the 250pt snapshots move.
+        // this set grows, the bar's minimum width grows and the 250pt golden in
+        // `PaneBarLadderTests` moves.
         let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles]
         let plan = PaneBarLayout.plan(arrangement: .default, available: comparisonPane, depth: .max)
         #expect(plan.visible == [.viewMode, .backForward, .scan])

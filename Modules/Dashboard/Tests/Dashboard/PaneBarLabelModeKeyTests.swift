@@ -14,7 +14,7 @@ import Design
 /// who chose Icon Only silently gets titles back; comparing `PaneBar.labelModeKey` with itself
 /// can't see that. Machine-pinned, because it reads pixels back from a live renderer.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarLabelModeKeyTests {
+@Suite(.serialized) struct PaneBarLabelModeKeyTests {
 
     /// The persisted spellings, written out rather than referenced (see the suite note).
     private static let key = "paneBarLabelMode"
@@ -102,7 +102,7 @@ import Design
     /// The literals are the ones the header reads: each raw value stored as a string under the key
     /// gives a visibly different bar. Rename the key or a raw value and both renders fall back to
     /// the same default, so this fails.
-    @Test func theStoredStringDecidesWhetherTheBarDrawsWords() {
+    @Test(.machinePinned(.pixelSampling)) func theStoredStringDecidesWhetherTheBarDrawsWords() {
         let titled = render(stored: Self.titled)
         let plain = render(stored: Self.plain)
         // Harness control: the same stored value twice is the same bar, so a difference below is
@@ -119,7 +119,7 @@ import Design
     /// An unrecognised stored value (a hand-edited plist, a downgrade, a removed case) falls back to
     /// the shipped default, `iconAndText`. Reading it as `iconOnly` would turn the words off for
     /// someone who never asked.
-    @Test func anUnknownStoredValueFallsBackToTheShippedDefault() {
+    @Test(.machinePinned(.pixelSampling)) func anUnknownStoredValueFallsBackToTheShippedDefault() {
         let bogus = render(stored: "iconAndTextAndSomethingElse")
         #expect(differingPixels(bogus, render(stored: Self.titled)) == 0, """
                 a stored value this build does not know renders differently from "\(Self.titled)" — \
@@ -135,10 +135,7 @@ import Design
     /// would open in one mode and switch to the other when the stored value went bad. A source scan
     /// because both are private to `PaneHeader`; it names the second site if only one changes.
     @Test func bothWritersOfTheDefaultNameTheSameMode() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/DashboardViews.swift")
-        let code = try String(contentsOf: url, encoding: .utf8)
+        let code = try DashboardSource.read("DashboardViews.swift")
         #expect(code.contains("struct PaneHeader"), "this is not the header — the scan is vacuous")
         #expect(code.contains("@AppStorage(PaneBar.labelModeKey)"),
                 "the header no longer stores its label mode under the shared key")

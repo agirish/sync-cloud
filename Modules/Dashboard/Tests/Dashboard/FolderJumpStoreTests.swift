@@ -346,27 +346,6 @@ import Sync
 
     // MARK: A remembered folder that has gone
 
-    @Test func reachableKeepsWhatIsThereAndDropsWhatIsGone() {
-        let present: Set<String> = ["/root", "/root/Legal", "/root/Legal/2026"]
-        let kept = FolderJumpStore.reachable(recents: ["Legal", "Gone", "Legal/2026"], pinned: [],
-                                             underRoot: "/root") { present.contains($0) }
-        #expect(kept.recents == ["Legal", "Legal/2026"],
-                "order is the list's order, and a gone folder is absent")
-    }
-
-    /// The root is checked first, so an unreachable mount costs one stalled `stat`, not one per
-    /// remembered folder.
-    @Test func reachableStopsAtAMissingRootAfterASingleCheck() {
-        var asked: [String] = []
-        let kept = FolderJumpStore.reachable(recents: ["A", "B", "C", "D"], pinned: [],
-                                             underRoot: "/asleep") { path in
-            asked.append(path)
-            return false
-        }
-        #expect(kept.rootIsAvailable == false)
-        #expect(asked == ["/asleep"], "every remembered folder was stat'ed under a root already known to be gone")
-    }
-
     /// Filtered, never pruned: an external drive asleep at the wrong moment must not cost the user
     /// the entries. The list is drawn from the store, and the store is not written back to.
     @Test func filteringDoesNotTouchWhatIsStored() {
@@ -404,11 +383,12 @@ import Sync
     /// The other half: under a root that answered, a folder that is gone can't be reached and must
     /// not be offered.
     @Test func aLiveRootStillDropsWhatHasGone() {
-        let present: Set<String> = ["/root", "/root/Legal", "/root/Clients"]
-        let resolved = FolderJumpStore.reachable(recents: ["Legal", "Gone"], pinned: ["Clients", "AlsoGone"],
+        let present: Set<String> = ["/root", "/root/Legal", "/root/Legal/2026", "/root/Clients"]
+        let resolved = FolderJumpStore.reachable(recents: ["Legal", "Gone", "Legal/2026"],
+                                                 pinned: ["Clients", "AlsoGone"],
                                                  underRoot: "/root") { present.contains($0) }
         #expect(resolved.rootIsAvailable)
-        #expect(resolved.recents == ["Legal"])
+        #expect(resolved.recents == ["Legal", "Legal/2026"], "order is the list's order, and a gone folder is absent")
         #expect(resolved.pinned == ["Clients"])
     }
 

@@ -33,7 +33,8 @@ import Design
 
     /// Scan and Stop are two actions on one control, so every fact the user reads must tell them
     /// apart; a stop sign whose tooltip offers ⌘R is the mismatch to prevent. They agree only on
-    /// availability: both are live, and neither spins (only `.busy` does).
+    /// availability: both are live, and neither spins (only `.busy` does): a spinning stop sign is
+    /// not a thing.
     @Test func testScanAndStopDifferInEveryFactTheUserReads() {
         let scan = ScanRungMode.scan
         let stop = ScanRungMode.stop
@@ -43,6 +44,7 @@ import Design
         #expect(scan.keycap != stop.keycap)
         #expect(scan.isEnabled && stop.isEnabled)
         #expect(!scan.spins && !stop.spins)
+        #expect(stop.symbol == "stop.circle")
     }
 
     /// ⌘R starts a scan; it does not stop one. A badge on the Stop rung would advertise a chord
@@ -54,15 +56,6 @@ import Design
         // ...and the tooltip agrees with the badge.
         #expect(ScanRungMode.scan.help.contains(AppChord.rescan.display))
         #expect(!ScanRungMode.stop.help.contains(AppChord.rescan.display))
-    }
-
-    /// The glyph and the animation have to agree: a spinning stop sign is not a thing, and a
-    /// static arrow during a scan says nothing is happening.
-    @Test func testOnlyTheSpinningModeIsTheArrow() {
-        #expect(ScanRungMode.busy.spins)
-        #expect(!ScanRungMode.stop.spins)
-        #expect(!ScanRungMode.scan.spins, "an idle rung must not spin")
-        #expect(ScanRungMode.stop.symbol == "stop.circle")
     }
 
     /// The spoken label never says "Scan" on a control that cancels. VoiceOver has no glyph to

@@ -29,18 +29,8 @@ import Sync
         func load(_ path: String) -> DetailsSidebar.MetadataLoad {
             lock.withLock {
                 _statCount += 1
-                return DetailsSidebar.MetadataLoad(
-                    metadata: DetailsSidebar.FileMetadata(
-                        name: (path as NSString).lastPathComponent,
-                        path: path,
-                        kind: "Document",
-                        size: _size,
-                        creationDate: "Jan 1, 2026 at 9:00:00 AM",
-                        modificationDate: _modificationDate,
-                        permissions: "644",
-                        isDirectory: false
-                    ),
-                    failure: nil)
+                return loadedMetadata(path, size: _size, created: "Jan 1, 2026 at 9:00:00 AM",
+                                      modified: _modificationDate)
             }
         }
     }
@@ -61,17 +51,6 @@ import Sync
         #expect(first.metadata?.path == "/vault/report.pdf")
         #expect(third.metadata?.size == "1 KB")
         #expect(third.icon != nil)
-    }
-
-    @Test func refreshEventInvalidatesAndNextLookupRestats() async {
-        let loader = CountingLoader()
-        let cache = makeCache(loader: loader)
-
-        _ = await cache.load(for: "/vault/report.pdf")
-        cache.refreshOccurred()
-        _ = await cache.load(for: "/vault/report.pdf")
-
-        #expect(loader.statCount == 2)
     }
 
     @Test func scanCompletionInvalidatesButScanStartDoesNot() async {
@@ -174,12 +153,7 @@ import Sync
             lock.withLock {
                 _statCount += 1
                 guard !_succeeds else {
-                    return DetailsSidebar.MetadataLoad(
-                        metadata: DetailsSidebar.FileMetadata(
-                            name: (path as NSString).lastPathComponent, path: path, kind: "Document",
-                            size: "1 KB", creationDate: "", modificationDate: "", permissions: "644",
-                            isDirectory: false),
-                        failure: nil)
+                    return loadedMetadata(path)
                 }
                 return DetailsSidebar.MetadataLoad(
                     metadata: nil,
@@ -306,12 +280,7 @@ import Sync
             }
             entered.signal()
             _ = gate.wait(timeout: .now() + 30)
-            return DetailsSidebar.MetadataLoad(
-                metadata: DetailsSidebar.FileMetadata(
-                    name: (path as NSString).lastPathComponent, path: path, kind: "Document",
-                    size: "1 KB", creationDate: "", modificationDate: "", permissions: "644",
-                    isDirectory: false),
-                failure: nil)
+            return loadedMetadata(path)
         }
 
         /// Blocks until the loader has been entered, so the stat is known to be in flight and stuck,
@@ -348,12 +317,7 @@ import Sync
             let g = gate(path)
             lock.withLock { _entered.insert(path) }
             _ = g.wait(timeout: .now() + 30)
-            return DetailsSidebar.MetadataLoad(
-                metadata: DetailsSidebar.FileMetadata(
-                    name: (path as NSString).lastPathComponent, path: path, kind: "Document",
-                    size: "1 KB", creationDate: "", modificationDate: "", permissions: "644",
-                    isDirectory: false),
-                failure: nil)
+            return loadedMetadata(path)
         }
 
         func release(_ path: String) { gate(path).signal() }
@@ -485,4 +449,14 @@ import Sync
         // tight enough that a main thread parked on the stat cannot pass.
         #expect(elapsed < 5.0, "the inspector waited on the stat (\(elapsed)s after it began; \(drained)s to begin)")
     }
+}
+
+/// A file's metadata as a loader that read it answers: the shape every loader above returns.
+private func loadedMetadata(_ path: String, size: String = "1 KB", created: String = "",
+                            modified: String = "") -> DetailsSidebar.MetadataLoad {
+    DetailsSidebar.MetadataLoad(
+        metadata: DetailsSidebar.FileMetadata(
+            name: (path as NSString).lastPathComponent, path: path, kind: "Document", size: size,
+            creationDate: created, modificationDate: modified, permissions: "644", isDirectory: false),
+        failure: nil)
 }

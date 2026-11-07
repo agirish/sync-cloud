@@ -23,7 +23,7 @@ import Testing
         #expect(body.count > 1_000, "the extracted body is implausibly short for `barItem`")
 
         // Code only, so a comment explaining this rule doesn't trip it.
-        let stray = Self.codeOnly(body).components(separatedBy: ".foregroundStyle").count - 1
+        let stray = DashboardSource.codeOnly(body).components(separatedBy: ".foregroundStyle").count - 1
         #expect(stray == 0, """
                 `barItem` sets a foreground style \(stray) time(s). `paneNavChrome` colours the \
                 glyph itself and outranks anything set further out, so that colour will not \
@@ -37,21 +37,8 @@ import Testing
         let body = try Self.functionBody("private func overflowEntry(")
         #expect(body.contains("case .space, .flexibleSpace:"), "the extracted body is not `overflowEntry`")
         #expect(body.count > 500, "the extracted body is implausibly short for `overflowEntry`")
-        #expect(!Self.codeOnly(body).contains(".foregroundStyle"),
+        #expect(!DashboardSource.codeOnly(body).contains(".foregroundStyle"),
                 "an overflow entry sets a foreground style — menu items take their colour from the menu, and `role: .destructive` is how a destructive one is marked")
-    }
-
-    /// `source` with `//` comments removed, so prose about a token isn't mistaken for a use of it.
-    /// It also cuts a string literal holding `//` (a URL), which could hide a foreground style set
-    /// later on that same line. Acceptable: the cost is one silent case, where keeping comments
-    /// would be a false alarm on every one.
-    static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                guard let comment = line.range(of: "//") else { return String(line) }
-                return String(line[line.startIndex..<comment.lowerBound])
-            }
-            .joined(separator: "\n")
     }
 
     // MARK: - Extraction
@@ -60,13 +47,7 @@ import Testing
     /// fixed line window would either truncate the long `switch` in `barItem`, hiding what it
     /// missed, or run into the next function and fail on someone else's code.
     static func functionBody(_ signature: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/Dashboard/<this>.swift
-            .deletingLastPathComponent()                          // …/Tests/Dashboard
-            .deletingLastPathComponent()                          // …/Tests
-            .deletingLastPathComponent()                          // …/Dashboard
-            .appendingPathComponent("Sources/Dashboard/DashboardViews.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read DashboardViews.swift — this scan would be vacuous")
+        let source = try DashboardSource.read("DashboardViews.swift")
         let start = try #require(source.range(of: signature),
                                  "no function matching \(signature) — it was renamed, and this scan is now checking nothing")
         var depth = 0

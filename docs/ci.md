@@ -114,7 +114,7 @@ reason:
 
 | Reason | What it means | Where it appears | On CI |
 |---|---|---|---|
-| `referenceImages` | compares against PNGs recorded on one Mac | Design, Dashboard, FileExplorer, Settings | **excluded** |
+| `referenceImages` | compares against PNGs recorded on one Mac | Design, FileExplorer, Settings | **excluded** |
 | `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | Design, Dashboard, FileExplorer, Settings | runs |
 | `calibratedTiming` | latency thresholds tuned on this hardware | FileExplorer | runs |
 | `layoutMetrics` | laid-out text, window and control geometry that tracks fonts, screen size and scale | Dashboard, Design, FileExplorer, app | runs |

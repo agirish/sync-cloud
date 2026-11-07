@@ -240,7 +240,7 @@ public struct PaneHeader: View {
                     // a degradation ladder: the glyph yields first, and the name is the identity
                     // anchor and only truncates. Truncation alone can't fit a narrow pane (icon,
                     // spacings and the bar's minimum exceed it), so the icon must be sheddable too.
-                    // `PaneBarLadderTests.theHeaderWithNoProviderStillFitsItsPane` pins it.
+                    // `PaneBarLadderTests.theBarNeverOverflowsThePane` pins it.
                     //
                     // `.layoutPriority(2)` is load-bearing. Without it this content takes its ideal
                     // width in the same pass as the greedy bar, and the bar, offered less than its
@@ -1272,7 +1272,7 @@ enum PaneNavMetrics {
 
     // No fixed cluster width: the bar's length is whatever someone arranged. The pill's painted
     // size is pinned by `PaneNavMetricsTests.glyphPillsAreIdentical`, and the rung a 250pt pane
-    // picks by the narrow snapshots in `DashboardSnapshotTests`.
+    // picks by `PaneBarLadderTests.theLadderRendersItsGolden`.
     //
     // Don't shrink the pill to buy width: the header's degradation ladder is not monotonic in it,
     // and a 250pt pane is already on the `.mini` rung, where `.small` sizes change nothing.

@@ -15,7 +15,7 @@ import Design
 /// Reading a label wouldn't work: an offscreen `NSHostingView` has an empty accessibility tree
 /// unless an assistive client is attached.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneSourceChipTests {
+@Suite(.serialized) struct PaneSourceChipTests {
 
     /// Every `NSPopUpButton` on the header's second row, the breadcrumb trail. Scoped to that row
     /// because the bar above has menus of its own (Sort, ⋯) that move with its arrangement. The
@@ -71,7 +71,7 @@ import Design
     ///
     /// Measured by position: the source chip sits at the trail's leading edge, and with no source
     /// the leading menu is the quick-jump chevron far to the right.
-    @Test func theFirstCrumbIsAMenuWhenThePaneHasASourceAndNotWhenItDoesNot() throws {
+    @Test(.machinePinned(.pixelSampling)) func theFirstCrumbIsAMenuWhenThePaneHasASourceAndNotWhenItDoesNot() throws {
         let width: CGFloat = 560
 
         let withSource = trailMenus(Self.header("iCloud Drive"), width: width)
@@ -90,7 +90,7 @@ import Design
     /// The chip is one target: the menu's frame covers the name as well as the mark. A small mark
     /// alone, with no chevron, border or hover state, doesn't read as a control, and the clicks go
     /// to the quick-jump chevron beside it.
-    @Test func theWholeChipIsTheTarget() throws {
+    @Test(.machinePinned(.pixelSampling)) func theWholeChipIsTheTarget() throws {
         let menus = trailMenus(Self.header("iCloud Drive"), width: 560)
         let chip = try #require(menus.first)
         // Comfortably wider than the 18pt mark plus its padding — it has the name inside it.
@@ -109,7 +109,7 @@ import Design
     /// The padding is added, not measured: the wash and hairline are drawn outside the `Menu`,
     /// because a `.background` inside an AppKit-drawn label never paints, so the `NSPopUpButton`'s
     /// frame is the label alone. Only the sum of label and `SourceChip.vertical` is asserted.
-    @Test func theChipIsAtLeastAsTallAsTheBarControlsAboveIt() throws {
+    @Test(.machinePinned(.pixelSampling)) func theChipIsAtLeastAsTallAsTheBarControlsAboveIt() throws {
         let chip = try #require(trailMenus(Self.header("iCloud Drive"), width: 560).first)
         let drawn = chip.height + 2 * SourceChip.vertical
         let barControl = PaneNavMetrics.pill(.regular).height

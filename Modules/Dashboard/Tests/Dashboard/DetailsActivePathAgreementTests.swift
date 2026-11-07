@@ -35,7 +35,7 @@ import Sync
         #expect(sidebar(manager).activePath == resolved)
     }
 
-    /// Left-over-right, agreed by both.
+    /// Left-over-right, agreed by both. With the left cleared, the right pane's item wins.
     @Test func inspectorAndResolverAgreeWhenBothPanesHoldSomething() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/zeta.txt"]
@@ -46,6 +46,9 @@ import Sync
 
         #expect(resolved == "/left/zeta.txt")
         #expect(sidebar(manager).activePath == resolved)
+
+        manager.selectedLeftPaths = []
+        #expect(sidebar(manager).activePath == "/right/alpha.txt")
     }
 
     /// Single-source ignores the rail's hidden right pane, agreed by both.

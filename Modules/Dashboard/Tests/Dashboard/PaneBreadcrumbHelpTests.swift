@@ -32,10 +32,7 @@ import Testing
     /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip`). Sliced to `crumbButton` so a mention
     /// elsewhere can't stand in.
     @Test func theCrumbAsksWhetherThereIsASecondPane() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/PaneBreadcrumb.swift")
-        let source = try String(contentsOf: url, encoding: .utf8)
+        let source = try DashboardSource.read("PaneBreadcrumb.swift")
         let start = try #require(source.range(of: "private func crumbButton("), "crumbButton moved")
         let rest = source[start.upperBound...]
         let end = try #require(rest.range(of: "static func crumbHelp("), "crumbHelp moved")

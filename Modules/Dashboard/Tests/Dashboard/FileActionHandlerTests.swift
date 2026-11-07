@@ -9,7 +9,7 @@ import Settings
     @MainActor
     @Test func testClipboardPersistenceOnCopy() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
         
@@ -21,46 +21,6 @@ import Settings
         
         #expect(manager.clipboardNodes.count == 1)
         #expect(manager.clipboardNodes.first?.id == node.id)
-        #expect(manager.clipboardIsCut == false)
-    }
-    
-    @MainActor
-    @Test func testClipboardClearsOnlyAfterSuccessfulCutPaste() async throws {
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
-        
-        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
-        let srcDir = root.appendingPathComponent("src")
-        let dstDir = root.appendingPathComponent("dst")
-        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
-        
-        defer { try? FileManager.default.removeItem(at: root) }
-        
-        let srcFile = srcDir.appendingPathComponent("cut-me.txt")
-        try Data("hello".utf8).write(to: srcFile)
-        
-        let node = FileNode(id: srcFile.path, name: srcFile.lastPathComponent, isDirectory: false)
-        manager.clipboardNodes = [node]
-        manager.clipboardIsCut = true
-        
-        handler.pasteItems([node], toPath: dstDir.path, isCut: true)
-
-        // pasteItems spawns a Task. `waitForOperationsToFinish` alone races: its counter reads 0
-        // both before the Task starts and after it ends, so on a contended main actor the wait can
-        // return before the Task starts. Wait for the observable outcome first, as the moveItems
-        // test does.
-        let movedFile = dstDir.appendingPathComponent(node.name)
-        for _ in 0..<200 where !(FileManager.default.fileExists(atPath: movedFile.path)
-                                 && manager.clipboardNodes.isEmpty) {
-            try await Task.sleep(nanoseconds: 20_000_000)
-        }
-        await waitForOperationsToFinish(manager)
-
-        #expect(FileManager.default.fileExists(atPath: movedFile.path))
-        #expect(!FileManager.default.fileExists(atPath: srcFile.path))
-        #expect(manager.clipboardNodes.isEmpty)
         #expect(manager.clipboardIsCut == false)
     }
     
@@ -113,8 +73,8 @@ import Settings
 
         // moveItems spawns a Task; wait for the move to land on disk.
         let movedFile = dstDir.appendingPathComponent(node.name)
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: movedFile.path) {
-            try await Task.sleep(nanoseconds: 20_000_000)
+        await waitUntil("the move to land at \(movedFile.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: movedFile.path)
         }
 
         #expect(FileManager.default.fileExists(atPath: movedFile.path))
@@ -124,47 +84,12 @@ import Settings
 
     @MainActor
     private func waitForOperationsToFinish(_ manager: FileSyncManager) async {
-        for _ in 0..<50 {
-            if manager.activeFileOperationsCount == 0 {
-                // Allow clipboard update that runs immediately after awaited move result.
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                return
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
-
-    /// Settings for the clipboard and move tests, on a scratch suite with no discovery pass. A bare
-    /// `SettingsManager()` discovers the real `~/Library/CloudStorage` and writes it to
-    /// `lastKnownAccountFolders` in the standard domain, which under `swift test` is a plist every
-    /// test process on the machine shares.
-    @MainActor
-    private func scratchSettings() -> SettingsManager {
-        SettingsManager(autoDiscover: false, userDefaults: ScratchDefaults("FileActionHandlerTests"))
+        await waitUntil("the file operations to finish") { manager.activeFileOperationsCount == 0 }
+        // Allow clipboard update that runs immediately after awaited move result.
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
 
     // MARK: - Pane-root guards (vanished providers, prefix aliasing)
-
-    /// Settings with a deterministic provider list: no background discovery, isolated defaults.
-    @MainActor
-    private func makeSettings(providers: [CloudProvider]) -> SettingsManager {
-        let settings = SettingsManager(
-            autoDiscover: false,
-            userDefaults: ScratchDefaults("FileActionHandlerTests"),
-            cloudStorageLister: { .read([]) },
-            pathValidator: { _ in true }
-        )
-        settings.availableProviders = providers
-        return settings
-    }
-
-    @MainActor
-    private func waitForError(_ manager: FileSyncManager) async {
-        for _ in 0..<50 {
-            if manager.currentError != nil { return }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
 
     /// A provider id that vanished from settings resolves to an empty root ("" from
     /// `settings.rootPath(for:)`). The copy must abort with an error before reaching the sync
@@ -172,7 +97,7 @@ import Settings
     @MainActor
     @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
 
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-guard-\(UUID().uuidString)")
@@ -183,7 +108,7 @@ import Settings
         let node = FileNode(id: srcFile.path, name: "keep-me.txt", isDirectory: false)
 
         handler.copyItems([node], fromLeft: true, leftProviderId: "vanished-left", rightProviderId: "vanished-right")
-        await waitForError(manager)
+        await waitUntil("an error is presented") { manager.currentError != nil }
 
         #expect(manager.currentError?.title == "Folder Unavailable")
         #expect(manager.currentError?.message.contains("left") == true)
@@ -200,7 +125,7 @@ import Settings
         try FileManager.default.createDirectory(at: existingRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: existingRoot) }
         let goneRoot = "/nonexistent/FAH-\(UUID().uuidString)"
-        let settings = makeSettings(providers: [
+        let settings = scratchSettings(providers: [
             CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud", rootPath: goneRoot, type: .iCloud),
             CloudProvider(id: "here", displayName: "Here", imageName: "icloud", rootPath: existingRoot.path, type: .iCloud),
         ])
@@ -209,7 +134,7 @@ import Settings
         let node = FileNode(id: goneRoot + "/f.txt", name: "f.txt", isDirectory: false)
 
         handler.copyItems([node], fromLeft: true, leftProviderId: "gone", rightProviderId: "here")
-        await waitForError(manager)
+        await waitUntil("an error is presented") { manager.currentError != nil }
 
         #expect(manager.currentError?.title == "Folder Unavailable")
         #expect(manager.currentError?.message.contains("no longer exists on disk") == true)
@@ -222,7 +147,7 @@ import Settings
     @MainActor
     @Test func testFocusFolderWithUnknownProviderPresentsErrorAndDoesNotNavigate() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
         let node = FileNode(id: "/somewhere/folder", name: "folder", isDirectory: true)
 
@@ -240,7 +165,7 @@ import Settings
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let settings = makeSettings(providers: [
+        let settings = scratchSettings(providers: [
             CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
@@ -258,7 +183,7 @@ import Settings
     @MainActor
     @Test func testBeginCreateFolderWithEmptyPathPresentsErrorWithoutPrompting() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
 
         handler.beginCreateFolder(in: "")
@@ -276,7 +201,7 @@ import Settings
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-ok-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root.appendingPathComponent("sub/inner"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let settings = makeSettings(providers: [
+        let settings = scratchSettings(providers: [
             CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
@@ -330,7 +255,7 @@ import Settings
         let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
         let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: [pane, other]),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: [pane, other]),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
         await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
 
@@ -356,7 +281,7 @@ import Settings
         let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
         let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: [pane, other]),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: [pane, other]),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
         await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
 

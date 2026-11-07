@@ -10,20 +10,7 @@ import Testing
 @Suite struct SyncHistoryUndoRefusalWiringTests {
 
     private static func code() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()      // …/Tests/Dashboard
-            .deletingLastPathComponent()      // …/Tests
-            .deletingLastPathComponent()      // …/Dashboard
-            .appendingPathComponent("Sources/Dashboard/SyncHistoryView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read SyncHistoryView.swift — every scan here would be vacuous")
-        try #require(text.count > 500, "SyncHistoryView.swift read as \(text.count) characters — truncated?")
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let slashes = line.range(of: "//") else { return line }
-                return line[..<slashes.lowerBound]
-            }
-            .joined(separator: "\n")
+        try DashboardSource.read("SyncHistoryView.swift", codeOnly: true)
     }
 
     /// The Undo Last Run button keeps what the click answers, rather than discarding it.

@@ -9,38 +9,29 @@ import Settings
 /// a real sequence somebody performs, named as that sequence.
 @Suite struct ClipboardSourceTests {
 
-    /// ⌘C here, ⌘V here. The app still owns the pasteboard, so its own list answers; only that list
-    /// carries `isCut`, so this is the only branch that can move rather than copy.
-    @Test func copyHereThenPasteHereUsesTheAppsOwnList() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 7, ownChangeCount: 7,
-                                        hasInAppItems: true, systemHasFiles: true) == .inApp)
-    }
-
-    /// ⌘C here, then ⌘C in Finder, then ⌘V here. The count moved, so Finder's files win, as a
-    /// single-clipboard platform promises.
-    @Test func aCopyMadeElsewhereAfterOursWins() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 9, ownChangeCount: 7,
-                                        hasInAppItems: true, systemHasFiles: true) == .system)
-    }
-
-    /// ⌘C in Finder with nothing ever copied here. Nothing to compare against, and files are there.
-    @Test func aFreshLaunchPastesWhatFinderHas() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 3, ownChangeCount: nil,
-                                        hasInAppItems: false, systemHasFiles: true) == .system)
-    }
-
-    /// Copy files here, copy some text elsewhere, press ⌘V here. The count moved and the pasteboard
-    /// holds no files, so the answer is nothing. Falling back to the stale list would write files to
-    /// disk nobody asked for.
-    @Test func textCopiedElsewherePastesNothingRatherThanOurStaleFiles() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 9, ownChangeCount: 7,
-                                        hasInAppItems: true, systemHasFiles: false) == .none)
-    }
-
-    /// Nothing anywhere: the menu item and the row action withhold themselves.
-    @Test func anEmptyPasteboardAndAnEmptyListMeanNothingToPaste() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 3, ownChangeCount: nil,
-                                        hasInAppItems: false, systemHasFiles: false) == .none)
+    /// One sequence each, named in its comment: (system count, own count, in-app items, system
+    /// holds files) → what ⌘V pastes.
+    @Test(arguments: [
+        // ⌘C here, ⌘V here. The app still owns the pasteboard, so its own list answers; only that
+        // list carries `isCut`, so this is the only branch that can move rather than copy.
+        (7, 7, true, true, ClipboardSource.inApp),
+        // ⌘C here, then ⌘C in Finder, then ⌘V here. The count moved, so Finder's files win, as a
+        // single-clipboard platform promises.
+        (9, 7, true, true, .system),
+        // ⌘C in Finder with nothing ever copied here. Nothing to compare against, and files are
+        // there.
+        (3, nil, false, true, .system),
+        // Copy files here, copy some text elsewhere, press ⌘V here. The count moved and the
+        // pasteboard holds no files, so the answer is nothing. Falling back to the stale list would
+        // write files to disk nobody asked for.
+        (9, 7, true, false, .none),
+        // Nothing anywhere: the menu item and the row action withhold themselves.
+        (3, nil, false, false, .none),
+    ] as [(Int, Int?, Bool, Bool, ClipboardSource)])
+    func aPasteMeansTheClipboardTheSequenceLeft(system: Int, own: Int?, inApp: Bool, files: Bool,
+                                                expected: ClipboardSource) {
+        #expect(ClipboardSource.resolve(systemChangeCount: system, ownChangeCount: own,
+                                        hasInAppItems: inApp, systemHasFiles: files) == expected)
     }
 
     /// A matching count with an emptied list (every cut item moved) falls through rather than
@@ -58,30 +49,13 @@ import Settings
 @MainActor
 @Suite struct SystemClipboardTests {
 
-    // The pid scopes the board to this process: named boards live in the machine-global
-    // pasteboard server, so a concurrent test process would share an unsuffixed name (see
-    // `board(_:)` in the handoff suite below).
-    private func pasteboard(_ label: String) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name(
-            "SyncCloudTests.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
-        board.clearContents()
-        return board
-    }
-
-    private func temporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("synccloud-clipboard-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
     @Test func writtenFilesComeBackAsFileURLs() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("report.pdf")
         try Data("x".utf8).write(to: file)
 
-        let board = pasteboard("roundtrip")
+        let board = scratchPasteboard("roundtrip")
         let count = SystemClipboard.write(paths: [file.path], to: board)
         #expect(count == board.changeCount)
         #expect(SystemClipboard.fileURLs(from: board).map(\.path) == [file.path])
@@ -90,7 +64,7 @@ import Settings
     /// A web address on the pasteboard reads back as an `NSURL` unless the read is constrained to
     /// file URLs — and would then be handed to the copy engine as a file to copy.
     @Test func aWebAddressIsNotAFileToPaste() {
-        let board = pasteboard("weburl")
+        let board = scratchPasteboard("weburl")
         board.clearContents()
         board.writeObjects([NSURL(string: "https://example.com/report.pdf")!])
         #expect(SystemClipboard.fileURLs(from: board).isEmpty)
@@ -100,14 +74,14 @@ import Settings
     /// Directories and files are both pastable, and `isDirectory` is read from the disk: the copy
     /// engine branches on it, and a URL's own directory hint depends on how its sender built it.
     @Test func aDirectoryComesBackMarkedAsOne() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let folder = dir.appendingPathComponent("Invoices")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = dir.appendingPathComponent("note.txt")
         try Data("x".utf8).write(to: file)
 
-        let board = pasteboard("kinds")
+        let board = scratchPasteboard("kinds")
         // Written without a trailing slash or directory hint, as a path-derived URL is, so only
         // reading the disk can get `isDirectory` right.
         SystemClipboard.write(paths: [folder.path, file.path], to: board)
@@ -119,14 +93,14 @@ import Settings
     /// The pasteboard outlives the files on it. A paste that half-fails behind a banner claiming
     /// success is worse than one that pastes what is still there.
     @Test func aFileDeletedAfterItWasCopiedIsDropped() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let kept = dir.appendingPathComponent("kept.txt")
         let gone = dir.appendingPathComponent("gone.txt")
         try Data("x".utf8).write(to: kept)
         try Data("x".utf8).write(to: gone)
 
-        let board = pasteboard("vanished")
+        let board = scratchPasteboard("vanished")
         SystemClipboard.write(paths: [kept.path, gone.path], to: board)
         try FileManager.default.removeItem(at: gone)
         #expect(SystemClipboard.nodes(from: board).map(\.name) == ["kept.txt"])
@@ -134,12 +108,12 @@ import Settings
 
     /// Writing nothing clears the board rather than leaving the previous copy pastable.
     @Test func writingNothingClearsWhatWasThere() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("a.txt")
         try Data("x".utf8).write(to: file)
 
-        let board = pasteboard("cleared")
+        let board = scratchPasteboard("cleared")
         SystemClipboard.write(paths: [file.path], to: board)
         #expect(!SystemClipboard.fileURLs(from: board).isEmpty)
         SystemClipboard.write(paths: [], to: board)
@@ -149,12 +123,12 @@ import Settings
     /// The memo tracks the pasteboard rather than freezing the first answer. It is asked from view
     /// bodies, so a stale `true` would leave Paste enabled over nothing for the rest of the session.
     @Test func theMemoFollowsTheChangeCount() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("a.txt")
         try Data("x".utf8).write(to: file)
 
-        let board = pasteboard("memo")
+        let board = scratchPasteboard("memo")
         #expect(!SystemClipboard.hasFiles(in: board))
         SystemClipboard.write(paths: [file.path], to: board)
         #expect(SystemClipboard.hasFiles(in: board))
@@ -167,13 +141,13 @@ import Settings
     /// memo on the number alone would answer for the wrong board whenever the counts coincide,
     /// which two freshly cleared boards make likely.
     @Test func twoPasteboardsDoNotAnswerForEachOther() throws {
-        let dir = try temporaryDirectory()
+        let dir = try tempDir("bridge")
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("a.txt")
         try Data("x".utf8).write(to: file)
 
-        let withFiles = pasteboard("memo.files")
-        let withText = pasteboard("memo.text")
+        let withFiles = scratchPasteboard("memo.files")
+        let withText = scratchPasteboard("memo.text")
         SystemClipboard.write(paths: [file.path], to: withFiles)
         withText.clearContents()
         withText.setString("just text", forType: .string)
@@ -189,36 +163,6 @@ import Settings
 /// another app land on disk when pasted here. The rule above can't show either.
 @MainActor
 @Suite struct SystemClipboardHandoffTests {
-
-    /// A board of this test's own, never `.general` (see the handler's `pasteboard` parameter).
-    ///
-    /// Per test: these tests `await`, swift-testing may run a sibling while one is suspended, and
-    /// `clearContents()` is no defence against a sibling writing. Per process too: a named
-    /// `NSPasteboard` lives in the machine-global pasteboard server, so two test processes would
-    /// share it (`docs/flaky-tests.md`, "A named NSPasteboard is machine-global, so two test
-    /// PROCESSES share it"). A failure naming a temp path this process never created is the tell.
-    private func board(_ label: String) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name(
-            "SyncCloudTests.handoff.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
-        board.clearContents()
-        return board
-    }
-
-    private func settings() -> SettingsManager {
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: ScratchDefaults("SystemClipboardHandoffTests"),
-                                       cloudStorageLister: { .read([]) },
-                                       pathValidator: { _ in true })
-        settings.availableProviders = []
-        return settings
-    }
-
-    private func tempDir(_ label: String) throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("clipboard-handoff-\(label)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
 
     /// The one wait here allowed to give up silently, for `textCopiedElsewhereWritesNothing`, which
     /// asserts a write never happens, so running out the budget is its success path. **Never**
@@ -250,9 +194,9 @@ import Settings
         let file = dir.appendingPathComponent("report.pdf")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board("out")
+        let pasteboard = scratchPasteboard("out")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "report.pdf", isDirectory: false)],
                                       isCut: false)
@@ -270,9 +214,9 @@ import Settings
         let file = dir.appendingPathComponent("moved.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board("cut")
+        let pasteboard = scratchPasteboard("cut")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "moved.txt", isDirectory: false)],
                                       isCut: true)
@@ -293,13 +237,13 @@ import Settings
         let file = source.appendingPathComponent("from-finder.txt")
         try Data("hello".utf8).write(to: file)
 
-        let pasteboard = board("in-dst")
+        let pasteboard = scratchPasteboard("in-dst")
         // Written straight to the board, standing in for the other app; the handler would also fill
         // the in-app list and test the wrong branch.
         SystemClipboard.write(paths: [file.path], to: pasteboard)
 
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         #expect(manager.clipboardNodes.isEmpty, "the fixture must exercise the system branch")
 
@@ -326,9 +270,9 @@ import Settings
         let file = source.appendingPathComponent("cut-me.txt")
         try Data("hello".utf8).write(to: file)
 
-        let pasteboard = board("own-dst")
+        let pasteboard = scratchPasteboard("own-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "cut-me.txt", isDirectory: false)],
                                       isCut: true)
@@ -351,12 +295,12 @@ import Settings
         let file = dir.appendingPathComponent("theirs.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board("empty-copy")
+        let pasteboard = scratchPasteboard("empty-copy")
         SystemClipboard.write(paths: [file.path], to: pasteboard)
         let before = pasteboard.changeCount
 
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([], isCut: false)
 
@@ -378,9 +322,9 @@ import Settings
         let file = source.appendingPathComponent("gone.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board("stale-dst")
+        let pasteboard = scratchPasteboard("stale-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "gone.txt", isDirectory: false)],
                                       isCut: true)
@@ -419,9 +363,9 @@ import Settings
         let theirFile = theirs.appendingPathComponent("theirs.txt")
         try Data("x".utf8).write(to: theirFile)
 
-        let pasteboard = board("owned-theirs")
+        let pasteboard = scratchPasteboard("owned-theirs")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "mine.txt", isDirectory: false)],
                                       isCut: true)
@@ -450,9 +394,9 @@ import Settings
         let file = source.appendingPathComponent("not-this.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board("text-dst")
+        let pasteboard = scratchPasteboard("text-dst")
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: settings(),
+        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
                                         defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "not-this.txt", isDirectory: false)],
                                       isCut: false)
@@ -469,4 +413,12 @@ import Settings
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
         #expect(manager.banner == nil, "a paste that wrote nothing still announced something")
     }
+}
+
+/// A fresh temp directory for either suite above, removed by the caller's `defer`.
+private func tempDir(_ label: String) throws -> URL {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("clipboard-\(label)-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
 }

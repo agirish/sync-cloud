@@ -80,10 +80,7 @@ import Events
         #expect(SyncHistoryRow.previousDateText(match) == "was " + SyncHistoryRow.timeString(previous))
         #expect(SyncHistoryRow.previousDateText(SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/l/a.txt")) == nil)
 
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/SyncHistoryView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8), "cannot read SyncHistoryView.swift")
+        let source = try DashboardSource.read("SyncHistoryView.swift")
         #expect(source.contains("if let previous = Self.previousDateText(record) {"), "the row no longer draws the previous date")
     }
 }

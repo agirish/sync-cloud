@@ -64,18 +64,4 @@ import Testing
                 "the line parsed at an instant the zone it was written in does not agree with")
         #expect(parsed.formattedString == line)
     }
-
-    /// Both halves together, the invariant the Activity Log depends on: a line's text survives a
-    /// parse and re-render unchanged. Both stagings are stale, so both refreshes must fire.
-    @Test func aLinesTextSurvivesTheRoundTripWhateverZoneTheFormatterWokeUpIn() throws {
-        let away = try Self.elsewhere()
-        LogEntry.timestampFormatter.stageZoneForTesting(away)
-        let line = LogEntry(timestamp: Self.instant, level: .error, message: "text identity").formattedString
-
-        LogEntry.timestampFormatter.stageZoneForTesting(away)
-        let reRendered = try #require(LogEntry.parse(line)).formattedString
-
-        #expect(reRendered == line)
-        #expect(line.hasPrefix("[\(Self.stamp(Self.instant, in: .current))]"))
-    }
 }

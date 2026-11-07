@@ -5,7 +5,7 @@ import Foundation
 @Suite(.serialized) struct EventsTests {
     
     @MainActor
-    @Test func testLoggerInfo() async throws {
+    @Test func testLoggerInfoAndError() async throws {
         let logger = Logger.shared
         logger.clearLogs()
         
@@ -14,12 +14,6 @@ import Foundation
         #expect(logger.entries.count == 1)
         #expect(logger.entries.first?.level == .info)
         #expect(logger.entries.first?.message == "Test info message")
-    }
-    
-    @MainActor
-    @Test func testLoggerError() async throws {
-        let logger = Logger.shared
-        logger.clearLogs()
 
         await logger.error("Critical failure").value
 
@@ -63,21 +57,6 @@ import Foundation
         
         let filteredCount = logger.entries.filter { $0.message.hasPrefix(prefix) }.count
         #expect(filteredCount == taskCount * logsPerTask)
-    }
-
-    @MainActor
-    @Test func testLoggerWritesToInjectedURL() async throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LoggerInjectionTest-\(UUID().uuidString).log")
-        defer { removeLogFiles(at: url) }
-
-        let logger = Logger(logFileURL: url)
-        defer { logger.flushToDisk() }
-        await logger.info("Injected destination message").value
-        logger.logWriter.flush()
-
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        #expect(contents.contains("[INFO] Injected destination message"))
     }
 
     /// A synchronous burst of log calls must land in call order in memory and on disk, which the

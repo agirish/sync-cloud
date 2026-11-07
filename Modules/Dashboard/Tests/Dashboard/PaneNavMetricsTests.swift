@@ -130,7 +130,7 @@ import Design
         #expect(mini.height < small.height)
     }
 
-    // Which rung a 250pt pane picks is pinned by the narrow snapshots in `DashboardSnapshotTests`.
+    // Which rung a 250pt pane picks is pinned by `PaneBarLadderTests.theLadderRendersItsGolden`.
 
     // MARK: - Hover
 

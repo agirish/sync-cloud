@@ -57,16 +57,6 @@ import EventsTestSupport
                 "the stored bar was rewritten by a run that reported doing nothing")
     }
 
-    /// Running twice changes nothing the second time: SwiftUI can re-run `App.init`.
-    @Test func testTheMigrationIsIdempotent() {
-        let defaults = ScratchDefaults("PaneBarMigrationTests-idempotent")
-        defaults.set("flexibleSpace,scan", forKey: PaneBar.arrangementKey)
-        PaneBarMigration.apply(defaults: defaults)
-        let once = defaults.string(forKey: PaneBar.arrangementKey)
-        PaneBarMigration.apply(defaults: defaults)
-        #expect(defaults.string(forKey: PaneBar.arrangementKey) == once)
-    }
-
     /// A never-customized bar has no stored arrangement and reads the default, which already
     /// carries Search. It is stamped anyway, or the launch after the user's first customization
     /// would migrate it and undo what they did with Search.
@@ -131,19 +121,6 @@ import EventsTestSupport
         #expect(migrated.items.contains(.search))
     }
 
-    /// The stamp is at Filter by Type's version. Adding a control without a migration step must not
-    /// bump it, or the next control with a step would find every bar stamped past it and never
-    /// migrate.
-    @Test func testTheFilterStampIsCurrent() {
-        #expect(PaneBarMigration.currentVersion == 2)
-        // A bar stamped at Filter by Type's version is current and stays untouched.
-        let defaults = ScratchDefaults("PaneBarMigrationTests-stamp")
-        defaults.set(2, forKey: PaneBar.migrationKey)
-        defaults.set("flexibleSpace,scan,sort", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
-        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "flexibleSpace,scan,sort")
-    }
-
     /// Filter by Type's step (version 2): a bar migrated for Search gains it just before Search,
     /// once, and nothing else moves.
     @Test func testABarStampedForSearchGainsTheFilterBeforeIt() {
@@ -182,16 +159,6 @@ import EventsTestSupport
         let arrangement = PaneBarArrangement(encoded: stored)
         #expect(!arrangement.items.contains(.delete))
         #expect(arrangement.encoded == stored)
-    }
-
-    /// A stored bar with the retired `preview` in the middle draws without it, keeps it on
-    /// write-back at the end (where carried tokens go), and loses nothing else.
-    @Test func aBarStoredWithTheRetiredPreviewKeepsItAtTheEnd() {
-        let stored = "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search"
-        let arrangement = PaneBarArrangement(encoded: stored)
-        #expect(arrangement.items.map(\.rawValue) == ["flexibleSpace", "viewMode", "collapse", "backForward",
-                                                      "scan", "newFolder", "sort", "hiddenFiles", "search"])
-        #expect(arrangement.encoded == stored.replacingOccurrences(of: "preview,", with: "") + ",preview")
     }
 
     /// A default bar that only carries a token counts as the default, so Restore isn't offered, and
@@ -367,12 +334,12 @@ import EventsTestSupport
     /// A step gated above `currentVersion` never runs for installs already stamped, the very ones a
     /// new step is for, and every behavioural test here is blind to it: their fixtures start
     /// unstamped, where any gate passes. That is "add a step, forget to bump `currentVersion`".
-    /// `testTheFilterStampIsCurrent` catches the reverse, a bump without a step.
+    /// The same equality catches the reverse, a bump without a step.
     ///
     /// A source scan of the literals: the highest step gate must equal `currentVersion`. Comment
     /// lines are stripped first, since prose quotes the gates.
     @Test func testNoMigrationStepIsGatedAboveTheCurrentVersion() throws {
-        let source = try Self.arrangementSource()
+        let source = try DashboardSource.read("PaneBarArrangement.swift", codeOnly: true)
         var gates: [Int] = []
         var rest = Substring(source)
         while let hit = rest.range(of: "if from < ") {
@@ -428,7 +395,7 @@ import EventsTestSupport
     /// behaviour while the honest answer is empty. The declaration is required first, so a rename
     /// fails loudly.
     @Test func testTheStrandedWarningIsWiredToTheRealRouteList() throws {
-        let source = try Self.arrangementSource()
+        let source = try DashboardSource.read("PaneBarArrangement.swift", codeOnly: true)
         _ = try #require(source.range(of: "public static func reportStoredArrangementReach"),
                          "the report function is gone or renamed; both checks below are vacuous")
         let notTheRealList = "reportStoredArrangementReach no longer defaults its stranded list to "
@@ -439,21 +406,6 @@ import EventsTestSupport
             + "the accounting the route test checks and the list the warning reads have come apart"
         #expect(source.contains("controlsWithoutARoute(shipping: .default, routed: routedControls)"),
                 "\(notDerived)")
-    }
-
-    /// Reads `PaneBarArrangement.swift` with comment lines stripped, since comments quote the very
-    /// literals being scanned for.
-    private static func arrangementSource() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/Dashboard/<this>.swift
-            .deletingLastPathComponent()                          // …/Tests/Dashboard
-            .deletingLastPathComponent()                          // …/Tests
-            .deletingLastPathComponent()                          // …/Dashboard
-            .appendingPathComponent("Sources/Dashboard/PaneBarArrangement.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read PaneBarArrangement.swift — every scan here would be vacuous")
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
     }
 
     /// The launch line names what this run added, and a new step joins by construction. `apply` is

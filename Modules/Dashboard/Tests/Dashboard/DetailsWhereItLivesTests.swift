@@ -18,33 +18,25 @@ import Sync
 
     // MARK: The supporting fact — every state, including the unproducible ones
 
-    /// A downloaded file says so.
-    @Test func aDownloadedFileSaysItIsOnThisMac() {
-        #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: false,
-                                             hasAnswer: true) == "Yes — downloaded")
-    }
-
-    /// A dataless placeholder says so, as a fact about the content, not a warning.
-    @Test func aPlaceholderSaysTheContentIsNotHere() {
-        #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: true,
-                                             hasAnswer: true) == "No — placeholder only")
-    }
-
-    /// Until the `lstat` lands the row is a placeholder, not an answer. The stat runs off the main
-    /// actor because it can block for seconds on a wedged provider, and a guessed "Yes —
-    /// downloaded" would be wrong exactly when the answer mattered.
-    @Test func anUnresolvedRowSaysItIsStillChecking() {
-        #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: nil,
-                                             hasAnswer: false) == "Checking…")
-    }
-
-    /// A stat that couldn't answer draws no row. `isCloudOnlyIfKnown` is nil when the path can't be
-    /// statted (deleted mid-download, or never there), and "Unknown" would suggest SyncCloud looked
-    /// and found nothing. Unlike the case above, `hasAnswer` is true: the stat ran and came back
-    /// empty.
-    @Test func anUnanswerableStatDrawsNoRowAtAll() {
-        #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: nil,
-                                             hasAnswer: true) == nil)
+    /// A file's row, by what the stat answered (`isCloudOnly`, `hasAnswer`):
+    /// - downloaded says so;
+    /// - a dataless placeholder says so, as a fact about the content, not a warning;
+    /// - until the `lstat` lands the row is a placeholder, not an answer. The stat runs off the
+    ///   main actor because it can block for seconds on a wedged provider, and a guessed "Yes —
+    ///   downloaded" would be wrong exactly when the answer mattered;
+    /// - a stat that couldn't answer draws no row. `isCloudOnlyIfKnown` is nil when the path can't
+    ///   be statted (deleted mid-download, or never there), and "Unknown" would suggest SyncCloud
+    ///   looked and found nothing. Unlike the case before, `hasAnswer` is true: the stat ran and
+    ///   came back empty.
+    @Test(arguments: [
+        (false, true, "Yes — downloaded"),
+        (true, true, "No — placeholder only"),
+        (nil, false, "Checking…"),
+        (nil, true, nil),
+    ] as [(Bool?, Bool, String?)])
+    func aFilesOnThisMacRowSaysWhatTheStatAnswered(isCloudOnly: Bool?, hasAnswer: Bool, expected: String?) {
+        #expect(DetailsSidebar.onThisMacText(isDirectory: false, isCloudOnly: isCloudOnly,
+                                             hasAnswer: hasAnswer) == expected)
     }
 
     /// A folder has no content of its own to be downloaded (its children each answer differently),

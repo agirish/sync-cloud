@@ -41,16 +41,6 @@ import SwiftUI
         }
     }
 
-    private static func fieldEditor(_ window: NSWindow) -> NSTextView? {
-        var found: NSTextView?
-        func walk(_ v: NSView) {
-            if found == nil, let text = v as? NSTextView, text.isEditable { found = text }
-            for sub in v.subviews where found == nil { walk(sub) }
-        }
-        walk(window.contentView!)
-        return found
-    }
-
     /// The fixture window: key, and never ordered in, so no test window stands on the user's desktop
     /// during a run. Nothing here reads the backing store: the key goes in through `sendEvent` and
     /// the responder chain routes it, not the window server. `makeKey()` stays because focus is the
@@ -97,9 +87,9 @@ import SwiftUI
         let host = NSHostingView(rootView: Harness(box: box).frame(width: 560))
         let window = Self.unseenWindow(hosting: host)
 
-        let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(focused.held, "the revealed field should exist and be editable (\(focused.pumps) pumps)")
-        #expect(Self.fieldEditor(window)?.window?.firstResponder === Self.fieldEditor(window),
+        #expect(FieldEditor.find(in: window)?.window?.firstResponder === FieldEditor.find(in: window),
                 "the field must hold the caret, or this test measures nothing")
 
         Self.sendSpace(to: window)
@@ -128,7 +118,7 @@ import SwiftUI
             .frame(width: 560))
         let window = Self.unseenWindow(hosting: host)
 
-        let focused = await LayoutPumpWait.pump(window, upTo: 5) { Self.fieldEditor(window) != nil }
+        let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
         #expect(focused.held, "the revealed field should exist (\(focused.pumps) pumps)")
 
         Self.sendSpace(to: window)

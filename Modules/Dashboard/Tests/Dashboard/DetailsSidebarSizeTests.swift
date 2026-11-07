@@ -94,27 +94,6 @@ import Testing
         #expect(size == nil, "an unmeasurable folder must not report a size of zero")
     }
 
-    /// The folder opened but a subfolder didn't: the total is a floor, and the "+" says so.
-    @Test func aPartlyReadableFolderMarksItsTotalAsAFloor() async throws {
-        guard !skippedBecauseRoot("aPartlyReadableFolderMarksItsTotalAsAFloor") else { return }
-        let scratch = try makeScratch()
-        let folder = scratch.appendingPathComponent("partial")
-        let locked = folder.appendingPathComponent("locked-sub")
-        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
-        try write(folder.appendingPathComponent("seen.bin"), bytes: 8000)
-        try write(locked.appendingPathComponent("unseen.bin"), bytes: 900_000)
-        try chmod(locked, 0o000)
-        defer {
-            try? chmod(locked, 0o755)
-            try? FileManager.default.removeItem(at: scratch)
-        }
-
-        let size = try #require(await DetailsSidebar.computeDirectorySizeString(path: folder.path))
-
-        #expect(size.hasSuffix("+"), "the withheld subtree makes this a floor, not a total: \(size)")
-        #expect(!size.contains("900"), "nothing behind the locked subfolder was counted")
-    }
-
     /// A folder whose only content is an unreadable subtree must not read "Zero KB+". It walks as
     /// `.listedWithUnreadableDescendants` with zero bytes, and "+" on zero states nothing: every
     /// folder holds at least zero bytes. The review card's `classify` can't answer partial on zero
@@ -142,9 +121,8 @@ import Testing
     }
 
     /// The other half of that guard: a partial walk that measured something still reports it, with
-    /// the "+". Otherwise nil for every partial folder would satisfy the test above. Overlaps
-    /// `aPartlyReadableFolderMarksItsTotalAsAFloor`, kept so the zero guard's two directions sit
-    /// together.
+    /// the "+". Otherwise nil for every partial folder would satisfy the test above. The folder
+    /// opened but a subfolder didn't, so the total is a floor, and the "+" says so.
     @Test func aPartialWalkThatMeasuredSomethingStillReportsItAsAFloor() async throws {
         guard !skippedBecauseRoot("aPartialWalkThatMeasuredSomethingStillReportsItAsAFloor") else { return }
         let scratch = try makeScratch()
@@ -161,8 +139,9 @@ import Testing
 
         let size = try #require(await DetailsSidebar.computeDirectorySizeString(path: folder.path),
                                 "12 KB was measured — the folder is not unanswerable")
-        #expect(size.hasSuffix("+"))
-        #expect(size.contains("12"), "the bytes it did see, not a floor of nothing: \(size)")
+        #expect(size.hasSuffix("+"), "the withheld subtree makes this a floor, not a total: \(size)")
+        #expect(size.hasPrefix("12"), "the bytes it did see, not a floor of nothing: \(size)")
+        #expect(!size.contains("900"), "nothing behind the locked subfolder was counted")
     }
 
     // MARK: A symlinked folder is not an unreadable one

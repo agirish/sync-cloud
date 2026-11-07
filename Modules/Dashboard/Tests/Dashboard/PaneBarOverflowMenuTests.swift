@@ -11,7 +11,7 @@ import FileExplorerTestSupport
 /// offered only from the bar's context menu, so that menu must be aimable everywhere along the bar;
 /// the second half of this suite checks it by really right-clicking.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarOverflowMenuTests {
+@Suite(.serialized) struct PaneBarOverflowMenuTests {
 
     // MARK: - What ⋯ no longer offers
 
@@ -27,14 +27,15 @@ import FileExplorerTestSupport
         #expect(body.contains("overflowEntry(item)"),
                 "the extracted body no longer draws the folded controls — it is not the menu this scans")
 
-        let code = PaneBarInkChokePointTests.codeOnly(body)
+        let code = DashboardSource.codeOnly(body)
         #expect(!code.contains("Customize Pane Bar"),
                 "⋯ carries Customize again: the glyph earns a slot in the bar for a command that has its own menu")
         #expect(!code.contains("isCustomizing"),
                 "⋯ opens the customize sheet by some other wording")
 
         // …and the command still exists, in the one place it belongs.
-        let offers = try Self.source().components(separatedBy: "Customize Pane Bar…").count - 1
+        let views = try DashboardSource.read("DashboardViews.swift")
+        let offers = views.components(separatedBy: "Customize Pane Bar…").count - 1
         #expect(offers == 1, "Customize is offered from \(offers) places in the header, not the one this suite assumes")
         let contextMenu = try PaneBarInkChokePointTests.functionBody("private func barContextMenu(")
         #expect(contextMenu.contains("Customize Pane Bar…"), "the last route to the customize sheet is gone")
@@ -43,7 +44,7 @@ import FileExplorerTestSupport
     /// A divider between entries, not after each one, or the last entry would trail a rule against
     /// the bottom of the menu.
     @Test func theEntriesAreSeparatedRatherThanEachTrailingARule() throws {
-        let body = PaneBarInkChokePointTests
+        let body = DashboardSource
             .codeOnly(try PaneBarInkChokePointTests.functionBody("private func viewOptionsMenu("))
         #expect(body.contains("if index > 0 { Divider() }"),
                 "the menu draws a rule after its last entry")
@@ -56,7 +57,7 @@ import FileExplorerTestSupport
     /// swallowed the right-click would hide the only route to the sheet where the bar is fullest.
     /// Driven for real (SwiftUI answers `NSView.menu(for:)` by hit-testing), sweeping the whole row
     /// because a pill's x depends on the arrangement.
-    @Test func theBarsMenuIsAimableAcrossTheWholeRow() throws {
+    @Test(.machinePinned(.pixelSampling)) func theBarsMenuIsAimableAcrossTheWholeRow() throws {
         let probe = try Self.probe()
         var unreachable: [Int] = []
         for x in Self.sampleXs() {
@@ -73,7 +74,7 @@ import FileExplorerTestSupport
     /// or one that folded them all into ⋯. It counts sampled columns, across the whole row, that
     /// cross a control. The floor sits between two measurements taken here, the full bar and one
     /// stripped to four controls, so the gap is re-measured rather than remembered.
-    @Test func theSweptRowIsFullOfControls() throws {
+    @Test(.machinePinned(.pixelSampling)) func theSweptRowIsFullOfControls() throws {
         let full = try Self.inkedColumns(.default)
         let stripped = try Self.inkedColumns(PaneBarArrangement([.backForward, .scan, .sort, .hiddenFiles]))
         #expect(full > stripped,
@@ -194,15 +195,5 @@ import FileExplorerTestSupport
                                              clickCount: 1,
                                              pressure: 1) else { return nil }
         return host.menu(for: event)
-    }
-
-    private static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)                 // …/Tests/Dashboard/<this>.swift
-            .deletingLastPathComponent()                          // …/Tests/Dashboard
-            .deletingLastPathComponent()                          // …/Tests
-            .deletingLastPathComponent()                          // …/Dashboard
-            .appendingPathComponent("Sources/Dashboard/DashboardViews.swift")
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read DashboardViews.swift — this scan would be vacuous")
     }
 }

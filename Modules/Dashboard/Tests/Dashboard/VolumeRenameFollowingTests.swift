@@ -85,23 +85,16 @@ import Sync
     /// The pane's collapse button must not wear the window sidebar toggle's glyph: the two sit about
     /// forty points apart on the same edge for unrelated acts (show the folder column, fold this
     /// pane into the spine). Compared with literals, because the constant is what's under test.
-    @Test func theCollapseGlyphIsNotTheWindowSidebarToggles() {
+    /// Nor the Back button's, the pill right beside it: a bare `<` would trade a clash at forty
+    /// points for one at eight. And the mark must exist, or the button draws nothing and
+    /// `PaneNavMetricsTests` still passes over an empty frame.
+    @Test func theCollapseGlyphIsARealSymbolUnlikeItsNeighbours() {
         #expect(PaneBarItem.collapseSymbol != "sidebar.left")
         #expect(PaneBarItem.collapseSymbol != "sidebar.leading")
-    }
-
-    /// And not the Back button's either, the pill right beside it: a bare `<` would trade a clash at
-    /// forty points for one at eight.
-    @Test func theCollapseGlyphIsNotTheBackChevron() {
         #expect(PaneBarItem.collapseSymbol != "chevron.left")
         #expect(PaneBarItem.collapseSymbol != "chevron.backward")
         #expect(PaneBarItem.backForward.paletteSymbol == "chevron.left",
                 "Back's glyph moved — the clash this guards against is now a different pair")
-    }
-
-    /// The mark must exist, or the button draws nothing and `PaneNavMetricsTests` still passes over
-    /// an empty frame.
-    @Test func theCollapseGlyphIsARealSymbol() {
         #expect(NSImage(systemSymbolName: PaneBarItem.collapseSymbol,
                         accessibilityDescription: nil) != nil)
     }
@@ -109,7 +102,7 @@ import Sync
     /// The call site, not just the constant: `PaneBarItem.collapseSymbol` is worth nothing if the
     /// bar spells the glyph as a literal.
     @Test func theBarAndItsOverflowMenuBothDrawTheConstant() throws {
-        let views = try Self.source("Sources/Dashboard/DashboardViews.swift")
+        let views = try DashboardSource.read("DashboardViews.swift")
         #expect(!views.contains("\"sidebar.left\""),
                 "DashboardViews spells a sidebar glyph literally again")
         #expect(views.components(separatedBy: "PaneBarItem.collapseSymbol").count - 1 == 2,
@@ -123,7 +116,7 @@ import Sync
     /// `didRenameVolumeNotification`, and nothing would notice it dropped. `MacApp/` is in no SPM
     /// package, so a source scan is the only way a test can read it.
     @Test func contentViewFollowsTheVolumeRenameNotification() throws {
-        let content = try Self.appSource("ContentView.swift")
+        let content = try DashboardSource.app("ContentView.swift")
         #expect(content.contains("didRenameVolumeNotification"),
                 "nothing subscribes to the volume-rename notification")
         #expect(content.contains("settings.followVolumeRename"),
@@ -135,38 +128,15 @@ import Sync
     /// The sidebar's way out of a dead source, for a rename made while SyncCloud was quit and so
     /// not followed. Unless the caller wires it, the menu item is present and does nothing.
     @Test func theSidebarIsGivenAWayToRemoveAFolderSource() throws {
-        let host = try Self.appSource("ContentView+FolderSidebar.swift")
+        let host = try DashboardSource.app("ContentView+FolderSidebar.swift")
         #expect(host.contains("onRemoveSource:"), "the sidebar is not given a removal handler")
         #expect(host.contains("removableSourceIds:"),
                 "the sidebar is not told which rows may be removed")
         #expect(host.contains("settings.removeFolderSource"),
                 "the handler does not actually remove the source")
-        let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
+        let sidebar = try DashboardSource.read("FolderSidebar.swift")
         #expect(sidebar.contains("Remove Source…"), "the context menu offers no Remove")
         #expect(sidebar.contains("case .removeSource(let row): onRemoveSource(row)"),
                 "Remove is not routed through the confirmation — and it is not reversible, so it must be")
-    }
-
-    // MARK: Reading the tree
-
-    /// This module's directory, from this file's own path.
-    private static let moduleDir = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // …/Modules/Dashboard/Tests/Dashboard
-        .deletingLastPathComponent()   // …/Modules/Dashboard/Tests
-        .deletingLastPathComponent()   // …/Modules/Dashboard
-
-    private static func source(_ relative: String) throws -> String {
-        let url = moduleDir.appendingPathComponent(relative)
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read \(url.path) — the scan would pass vacuously")
-    }
-
-    private static func appSource(_ name: String) throws -> String {
-        let url = moduleDir
-            .deletingLastPathComponent()   // …/Modules
-            .deletingLastPathComponent()   // repo root
-            .appendingPathComponent("MacApp").appendingPathComponent(name)
-        return try #require(try? String(contentsOf: url, encoding: .utf8),
-                            "cannot read \(url.path) — the scan would pass vacuously")
     }
 }

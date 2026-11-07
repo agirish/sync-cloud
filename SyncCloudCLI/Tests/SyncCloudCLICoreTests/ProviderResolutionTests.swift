@@ -72,16 +72,11 @@ private let providers = [
                           imageName: "onedrive", rootPath: "/od", openAt: "Documents",
                           type: .oneDrive),
         ]
-        #expect(throws: ProviderResolutionError.self) {
-            _ = try resolveProviderOrPath(
-                value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
-                // The account IS there — only the folder it opens at is gone.
-                fileManager: StubFileManager(directories: ["/od"]))
-        }
-        // ...and the message names the landing folder, not the root, so it points at the thing to fix.
+        // The message names the landing folder, not the root, so it points at the thing to fix.
         do {
             _ = try resolveProviderOrPath(
                 value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
+                // The account IS there — only the folder it opens at is gone.
                 fileManager: StubFileManager(directories: ["/od"]))
             Issue.record("a missing landing folder was accepted")
         } catch let error as ProviderResolutionError {
@@ -100,6 +95,7 @@ private let providers = [
             value: "iCloud", label: "Left", providers: providers,
             fileManager: StubFileManager(directories: ["/icloud/docs"]))
         #expect(resolved.landingPath == "/icloud/docs")
+        #expect(resolved.id == "iCloud")
     }
 
     @Test func testMatchesByDisplayName() throws {
@@ -133,21 +129,6 @@ private let providers = [
                 fileManager: StubFileManager(directories: []))
         } throws: { error in
             (error as? ProviderResolutionError)?.message.contains("'nope' for Right") == true
-        }
-    }
-
-    /// A provider that shadows a different directory of the same name is refused. The fixture is
-    /// the hazardous case: a directory named `iCloud` in the working directory against a provider
-    /// rooted somewhere else entirely. `sync` is a mass copy, so a silent pick writes one whole
-    /// tree into another, and either precedence only moves the misfire onto whoever meant the
-    /// other reading. The refusal names both disambiguating spellings.
-    ///
-    /// The narrower case where both readings are the SAME folder still resolves; see below.
-    @Test func testAProviderThatShadowsADifferentSameNamedDirectoryIsRefused() {
-        #expect(throws: ProviderResolutionError.self) {
-            try resolveProviderOrPath(
-                value: "iCloud", label: "Left", providers: providers,
-                fileManager: StubFileManager(directories: ["/icloud/docs", "iCloud"]))
         }
     }
 
@@ -280,19 +261,8 @@ private let providers = [
 
     // MARK: - An argument that names both is refused, not guessed
 
-    /// `-L Dropbox` beside a local folder called `Dropbox` is refused, not resolved to either.
-    /// `sync` is a mass copy, so a wrong guess writes one whole tree into another, and reversing
-    /// the precedence would only move the misfire onto whoever meant the provider. The cost is one
-    /// re-run with a disambiguating spelling; the cost of being wrong is a sync.
-    @Test func testRefusesAValueThatIsBothAProviderAndADirectory() {
-        let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
-        #expect(throws: ProviderResolutionError.self) {
-            try resolveProviderOrPath(value: "iCloud", label: "Left", providers: providers,
-                                      fileManager: fm)
-        }
-    }
-
-    /// The refusal has to be usable: it names both readings and the spelling that picks each.
+    /// `-L Dropbox` beside a local folder called `Dropbox` is refused, not resolved to either, and
+    /// the refusal has to be usable: it names both readings and the spelling that picks each.
     @Test func testTheAmbiguityMessageOffersBothWaysOut() {
         let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
         do {
@@ -315,15 +285,6 @@ private let providers = [
         let resolved = try resolveProviderOrPath(value: "./iCloud", label: "Left",
                                                  providers: providers, fileManager: fm)
         #expect(resolved.landingPath == "./iCloud", "the escape hatch the refusal offers does not work")
-    }
-
-    /// An unambiguous provider name still resolves — the guard fires only where both readings
-    /// exist, and must not have made every provider argument a refusal.
-    @Test func testAProviderWithNoSameNamedDirectoryStillResolves() throws {
-        let resolved = try resolveProviderOrPath(
-            value: "iCloud", label: "Left", providers: providers,
-            fileManager: StubFileManager(directories: ["/icloud/docs"]))
-        #expect(resolved.id == "iCloud")
     }
 
     // MARK: Which provider a value names (FR42)

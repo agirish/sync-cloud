@@ -2789,9 +2789,8 @@ development box, so "CI red while a local run was in flight" is the signature. F
 process's UUID-stamped temp directory.
 
 **Fix.** Suffix the board name with `ProcessInfo.processInfo.processIdentifier` — per-test label
-for the siblings, pid for the neighbours. All three test pasteboard helpers here carry it now
-(`SystemClipboardTests` ×2, `FileActionHandlerOperationTests.scratchPasteboard`); any new one
-must. `clearContents()` at the top of a test defends against nothing across processes: the other
+for the siblings, pid for the neighbours. Dashboard's one test pasteboard helper carries it now
+(`scratchPasteboard` in `ScratchPasteboard.swift`); any new one must. `clearContents()` at the top of a test defends against nothing across processes: the other
 process writes *after* you clear.
 
 **The general rule** is mechanism 3 one ring out: defaults suites, pasteboards, Keychain items,

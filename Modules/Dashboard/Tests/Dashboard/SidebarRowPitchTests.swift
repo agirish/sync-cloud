@@ -28,17 +28,13 @@ import Design
     }
 
     /// A differential: padding, section header and scroll chrome are in the total but not per row,
-    /// so only the difference between two row counts isolates what one row costs.
-    @Test func aRowOccupiesThirtyTwoPoints() {
+    /// so only the difference between two row counts isolates what one row costs. The pitch is the
+    /// floor plus the gap, so it is the floor setting the height, not something else padding the
+    /// row, which would leave `rowHeight` describing nothing.
+    @Test func aRowOccupiesThirtyTwoPointsTheFloorPlusTheGap() {
         let pitch = (height(favorites: 8) - height(favorites: 3)) / 5
         #expect(pitch == 32,
                 "a sidebar row occupies \(pitch)pt, not 32 — the column's rhythm has drifted from Finder's")
-    }
-
-    /// The pitch is the floor plus the gap, so it is the floor setting the height, not something
-    /// else padding the row, which would leave `rowHeight` describing nothing.
-    @Test func thePitchIsTheFloorPlusTheGapBetweenRows() {
-        let pitch = (height(favorites: 8) - height(favorites: 3)) / 5
         #expect(pitch == FolderSidebarView.rowHeight + 2,
                 "the pitch (\(pitch)) is not rowHeight (\(FolderSidebarView.rowHeight)) plus the 2pt row gap — something else is setting the row's height")
     }

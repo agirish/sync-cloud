@@ -4,18 +4,12 @@ import Foundation
 /// Chrome glass's call sites in Dashboard beyond what `ChromeGlassPaneBarTests` renders: the
 /// breadcrumb's source pill, the Activity Log and Sync History headers, and the log's level chips.
 /// A site that loses its glass falls back to the Solid look, so only a scan sees it. Read through
-/// `PaneBarInkChokePointTests.codeOnly`, because these sites carry comments naming the very
+/// `DashboardSource.codeOnly`, because these sites carry comments naming the very
 /// modifiers counted here.
 @Suite struct ChromeGlassWiringTests {
 
     static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/\(file)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(file) — every scan here would be vacuous")
-        try #require(text.count > 500, "\(file) read as \(text.count) characters — truncated?")
-        return PaneBarInkChokePointTests.codeOnly(text)
+        try DashboardSource.read(file, codeOnly: true)
     }
 
     static func count(_ needle: String, in text: String) -> Int {

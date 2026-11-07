@@ -107,17 +107,7 @@ import FileExplorerTestSupport
                                  "no red glyph pixel found in \(appearance.rawValue) — the Delete rung is not painting its ink")
         // The pill behind it: the most common colour in a square around the glyph pixel, which the
         // fill outnumbers the strokes in.
-        let cx = best!.x, cy = best!.y
-        var counts: [String: (Int, NSColor)] = [:]
-        for x in max(0, cx - 18)...min(rep.pixelsWide - 1, cx + 18) {
-            for y in max(0, cy - 18)...min(rep.pixelsHigh - 1, cy + 18) {
-                guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let key = String(format: "%.2f-%.2f-%.2f", Double(p.redComponent), Double(p.greenComponent), Double(p.blueComponent))
-                counts[key, default: (0, p)].0 += 1
-            }
-        }
-        let fill = try #require(counts.values.max(by: { $0.0 < $1.0 })?.1)
-        return contrast(glyph, fill)
+        return contrast(glyph, try fill(around: best!.x, best!.y, in: rep))
     }
 
     private static func luminance(_ c: NSColor) -> Double {

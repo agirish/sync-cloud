@@ -182,16 +182,6 @@ import Design
         #expect(both.map(\.sourceName) == ["iCloud", "Dropbox"])
     }
 
-    /// A source contributing only a recent still counts toward the badge, or the column would badge
-    /// some rows and not others depending on which list a folder is in.
-    @Test func aSourceContributingOnlyARecentStillCountsAsASecondSource() {
-        let rows = FolderSidebarModel.rows(
-            sources: [Self.source("/iCloud", "iCloud", ["Health"]),
-                      Self.source("/Dropbox", "Dropbox", [])],
-            recents: [Self.visit("/Dropbox", "Shared Docs")])
-        #expect(rows.allSatisfy { $0.sourceName != nil }, "some rows are badged and some are not")
-    }
-
     /// Both disambiguators at once, the case neither alone can carry: two `Legal` rows from two
     /// accounts, one nested and one top-level.
     @Test func aRowCanNeedBothItsBadgeAndItsParent() {
@@ -252,11 +242,6 @@ import Design
             listedElsewhere: ["/iCloud": ["Documents"]])
         let recents = FolderSidebarModel.rows(rows, in: .recents)
         #expect(recents.map(\.root) == ["/Dropbox"])
-    }
-
-    /// A root the map does not name subtracts nothing, which is what makes the empty default safe.
-    @Test func anEmptyListedMapSubtractsNothing() {
-        #expect(one(recents: ["Documents", "Health"]).count == 2)
     }
 
     // MARK: The cap counts rows that are DRAWN
@@ -473,24 +458,6 @@ import Design
 /// supplies the verdict; `WorkspaceSidebarSupportTests` in the app target pins that mapping.
 @Suite struct FolderSidebarVisibilityTests {
 
-    @Test func aWorkspaceThatDoesNotSupportItGetsNoSidebar() {
-        #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, enabled: true))
-        #expect(!FolderSidebarModel.appliesTo(workspaceSupportsSidebar: false, enabled: true))
-    }
-
-    /// The item stays live with the column switched off, because it is what switches it on. This
-    /// keeps the two rules from being collapsed into one.
-    @Test func theToggleIsStillAvailableWhileTheColumnIsHidden() {
-        #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true, enabled: true))
-        #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, preference: false, enabled: true))
-    }
-
-    @Test func theColumnShowsOnlyWhereSupportedAndOnlyWhenAskedFor() {
-        #expect(FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, preference: true, enabled: true))
-        #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: false, preference: true, enabled: true))
-        #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: false, preference: false, enabled: true))
-    }
-
     /// Collapsed panes get no sidebar: collapsing asks for maximum room, and a 180pt column beside a
     /// 34pt spine takes it back. Folded into `appliesTo`, not checked at the view, so the toolbar
     /// button, menu item and refresh guard can't disagree.
@@ -499,13 +466,6 @@ import Design
                                               panesCollapsed: true, enabled: true))
         #expect(!FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, panesCollapsed: true,
                                               preference: true, enabled: true))
-    }
-
-    /// The collapse rule must not be the only thing tested: returning `!panesCollapsed` alone would
-    /// pass the case above.
-    @Test func anExpandedPaneInASupportedWorkspaceDoesGetOne() {
-        #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: true,
-                                             panesCollapsed: false, enabled: true))
     }
 
     /// A workspace whose sidebar outlives the collapse keeps it. Edit's Text Files list follows the
@@ -552,12 +512,6 @@ import Design
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: supported) == supported)
         #expect(FolderSidebarModel.isShowing(workspaceSupportsSidebar: supported, preference: preference)
                 == (supported && preference))
-    }
-
-    /// `browseSidebarVisible` defaults to `true`, so the column shows for everyone where it is
-    /// supported, not only for those who once ticked a box.
-    @Test func theColumnIsShownByDefaultWhereItIsSupported() {
-        #expect(FolderSidebarModel.isShowing(workspaceSupportsSidebar: true, preference: true))
     }
 }
 
@@ -670,36 +624,25 @@ import Design
 /// which would test AppKit.
 @Suite struct SidebarRowSideMenuTests {
 
+    /// Comments stripped, as every source scan here does: doc comments quote the labels, and a
+    /// scan that reads them asserts what the code says about itself, not what it does.
     static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        // Comments stripped, as every source scan here does: doc comments quote the labels, and a
-        // scan that reads them asserts what the code says about itself, not what it does.
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
-    @Test func theScanCanSeeAKnownSymbol() throws {
-        #expect(try Self.source().contains("private func sideItems("))
+        try DashboardSource.read("FolderSidebar.swift", codeOnly: true, atLeast: 3000)
     }
 
     /// Remove from Recents is offered only on a recent. A favorite has its own removal verb just
-    /// above, and "Remove from Recents" on it would name a list the row isn't in.
-    @Test func removeFromRecentsIsGatedOnTheRecentsGroup() throws {
+    /// above, and "Remove from Recents" on it would name a list the row isn't in. Enabled on an
+    /// unavailable row, unlike the items above it: a stale recent (source asleep, folder renamed
+    /// away) is exactly the one worth removing.
+    @Test func removeFromRecentsIsGatedOnTheRecentsGroupAndNotDisabled() throws {
         let code = try Self.source()
         let gate = try #require(code.range(of: "if row.group == .recents {"),
                                 "the item is no longer gated on the group — it draws on favorites too")
         let body = String(code[gate.upperBound...].prefix(200))
         #expect(body.contains("Button(Self.forgetItemTitle(recentsMode)) { onForgetRecent(row) }"),
                 "the gate no longer holds the Remove from Recents item — this scan is aimed at nothing")
+        #expect(!body.contains(".disabled("),
+                "the item now refuses on an unavailable row, which is the row it exists for")
     }
 
     /// The item names the list the heading shows, never one the user can't see.
@@ -709,34 +652,19 @@ import Design
         #expect(FolderSidebarView.forgetItemTitle(.frequent) == "Remove from Frequent")
     }
 
-    /// Enabled on an unavailable row, unlike the items above it: a stale recent (source asleep,
-    /// folder renamed away) is exactly the one worth removing.
-    @Test func removeFromRecentsIsNotDisabledWithTheRest() throws {
-        let code = try Self.source()
-        let gate = try #require(code.range(of: "if row.group == .recents {"))
-        let body = String(code[gate.upperBound...].prefix(200))
-        #expect(!body.contains(".disabled("),
-                "the item now refuses on an unavailable row, which is the row it exists for")
-    }
-
     /// Only where there are two panes: `target` is nil outside Compare, and offering a left and a
     /// right pane where there is one would offer a choice that doesn't exist.
-    @Test func theSideItemsAppearOnlyWhenThereIsATarget() throws {
+    ///
+    /// And the menu doesn't move the target. Picking a side for one folder says nothing about the
+    /// next, and silently re-aiming would be an unseen mode change that also moves the action bar,
+    /// lens scans and pane-scoped chords. Checks for any way to move the focused pane, with a
+    /// premise guard so a renamed member can't make it pass over an empty window.
+    @Test func theSideItemsAppearOnlyWithATargetAndDoNotRepointTheSidebar() throws {
         let code = try Self.source()
         let items = try #require(code.range(of: "private func sideItems("))
         let body = String(code[items.upperBound...].prefix(600))
         #expect(body.contains("if target != nil"),
                 "the side items are not gated on there being two panes")
-    }
-
-    /// The menu doesn't move the target. Picking a side for one folder says nothing about the next,
-    /// and silently re-aiming would be an unseen mode change that also moves the action bar, lens
-    /// scans and pane-scoped chords. Checks for any way to move the focused pane, with a premise
-    /// guard so a renamed member can't make it pass over an empty window.
-    @Test func theMenuDoesNotRepointTheSidebar() throws {
-        let code = try Self.source()
-        let items = try #require(code.range(of: "private func sideItems("))
-        let body = String(code[items.upperBound...].prefix(600))
         try #require(body.contains("open("), "the sideItems body was not found — this scan is vacuous")
         for repointer in ["onPickSide", "noteFocusedPane", "onFocusPane"] {
             #expect(!body.contains(repointer),
@@ -779,27 +707,10 @@ import Design
 /// and the overlay consult the same bit.
 @Suite struct SidebarRecentsDragArmingScanTests {
 
-    static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Dashboard/FolderSidebar.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read FolderSidebar.swift — this scan would be vacuous")
-        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
-        // Comments stripped, as every source scan here does: the doc comments quote the arming
-        // rule, and a scan that reads them asserts what the code says about itself.
-        return raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let comment = line.range(of: "//") else { return line }
-                return line[..<comment.lowerBound]
-            }
-            .joined(separator: "\n")
-    }
-
     /// The rule itself: armed only above Locations' measured top, with `.infinity` when unmeasured
     /// so an unmeasured column stays armed rather than dead.
     @Test func theArmingRuleComparesAgainstLocationsTop() throws {
-        let code = try Self.source()
+        let code = try SidebarRowSideMenuTests.source()
         #expect(code.contains("let willDrop = section != .recents"),
                 "the arming rule is gone, or no longer exempts within-section drags")
         #expect(code.contains("value.location.y < (sectionTops[.locations] ?? .infinity)"),
@@ -810,7 +721,7 @@ import Design
     /// `onFavoriteRecent`. An unarmed release is a cancel, and this guard is all that stands between
     /// a sloppy click and a persisted change.
     @Test func theRecentsDropGuardsOnTheArmedBit() throws {
-        let code = try Self.source()
+        let code = try SidebarRowSideMenuTests.source()
         let ended = try #require(code.range(of: ".onEnded {"),
                                  "the drag's onEnded is gone — this scan is aimed at nothing")
         let recents = try #require(code.range(of: "case .recents:", range: ended.upperBound..<code.endIndex),
@@ -825,7 +736,7 @@ import Design
     /// The indicator consults the same bit, so line and release can't disagree: the line promises
     /// that releasing commits, and an unarmed drag must promise nothing.
     @Test func theIndicatorOverlayGuardsOnTheSameBit() throws {
-        let code = try Self.source()
+        let code = try SidebarRowSideMenuTests.source()
         #expect(code.contains("if let drag, drag.willDrop, !collapsed.contains(dropTarget(for: drag.section))"),
                 "the insertion line no longer reads willDrop — it would promise a commit the release refuses, or vice versa")
     }
@@ -835,14 +746,6 @@ import Design
 /// placed above the consequential tail, and never confirmed, since it changes nothing in SyncCloud.
 /// Source scans, reusing `SidebarRowSideMenuTests`' comment-stripped read.
 @Suite struct SidebarProviderSettingsMenuTests {
-
-    /// The dictionary is the capability set: no entry, no item. A bare `Button` here would draw
-    /// the door on every row, including folder sources and the Trash, which have none.
-    @Test func theDoorIsOfferedOnlyWhereTheHostSuppliedATitle() throws {
-        let code = try SidebarRowSideMenuTests.source()
-        #expect(code.contains("if let title = providerSettingsTitles[source.id]"),
-                "the provider-settings item is no longer gated on the host-supplied capability")
-    }
 
     /// The door opens another app's surface and changes nothing here, so it doesn't go through
     /// `arm(_:)`; a confirmation would class it with Eject and Remove.

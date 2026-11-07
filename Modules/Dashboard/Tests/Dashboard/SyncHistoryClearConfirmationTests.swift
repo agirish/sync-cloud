@@ -39,17 +39,6 @@ import Events
         #expect(store.records.count == 1)
     }
 
-    @Test func confirmingClearsTheRecords() {
-        let (store, url) = makeStore()
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(store.records.count == 1)
-
-        let cleared = SyncHistoryView.clearIfConfirmed(store: store, confirm: { true })
-
-        #expect(cleared)
-        #expect(store.records.isEmpty)
-    }
-
     @Test func theConfirmationIsAskedBeforeAnythingIsRemoved() {
         // Ordering, not just the outcome: a confirmer that inspects the store must still see the
         // record, so the wipe can never run ahead of the answer.
@@ -57,11 +46,12 @@ import Events
         defer { try? FileManager.default.removeItem(at: url) }
         var recordsVisibleWhenAsked = -1
 
-        SyncHistoryView.clearIfConfirmed(store: store, confirm: {
+        let cleared = SyncHistoryView.clearIfConfirmed(store: store, confirm: {
             recordsVisibleWhenAsked = store.records.count
             return true
         })
 
+        #expect(cleared)
         #expect(recordsVisibleWhenAsked == 1)
         #expect(store.records.isEmpty)
     }

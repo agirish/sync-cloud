@@ -190,20 +190,6 @@ import Foundation
     @Test func anEmptyStoreYieldsAnEmptyList() {
         #expect(FolderJumpStore.mostRecentAcrossRoots(recents: [:], favorites: [:], limit: 8).isEmpty)
     }
-
-    // MARK: - Favorites across roots
-
-    /// Favorites span sources too, but keep each root's curated order: the user chose it.
-    @Test func favoritesSpanRootsAndKeepEachRootsOwnOrder() {
-        let store = ["/iCloud": [visit("Taxes 2026", nil), visit("Scans", nil)],
-                     "/Dropbox": [visit("Health", nil)]]
-        let out = FolderJumpStore.mostRecentAcrossRoots(recents: [:], favorites: store, limit: 8)
-        #expect(out.isEmpty, "favorites must not leak into the recents list")
-        // The favorites accessor is the store's, so the ordering rule is asserted through the
-        // pure function the store calls: roots sorted, each root's own order untouched.
-        let sorted = store.keys.sorted().flatMap { store[$0]!.map(\.relativePath) }
-        #expect(sorted == ["Health", "Taxes 2026", "Scans"])
-    }
 }
 
 /// The decode side of `visitedAt`. The ordering tests build `JumpLocation`s in memory and can't
