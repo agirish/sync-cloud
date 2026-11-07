@@ -1281,7 +1281,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             // Quitting mid-operation is the event most tied to crash-time corruption, so record it
             // and flush before quitting. Not "chose Quit Anyway": no dialog was shown, so the line
             // names the setting that decided.
-            Logger.shared.warning("Quitting with \(count) active file operation(s) — warn-before-quit is switched off")
+            Logger.shared.info("Quitting with \(count) active file operation(s) — warn-before-quit is switched off")
             Logger.shared.flushToDisk()
             SyncHistoryStore.shared.flushToDisk()
             return .terminateNow
@@ -1309,7 +1309,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
-                Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)"
+                Logger.shared.info("User chose Quit Anyway with \(count) active file operation(s)"
                     + (unsaved ? " and unsaved changes to “\(name)”" : ""))
                 Logger.shared.flushToDisk()
                 SyncHistoryStore.shared.flushToDisk()

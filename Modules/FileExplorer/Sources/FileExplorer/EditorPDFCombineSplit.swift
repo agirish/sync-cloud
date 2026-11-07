@@ -317,7 +317,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         let wanted = (folder as NSString).appendingPathComponent(fileName)
         switch merged.map({ $0.0 }) {
         case .failure(let error):
-            Logger.shared.info("\(writer) could not combine \(inputs.count) PDFs — \(error.localizedDescription)")
+            Logger.shared.warning("\(writer) could not combine \(inputs.count) PDFs — \(error.localizedDescription)")
             return end(EditorPDFToolBanner(message: "Couldn’t combine them — \(error.localizedDescription)", kind: .failure))
         case .success(let data):
             let written = await Task.detached(priority: .userInitiated) {

@@ -133,7 +133,7 @@ enum CloudFilingClassifier {
                 // `costUnpriced` stops its $0 reading as "this cost nothing" to the budget caps.
                 let priced = CloudFilingProtocol.estimatedCostUSD(model: model, usage: u)
                 if priced == nil {
-                    Logger.shared.error("Cloud Filing: no price table for model “\(model)”, so this "
+                    Logger.shared.warning("Cloud Filing: no price table for model “\(model)”, so this "
                                         + "scan's cost is unknown and is recorded as $0.00. Lifetime "
                                         + "spend is now a floor rather than a total, and both budget "
                                         + "caps under-count by whatever this call cost.")

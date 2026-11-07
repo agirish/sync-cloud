@@ -982,7 +982,7 @@ final class SetupModel: ObservableObject {
 
     /// "Continue Without Saving": moves on and writes nothing.
     func continueWithoutSaving() {
-        Logger.shared.warning("Setup: continued past a failed Save — no folder profile was written")
+        Logger.shared.info("Setup: continued past a failed Save — no folder profile was written")
         _ = advance()
     }
 
@@ -1026,7 +1026,7 @@ final class SetupModel: ObservableObject {
             // The reading reads on, and nothing is written over it: a press a moment later finds
             // it between documents.
             saveFailure = "SyncCloud is still reading one of your documents — save again in a moment."
-            Logger.shared.warning("Setup did not save: the document reading did not stop in time")
+            Logger.shared.info("Setup did not save: the document reading did not stop in time")
             return false
         }
         // Carried on into the new profile only when it is of the same folder: a reading of another

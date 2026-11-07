@@ -77,7 +77,7 @@ extension ContentView {
         let started = DocumentPrinting.prepare(job) { operation in
             guard let operation else {
                 syncManager.banner = .error("Couldn’t prepare “\(job.name)” for printing.", log: .loggedAtSite)
-                Logger.shared.warning("Editor print produced no pages for \(job.name)")
+                Logger.shared.error("Editor print produced no pages for \(job.name)")
                 return
             }
             guard let window else { operation.run(); return }
@@ -100,7 +100,7 @@ extension ContentView {
     func printEditorPDF() {
         guard let operation = editorPDF.printOperation() else {
             syncManager.banner = .error("Couldn’t prepare “\(editorPDF.name)” for printing.", log: .loggedAtSite)
-            Logger.shared.warning("Editor print produced no operation for \(editorPDF.path ?? "") (PDF)")
+            Logger.shared.error("Editor print produced no operation for \(editorPDF.path ?? "") (PDF)")
             return
         }
         Logger.shared.info("Editor printing \(editorPDF.name) (PDF)")
@@ -132,7 +132,7 @@ extension ContentView {
         guard let data = DocumentPDF.data(for: job,
                                           geometry: .from(NSPrintInfo.shared)) else {
             syncManager.banner = .error("Couldn’t render “\(job.name)” as a PDF.", log: .loggedAtSite)
-            Logger.shared.warning("Editor PDF export produced no pages for \(job.name)")
+            Logger.shared.error("Editor PDF export produced no pages for \(job.name)")
             return
         }
         do {

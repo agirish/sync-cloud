@@ -766,7 +766,7 @@ public final class EditorPDFFillSign: ObservableObject {
         if self.path == path, form != self.form, !values.isEmpty {
             // A reload whose form is no longer the one the values were typed into (a field renamed,
             // a value changed elsewhere). Said, as the items' drop is.
-            Logger.shared.info("Edit dropped \(Self.fields(values.count)) filled with Fill & Sign on "
+            Logger.shared.warning("Edit dropped \(Self.fields(values.count)) filled with Fill & Sign on "
                                + "\(EditorPDFTools.logName(path)) — the file changed on disk")
             values = [:]
             focusedField = nil
@@ -783,7 +783,7 @@ public final class EditorPDFFillSign: ObservableObject {
             let lost = [placedBefore > 0 ? "\(Self.count(placedBefore)) placed" : nil,
                         values.isEmpty ? nil : "\(Self.fields(values.count)) filled"].compactMap { $0 }
             if !lost.isEmpty {
-                Logger.shared.info("Edit dropped \(lost.joined(separator: " and ")) with Fill & Sign on "
+                Logger.shared.warning("Edit dropped \(lost.joined(separator: " and ")) with Fill & Sign on "
                                    + "\(EditorPDFTools.logName(path)) — the file changed on disk")
             }
             clear()
@@ -824,7 +824,7 @@ public final class EditorPDFFillSign: ObservableObject {
             // overlay go with `isOn`, so the items would be out of sight, yet File ▸ Save Filled Copy
             // and the leave question could still flatten them into a copy of a file whose owner now
             // forbids it.
-            Logger.shared.info("Edit dropped \(lost) with Fill & Sign on \(EditorPDFTools.logName(path)) — "
+            Logger.shared.warning("Edit dropped \(lost) with Fill & Sign on \(EditorPDFTools.logName(path)) — "
                                + "the file changed on disk and no longer allows it")
             clear()
             tools?.banner = EditorPDFToolBanner(
@@ -835,7 +835,7 @@ public final class EditorPDFFillSign: ObservableObject {
             // A reload that now has a form takes the corrections: Replace is off on a form, so the
             // save would refuse them every time, and only Discard would get out.
             let corrections = items.filter(\.isCorrection).count
-            Logger.shared.info("Edit dropped \(corrections == 1 ? "1 correction" : "\(corrections) corrections") with "
+            Logger.shared.warning("Edit dropped \(corrections == 1 ? "1 correction" : "\(corrections) corrections") with "
                                + "Fill & Sign on \(EditorPDFTools.logName(path)) — the file changed on disk and now has a fillable form")
             if let editing, items.contains(where: { $0.id == editing && $0.isCorrection }) {
                 self.editing = nil

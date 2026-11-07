@@ -98,6 +98,8 @@ public final class PaneSaveAsPDF: ObservableObject {
 
     /// A test's to answer: whether a file is still only in the cloud, asked again as its turn comes.
     var isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+    /// The reason a file only in the cloud gives, told apart in the log from a save that failed.
+    static let notDownloadedReason = "it isn’t downloaded"
     /// A test's to answer: whether the original's folder takes a new file.
     var folderIsWritable: (String) -> Bool = { SaveAsPDFName.folderIsWritable(for: $0) }
     /// The reader's paper, read when each file's turn comes.
@@ -167,7 +169,13 @@ public final class PaneSaveAsPDF: ObservableObject {
             progress = Progress(done: index, total: paths.count, name: name)
             if let reason = await save(path, writer: writer, into: &saved) {
                 failed.append(.init(name: name, reason: reason, path: path))
-                Logger.shared.info("\(writer) could not save \(name) as PDF — \(reason)")
+                // Not downloaded is a state the pane already shows (INFO, as PDF tools log it);
+                // any other reason is a save that failed.
+                if reason == Self.notDownloadedReason {
+                    Logger.shared.info("\(writer) could not save \(name) as PDF — \(reason)")
+                } else {
+                    Logger.shared.warning("\(writer) could not save \(name) as PDF — \(reason)")
+                }
             }
         }
         progress = nil
@@ -185,7 +193,7 @@ public final class PaneSaveAsPDF: ObservableObject {
     private func save(_ path: String, writer: String, into saved: inout [SaveAsPDFSummary.Saved]) async -> String? {
         let name = (path as NSString).lastPathComponent
         // Evicted since the menu was built: reading the placeholder would download it.
-        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return "it isn’t downloaded" }
+        if isCloudOnly(MaterializationStatus.linkTarget(of: path)) { return Self.notDownloadedReason }
         if let want = request?.expected[path], EditorFileStore.stamp(ofPath: path) != want {
             return "it changed since it was chosen"
         }

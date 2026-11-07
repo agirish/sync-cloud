@@ -9,6 +9,8 @@ import UserNotifications
 /// background (a General setting, off by default), since the banner itself lives inside the window.
 @MainActor
 enum OperationNotifier {
+    /// Which notification kinds have reported a failed post this launch.
+    nonisolated static let postFailureReported = OncePerLaunch()
 
     /// The gate, pure so it's testable without UNUserNotificationCenter: notify only when the user
     /// opted in and the app isn't frontmost (a visible banner is enough).
@@ -73,7 +75,9 @@ enum OperationNotifier {
         let logger = Logger.shared
         UNUserNotificationCenter.current().add(request) { error in
             guard let error else { return }
-            logger.error("Could not post the background-completion notification: \(error.localizedDescription)")
+            // WARN once a launch: with macOS permission off, every post fails the same way.
+            guard OperationNotifier.postFailureReported.isFirst("completion") else { return }
+            logger.warning("Could not post the background-completion notification: \(error.localizedDescription)")
         }
     }
 }
@@ -111,7 +115,9 @@ enum OneWaySyncNotifier {
         let logger = Logger.shared
         UNUserNotificationCenter.current().add(request) { error in
             guard let error else { return }
-            logger.error("Could not post a one-way sync notification: \(error.localizedDescription)")
+            // WARN once a launch: with macOS permission off, every post fails the same way.
+            guard OperationNotifier.postFailureReported.isFirst("one-way") else { return }
+            logger.warning("Could not post a one-way sync notification: \(error.localizedDescription)")
         }
     }
 }

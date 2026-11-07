@@ -492,7 +492,7 @@ extension ContentView {
             // reveal follows where the provider actually ended up.
             revealIntoLeft = leftProviderId == aimedProviderId
             if !revealIntoLeft {
-                Logger.shared.warning("Command palette: the pane swap was refused — Organize will "
+                Logger.shared.info("Command palette: the pane swap was refused — Organize will "
                     + "open on the other source")
             }
         }

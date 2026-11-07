@@ -857,7 +857,7 @@ extension ContentView {
             Logger.shared.info("Editor kept \(path) open — it is no longer on disk, and its text may be the only copy")
             return false
         case .discard:
-            Logger.shared.info("Editor left \(path) without saving it again — it was no longer on disk")
+            Logger.shared.warning("Editor left \(path) without saving it again — it was no longer on disk")
             editorAutosaveStop = nil
             return true
         case .save:
@@ -1780,8 +1780,8 @@ extension ContentView {
     /// "Use Disk Version" found nothing it could put in the buffer: the file is now unreadable, too
     /// large or not text. Nothing changed; the banner stays, and says so.
     private func reportDisksVersionUnreadable() {
-        Logger.shared.info("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
-        syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.", log: .error)
+        Logger.shared.warning("[edit] Could not take the version of \(editorDocument.path ?? "") on disk — it cannot be read as text now")
+        syncManager.banner = .error("Couldn’t read the version of “\(editorDocument.name)” on disk — your text is unchanged.", log: .loggedAtSite)
     }
 
     /// After one of the app's own file operations (`refreshSubject`'s epilogue): Edit's rail
@@ -1938,12 +1938,12 @@ extension ContentView {
     func noteEditorImages(_ report: EditorImageImport.Report) {
         switch report {
         case .refused(let reason):
-            Logger.shared.info("[edit] Image not added: \(reason)")
+            Logger.shared.warning("[edit] Image not added: \(reason)")
             syncManager.banner = .error(reason, log: .error)
         case .wrote(let files, let madeFolder, let linked, let failed):
             if linked.isEmpty {
                 // Nothing linked, but a folder it made could not be taken away again.
-                Logger.shared.info("[edit] Image not added: \(failed ?? "nothing was saved"); left \(madeFolder ?? "nothing")")
+                Logger.shared.warning("[edit] Image not added: \(failed ?? "nothing was saved"); left \(madeFolder ?? "nothing")")
             } else {
                 Logger.shared.info("[edit] Image added: wrote \(files.count) file(s)"
                     + (madeFolder.map { " and made \($0)" } ?? "") + ", linked \(linked.joined(separator: ", "))"

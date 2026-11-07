@@ -94,7 +94,7 @@ enum CloudMappingRefiner {
             } else {
                 // The paid call happened; a spend record that silently fails to land is a cap
                 // enforced against the wrong total, and the log is where that gets found.
-                Logger.shared.warning("Mapping refine [\(requestID)]: usage could not be parsed "
+                Logger.shared.error("Mapping refine [\(requestID)]: usage could not be parsed "
                     + "— this call's spend is NOT in the recorded total")
             }
             Logger.shared.info("Mapping refine done [\(requestID)]: \(model) · "

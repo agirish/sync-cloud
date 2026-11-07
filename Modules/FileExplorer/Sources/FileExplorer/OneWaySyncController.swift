@@ -930,7 +930,7 @@ public final class OneWaySyncController: ObservableObject {
             // the other Mac's, and removing it would stop that one.
             let marker = marker(for: record)
             if case .thisMac = marker.check(hardwareID: OneWaySyncBinding.platformUUID() ?? "") {
-                do { try marker.remove() } catch { Logger.shared.error("One-way sync: couldn’t remove its marker in Dropbox: \(error.localizedDescription)") }
+                do { try marker.remove() } catch { Logger.shared.warning("One-way sync: couldn’t remove its marker in Dropbox: \(error.localizedDescription)") }
             }
             if let writer = try? OneWaySyncWriter(places: places(for: record)) { writer.removeTemporaryFiles() }
         }
@@ -1164,7 +1164,7 @@ public final class OneWaySyncController: ObservableObject {
         guard let record else { return 0 }
         // Its button waits while a sync or an answer writes; this is the backstop.
         guard !isRunning, !isAnswering else {
-            Logger.shared.warning("One-way sync: nothing emptied from SyncCloud Removed: a sync or an answer was writing")
+            Logger.shared.info("One-way sync: nothing emptied from SyncCloud Removed: a sync or an answer was writing")
             return 0
         }
         let account = places(for: record).dropboxAccountFolder

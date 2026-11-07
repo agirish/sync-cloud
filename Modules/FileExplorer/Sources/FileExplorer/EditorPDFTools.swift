@@ -616,7 +616,7 @@ public final class EditorPDFTools: ObservableObject {
         // Before any question, too: a confirmed "this will flatten the form" should not then be
         // refused. Asked again after it, since the file can change while the question is up.
         if let shownStamp, EditorFileStore.stamp(ofPath: path) != shownStamp {
-            Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
+            Logger.shared.warning("\(writer) refused \(tool.logDetail) of \(logName) — it changed on disk since it was read")
             return end(.failed(changedMessage(name)))
         }
         running = Running(tool)
