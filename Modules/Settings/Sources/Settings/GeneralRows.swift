@@ -3,6 +3,7 @@ import Design
 import Events
 import ServiceManagement
 import SwiftUI
+import Sync
 
 /// The four General preferences the guided setup sheet offers under *More options*, and the two of
 /// them that carry a state machine.
@@ -74,32 +75,65 @@ public struct NotifyInBackgroundRow: View {
     SettingsSection {
         Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
             .help("Posts a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Turning it on asks macOS for permission.")
-            .onChange(of: notifyInBackground) { _, enabled in
-                if enabled {
-                    BackgroundNotificationPermission.request { notificationsDenied = $0 }
-                } else {
-                    // The hint only matters while the feature is on.
-                    notificationsDenied = false
-                }
-            }
     } caption: {
         if notifyInBackground && notificationsDenied {
-            Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
-                .foregroundStyle(.orange)
+            NotificationsDeniedHint()
         } else if showsCaption {
             Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Requires notification permission.")
         }
     }
-        .task { readNotificationAuthorization() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            readNotificationAuthorization()
+        .asksNotificationPermission(when: notifyInBackground, denied: $notificationsDenied)
+    }
+}
+
+/// One-Way Sync's notifications (`OneWaySyncNoticeBoard.notifyKey`): its own opt-in, apart from
+/// the background switch above, and until TE332 set only during One-Way Sync's setup. Turning it
+/// on asks macOS for permission, as that switch does.
+public struct OneWaySyncNotifyRow: View {
+    @AppStorage(OneWaySyncNoticeBoard.notifyKey) private var notifyOneWaySync: Bool = false
+    @State private var notificationsDenied = false
+
+    public init() {}
+
+    public var body: some View {
+    SettingsSection {
+        Toggle("Notify when One-Way Sync needs attention", isOn: $notifyOneWaySync)
+            .help("Posts a notification when One-Way Sync needs you, whichever app is in front, and a reminder while it waits. Separate from the background switch. Turning it on asks macOS for permission.")
+    } caption: {
+        if notifyOneWaySync && notificationsDenied {
+            NotificationsDeniedHint()
         }
     }
+        .asksNotificationPermission(when: notifyOneWaySync, denied: $notificationsDenied)
+    }
+}
 
-    /// Reflects the real notification authorization into the footer hint, while the feature is on.
-    private func readNotificationAuthorization() {
-        guard notifyInBackground else { return }
-        BackgroundNotificationPermission.readDenied { notificationsDenied = $0 }
+/// What a notification switch says when it is on but macOS refuses notifications.
+private struct NotificationsDeniedHint: View {
+    var body: some View {
+        Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
+            .foregroundStyle(.orange)
+    }
+}
+
+private extension View {
+    /// A notification switch's permission round-trip: turning it on asks macOS, and the real
+    /// authorization is read on appear and on coming back to the app, so a refusal made in System
+    /// Settings shows here. One copy for both switches, so neither can forget to ask.
+    func asksNotificationPermission(when isOn: Bool, denied: Binding<Bool>) -> some View {
+        self
+            .onChange(of: isOn) { _, enabled in
+                if enabled {
+                    BackgroundNotificationPermission.request { denied.wrappedValue = $0 }
+                } else {
+                    // The hint only matters while the feature is on.
+                    denied.wrappedValue = false
+                }
+            }
+            .task { if isOn { BackgroundNotificationPermission.readDenied { denied.wrappedValue = $0 } } }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                if isOn { BackgroundNotificationPermission.readDenied { denied.wrappedValue = $0 } }
+            }
     }
 }
 

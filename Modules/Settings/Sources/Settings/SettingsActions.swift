@@ -23,7 +23,7 @@ public struct SettingsActions {
     public static let ids: Set<String> = [
         "general.runSetupAgain", "sources.refresh", "sources.showInFinder", "sources.rootReset", "sources.openAtReset",
         "sources.removeFolder", "people.defaultOrder", "people.remove", "sync.ignoredItemsClearAll",
-        "organize.keptNamesClearAll", "intelligence.apiKeyRemove", "intelligence.costClear",
+        "organize.keptNamesClearAll", "duplicates.keptSeparateShowAgain", "intelligence.apiKeyRemove", "intelligence.costClear",
         "intelligence.savedSuggestionsClear", "advanced.logShowInFinder", "advanced.logClear", "advanced.sweep",
         "advanced.fileDigestsClear", "advanced.storageReportsClear", "advanced.resetSetup", "advanced.resetAll",
     ]
@@ -56,6 +56,8 @@ public struct SettingsActions {
             return .clearIgnoredItems(count: sync?.ignoredItemsStore?.rootRelativePaths.count ?? 0)
         case "organize.keptNamesClearAll":
             return .clearKeptNames(count: sync?.keptNamesStore?.names.count ?? 0)
+        case "duplicates.keptSeparateShowAgain":
+            return .showKeptSeparateAgain(count: sync?.keptSeparateGroupCount ?? 0)
         case "intelligence.apiKeyRemove":
             let words = CloudKeyRow.removePrompt
             return RemovalPrompt(messageText: words.messageText, informativeText: words.informativeText, confirmTitle: words.confirmTitle)
@@ -153,6 +155,11 @@ public struct SettingsActions {
             let count = store.names.count
             store.stopKeepingAll()
             return .done("Cleared \(count) allowed name\(count == 1 ? "" : "s").")
+        case "duplicates.keptSeparateShowAgain":
+            guard let sync else { return unavailable }
+            guard sync.keptSeparateGroupCount > 0 else { return .refused("No groups are kept separate.") }
+            let count = DuplicatesSettingsTab.showAgainIfConfirmed(sync, confirm: { true }) ?? 0
+            return .done("Forgot \(count) group\(count == 1 ? "" : "s") kept separate. The next duplicate scan flags any that are still duplicates.")
         case "intelligence.apiKeyRemove":
             if let refusal = APIKeyRemoval.remove(from: keychain) { return .refused(refusal) }
             return .done("Removed the API key. Ask Claude and Refine need a key again to use Claude.")

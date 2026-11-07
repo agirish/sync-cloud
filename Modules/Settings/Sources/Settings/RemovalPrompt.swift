@@ -3,7 +3,8 @@ import Foundation
 
 /// What Settings asks before a control throws away something one click can't bring back: a folder
 /// source's Remove, the ignored items' and kept names' Clear All, the saved suggestions' Clear,
-/// "All columns" for column widths, and Hidden from Claude's Remove. None touches the user's
+/// "All columns" for column widths, Hidden from Claude's Remove, Show Again for the groups kept
+/// separate, and sharing a hidden folder without asking. None touches the user's
 /// files. Most forget choices made by hand; saved suggestions return, but the next Refine pays
 /// Claude again; Hidden from Claude's Remove widens what Claude may see. They ask as Reset Setup,
 /// Reset All Settings and Clear Log do.
@@ -93,6 +94,40 @@ public struct RemovalPrompt: Equatable, Sendable {
                     + "date. It can also ask this Mac to read it. ")
                 + "To hide it again, use Add… here, or Hide from Claude on its right-click menu.",
             confirmTitle: "Show to Claude")
+    }
+
+    /// Organize ▸ Duplicates ▸ Groups kept separate ▸ Show Again….
+    public static func showKeptSeparateAgain(count: Int) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: count == 1 ? "Show 1 group kept separate again?"
+                : "Show all \(count.formatted()) groups kept separate again?",
+            informativeText: "SyncCloud forgets that you kept them separate, in every folder, so the "
+                + "next duplicate scan flags each one that is still a duplicate. Your files aren’t "
+                + "affected.",
+            confirmTitle: "Show Again")
+    }
+
+    /// Ask Claude ▸ Privacy ▸ Shared without asking ▸ Add…, for a folder that is hidden now.
+    /// Hidden wins over shared, so sharing it takes the entries that hide it off Hidden from
+    /// Claude; this says which, because a folder above it uncovers more than what was picked.
+    /// - Parameters:
+    ///   - name: The folder picked.
+    ///   - above: The hidden folders above it that hide it, by name; empty when only its own entry
+    ///     does.
+    public static func shareHidden(named name: String, above: [String]) -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: "Share “\(name)” without asking?",
+            informativeText: (above.isEmpty
+                ? "It’s hidden from Claude now, and hidden wins over shared, so sharing it takes it "
+                    + "off Hidden from Claude. "
+                : "It’s inside “\(above.joined(separator: "”, “"))”, hidden from Claude now, and "
+                    + "hidden wins over shared, so sharing it takes "
+                    + (above.count == 1 ? "that folder" : "those folders")
+                    + " off Hidden from Claude, with everything in "
+                    + (above.count == 1 ? "it. " : "them. "))
+                + "Claude then gets answers, page text, search names and lookups from it without "
+                + "asking. Whole documents still ask.",
+            confirmTitle: "Share")
     }
 
     /// Readability ▸ Column widths ▸ All columns, when some columns were sized on their own.

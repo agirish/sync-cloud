@@ -32,7 +32,7 @@ public struct DifferencesView: View {
     /// Whether the table breaks its rows into top-level folder sections. Persisted, on by default:
     /// a long flat list has no landmarks, and `DifferenceGrouping.isWorthGrouping` spares a small
     /// comparison a lone header. Off gives the flat table, so a Size sort spans the whole list.
-    @AppStorage("differencesGroupByFolder") private var groupByFolder: Bool = true
+    @AppStorage(DifferencesSettings.groupByFolderKey) private var groupByFolder: Bool = DifferencesSettings.groupByFolderDefault
     /// Folder names whose section is collapsed. Not persisted, and cleared on every rescan: the
     /// folders change between scans, and restoring a fold would hide differences never seen.
     private var collapsedSections: Set<String> {

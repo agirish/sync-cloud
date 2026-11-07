@@ -16,3 +16,11 @@ public enum BrowseWindowSettings {
     /// What the sidebar's Recents heading lists: a ``RecentsMode`` raw value.
     public static let sidebarRecentsModeKey = "browseSidebarRecentsMode"
 }
+
+/// Compare ▸ Differences' remembered table choice, here so Settings can offer it beside the table
+/// in FileExplorer that reads it. The string is a persistence format: never reword it.
+public enum DifferencesSettings {
+    /// Whether the Differences table breaks its rows into a section per top-level folder.
+    public static let groupByFolderKey = "differencesGroupByFolder"
+    public static let groupByFolderDefault = true
+}

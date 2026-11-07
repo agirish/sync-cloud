@@ -280,6 +280,8 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
     /// `KeptNamesList.nothingKeptNote`, one line, where users get a row per allowed name.
     /// Suggestions and Advanced also take `syncManager: nil` but belong here:
     /// none of their rows grows with the user's data past a few. Ask that question of a new entry.
+    /// Edit ▸ PDF is measured without its saved signatures, which the app draws (FileExplorer owns
+    /// the store): at most six signatures and six initials, a row each.
     @MainActor
     private func mustFitPages(_ settings: SettingsManager) -> [(SettingsPlace, AnyView)] {
         // Non-nil closures, or sections go unmeasured: the setup, reset, rules and help buttons are
@@ -287,7 +289,8 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         [(SettingsPlace(.general), AnyView(GeneralSettingsTab().environmentObject(settings))),
          (SettingsPlace(.look), AnyView(AppearanceSettingsTab())),
          (SettingsPlace(.textAndSpacing), AnyView(ReadabilitySettingsTab())),
-         (SettingsPlace(.panes), AnyView(BrowseSettingsTab(page: .panes, confirmReleasingColumnWidths: { _ in false })
+         (SettingsPlace(.panes), AnyView(BrowseSettingsTab(page: .panes, onCustomizePaneBar: {},
+                                                           confirmReleasingColumnWidths: { _ in false })
             .environmentObject(settings))),
          (SettingsPlace(.window), AnyView(BrowseSettingsTab(page: .window).environmentObject(settings))),
          (SettingsPlace(.differences), AnyView(SyncSettingsTab(page: .differences, syncManager: nil).environmentObject(settings))),

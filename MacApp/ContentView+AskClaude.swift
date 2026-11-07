@@ -458,7 +458,7 @@ extension ContentView {
 
     /// The Never show Claude entries that hide `path`: its own, or a folder's above it.
     private func askClaudeHiddenEntries(covering path: String) -> [String] {
-        AskClaudePrivacy.hiddenFolders(in: .standard).filter { AskClaudePrivacy.isHidden(path, by: [$0]) }
+        AskClaudePrivacy.hiddenEntries(covering: path, in: .standard)
     }
 
     /// An entry as the thread and the row menu name it; a source's own folder by the source's name.

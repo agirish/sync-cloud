@@ -374,8 +374,10 @@ import Testing
                 "the Column widths picker no longer asks with the standard alert")
         #expect(settings.contains("confirm: { confirmReleasingColumnWidths(overrides.widths.count) }"))
 
-        #expect(count("AskClaudePrivacy.unhide(", in: settings) == 1,
-                "an item leaves Hidden from Claude somewhere in Settings besides the gate")
+        // Two gates: Remove, and sharing a hidden folder without asking (`NewSettingsRowsTests`).
+        #expect(count("AskClaudePrivacy.unhide(", in: settings) == 2,
+                "an item leaves Hidden from Claude somewhere in Settings besides the gates")
+        #expect(settings.contains("covering.forEach { AskClaudePrivacy.unhide($0, in: defaults) }"))
         #expect(settings.contains("RemovalPrompt.actIfConfirmed(confirm: confirm) { AskClaudePrivacy.unhide(path, in: defaults) }"))
         #expect(settings.contains("Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude("),
                 "Hidden from Claude's Remove no longer asks")

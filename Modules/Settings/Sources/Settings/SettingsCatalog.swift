@@ -250,6 +250,10 @@ public enum SettingsCatalog {
           storage: app(GeneralSettings.notifyOnBackgroundCompletionKey, "GeneralSettings.notifyOnBackgroundCompletionKey", "false"),
           control: .toggle, default: .bool(false), tier: .suggested,
           help: "Posts a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Turning it on asks macOS for permission."),
+        e("general.notifyOneWaySync", .general, "Notify when One-Way Sync needs attention", indexed: true,
+          storage: app(OneWaySyncNoticeBoard.notifyKey, "OneWaySyncNoticeBoard.notifyKey", "false"),
+          control: .toggle, default: .bool(false), tier: .suggested,
+          help: "Posts a notification when One-Way Sync needs you, whichever app is in front, and a reminder while it waits. Separate from the background switch. Turning it on asks macOS for permission."),
         e("general.warnBeforeQuit", .general, "Warn before quitting during file operations", indexed: true,
           storage: app(GeneralSettings.warnBeforeQuitKey, "GeneralSettings.warnBeforeQuitKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, lessSafe: .turningOff,
@@ -383,6 +387,10 @@ public enum SettingsCatalog {
         e("sync.ignoreGoogleDriveNewer", .differences, "Ignore “newer on Google Drive” when same size", indexed: true,
           storage: .settingsManager(key: "ignoreGoogleDriveNewerDateOnly"), control: .toggle, default: .bool(false),
           tier: .suggested),
+        e("sync.groupByFolder", .differences, "Group by folder", indexed: true,
+          storage: app(DifferencesSettings.groupByFolderKey, "DifferencesSettings.groupByFolderKey", "DifferencesSettings.groupByFolderDefault"),
+          control: .toggle, default: .bool(DifferencesSettings.groupByFolderDefault), tier: .suggested,
+          help: "Breaks the Differences list into a section per top-level folder. Off, it is one flat list, so a sort by size runs across the whole comparison. The list’s filter menu changes it too."),
         e("sync.confirmTransfer", .general, "Confirm before copying or moving", indexed: true,
           storage: app(GeneralSettings.confirmBeforeTransferKey, "GeneralSettings.confirmBeforeTransferKey", "true"),
           control: .toggle, default: .bool(true), tier: .suggested, lessSafe: .turningOff,
@@ -431,6 +439,8 @@ public enum SettingsCatalog {
         e("duplicates.readPDFs", .duplicates, "Read PDFs to find copies a byte hash misses", indexed: true,
           storage: app(DuplicateFinderOptions.DefaultsKey.detectSameText, "DuplicateFinderOptions.DefaultsKey.detectSameText", "true"),
           control: .toggle, default: .bool(true), tier: .suggested),
+        e("duplicates.keptSeparateShowAgain", .duplicates, "Groups kept separate", indexed: true, others: ["Show Again…"],
+          control: .button("Show Again…"), tier: .asksTwice),
 
         // MARK: Organize ▸ Suggestions and Ask Claude
         e("intelligence.onDeviceAI", .suggestions, "Suggest folders with Apple Intelligence", indexed: true,
@@ -463,8 +473,8 @@ public enum SettingsCatalog {
         e("intelligence.hidden", .privacy, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat: a folder shared without asking loosens what reaches Claude, so only the
-        // person sets it, from the shield menu, and only they take one off.
-        e("intelligence.shared", .privacy, "Shared without asking", indexed: true,
+        // person sets it, from the shield menu or Add… here, and only they take one off.
+        e("intelligence.shared", .privacy, "Shared without asking", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .notInChat, privacy: .countOnly),
         e("intelligence.monthlyLimit", .keyAndSpending, "Monthly limit", indexed: true,
           storage: app(AskClaudeSpend.limitDefaultsKey, "AskClaudeSpend.limitDefaultsKey", "AskClaudeSpend.defaultLimitUSD"),
@@ -530,9 +540,10 @@ public enum SettingsCatalog {
         "SettingsSubTabMemory.defaultsKey",
     ]).union(awaitingCatalogKeySources)
 
-    /// The Browse and Edit settings TE332's regroup brought into Settings, which join the catalog
-    /// with its drop 2 (TE332 step 2). Until then Claude can neither read nor change them; Settings
-    /// and the menus can. `awaitingCatalogIndexTitles` are their search rows.
+    /// The Browse and Edit settings TE332 brought into Settings, which join the catalog with its
+    /// drop 2. Until then Claude can neither read nor change them; Settings and the menus can.
+    /// `awaitingCatalogIndexTitles` are their search rows: these keys', and the two step-2 rows
+    /// Settings draws for another module, Customize Pane Bar… and the saved signatures.
     static let awaitingCatalogKeySources: Set<String> = [
         "PaneViewMode.browseDefaultsKey",
         "BrowseWindowSettings.sidebarVisibleKey", "BrowseWindowSettings.sidebarRecentsModeKey",
@@ -551,6 +562,7 @@ public enum SettingsCatalog {
         "Wrap lines", "Readable line length", "Paper background", "Typewriter scrolling",
         "Check spelling while typing", "Format bar", "Labels on the format bar", "Continue lists",
         "Edit in Preview (experimental)", "Page layout", "Cover page separately",
+        "Pane bar", "Saved signatures",
     ]
 
     private static func app(_ key: String, _ keySource: String, _ defaultSource: String) -> SettingStorage {

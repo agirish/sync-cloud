@@ -595,6 +595,21 @@ extension FileSyncManager {
         return forgotten.count
     }
 
+    /// How many groups are kept separate, in every folder: what Settings ▸ Organize ▸ Duplicates
+    /// counts. Keys whose copies have gone count too, since the scan alone knows which they are.
+    public var keptSeparateGroupCount: Int { ignoredDuplicateKeys.count }
+
+    /// Forgets every group kept separate, in every folder, so each scan flags them again if they
+    /// are still duplicates: Settings' *Show Again…*, which asks first. Returns how many.
+    @discardableResult
+    public func forgetAllKeptSeparateGroups() -> Int {
+        let count = ignoredDuplicateKeys.count
+        guard count > 0 else { return 0 }
+        ignoredDuplicateKeys = []
+        Logger.shared.info("Duplicates: forgot all \(count) group(s) kept separate")
+        return count
+    }
+
     /// "Any still duplicates", because a group kept separate is flagged again only if its copies
     /// still match — one edited since is not a duplicate any more, and nothing comes back.
     nonisolated static func keptSeparateForgottenSentence(_ count: Int) -> String {

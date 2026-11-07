@@ -52,6 +52,12 @@ public enum AskClaudePrivacy {
         setSharedFolders(folders, in: defaults)
     }
 
+    /// The hidden entries that hide `path`: its own, and any folder above it. Sharing it takes
+    /// these off, as the shield does, because hidden wins over shared.
+    public static func hiddenEntries(covering path: String, in defaults: UserDefaults) -> [String] {
+        hiddenFolders(in: defaults).filter { isHidden(path, by: [$0]) }
+    }
+
     public static func stopSharing(_ folder: String, in defaults: UserDefaults) {
         let folders = sharedFolders(in: defaults)
         guard folders.contains(folder) else { return }

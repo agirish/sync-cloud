@@ -176,7 +176,7 @@ public struct OneWaySyncSettingsView: View {
         if let opensAtLogin {
             parts.append(opensAtLogin ? "opens at login" : "doesn’t open at login (Settings ▸ General)")
         }
-        parts.append(notify ? (notificationsAllowed == false ? "notifications on, but macOS doesn’t allow them" : "notifications on") : "notifications off")
+        parts.append(notify ? (notificationsAllowed == false ? "notifications on, but macOS doesn’t allow them" : "notifications on") : "notifications off (Settings ▸ General)")
         parts.append(cloudApps.statusModel.runningSince[.dropbox] != nil ? "Dropbox app running" : "Dropbox app not running")
         if let other = controller.otherMac {
             parts.append("\(other.macName) syncs; this Mac doesn’t")

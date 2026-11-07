@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 /// * Every drag has a click. Each item on the track carries Move Left / Move Right / Remove, and
 ///   each palette tile adds on click: an arrangement you can't reach without a mouse isn't
 ///   accessible, and a drag-only affordance can fail in a Release build unnoticed.
-struct PaneBarCustomizeSheet: View {
+public struct PaneBarCustomizeSheet: View {
     /// What the pane you opened this from can draw.
     ///
     /// The arrangement is shared by both Compare panes and the single-source rail, so it holds items
@@ -36,7 +36,7 @@ struct PaneBarCustomizeSheet: View {
     /// - Parameter showingRemoveTarget: seeds `isOverPalette`, for snapshots only. That state exists
     ///   only while a drag is in flight, which no test can stage, so this seam is the only way to
     ///   look at the remove affordance.
-    init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases),
+    public init(availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases),
          showingRemoveTarget: Bool = false) {
         self.availableHere = availableHere
         _isOverPalette = State(initialValue: showingRemoveTarget)
@@ -112,7 +112,7 @@ struct PaneBarCustomizeSheet: View {
     private static let samplePillHeight: CGFloat = 19
     private static let slotWidth: CGFloat = 6
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             sectionLabel("Your pane bar")

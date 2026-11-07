@@ -58,6 +58,9 @@ struct ContentView: View {
     /// the refused open would still leave Settings moved, and the next plain ⌘, would land on a
     /// page nobody asked for. Non-nil means a deep link is mid-flight; a plain open leaves it nil.
     @State private var settingsTabBeforeDeepLink: SettingsView.SettingsTab?
+    /// Browse ▸ Panes' "Customize Pane Bar…": the pane bar's own sheet, over Settings, which stays
+    /// open beneath it so closing the sheet lands back on the page it came from.
+    @State private var showPaneBarCustomizer = false
     /// The remembered pages a deep link displaced (`SettingsSubTabMemory`), put back with the tab
     /// when the open is refused, so a refused link leaves no page changed either.
     @State private var settingsPagesBeforeDeepLink: String?
@@ -1232,6 +1235,12 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: showSetup)
         .animation(.easeOut(duration: 0.15), value: setupDismissedThisSession)
+        // A sheet, not a member of the overlay chain above: it is the pane bar's own (its right-
+        // click menu opens the same one), and it drops over Settings rather than replacing it.
+        .sheet(isPresented: $showPaneBarCustomizer) {
+            PaneBarCustomizeSheet()
+                .presentedNativeControlAccent()
+        }
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
         // The armed launch diagnostic, fired once discovery has given the palette a root to index.
         .onChange(of: isBootstrappingProviders) { _, bootstrapping in
@@ -2692,7 +2701,9 @@ struct ContentView: View {
                 show(.rules)
             },
             availableSize: available,
-            oneWaySync: AnyView(OneWaySyncSettingsView())
+            oneWaySync: AnyView(OneWaySyncSettingsView()),
+            onCustomizePaneBar: { showPaneBarCustomizer = true },
+            savedSignatures: AnyView(EditorPDFSavedSignaturesList())
         )
         .environment(\.cloudAppStatusLabels, cloudApps.problems.mapValues(\.shortLabel))
         .environmentObject(settings)

@@ -253,7 +253,9 @@ public struct SettingsView: View {
         onOpenHelp: ((String) -> Void)? = nil,
         onOpenRules: (() -> Void)? = nil,
         availableSize: CGSize? = nil,
-        oneWaySync: AnyView? = nil
+        oneWaySync: AnyView? = nil,
+        onCustomizePaneBar: (() -> Void)? = nil,
+        savedSignatures: AnyView? = nil
     ) {
         _selectedTab = selection
         self.onClose = onClose
@@ -266,10 +268,20 @@ public struct SettingsView: View {
         self.onOpenRules = onOpenRules
         self.availableSize = availableSize
         self.oneWaySync = oneWaySync
+        self.onCustomizePaneBar = onCustomizePaneBar
+        self.savedSignatures = savedSignatures
     }
 
     /// Compare ▸ One-Way Sync, supplied by the app because its state lives above Settings.
     private let oneWaySync: AnyView?
+
+    /// Opens the pane bar's Customize sheet, for Browse ▸ Panes' "Customize Pane Bar…". A callback
+    /// because the sheet is Dashboard's, which this module can't see; nil hides the row.
+    private let onCustomizePaneBar: (() -> Void)?
+
+    /// Edit ▸ PDF's saved Fill & Sign signatures, each with Delete…, drawn by FileExplorer, which
+    /// owns the store and the pictures. Supplied by the app; nil leaves the section out.
+    private let savedSignatures: AnyView?
 
     /// Opens the Organize workspace on its Rules, for To File's "Open Rules". A callback because
     /// the workspace lives in `MacApp`; nil hides the button.
@@ -376,7 +388,7 @@ public struct SettingsView: View {
         case .providers:
             ProvidersSettingsTab(page: subTab ?? .cloudProviders, syncManager: syncManager)
         case .browse:
-            BrowseSettingsTab(page: subTab ?? .panes)
+            BrowseSettingsTab(page: subTab ?? .panes, onCustomizePaneBar: onCustomizePaneBar)
         case .sync:
             SyncSettingsTab(page: subTab ?? .differences, syncManager: syncManager, oneWaySync: oneWaySync)
         case .filing:
@@ -384,7 +396,7 @@ public struct SettingsView: View {
             case .people:
                 PeopleSettingsTab(syncManager: syncManager, onShowPerson: onShowPerson)
             case .duplicates:
-                DuplicatesSettingsTab()
+                DuplicatesSettingsTab(syncManager: syncManager)
             case .suggestions:
                 OrganizeSuggestionsPage(syncManager: syncManager, onOpenHelp: onOpenHelp,
                                         onJump: { go(to: $0) })
@@ -395,7 +407,7 @@ public struct SettingsView: View {
                                   onOpenRules: onOpenRules)
             }
         case .edit:
-            EditSettingsTab(page: subTab ?? .text)
+            EditSettingsTab(page: subTab ?? .text, savedSignatures: savedSignatures)
         case .intelligence:
             IntelligenceSettingsTab(page: subTab ?? .claudeGeneral, syncManager: syncManager)
         case .advanced:
@@ -554,6 +566,9 @@ enum SettingsSearchIndex {
               keywords: ["restore", "reopen", "last focus", "remember folders", "panes", "resume"]),
         .init(at: .general, title: "Notify when operations finish in the background",
               keywords: ["notification", "notify", "background", "alert", "banner", "system notification"]),
+        .init(at: .general, title: "Notify when One-Way Sync needs attention",
+              keywords: ["one-way sync", "one way", "notification", "notify", "needs attention", "needs you",
+                         "alert", "sync stopped", "mirror", "dropbox"]),
         .init(at: .general, title: "Warn before quitting during file operations",
               keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
         .init(at: .general, title: "When a file already exists",
@@ -639,6 +654,10 @@ enum SettingsSearchIndex {
         .init(at: .panes, title: "Column widths",
               keywords: ["column width", "column widths", "columns", "resize columns", "width",
                          "each column", "all columns", "divider", "wider", "narrower", "fit"]),
+        // Its row says "Pane bar"; people type the button's words or what the sheet changes.
+        .init(at: .panes, title: "Pane bar",
+              keywords: ["customize pane bar", "customize", "toolbar", "customize toolbar", "pane bar buttons",
+                         "buttons", "icon size", "bar"]),
         .init(at: .panes, title: "Rescan when files change",
               keywords: ["rescan", "auto rescan", "watch", "folder watching", "file changes", "changed on disk",
                          "refresh automatically", "live", "fsevents"]),
@@ -662,6 +681,8 @@ enum SettingsSearchIndex {
               keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
         .init(at: .differences, title: "Ignore “newer on Google Drive” when same size",
               keywords: ["google drive", "newer", "ignore date", "gdrive"]),
+        .init(at: .differences, title: "Group by folder",
+              keywords: ["group", "grouping", "sections", "folder sections", "flat list", "differences list"]),
 
         // Compare ▸ Ignored
         .init(at: .ignored, title: "Remember ignored items across rescans",
@@ -740,6 +761,10 @@ enum SettingsSearchIndex {
         .init(at: .duplicates, title: "Read PDFs to find copies a byte hash misses",
               keywords: ["pdf", "text", "same text", "content", "fingerprint", "re-downloaded",
                          "downloaded twice", "re-stamped", "slow scan", "duplicates"]),
+        // The Duplicates view's button says Keep Separate, and its way back Show Them Again.
+        .init(at: .duplicates, title: "Groups kept separate",
+              keywords: ["keep separate", "kept separate", "show again", "show them again", "flag again",
+                         "unignore", "ignored duplicates", "duplicates"]),
 
         // Edit ▸ Text, by the names the Text and View menus give them.
         .init(at: .text, title: "Wrap lines",
@@ -766,6 +791,9 @@ enum SettingsSearchIndex {
               keywords: ["pdf", "single page", "continuous", "two pages", "spread", "layout", "reader"]),
         .init(at: .pdf, title: "Cover page separately",
               keywords: ["cover", "cover page", "book", "spreads", "pdf", "two pages"]),
+        .init(at: .pdf, title: "Saved signatures",
+              keywords: ["signature", "signatures", "initials", "fill & sign", "fill and sign", "sign",
+                         "delete signature", "remove signature"]),
 
         // Ask Claude ▸ General. Keywords matter most on this tab: nobody hunting for where the API
         // key goes types the tab’s name.
@@ -781,7 +809,7 @@ enum SettingsSearchIndex {
         .init(at: .privacy, title: "Hidden from Claude",
               keywords: ["never show claude", "hide folder", "privacy", "exclude", "private folders"]),
         .init(at: .privacy, title: "Shared without asking",
-              keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time",
+              keywords: ["share without asking", "trusted folders", "don’t ask", "privacy", "ask each time", "share folder",
                          "let claude read files", "read files", "file contents", "passage", "send text"]),
 
         // Ask Claude ▸ Key & Spending: the key, Ask Claude’s limit, and Refine’s caps under Organize.
@@ -925,6 +953,7 @@ struct GeneralSettingsTab: View {
 
             SettingsSection("Notifications") {
                 NotifyInBackgroundRow(showsCaption: false)
+                OneWaySyncNotifyRow()
             }
         }
     }
@@ -2103,12 +2132,17 @@ struct BrowseSettingsTab: View {
 
     /// The app takes the standard alert; a test that drives the picker passes its own answer, since
     /// a modal alert in a test process blocks its main thread with nothing to dismiss it.
-    init(page: SettingsSubTab, confirmReleasingColumnWidths: @escaping @MainActor (Int) -> Bool = {
+    init(page: SettingsSubTab, onCustomizePaneBar: (() -> Void)? = nil,
+         confirmReleasingColumnWidths: @escaping @MainActor (Int) -> Bool = {
         RemovalPrompt.releaseColumnWidths(count: $0).ask()
     }) {
         self.page = page
+        self.onCustomizePaneBar = onCustomizePaneBar
         self.confirmReleasingColumnWidths = confirmReleasingColumnWidths
     }
+
+    /// Opens Dashboard's Customize Pane Bar sheet; nil hides the row (see `SettingsView`).
+    private let onCustomizePaneBar: (() -> Void)?
 
     private var selectedHue: LiquidGlassHue { LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue }
 
@@ -2193,6 +2227,12 @@ struct BrowseSettingsTab: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let onCustomizePaneBar {
+                SettingsRow("Pane bar") {
+                    Button("Customize Pane Bar…", action: onCustomizePaneBar)
+                }
+                .help("Which buttons the bar above each pane shows, in what order, and at what size. The same sheet as right-clicking the pane bar.")
+            }
         }
     }
 
@@ -2241,6 +2281,8 @@ struct SyncSettingsTab: View {
     let syncManager: FileSyncManager?
     var oneWaySync: AnyView?
     @State private var patternDraft = ""
+    /// The Differences table's own choice (FileExplorer), keyed in Design so this page reaches it.
+    @AppStorage(DifferencesSettings.groupByFolderKey) private var groupByFolder: Bool = DifferencesSettings.groupByFolderDefault
 
     var body: some View {
         SettingsPage {
@@ -2283,6 +2325,8 @@ struct SyncSettingsTab: View {
                 Text("Ignore “newer on Google Drive” when same size")
             }
             .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
+            Toggle("Group by folder", isOn: $groupByFolder)
+                .help("Breaks the Differences list into a section per top-level folder. Off, it is one flat list, so a sort by size runs across the whole comparison. The list’s filter menu changes it too.")
         }
     }
 
@@ -2424,6 +2468,12 @@ struct DuplicatesSettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var duplicateOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var duplicateDetectVersions: Bool = true
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectSameText) private var duplicateDetectSameText: Bool = true
+    /// Where the groups kept separate are remembered. Optional because tests and previews build the
+    /// page without an engine; the row then reads None.
+    var syncManager: FileSyncManager? = nil
+    /// Read on appear and after Show Again: the set is plain defaults, not published, and nothing
+    /// else changes it while the sheet is up.
+    @State private var keptSeparateCount = 0
 
     var body: some View {
         SettingsPage {
@@ -2458,7 +2508,35 @@ struct DuplicatesSettingsTab: View {
                 Toggle("Read PDFs to find copies a byte hash misses", isOn: $duplicateDetectSameText)
                     .help("Reads the text of PDFs to find one document saved twice with different bytes. No OCR; the first scan of a large folder takes a few minutes longer.")
             }
+
+            SettingsSection("Kept separate", caption: "Show Again forgets them, so the next scan flags them again.") {
+                SettingsRow("Groups kept separate") {
+                    HStack(spacing: 8) {
+                        Text(keptSeparateCount == 0 ? "None" : keptSeparateCount.formatted())
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Button("Show Again…") {
+                            if let syncManager, Self.showAgainIfConfirmed(syncManager, confirm: {
+                                RemovalPrompt.showKeptSeparateAgain(count: keptSeparateCount).ask()
+                            }) != nil {
+                                keptSeparateCount = syncManager.keptSeparateGroupCount
+                            }
+                        }
+                        .disabled(keptSeparateCount == 0)
+                    }
+                }
+                .help("Groups you chose Keep Separate for in Find Duplicates, in every folder. The Duplicates view’s Show Them Again does one folder at a time.")
+            }
         }
+        .onAppear { keptSeparateCount = syncManager?.keptSeparateGroupCount ?? 0 }
+    }
+
+    /// Show Again, as one step: ask, and only then forget every group kept separate.
+    /// - Returns: How many were forgotten, or nil when declined.
+    @discardableResult
+    static func showAgainIfConfirmed(_ sync: FileSyncManager, confirm: () -> Bool) -> Int? {
+        guard sync.keptSeparateGroupCount > 0, confirm() else { return nil }
+        return sync.forgetAllKeptSeparateGroups()
     }
 }
 
@@ -2531,6 +2609,8 @@ struct EditSettingsTab: View {
     @AppStorage(EditorTextSettings.editsInPreviewKey) private var editsInPreview = EditorTextSettings.editsInPreviewDefault
     @AppStorage(EditorPDFSettings.layoutKey) private var pdfLayoutRaw: String = EditorPDFSettings.layoutDefault.rawValue
     @AppStorage(EditorPDFSettings.coverSeparatelyKey) private var coverSeparately = EditorPDFSettings.coverSeparatelyDefault
+    /// The saved signatures' list, drawn by FileExplorer (see `SettingsView.savedSignatures`).
+    var savedSignatures: AnyView? = nil
 
     var body: some View {
         SettingsPage {
@@ -2572,6 +2652,7 @@ struct EditSettingsTab: View {
         }
     }
 
+    @ViewBuilder
     private var pdf: some View {
         SettingsSection("Reading") {
             SettingsRow("Page layout") {
@@ -2587,6 +2668,12 @@ struct EditSettingsTab: View {
             Toggle("Cover page separately", isOn: $coverSeparately)
                 .disabled(!(EditorPDFLayout(rawValue: pdfLayoutRaw) ?? EditorPDFSettings.layoutDefault).isTwoUp)
                 .help("In the two-page layouts, shows the first page on its own, so a book’s spreads pair as they do in print.")
+        }
+
+        if let savedSignatures {
+            SettingsSection("Saved signatures", caption: "Kept on this Mac for Fill & Sign.") {
+                savedSignatures
+            }
         }
     }
 }
@@ -2818,7 +2905,7 @@ struct IntelligenceSettingsTab: View {
     private var privacy: some View {
         SettingsSection(
             "What Claude may see",
-            caption: "A folder asks each time unless it’s shared or hidden. Refine leaves hidden ones out."
+            caption: "A folder asks each time unless it’s shared or hidden, and hidden wins. Refine leaves hidden ones out."
         ) {
             SettingsRow("Every folder") {
                 Text("Ask Each Time").foregroundStyle(.secondary)
@@ -2868,7 +2955,7 @@ struct IntelligenceSettingsTab: View {
                 }
                 .help("Claude is never shown these folders and files, or what’s in them: not their names, not their contents. They appear to it only as a count. Right-click a row ▸ Hide from Claude adds one too.")
             }
-            // Set from the shield menu in Ask Claude; taken off here with no question, since
+            // Added here or from the shield menu in Ask Claude; taken off with no question, since
             // taking one off is the stricter way.
             SettingsRow("Shared without asking") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -2888,8 +2975,24 @@ struct IntelligenceSettingsTab: View {
                             .help("Claude asks before anything from it goes again.")
                         }
                     }
+                    // Folders only, as the shield shares a folder and everything in it.
+                    Button("Add…") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = true
+                        panel.prompt = "Share Without Asking"
+                        if panel.runModal() == .OK {
+                            for url in panel.urls {
+                                Self.shareIfConfirmed(url.path, in: .standard) { $0.ask() }
+                            }
+                            askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
+                            askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
+                        }
+                    }
+                    .controlSize(.small)
                 }
-                .help("From these folders, Apple Intelligence’s answers, page text, search names and lookups go to Claude without a card. Whole documents still ask. Set one from the shield in Ask Claude.")
+                .help("From these folders, Apple Intelligence’s answers, page text, search names and lookups go to Claude without a card. Whole documents still ask. Anything hidden inside one stays hidden; adding a hidden folder takes it off Hidden from Claude, and asks first. The shield in Ask Claude adds one too.")
             }
         }
         .onAppear {
@@ -2996,6 +3099,25 @@ struct IntelligenceSettingsTab: View {
     @discardableResult
     static func unhideIfConfirmed(_ path: String, in defaults: UserDefaults, confirm: () -> Bool) -> Bool {
         RemovalPrompt.actIfConfirmed(confirm: confirm) { AskClaudePrivacy.unhide(path, in: defaults) }
+    }
+
+    /// Shared without asking's Add…, for one folder. Hidden wins over shared, so a folder hidden
+    /// now, by its own entry or a folder above it, is shared only on a yes to `confirm`, and those
+    /// entries come off Hidden from Claude first, as the shield in Ask Claude takes them off.
+    /// - Returns: Whether it was shared.
+    @discardableResult
+    static func shareIfConfirmed(_ path: String, in defaults: UserDefaults,
+                                 confirm: (RemovalPrompt) -> Bool) -> Bool {
+        let folder = (path as NSString).standardizingPath
+        let covering = AskClaudePrivacy.hiddenEntries(covering: folder, in: defaults)
+        if !covering.isEmpty {
+            let above = covering.filter { ($0 as NSString).standardizingPath.lowercased() != folder.lowercased() }
+                .map { ($0 as NSString).lastPathComponent }
+            guard confirm(.shareHidden(named: (folder as NSString).lastPathComponent, above: above)) else { return false }
+            covering.forEach { AskClaudePrivacy.unhide($0, in: defaults) }
+        }
+        AskClaudePrivacy.shareWithoutAsking(folder, in: defaults)
+        return true
     }
 
     /// A path that is gone reads as a folder: the list holds folders far more often than files.

@@ -14637,3 +14637,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` | The two-hop stop | RECORDED — not owed |
 | `v5.x` / `v4.x` / `v3.x` / `v2.x` | No document survey | CLOSED — doesn't apply |
+
+## Settings shows six things it kept but never offered (TE332 step 2) — main only
+
+2026-11-06, for v7.1. On `main`, Settings gains: General ▸ Notify when One-Way Sync needs attention
+(set only during setup before), Compare ▸ Differences ▸ Group by folder (only in the table's filter
+menu before), Organize ▸ Duplicates ▸ Groups kept separate with Show Again… for every folder (one
+folder at a time before), Ask Claude ▸ Privacy ▸ Shared without asking ▸ Add… (only the chat's
+shield before), Edit ▸ PDF ▸ Saved signatures with Delete…, and Browse ▸ Panes ▸ Customize Pane
+Bar…. New rows over features the maintenance lines either lack or keep where they were; no fix.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s forgetAll=%s shareAdd=%s\n' $l "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift 2>/dev/null | grep -c 'forgetAllKeptSeparateGroups')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/AskClaudePrivacy.swift 2>/dev/null | grep -c 'shareWithoutAsking')"; done
+# measured 2026-11-06, against origin, before this landed: every line forgetAll=0 shareAdd=0 (main: forgetAll=1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The features where they were, or none (no One-Way Sync, sharing or paged Settings) | RECORDED — not owed (new rows, not a fix) |
