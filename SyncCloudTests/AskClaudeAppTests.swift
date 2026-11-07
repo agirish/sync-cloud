@@ -2657,6 +2657,29 @@ private final class Counter: @unchecked Sendable {
         #expect(AskClaudePanel.docked(.bottomLeft, size: CGSize(width: 372, height: 790), in: container).y == 8)
     }
 
+    /// A panel nobody has moved starts at the bottom left. A saved place, including one the app
+    /// no longer knows, falls back to it, and only a known saved place is kept.
+    @Test func anUnsetPanelStartsAtTheBottomLeft() {
+        #expect(AskClaudePanel.defaultPlacement == .bottomLeft)
+        #expect(AskClaudePanel.placement(raw: nil) == .bottomLeft)
+        #expect(AskClaudePanel.placement(raw: "somewhereElse") == .bottomLeft)
+        for saved in [AskClaudePanel.Placement.right, .left, .bottomRight, .bottomLeft, .floating] {
+            #expect(AskClaudePanel.placement(raw: saved.rawValue) == saved)
+        }
+    }
+
+    /// With no chosen height the panel grows with its thread, but never past half the window's.
+    @Test func theAutomaticHeightStopsAtHalfTheWindow() {
+        let tall = CGSize(width: 1200, height: 900)
+        // A short thread starts at the start height; a long one stops at half the window.
+        #expect(AskClaudePanel.automaticHeight(content: 100, container: tall) == AskClaudePanel.startHeight)
+        #expect(AskClaudePanel.automaticHeight(content: 2000, container: tall) == 450)
+        // A window whose half is under the start height wins over the start height.
+        #expect(AskClaudePanel.automaticHeight(content: 100, container: CGSize(width: 1200, height: 700)) == 350)
+        // The window's floor (560) halves to under the minimum height, which holds.
+        #expect(AskClaudePanel.automaticHeight(content: 2000, container: CGSize(width: 900, height: 560)) == AskClaudePanel.minHeight)
+    }
+
     /// The blur is masked to the panel's curve, or each corner shows a square of blur outside it.
     /// The mask, stretched to a panel's size, is clear in each corner's square and solid along the
     /// sides.

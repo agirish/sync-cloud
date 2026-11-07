@@ -83,13 +83,13 @@ struct AskClaudePanel: View {
     static let minWidth: CGFloat = 300
     static let maxWidth: CGFloat = 720
     static let minHeight: CGFloat = 320
-    /// Where a new panel starts: a chat's height, growing with the thread up to the window's.
+    /// Where a new panel starts: a chat's height, growing with the thread up to half the window's.
     static let startHeight: CGFloat = 420
     /// How close to a side of the window a drop docks the panel there.
     static let snapZone: CGFloat = 56
 
-    // Docked right (the default) or left, docked in a bottom corner growing upward from the
-    // window's bottom, or floating where it was dropped. One size in every placement, so a move
+    // Docked bottom left (the default), docked right or left, docked in the other bottom corner
+    // growing upward from the window's bottom, or floating where it was dropped. One size in every placement, so a move
     // never resizes it. Resized from its inner edge, its free end and the corner between them, by
     // AppKit handles: SwiftUI gestures laid over the thread's scroll view lose the mouse to it. The
     // move is measured on the screen (`moveGesture`): in the panel's own coordinates, the moving
@@ -99,7 +99,11 @@ struct AskClaudePanel: View {
         var isRight: Bool { self == .right || self == .bottomRight }
         var isBottom: Bool { self == .bottomRight || self == .bottomLeft }
     }
-    @AppStorage("askClaudePanelPlacement") private var placementRaw = Placement.right.rawValue
+    /// Where a panel nobody has moved starts: the bottom left, clear of the Info inspector at the
+    /// right. Only a drop or a double-click on the header writes the saved place, so an install
+    /// that never moved it gets this and a saved place is left alone.
+    static let defaultPlacement: Placement = .bottomLeft
+    @AppStorage("askClaudePanelPlacement") private var placementRaw = Self.defaultPlacement.rawValue
     @AppStorage("askClaudePanelWidth") private var storedWidth: Double = 372
     /// 0 is automatic: the panel fits its thread, from `startHeight` up to the window's height.
     /// Dragging the bottom edge sets a height; double-clicking it goes back to automatic.
@@ -116,14 +120,25 @@ struct AskClaudePanel: View {
     @State private var liveSize: CGSize?
     @State private var resizeStart: CGSize?
 
-    private var placement: Placement { Placement(rawValue: placementRaw) ?? .right }
+    /// The saved place, or the default when none is saved or the saved one is unknown.
+    static func placement(raw: String?) -> Placement {
+        raw.flatMap(Placement.init(rawValue:)) ?? defaultPlacement
+    }
+
+    private var placement: Placement { Self.placement(raw: placementRaw) }
+
+    /// The height a panel with no chosen height takes: the thread's, from `startHeight`, but never
+    /// past half the window's (and never under `minHeight`). Dragging the bottom edge sets a height.
+    static func automaticHeight(content: CGFloat, container: CGSize) -> CGFloat {
+        min(max(minHeight, container.height / 2), max(startHeight, content))
+    }
 
     private var tallest: CGFloat { max(Self.minHeight, container.height - 18) }
 
     private var size: CGSize {
         let widest = max(Self.minWidth, min(Self.maxWidth, container.width - 2 * Self.margin))
         let width = min(widest, max(Self.minWidth, liveSize?.width ?? CGFloat(storedWidth)))
-        let automatic = max(Self.startHeight, top + bottom + threadHeight)
+        let automatic = Self.automaticHeight(content: top + bottom + threadHeight, container: container)
         let wanted = liveSize?.height ?? (storedHeight > 0 ? CGFloat(storedHeight) : automatic)
         return CGSize(width: width, height: min(tallest, max(Self.minHeight, wanted)))
     }
@@ -337,7 +352,7 @@ struct AskClaudePanel: View {
 
     private var header: some View {
         HStack(spacing: 2) {
-            // Double-click docks it right, on the title and the space beside it but not the
+            // Double-click returns it to its default place, on the title and the space beside it but not the
             // buttons: a double-click gesture over a button holds each click until the double-click
             // interval runs out (about 0.35 s), so the shield's popover would come up that late.
             HStack(spacing: 0) {
@@ -356,14 +371,14 @@ struct AskClaudePanel: View {
                             .help(place.fullPath)
                     }
                 }
-                .help("Drag the header to move. Drop it at a side or the bottom to dock it there; double-click to dock it top right.")
+                .help("Drag the header to move. Drop it at a side or the bottom to snap it there; double-click to return it to the bottom left.")
                 .accessibilityElement(children: .combine)
                 Spacer(minLength: 8)
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
                 withDesignAnimation(.spring(duration: 0.25), reduceMotion: reduceMotion) {
-                    placementRaw = Placement.right.rawValue
+                    placementRaw = Self.defaultPlacement.rawValue
                 }
             }
             AskClaudeHeaderButton(symbol: "checkmark.shield", help: "What Claude sees, and what it may see", label: "What Claude Sees",
