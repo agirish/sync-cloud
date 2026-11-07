@@ -714,7 +714,7 @@ extension FileSyncManager {
         // outcome even when a refresh supersedes the scan mid-flight.
         let scanTag = "#\(request.generation)"
         let scanStart = Elapsed()
-        Logger.shared.info("Internal scan \(scanTag) comparing \(request.left.displayName) and \(request.right.displayName)")
+        Logger.shared.info("[scan] \(scanTag) start: comparing \(request.left.displayName) and \(request.right.displayName)")
 
         let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
         let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)

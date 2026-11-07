@@ -846,6 +846,18 @@ struct SyncCloudApp: App {
 /// only calls it on the main thread, but Swift 6 strict checking needs the annotation.
 @MainActor
 class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
+    /// The launch line naming both AppKit guards, pure so its words are pinned
+    /// (`ShippedLogLevelTests`).
+    nonisolated static func launchGuardsLine(displayCycleArmed: Bool, autoFillOff: Bool) -> String {
+        let layout = displayCycleArmed
+            ? "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch can crash this session (docs/columns-layout-loop.md)"
+            : "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; the Columns layout loop still churns update-constraints passes, it just is not fatal"
+        let autofill = autoFillOff
+            ? "[autofill] AppKit AutoFill heuristics off — no key-view walk when a field takes the caret"
+            : "[autofill] AppKit AutoFill heuristics are ON — focusing a field can walk the whole key-view loop"
+        return layout + " · " + autofill
+    }
+
     /// Reference to the shared sync manager for checking active operations.
     var syncManager: FileSyncManager?
 
@@ -1016,20 +1028,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // (see `docs/columns-layout-loop.md` ▸ "Is the mitigation actually plumbed in").
         //
         // Here rather than in `App.init` because this fires exactly once.
-        if DisplayCycleAssert.isArmed(in: .standard) {
-            Logger.shared.info(
-                "[layout-guard] AppKit display-cycle assert is ARMED — a Columns provider switch "
-                + "can crash this session (docs/columns-layout-loop.md)")
-        } else {
-            Logger.shared.info(
-                "[layout-guard] AppKit display-cycle assert suppressed app-wide for this session; "
-                + "the Columns layout loop still churns update-constraints passes, it just is not fatal")
-        }
-        // Read back rather than assumed, so a session that hangs on a focused field can be told
-        // apart from one where the guard never took.
-        Logger.shared.info(AutoFillHeuristics.isOff(in: .standard)
-            ? "[autofill] AppKit AutoFill heuristics off — no key-view walk when a field takes the caret"
-            : "[autofill] AppKit AutoFill heuristics are ON — focusing a field can walk the whole key-view loop")
+        //
+        // One line with the AutoFill guard, also read back rather than assumed, so a session that
+        // hangs on a focused field can be told apart from one where the guard never took. Both
+        // tags stay word for word: `docs/columns-layout-loop.md` greps the `[layout-guard]` words.
+        Logger.shared.info(Self.launchGuardsLine(displayCycleArmed: DisplayCycleAssert.isArmed(in: .standard),
+                                                 autoFillOff: AutoFillHeuristics.isOff(in: .standard)))
 
         // And how many passes the suppressed loop churns, when someone asks
         // (`docs/columns-layout-loop.md`). Off unless armed by hand, so an ordinary session installs

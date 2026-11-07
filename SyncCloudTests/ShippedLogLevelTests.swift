@@ -80,4 +80,14 @@ import Events
             #expect(written, "\(site.file): “\(site.fragment)” is no longer written by \(site.call)…) — the shipped Info level drops it, and it is the only record")
         }
     }
+
+    /// The two AppKit guards share one launch line, and the `[layout-guard]` words the Columns
+    /// write-up greps stay as they were.
+    @Test func theLaunchGuardsLineKeepsTheWordsItsReadersGrep() {
+        let line = SyncCloudAppDelegate.launchGuardsLine(displayCycleArmed: false, autoFillOff: true)
+        #expect(line.hasPrefix("[layout-guard] AppKit display-cycle assert suppressed app-wide"))
+        #expect(line.contains("[autofill] AppKit AutoFill heuristics off"))
+        #expect(SyncCloudAppDelegate.launchGuardsLine(displayCycleArmed: true, autoFillOff: false)
+                    .hasPrefix("[layout-guard] AppKit display-cycle assert is ARMED"))
+    }
 }

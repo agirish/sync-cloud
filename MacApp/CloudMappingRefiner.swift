@@ -100,10 +100,12 @@ enum CloudMappingRefiner {
             Logger.shared.info("Mapping refine done [\(requestID)]: \(model) · "
                 + "\(proposals?.count ?? 0)/\(request.rows.count) rows answered · "
                 + costText + " · " + String(format: "%.1f", elapsed) + "s"
-                + (stop == "max_tokens" ? " · ⚠️ TRUNCATED (max_tokens)" : ""))
+                + (stop == "max_tokens" ? " · truncated (max_tokens)" : ""))
             return proposals
         } catch {
-            Logger.shared.warning("Mapping refine failed: \(error.localizedDescription)")
+            // The model and the time it took, as the finish line and Cloud Filing's failure have.
+            Logger.shared.warning("Mapping refine failed: \(model) · "
+                + String(format: "%.1f", Date().timeIntervalSince(start)) + "s · \(error.localizedDescription)")
             return nil
         }
     }

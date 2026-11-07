@@ -123,7 +123,7 @@ enum CloudFilingClassifier {
                 }
             }
             summary += " · \(String(format: "%.1f", elapsed))s · placed \(verdicts?.count ?? 0)/\(files.count)"
-            if stop == "max_tokens" { summary += " · ⚠️ TRUNCATED (max_tokens)" }
+            // Said once, by the WARN below; the summary stays a plain record.
             Logger.shared.info(summary)
 
             // Record spend for the Filing UI (history + total).
